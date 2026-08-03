@@ -61,6 +61,13 @@ class MachineScriptBlockRequest(BaseModel):
     machine: str
 
 
+class MachineScriptSubmitRequest(BaseModel):
+    """G23a: the hand-edit door - a human-written paragraph, saved through
+    the SAME referee a generated one must pass. No LLM writer call."""
+    machine: str
+    paragraph: str
+
+
 class MachineResearchRequest(BaseModel):
     machine: str
     confirmed_paid_run: bool = False
@@ -966,6 +973,34 @@ async def run_machine_script_block(
         raise HTTPException(status_code=400, detail=humanize_error(e)) from e
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Machine script block generation failed")
+    return result
+
+
+@router.post("/machine-script-submit/{video_id}")
+async def run_machine_script_submit(
+    video_id: str,
+    body: MachineScriptSubmitRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """G23a: save a HAND-WRITTEN machine paragraph as the real script scene.
+
+    No LLM writer call - the submitted text is saved byte-identical (after
+    whitespace normalization). Faces the SAME referee a generated paragraph
+    must pass: a hand-written paragraph that invents facts is rejected with
+    the full warnings list in the response, exactly like a generated one.
+    """
+    machine = body.machine.strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    if not (body.paragraph or "").strip():
+        raise HTTPException(status_code=400, detail="paragraph is required")
+    executor = PipelineExecutor(tenant_id)
+    try:
+        result = await executor.run_machine_script_submit(video_id, machine, body.paragraph)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=humanize_error(e)) from e
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Machine script submission failed")
     return result
 
 

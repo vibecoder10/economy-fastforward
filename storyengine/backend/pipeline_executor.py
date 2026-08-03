@@ -5201,6 +5201,98 @@ def _resplit_story_sentences(paragraph: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?])\s+", str(paragraph or "").strip()) if part.strip()]
 
 
+# G23a: manual machine-paragraph submission (the hand-edit door). The Anton
+# formula is always 4 evidence-backed beats in this fixed order, then one
+# paragraph-derived closer with no claim_map row - the SAME order the writer
+# prompt's own "SENTENCE 1 (original_problem)"..."SENTENCE 4 (reality)"
+# structure teaches every generated draft.
+_ANTON_REQUIRED_SLOT_ROLE_ORDER = ("original_problem", "engineering_decision", "tradeoff", "reality")
+
+# Small, deliberately loose stopword list for the STRUCTURAL mapping below -
+# this is not a fact-grounding check (that's _ungrounded_factual_words,
+# which runs against ALL locked evidence regardless of this mapping and is
+# what actually catches an invented claim). This only has to be a
+# directionally-reasonable guess at which evidence a sentence is closest to,
+# so the referee's slot-coverage and "must declare used_evidence_ids"
+# structural checks don't false-fail on a genuinely well-grounded but
+# differently-worded hand-written sentence.
+_SUBMITTED_SENTENCE_OVERLAP_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by", "can", "could", "did", "do",
+    "does", "for", "from", "had", "has", "have", "having", "if", "in", "into", "is", "it", "its", "made",
+    "make", "more", "not", "of", "on", "only", "or", "own", "so", "than", "that", "the", "their", "then",
+    "there", "these", "this", "those", "through", "to", "was", "were", "which", "while", "with", "without",
+    "would", "yet", "her", "his", "she", "he", "they", "them", "when", "who", "what", "how", "before", "after",
+}
+
+
+def _submitted_sentence_grounding_words(text: str) -> set[str]:
+    return {
+        _grounding_stem(token)
+        for token in re.findall(r"[a-z]+", str(text or "").lower())
+        if token not in _SUBMITTED_SENTENCE_OVERLAP_STOPWORDS and len(token) > 2
+    }
+
+
+def _map_submitted_paragraph_to_claim_bundle(machine: str, sentences: list[str], story_plan: dict) -> dict:
+    """G23a structure-only mapping (brief's option (i), deterministic token
+    overlap - no model call, $0, fully offline-testable): assign each of the
+    4 required-beat sentences to the evidence_ids it overlaps most, SCOPED to
+    that beat's own plan slot (never cross-slot), so the slot-role
+    declaration stays honest and the referee's Anton-slot coverage check is
+    satisfiable. VERBATIM LAW: this function never rewrites a single word of
+    `sentences` - it only assigns which locked evidence ids each sentence
+    cites. The referee's own fact-grounding checks (word/number grounding)
+    are graded against ALL locked evidence regardless of this mapping's
+    accuracy (see _validate_machine_story_sentences's "LAW 2026-07-16"
+    comments) - THIS mapping only has to avoid mis-declaring structure; it
+    is not, and does not need to be, the thing that catches an invented
+    fact."""
+    slots_by_role = {
+        str(slot.get("slot") or ""): slot
+        for slot in (story_plan.get("slots") if isinstance(story_plan, dict) else None) or []
+        if isinstance(slot, dict)
+    }
+    claim_map = []
+    for index, role in enumerate(_ANTON_REQUIRED_SLOT_ROLE_ORDER):
+        sentence = sentences[index] if index < len(sentences) else ""
+        segments = (slots_by_role.get(role) or {}).get("evidence_segments") or []
+        sentence_words = _submitted_sentence_grounding_words(sentence)
+        scored: list[tuple[int, str]] = []
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            segment_id = str(segment.get("evidence_id") or "").strip()
+            if not segment_id:
+                continue
+            segment_text = f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
+            overlap = len(sentence_words & _submitted_sentence_grounding_words(segment_text))
+            scored.append((overlap, segment_id))
+        scored.sort(key=lambda item: -item[0])
+        used_ids = [seg_id for overlap, seg_id in scored if overlap > 0]
+        if not used_ids and scored:
+            # No sentence word overlaps this beat's evidence at all - still
+            # declare the single best-available id so the STRUCTURAL "must
+            # declare used_evidence_ids" check doesn't false-fail on a
+            # sentence that's paraphrased far from its source wording; the
+            # referee's real grounding checks (which scan ALL locked
+            # evidence, not just these ids) are what actually catch a
+            # sentence with no real support.
+            used_ids = [scored[0][1]]
+        claim_map.append({"slot": role, "span": sentence, "used_evidence_ids": used_ids})
+    return {
+        "formula_sentences": list(sentences),
+        "paragraph": " ".join(sentences),
+        "claim_map": claim_map,
+        # No structured twist/thesis exists for a hand-written submission -
+        # "other" is on the twist menu's own exemption (never triggers the
+        # "not on the menu" warning) and truthfully declares SOME twist
+        # happened without inventing a specific claim about what it was.
+        "twist": {"type": "other", "substitute": None, "summary": ""},
+        "editorial_thesis": "",
+        "onscreen_label": "",
+    }
+
+
 def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dict) -> dict:
     """Fix mechanical JSON-bundle failures without loosening source validation."""
     if not isinstance(bundle, dict):
@@ -14399,6 +14491,147 @@ scenes."""
             target_machine=machine,
             save_target_script=True,
         )
+
+    async def run_machine_script_submit(self, video_id: str, machine: str, paragraph: str) -> dict:
+        """G23a: save a HAND-WRITTEN machine paragraph as the real script
+        scene - the manual door for the research residue (thin-evidence
+        cards the writer LLM cannot draft from without inventing facts;
+        Ryan's call: hand-edit those 5, plus build this door so it's a real,
+        repeatable path, not a one-off).
+
+        Faces the SAME referee (_validate_machine_story_sentences) a
+        generated paragraph must pass, with NO shortcuts - a hand-written
+        paragraph that invents facts is rejected with the full warnings
+        list, exactly like a generated one.
+
+        VERBATIM LAW: the saved paragraph is byte-identical to what was
+        submitted (whitespace-normalized only - _resplit_story_sentences /
+        _assemble_story_paragraph_from_sentences round-trip exactly for any
+        already-single-spaced text; proven in tests). No model call ever
+        touches the text; only the sentence-to-evidence structural mapping
+        is machine-derived (_map_submitted_paragraph_to_claim_bundle,
+        deterministic token overlap - option (i) from the brief, chosen
+        over a Haiku structure call specifically so this whole path stays
+        $0 and offline-testable). The referee's real fact-grounding checks
+        (word/number grounding) run against ALL locked evidence regardless
+        of this mapping's accuracy, so the mapping's imprecision can never
+        let an invented fact through - it can only mis-declare STRUCTURE.
+
+        On save, goes through _save_machine_script_block - the exact same
+        function run_machine_script_block uses - so script_hold.units,
+        scene rows, and status advancement behave identically to a
+        generated card.
+        """
+        await self._ensure_initialized()
+        video = await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        await self._load_prompt_overrides(video)
+        roster = _machine_documentary_hold_roster(video)
+        if not roster:
+            return {"status": "failed", "error": "No locked machine roster found"}
+        matched = _locked_roster_item_for_machine(roster, machine)
+        if not matched:
+            return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
+
+        normalized_paragraph = " ".join(str(paragraph or "").split())
+        if not normalized_paragraph:
+            return {"status": "failed", "error": "paragraph is required"}
+
+        import json as _json_submit
+        rp = video.get("research_payload") or {}
+        if isinstance(rp, str):
+            try:
+                rp = _json_submit.loads(rp)
+            except Exception:
+                rp = {}
+        if not isinstance(rp, dict):
+            rp = {}
+        rp = await self._load_machine_research_cards(video_id, rp, roster, target_machine=matched)
+
+        scene = roster.index(matched) + 1
+        card = _research_card_for_machine(rp, matched)
+        if card is None:
+            msg = "Script submission requires a saved research card for the locked machine: " + matched
+            return {"status": "failed", "error": msg}
+
+        dvsu_rule_overrides = await self._load_dvsu_rule_overrides(video)
+        story_plan = dict(_machine_story_plan(rp, matched, dvsu_rule_overrides))
+        sentences = _resplit_story_sentences(normalized_paragraph)
+        title = video.get("video_title") or video.get("headline") or ""
+        bot_name = "Script Bot"
+
+        def _rejected(warnings: list[str], bundle: Optional[dict] = None) -> dict:
+            preview = {
+                "machine": matched,
+                "scene": scene,
+                "paragraph": normalized_paragraph,
+                "word_count": _spoken_word_count(normalized_paragraph),
+                "passed": False,
+                "warnings": warnings,
+                "onscreen_label": "",
+                "research_source": "hand_submitted",
+                "story_plan": story_plan,
+                "claim_bundle": bundle or {"editorial_thesis": "", "formula_sentences": sentences, "claim_map": []},
+                "quality_audit": {},
+                "polished": False,
+                "pre_polish_paragraph": None,
+                "saved": False,
+            }
+            return {"status": "completed", "video_id": video_id, "script_block": preview}
+
+        if len(sentences) != _ANTON_PARAGRAPH_FORMULA_SENTENCES:
+            return _rejected([
+                f"paragraph must contain exactly {_ANTON_PARAGRAPH_FORMULA_SENTENCES} sentences "
+                f"({len(_ANTON_REQUIRED_SLOT_ROLE_ORDER)} evidence-backed beats + one closer); found {len(sentences)}"
+            ])
+
+        bundle = _map_submitted_paragraph_to_claim_bundle(matched, sentences, story_plan)
+        paragraph_text, warnings = _validate_machine_story_sentences(
+            matched, story_plan, bundle, dvsu_rule_overrides,
+        )
+        # G23b's thin-evidence advisory is NOT wired here - see the G23
+        # completion report: the measured evidence stats do not separate
+        # the residue population from the passing one, so no threshold-based
+        # signal exists yet to surface without being misleading.
+        passed = not _blocking_warnings(warnings)
+        if not passed:
+            await self._log_activity(
+                bot_name, video_id, "failed",
+                f"Hand-written script submission needs review: {matched}",
+            )
+            return _rejected(warnings, bundle)
+
+        preview = {
+            "machine": matched,
+            "scene": scene,
+            "paragraph": paragraph_text,
+            "word_count": _spoken_word_count(paragraph_text),
+            "passed": True,
+            "warnings": list(dict.fromkeys(warnings)),
+            "onscreen_label": str(bundle.get("onscreen_label") or "").strip(),
+            "research_source": "hand_submitted",
+            "story_plan": story_plan,
+            "claim_bundle": bundle,
+            "opener_type": _classify_opener_type(paragraph_text, matched),
+            "quality_audit": {},
+            "polished": False,
+            "pre_polish_paragraph": None,
+        }
+        rows = await fetch_all(
+            "SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1",
+            video_id, self.tenant_id,
+        )
+        voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
+        script_block = await self._save_machine_script_block(
+            video_id=video_id, video=video, roster=roster,
+            script_block=preview, title=title, voice_id=voice_id,
+        )
+        await self._log_activity(
+            bot_name, video_id, "completed",
+            f"Hand-written script block saved: {matched}",
+        )
+        return {"status": "completed", "video_id": video_id, "script_block": script_block}
 
     async def _check_scene_location_law(self, video_id: str) -> dict:
         """D6-3 — STORY-LAWS S3 GATE. Deterministic, pure-read: fetches this
