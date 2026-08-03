@@ -7636,20 +7636,47 @@ _DVSU_POLISH_SYSTEM_PROMPT = (
 )
 
 
+def _extract_json_array_text(text: str) -> str:
+    """Best-effort: pull the first top-level JSON array out of a reply that
+    may carry surrounding prose despite being told not to (real cheap-tier
+    models don't always follow "output only JSON" to the letter). Returns the
+    substring from the first ``[`` to its matching ``]``, or the original
+    (fence-stripped) text unchanged if no bracket pair is found - the caller's
+    own json.loads then reports the real parse error either way."""
+    start = text.find("[")
+    if start < 0:
+        return text
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return text
+
+
 async def _polish_dvsu_paragraph_sentences(
     anthropic_client: Any, machine: str, sentences: list[str],
-) -> Optional[list[str]]:
+) -> dict:
     """ONE cheap-tier call fixes grammar/flow per sentence, never facts.
 
-    Returns the corrected sentence list (same length, same order) or None on
-    ANY provider error or malformed/wrong-shaped reply - callers treat None
-    exactly like "polish unavailable" and keep the draft untouched. Never
-    raises: a flaky polish provider must never crash or block script-hold.
+    Returns ``{"sentences": [...] or None, "reason": str}``. ``reason`` is
+    empty on success; otherwise a short machine-readable tag (optionally
+    followed by exception class/message or shape detail) explaining exactly
+    why no polished sentences came back - G20b's whole point is that this
+    reason is never silently swallowed (see the caller, which logs it).
+    Never raises: a flaky polish provider must never crash or block
+    script-hold.
     """
     import json as _json_polish
 
-    if not anthropic_client or not sentences:
-        return None
+    if not anthropic_client:
+        return {"sentences": None, "reason": "no_anthropic_client"}
+    if not sentences:
+        return {"sentences": None, "reason": "no_sentences_to_polish"}
     from orchestrator.pipeline_constants import Models
 
     prompt = (
@@ -7668,34 +7695,50 @@ async def _polish_dvsu_paragraph_sentences(
         "sentences, in the same order. No markdown, no explanation, no extra "
         "keys, no wrapping object."
     )
+    model_id = Models.CLAUDE_HAIKU
     try:
         raw = await anthropic_client.generate(
             prompt=prompt,
             system_prompt=_DVSU_POLISH_SYSTEM_PROMPT,
-            model=Models.CLAUDE_HAIKU,
+            model=model_id,
             max_tokens=900,
             temperature=0.0,
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return {
+            "sentences": None,
+            "reason": f"provider_error model={model_id}: {type(exc).__name__}: {str(exc)[:200]}",
+        }
     text = str(raw or "").strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I).strip()
     text = re.sub(r"\s*```$", "", text).strip()
+    # G20b: real cheap-tier replies sometimes wrap the array in a sentence or
+    # two despite the prompt's "no explanation" instruction - pull the JSON
+    # array out before parsing instead of failing on the surrounding prose.
+    candidate_text = _extract_json_array_text(text)
     try:
-        parsed = _json_polish.loads(text)
-    except (TypeError, ValueError):
-        return None
+        parsed = _json_polish.loads(candidate_text)
+    except (TypeError, ValueError) as exc:
+        return {
+            "sentences": None,
+            "reason": f"malformed_reply: {type(exc).__name__}: {str(exc)[:150]} raw={text[:150]!r}",
+        }
     if isinstance(parsed, dict):
         for key in ("sentences", "formula_sentences", "corrected", "result"):
             if isinstance(parsed.get(key), list):
                 parsed = parsed[key]
                 break
-    if not isinstance(parsed, list) or len(parsed) != len(sentences):
-        return None
+    if not isinstance(parsed, list):
+        return {"sentences": None, "reason": f"wrong_shape: reply was {type(parsed).__name__}, not a list"}
+    if len(parsed) != len(sentences):
+        return {
+            "sentences": None,
+            "reason": f"wrong_shape: expected {len(sentences)} sentences, got {len(parsed)}",
+        }
     polished = [" ".join(str(item or "").split()) for item in parsed]
     if any(not item for item in polished):
-        return None
-    return polished
+        return {"sentences": None, "reason": "wrong_shape: reply contained an empty sentence"}
+    return {"sentences": polished, "reason": ""}
 
 
 async def _apply_dvsu_language_polish(
@@ -7708,6 +7751,7 @@ async def _apply_dvsu_language_polish(
     story_plan: Optional[dict],
     dvsu_rule_overrides: Optional[dict],
     opening_brief: str,
+    video_id: str = "",
 ) -> dict:
     """Run the G20 language-polish pass on a FINAL draft, then re-run the
     SAME validators used to grade that draft.
@@ -7718,6 +7762,12 @@ async def _apply_dvsu_language_polish(
     provider error, a malformed reply, or a true no-op (identical text) all
     resolve to "keep the draft" the same way; only the audit-trail fields
     differ.
+
+    G20b: every return path logs exactly ONE `[polish]` line naming the
+    outcome (applied / noop_identical / discarded_new_blocking / any
+    _polish_dvsu_paragraph_sentences failure reason / the two early-exit
+    guards below) - a live run with zero `[polish]` lines for a machine now
+    means the hook genuinely never ran for it, not "ran silently".
 
     Returns ``{"paragraph", "warnings", "bundle", "polished",
     "pre_polish_paragraph"}``. ``bundle`` is the (possibly re-keyed) claim
@@ -7731,9 +7781,15 @@ async def _apply_dvsu_language_polish(
         "polished": False,
         "pre_polish_paragraph": None,
     }
+
+    def _done(outcome: str, detail: str = "") -> dict:
+        log_fn = _logger.info if outcome in ("applied", "noop_identical") else _logger.warning
+        log_fn("[polish] video=%s machine=%s outcome=%s%s", video_id, machine, outcome, f" detail={detail}" if detail else "")
+        return draft_result
+
     normalized_paragraph = " ".join(str(paragraph or "").split())
     if not normalized_paragraph:
-        return draft_result
+        return _done("skipped_empty_paragraph")
 
     has_sentence_bundle = (
         isinstance(bundle, dict)
@@ -7745,16 +7801,17 @@ async def _apply_dvsu_language_polish(
     else:
         original_sentences = _resplit_story_sentences(normalized_paragraph)
     if not original_sentences:
-        return draft_result
+        return _done("skipped_no_sentences_derived")
 
-    polished_sentences = await _polish_dvsu_paragraph_sentences(anthropic_client, machine, original_sentences)
+    polish_attempt = await _polish_dvsu_paragraph_sentences(anthropic_client, machine, original_sentences)
+    polished_sentences = polish_attempt.get("sentences")
     if not polished_sentences:
-        return draft_result
+        return _done(polish_attempt.get("reason") or "unknown_polish_failure")
 
     polished_paragraph = " ".join(polished_sentences)
     if polished_paragraph == normalized_paragraph:
         # True no-op: nothing changed, so there is nothing to audit as a polish.
-        return draft_result
+        return _done("noop_identical")
 
     if has_sentence_bundle:
         polished_bundle = dict(bundle)
@@ -7794,10 +7851,15 @@ async def _apply_dvsu_language_polish(
 
     draft_blocking = set(_blocking_warnings(warnings))
     polished_blocking = set(_blocking_warnings(polished_warnings))
-    if polished_blocking - draft_blocking:
+    new_blocking = polished_blocking - draft_blocking
+    if new_blocking:
         # Polish made the blocking-warning set WORSE - discard, keep the draft.
-        return draft_result
+        return _done("discarded_new_blocking", "; ".join(sorted(new_blocking))[:400])
 
+    _logger.info(
+        "[polish] video=%s machine=%s outcome=applied pre_polish=%r polished=%r",
+        video_id, machine, normalized_paragraph[:200], polished_paragraph[:200],
+    )
     return {
         "paragraph": polished_paragraph,
         "warnings": list(dict.fromkeys(polished_warnings)),
@@ -12987,6 +13049,7 @@ class PipelineExecutor:
                 story_plan=story_plan,
                 dvsu_rule_overrides=dvsu_rule_overrides,
                 opening_brief=opening_brief,
+                video_id=video_id,
             )
             paragraph = polish_result["paragraph"]
             warnings = polish_result["warnings"]
