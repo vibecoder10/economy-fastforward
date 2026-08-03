@@ -316,6 +316,107 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       text wasn't captured/available for offline repro) - confirm live after deploy before
       assuming zero spend for all 7.
   - G22 LIVE RESULT (2026-08-03 ~21:15Z): deployed a36e2ffe (deploy #4). Final repair runs took the board from 1/23 to 18/23 production scenes (scenes 1-8, 10-12, 14-15, 18, 20-23; Attacker correctly on 21, Ruler on 22 post-G21b). Polish across the day: 15+ applied, 3 discarded (safe), 0 crashes - G20c/G20d proven at scale. RESIDUE (5 cards, referee correctly blocking writer hallucination on thin-evidence entries, NOT a gate bug - diagnosed via full-response presses): CVA-01 predecessors (scene 9) + CVA-01 QE class (13) both repeatedly invent the number "ten"; HMS Activity (17) invents "twelve thousand"/"fifty nine"; Nairana (19) invented "lieutenant"; CAM/MAC (16) fails only sentence-rhythm (style, closest to passing). Options for Ryan: (a) ~2 more roulette presses each for CAM/MAC + Nairana (~$0.40), (b) one-machine research refresh to enrich evidence for Activity + both CVA-01s then re-press, (c) hand-edit via UI. UI walk done in the dev server: 18 PRODUCTION SCENE badges verified, stage rail SCRIPT shows 18 segments. UI copy nits for backlog: roster header counts preview tests ("2/23 script tests passed") not production scenes; roster gate line reads "Machine research is incomplete: 23/23 verified cards finished" (self-contradicting). Script-stage Claude calls do NOT write generation_ledger rows (0 entries despite ~50 calls today) - cost-visibility backlog item.
+- [x] G23a (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed - Ryan's call: "hand-edit the 5 cards, and build a durable fix"):
+      manual machine-paragraph submission door - the hand-edit path. New endpoint
+      POST /api/pipeline/machine-script-submit/{video_id} {machine, paragraph} ->
+      PipelineExecutor.run_machine_script_submit, saving through the SAME
+      _save_machine_script_block generated cards use, so script_hold.units / scene rows /
+      status advancement behave identically. Faces the SAME referee
+      (_validate_machine_story_sentences) with no shortcuts - no LLM writer call exists on this
+      path to soften anything. Structural problem solved per the brief's preferred shape:
+      _map_submitted_paragraph_to_claim_bundle does DETERMINISTIC token-overlap mapping
+      (option (i) - chosen over a Haiku structure call specifically so the whole door stays $0
+      and offline-testable, not just "cheap") - each of the 4 required-beat sentences is
+      assigned to the evidence ids it overlaps most, SCOPED to that beat's own plan slot (never
+      cross-slot, so slot-role declarations stay honest); twist defaults to {"type": "other"}
+      (on the twist menu's own exemption, declares SOME twist without inventing what it was);
+      editorial_thesis defaults to "" (QD-5: advisory-only, never blocking). VERBATIM LAW
+      proven: _resplit_story_sentences / _assemble_story_paragraph_from_sentences round-trip
+      byte-identical for any already-whitespace-normalized text (messy-whitespace case tested
+      too) - the mapping only assigns evidence ids, never touches a word; the referee's real
+      fact-grounding checks (word/number grounding) run against ALL locked evidence regardless
+      of mapping accuracy, so an invented fact is caught exactly like a generated draft's would
+      be (proven: an invented "twelve thousand missions" is rejected with "claim_map row 4
+      introduced unsupported numerical detail(s): twelve thousand"). Exactly 5 sentences
+      required (4 evidence beats + closer, same Anton formula every generated draft already
+      follows) - a wrong count is REJECTED (200, passed=false, warnings) not hard-failed, same
+      response shape as a referee rejection. MCP layer: checked routes/mcp.py (curated,
+      individually-defined tools, NOT a generic REST wrapper) - machine-script-block itself
+      isn't exposed there either, so there's no established MCP pattern to mirror; adding one
+      would be a new tool/schema/handler, not trivial - skipped per the brief's own escape
+      hatch, REST door is enough for now. 5 new tests in
+      test_g23a_machine_script_submit.py: well-grounded hand paragraph saves and updates hold
+      state exactly like a generated one (scene/machine/research_source="hand_submitted"
+      correct, script_hold.completed_count/units correct); invented-fact paragraph rejected
+      with the real warning text, nothing written to scripts; missing-card scope guard;
+      wrong-sentence-count rejected (not hard-failed); byte-identical save proven directly
+      against the DB write args AND the response's saved paragraph/formula_sentences. All 5
+      fail without the fix (stash-proofed, AttributeError). Suite: file 5/5; full backend suite
+      4254 passed / 28 failed / 4 skipped (was 4249/28/4, byte-identical pre-existing
+      test_custom_film_remotion.py set, zero new failures).
+- [ ] G23b (S) [B] MEASURED, PREMISE REFUTED BY DATA - Ryan's call needed before building
+      anything, 2026-08-03 (branch claude/dazzling-euclid-adafcc, this commit; NOT an
+      enforcement mechanism - see why below): brief asked to measure the 18-passing-vs-5-
+      residue evidence stats on d2e37cd6 (read-only `se db`) and "pick thresholds that cleanly
+      separate the two populations." Measured 5 independent metrics, both at the curated-card
+      level (machine_research_cards.card->evidence_segments) and the RAW pre-curation level
+      (research_payload.machine_raw_source_packages, before the card-writer curates down to a
+      similar count regardless of true abundance) - excerpt count, distinct source count,
+      distinct numeric-token count, optional-Anton-slot coverage, and multi-vs-single-sourced
+      fact count (the tier-floor mechanism's own two-source law, applied per-fact). NONE
+      separate the populations - the residue machines are statistically indistinguishable from,
+      and on several metrics RICHER than, the passing ones:
+      | metric (card-level)         | PASSED (n=18)        | RESIDUE (n=5)        |
+      |------------------------------|----------------------|------------------------|
+      | excerpts                    | 6-9, avg 7.7          | 9-9, avg 9.0 (max)     |
+      | distinct sources             | 3-7, avg 4.4          | 3-7, avg 5.2           |
+      | distinct numeric tokens      | 4-22, avg 11.9        | 9-20, avg 13.2         |
+      | optional slots covered       | 1-4, avg 2.6          | 2-5, avg 3.4           |
+      | multi-sourced facts (>=2 src)| 0-2, avg 0.50         | 0-2, avg 0.40          |
+      Raw (pre-curation) pool check: the residue's own raw packages are comparable-to-largest
+      on the WHOLE 23-machine roster (Nairana: 14 raw excerpts, the single highest of all 21
+      packages measured; Attacker/Ruler, which PASSED, share the smallest raw pool at 11
+      excerpts/5 sources). Conclusion: aggregate evidence VOLUME does not predict which cards a
+      writer will hallucinate on, in this data - a volume-based gate (research-stage
+      enforcement + bounded enrichment + override flag + script-stage advisory, as briefed)
+      would either false-block genuinely fine future cards shaped like the residue population,
+      or fail to catch a future thin-looking-but-fine card, because it isn't measuring the real
+      mechanism. Real mechanism (consistent with the qualitative diagnosis already in this
+      file's G22 LIVE RESULT line - "invents ten", "invents twelve thousand/fifty nine",
+      "invented lieutenant"): the referee's own hedge law already legalizes single-sourced
+      facts via hedging (roughly/about/nearly...); these 5 failures are the WRITER MODEL stating
+      an unhedged, specific-sounding, actually-invented number/rank/name when composing a
+      natural sentence under difficulty - a per-CLAIM behavioral failure, not a per-CARD volume
+      one. NOT built (would be dishonest to ship a threshold that doesn't predict anything):
+      research-stage abundance enforcement, bounded-attempt enrichment trigger, per-video/
+      per-machine override flag, script-stage thin-evidence advisory. G23a's implementation
+      does NOT reference or depend on any abundance signal (checked: no
+      _thin_evidence_advisory_warnings call, explicit comment left in
+      run_machine_script_submit noting why). RECOMMENDATION for Ryan: G24a (cross-press
+      violation memory) + G24b (writer escalation ladder) - queued below, Ryan already
+      approved both today - target the ACTUAL observed mechanism (the same wrong fact
+      invented repeatedly across blind presses; cheap-writer roulette not converging) far
+      more directly than a volume gate would; recommend building THOSE instead of an
+      abundance gate, or tell me a different signal to measure if the abundance idea should
+      still be pursued. Full measurement script + raw `se db` output kept in this session's
+      scratchpad (not committed - available on request), not re-run/verified beyond this one
+      video's 23 machines.
+- [ ] G24a (S) - cross-press violation memory for the machine script writer: persist each
+      failed attempt's BLOCKING referee warnings per machine (somewhere already per-machine,
+      e.g. alongside machine_script_blocks hold state), and inject the most recent attempt's
+      named violations into the next writer prompt for that machine ("your previous draft was
+      rejected for: ... - do not repeat these"), cleared on pass. Bounded to the last attempt
+      (or last 2). Rationale: today both CVA-01 entries invented "ten" on every one of 4+
+      presses because each press starts blind; the in-run edit loop exists but nothing carries
+      across presses. Ryan approved 2026-08-03.
+- [ ] G24b (S) - writer escalation ladder: after 2 consecutive referee rejections for the same
+      machine, the next press runs a stronger writer model (follow the existing
+      model-selection pattern - pipeline_constants/channel_profile - and log loudly, e.g.
+      `[script] machine=... escalated_model=... reason=two_rejections`, with the cost
+      implication noted). Same referee, no gate changes. Rationale: cheap-writer roulette does
+      not converge on thin/hard machines; today's hand-edit was the manual version of this
+      ladder. Ryan approved 2026-08-03.
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button
