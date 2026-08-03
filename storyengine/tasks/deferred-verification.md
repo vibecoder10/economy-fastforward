@@ -4223,4 +4223,47 @@ stand unchanged.
   5. Cost: one extra Haiku-tier call per machine per script-hold run (~110-170 word input +
      output, well under $0.001/call at current Haiku pricing) — negligible next to the Sonnet
      write/edit calls already in this same loop.
+- **G20b — live rerun came back silent; instrumented, root cause NOT yet confirmed.** A live
+  rerun of HMS Furious on d2e37cd6 (deploy `aa05c0b4`, ~2026-08-03T16:5xZ) stored a NEW draft
+  (fresh model output, different garble than G20's fixture: "the hull would did not fire them",
+  "Laid down in June about 1915", closer "bought its carrier doctrine fatal landing at a time")
+  with `polished: false` and ZERO `[polish]`-tagged log lines — because G20 shipped with NO
+  logging at all in `_apply_dvsu_language_polish`/`_polish_dvsu_paragraph_sentences`; every return
+  path (provider error, malformed reply, discard, or "never reached") was equally silent. Fixed:
+  every return path now logs one `pipeline_executor` logger line, e.g. `[polish] video=<id>
+  machine=<name> outcome=applied|noop_identical|discarded_new_blocking|provider_error ...|
+  skipped_empty_paragraph|skipped_no_sentences_derived` (`_logger.info` for applied/noop,
+  `_logger.warning` otherwise), with the exception class+message or the specific new blocking
+  warning folded into the same line. Also hardened `_polish_dvsu_paragraph_sentences`'s JSON
+  parsing (`_extract_json_array_text`) to pull the array out of a reply that wraps it in prose
+  despite the "no explanation" instruction — a real, evidenced risk for cheap-tier models,
+  fixed regardless of whether it explains this specific live miss.
+  **Diagnosis performed (read-only, no paid calls):**
+  - Confirmed `aa05c0b4` (deployed) is byte-identical to the G20 commit tested locally
+    (`git diff 12a0b32b aa05c0b4` empty) — the hook is genuinely on the deployed single-machine
+    preview path, not a stale/partial deploy.
+  - Confirmed via the installed `anthropic` SDK's own type registry
+    (`site-packages/anthropic/types/model.py`) that `"claude-haiku-4-5-20251001"` (G20's
+    `Models.CLAUDE_HAIKU`) IS a real, recognized model literal — not a hallucinated id.
+  - Confirmed video d2e37cd6's real tenant (`561b872d-7b73-45e3-9c44-7f30c3566eda` — NOT the
+    stale tenant id in this session's memory) has BOTH `anthropic_api_key` and `kie_ai_api_key`
+    rows in the vault `secrets` table. Per `_ensure_initialized`'s own comment, direct Anthropic
+    wins whenever a tenant key exists, so this run almost certainly used `_gateway_mode=False`
+    (no `ANTHROPIC_BASE_URL`) — the model id passes straight through un-normalized to the real
+    Anthropic API, which recognizes it per the SDK registry above.
+  - **Net: the two "likely" causes named up front (wrong model id, hook not on the deployed
+    path) both check out clean.** The remaining live possibilities — a genuine transient
+    provider error, or the discard path (re-validation found a new blocking warning on the
+    polished text) — look IDENTICAL in the current stored preview (`polished: false`,
+    `pre_polish_paragraph: null` either way) and cannot be distinguished from stored data alone.
+  - **Next live run with this fix deployed will show which one it was** via the new `[polish]`
+    log line for HMS Furious/Argus on d2e37cd6 — grep `se logs backend | grep '\[polish\]'`
+    around the rerun time. If it reads `outcome=applied`, G20 is confirmed working end to end.
+    If `outcome=provider_error ...`, the exception text names the real fault. If
+    `outcome=discarded_new_blocking: ...`, the named warning shows exactly which claim_map row
+    (or word/number check) the live model's rewrite tripped — likely the documented remap
+    limitation (a claim_map span that is a SUBSTRING of a sentence rather than the whole
+    sentence can't be safely re-keyed after polish; see the comment in
+    `_apply_dvsu_language_polish`'s claim_map loop) if the live bundle's spans aren't
+    whole-sentence like the d2e37cd6/Furious fixture used for G20's own tests.
 

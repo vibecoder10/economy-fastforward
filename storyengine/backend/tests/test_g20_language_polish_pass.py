@@ -24,6 +24,7 @@ client with scripted or algorithmic replies.
 
 import asyncio
 import json
+import logging
 
 import pipeline_executor as pe
 
@@ -667,3 +668,123 @@ def test_single_machine_preview_stores_polished_paragraph_and_audit_trail(monkey
     assert "did not fire the guns" in preview["paragraph"]
     # Two writer calls (first-pass write, no EDIT round needed) + one polish call.
     assert len(fake_anthropic.prompts) == 2
+
+
+# ---------------------------------------------------------------------------
+# G20b: observability. A live prod rerun (video d2e37cd6, HMS Furious) came
+# back with polished=false, the same glitches, and ZERO polish-related log
+# lines - provider error, wrong model id, a discard, and "never reached" all
+# looked identical from outside. Every _apply_dvsu_language_polish return path
+# now logs exactly one `[polish]` line naming the outcome and reason; these
+# tests prove each outcome actually logs, using caplog against the real
+# `pipeline_executor` logger (no mocking of logging itself).
+# ---------------------------------------------------------------------------
+
+def _polish_log_records(caplog):
+    return [r for r in caplog.records if r.name == "pipeline_executor" and r.message.startswith("[polish]")]
+
+
+def test_polish_logs_applied_outcome(caplog):
+    plan, draft_bundle, draft_paragraph, draft_warnings = _draft_paragraph_and_warnings()
+    fake = _FakePolishClient(CORRECTED_SENTENCES)
+
+    with caplog.at_level(logging.INFO, logger="pipeline_executor"):
+        result = asyncio.run(pe._apply_dvsu_language_polish(
+            anthropic_client=fake, machine=MACHINE, paragraph=draft_paragraph,
+            warnings=draft_warnings, bundle=draft_bundle, story_plan=plan,
+            dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+        ))
+
+    assert result["polished"] is True
+    records = _polish_log_records(caplog)
+    assert records, "no [polish] log line was emitted"
+    assert any("outcome=applied" in r.message and MACHINE in r.message for r in records)
+    assert any(r.levelname == "INFO" for r in records if "outcome=applied" in r.message)
+
+
+def test_polish_logs_provider_error_with_exception_class_and_message(caplog):
+    plan, draft_bundle, draft_paragraph, draft_warnings = _draft_paragraph_and_warnings()
+    erroring = _ErroringClient()
+
+    with caplog.at_level(logging.INFO, logger="pipeline_executor"):
+        result = asyncio.run(pe._apply_dvsu_language_polish(
+            anthropic_client=erroring, machine=MACHINE, paragraph=draft_paragraph,
+            warnings=draft_warnings, bundle=draft_bundle, story_plan=plan,
+            dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+        ))
+
+    assert result["polished"] is False
+    records = _polish_log_records(caplog)
+    assert records, "no [polish] log line was emitted for a provider error"
+    matching = [r for r in records if "provider_error" in r.message]
+    assert matching, records
+    # The exception CLASS and MESSAGE must both be in the line - "provider
+    # error, wrong model id, discard, and never-reached all look identical
+    # from outside" is exactly the gap this closes.
+    assert any("RuntimeError" in r.message for r in matching)
+    assert any("polish provider unavailable" in r.message for r in matching)
+    assert any(r.levelname == "WARNING" for r in matching)
+
+
+def test_polish_logs_discarded_new_blocking_with_the_new_warning(caplog):
+    plan, draft_bundle, draft_paragraph, draft_warnings = _draft_paragraph_and_warnings()
+    broken_sentences = list(DRAFT_SENTENCES)
+    broken_sentences[2] = broken_sentences[2].replace("twenty-three knots", "thirty knots")
+    fake = _FakePolishClient(broken_sentences)
+
+    with caplog.at_level(logging.INFO, logger="pipeline_executor"):
+        result = asyncio.run(pe._apply_dvsu_language_polish(
+            anthropic_client=fake, machine=MACHINE, paragraph=draft_paragraph,
+            warnings=draft_warnings, bundle=draft_bundle, story_plan=plan,
+            dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+        ))
+
+    assert result["polished"] is False
+    records = _polish_log_records(caplog)
+    matching = [r for r in records if "discarded_new_blocking" in r.message]
+    assert matching, records
+    assert any("thirty" in r.message for r in matching)
+    assert any(r.levelname == "WARNING" for r in matching)
+
+
+def test_polish_logs_noop_identical(caplog):
+    plan, _bundle, _paragraph, _warnings = _draft_paragraph_and_warnings()
+    clean_sentences = CORRECTED_SENTENCES
+    clean_bundle = _bundle_for(clean_sentences)
+    clean_paragraph, clean_warnings = pe._validate_machine_story_sentences(MACHINE, plan, clean_bundle, {})
+    fake = _FakePolishClient(clean_sentences)
+
+    with caplog.at_level(logging.INFO, logger="pipeline_executor"):
+        result = asyncio.run(pe._apply_dvsu_language_polish(
+            anthropic_client=fake, machine=MACHINE, paragraph=clean_paragraph,
+            warnings=clean_warnings, bundle=clean_bundle, story_plan=plan,
+            dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+        ))
+
+    assert result["polished"] is False
+    records = _polish_log_records(caplog)
+    assert any("noop_identical" in r.message for r in records)
+
+
+def test_extract_json_array_text_tolerates_surrounding_prose():
+    """G20b hardening: a real cheap-tier model that ignores 'no explanation'
+    and wraps its array in a sentence must still parse - this is the concrete
+    robustness gap fixed alongside the logging (independent of whichever
+    outcome the live prod run turns out to have hit)."""
+    wrapped = 'Sure, here is the corrected array:\n["A.", "B.", "C."]\nHope that helps!'
+    assert pe._extract_json_array_text(wrapped) == '["A.", "B.", "C."]'
+    # Pure JSON (the common case) must pass through unchanged.
+    pure = '["A.", "B."]'
+    assert pe._extract_json_array_text(pure) == pure
+
+
+def test_polish_dvsu_paragraph_sentences_tolerates_prose_wrapped_reply():
+    sentences = ["One sentence here.", "Two sentence here."]
+
+    class ProseWrappedClient:
+        async def generate(self, **kwargs):
+            return 'Here you go:\n["One sentence here.", "Two sentence here."]\nLet me know if you need more.'
+
+    result = asyncio.run(pe._polish_dvsu_paragraph_sentences(ProseWrappedClient(), MACHINE, sentences))
+    assert result["reason"] == ""
+    assert result["sentences"] == sentences
