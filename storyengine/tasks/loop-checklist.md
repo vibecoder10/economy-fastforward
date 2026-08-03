@@ -404,21 +404,66 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       video's 23 machines.
   - G23a LIVE RESULT (2026-08-03 ~22:45Z): deployed 4e784a35 (deploy #5). The hand-edit door works live: verbatim round-trip TRUE on every submission, real referee warnings on rejects, nothing saved on failure. Orchestrator hand-wrote all 5 residue paragraphs from locked evidence and iterated free: v1 all 5 rejected (semicolon ban, only/never high-risk terms, slot-scoped claim mapping, conclusion entity rule), v2 landed Activity(17)+Nairana(19)+CAM/MAC(16), v3 landed CVA-01 predecessors(9), v4 landed CVA-01 class(13). BOARD: 23/23 production scenes, script_hold complete, video advanced to ready_for_voice. Total spend for the residue fix: $0 (no LLM writer calls). House-style laws learned for hand submissions (record for future briefs): no semicolons; no only/never unless verbatim in slot evidence; each required-beat sentence may cite ONLY its own plan-slot evidence (cross-slot facts like memorable_fact cannot be used); final sentence may not introduce new named entities; any number-bearing sentence should carry a hedge word; digits matching evidence tokens beat spelled-out words.
   - G23b DROPPED per Ryan (2026-08-03): volume-based abundance gate refuted by measurement (residue cards statistically indistinguishable from passing cards on all 5 volume metrics; Nairana had the richest raw pool on the roster). Real mechanism is writer behavior on hard composite entries. G24a/G24b are the durable fix. Measurement table stays in the G23 build report section above.
-- [ ] G24a (S) - cross-press violation memory for the machine script writer: persist each
-      failed attempt's BLOCKING referee warnings per machine (somewhere already per-machine,
-      e.g. alongside machine_script_blocks hold state), and inject the most recent attempt's
-      named violations into the next writer prompt for that machine ("your previous draft was
-      rejected for: ... - do not repeat these"), cleared on pass. Bounded to the last attempt
-      (or last 2). Rationale: today both CVA-01 entries invented "ten" on every one of 4+
-      presses because each press starts blind; the in-run edit loop exists but nothing carries
-      across presses. Ryan approved 2026-08-03.
-- [ ] G24b (S) - writer escalation ladder: after 2 consecutive referee rejections for the same
-      machine, the next press runs a stronger writer model (follow the existing
-      model-selection pattern - pipeline_constants/channel_profile - and log loudly, e.g.
-      `[script] machine=... escalated_model=... reason=two_rejections`, with the cost
-      implication noted). Same referee, no gate changes. Rationale: cheap-writer roulette does
-      not converge on thin/hard machines; today's hand-edit was the manual version of this
-      ladder. Ryan approved 2026-08-03.
+- [x] G24a (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed - Ryan approved 2026-08-03): cross-press violation memory for
+      the machine script writer. New container videos.script_validation.machine_script_
+      attempts.<machine> (never touches machine_script_blocks/script_hold, which stay pass-
+      only) - {"recent_blocking_warnings": [[...],[...]], "consecutive_rejections": N}, bounded
+      to the last _MACHINE_SCRIPT_ATTEMPT_MEMORY_DEPTH=2 attempts, cleared entirely on pass.
+      Read+build helpers (_machine_script_attempt_state, _violation_memory_prompt_block) are
+      pure functions; the actual DB read-modify-write
+      (PipelineExecutor._persist_machine_script_attempt_state) is ONE shared async method
+      called from every exit path inside _run_static_script_hold's per-machine loop - single-
+      machine save (pass and fail), bulk continue (pass), bulk stop-on-fail. THIS IS WHERE BOTH
+      ENTRY POINTS GET IT: run_machine_script_block (single-machine) and the bulk hold loop
+      (target_machine=None) both call _run_static_script_hold and share this exact loop body -
+      proven directly with two separate end-to-end tests hitting each entry point. The
+      violation_memory_block string is injected into BOTH the complete_inventory_mode
+      write_prompt and the legacy non-inventory prompt (both format modes covered). Scope
+      guard found during build: run_machine_script_preview does NOT persist (broke 3 existing
+      regression tests on first pass, reverted) - that endpoint's own documented contract is
+      "isolated... without touching production script rows or status"; a preview press still
+      READS whatever memory the save/bulk paths wrote, it just never writes its own. Known
+      residual gap (documented in the persist method's own docstring, not fixed): the bulk
+      path's FINAL post-loop write (only reached when every machine in one run passes) rebuilds
+      script_validation from the request's original snapshot, so a mid-loop clear for a machine
+      that passed in a prior separate press could revert to stale state at the very end of an
+      all-pass bulk run - worst case is one stale violation-memory line or an early escalation
+      next attempt, never a lost pass or a wrong block.
+- [x] G24b (S) [B][V] DONE 2026-08-03 (same branch/commit as G24a, Ryan approved 2026-08-03):
+      writer escalation ladder. After _MACHINE_SCRIPT_ESCALATION_THRESHOLD=2 consecutive
+      rejections (read from the SAME machine_script_attempts state G24a persists), the next
+      press's writer calls (first-pass write, in-run edit rounds, AND the legacy-mode repair
+      call - every generate() call for that machine's turn, not just the first) pass an
+      explicit model= override. Model resolution
+      (_resolve_escalated_writer_model) reuses the EXISTING provider-branching precedent
+      (shared.channel_profile.claude_model_for_direct_client) rather than a fresh convention:
+      orchestrator.pipeline_constants.Models.CLAUDE_OPUS for AnthropicDirectClient (the live
+      path for any tenant with its own key - every DVsU carrier-video run this whole loop has
+      exercised uses exactly this client); CLAUDE_MODELS["kie"]["smart"] for a Kie-wrapped
+      client, since channel_profile's own registry has no stronger-than-smart tier for that
+      provider and guessing an unverified raw model string would be worse than staying on its
+      best documented tier. Logs exactly one line per escalated press:
+      `[script] machine=<name> escalated_model=<id> reason=two_rejections note=opus-tier calls
+      run several times sonnet's per-token cost` (qualitative cost note - channel_profile has no
+      wired per-model-tier dollar figure to cite precisely, only a flat SCRIPT_PRICE_ESTIMATE).
+      Referee unchanged; counter resets to 0 on pass (same persist call as G24a, one write, one
+      state). Composes with G24a as required: an escalated press's prompt(s) still carry the
+      violation-memory block - proven in the same end-to-end test.
+      TESTS (both chunks, test_g24_writer_memory_and_escalation.py, 12 new): pure-function
+      units for state-read/prompt-build/bounding/model-resolution (both provider branches);
+      _persist_machine_script_attempt_state direct tests for fail-records/pass-clears/bounds-
+      to-2; two full end-to-end tests through the REAL _run_static_script_hold proving the
+      injection reaches the real prompt verbatim AND escalation passes the resolved model to
+      generate() with the exact log line, one via target_machine=X (single-machine entry) and
+      one via target_machine=None (bulk entry) - both on the SAME machine, same warning text,
+      proving the shared code path claim directly rather than asserting it. Pass-clears proven
+      end-to-end through the real save path (not just the persist helper in isolation).
+      Stash-proofed: all 12 fail without the fix (3 pre-existing regression tests in
+      test_machine_documentary_hold.py also caught the preview-path scope violation on the
+      first implementation pass, before the fix was corrected - kept green, not broken).
+      Suite: file 12/12; full backend suite 4266 passed / 28 failed / 4 skipped (was 4254/28/4,
+      byte-identical pre-existing test_custom_film_remotion.py set, zero new failures).
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button
