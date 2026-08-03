@@ -202,6 +202,71 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       byte-identical, zero new failures). Worktree branch fast-forward-synced to main first
       (main had moved one docs commit ahead after the G20c merge).
   - G20d LIVE PROOF (2026-08-03 18:25Z): deployed 0e9b4072 (safe drain deploy #2 of the day), Furious rerun via POST /api/pipeline/machine-script-block -> `[polish] outcome=applied`, polished:true, referee passed, 134 words (inside the 110-150 major band), paragraph reads clean (orchestrator eyeballed it). The fresh draft did not hit the salvage trap, so this was a full application with no salvaged_rows - salvage stays the safety net. Rerun recipe now proven twice: tenant-bound token via /tmp/mint_tenant_token.py (se devtoken cannot bind tenant 561b872d), exact roster name "HMS Furious (47) Furious". $20 max_spend set on d2e37cd6 via the MCP budget_cap verb. NEXT: Ryan's go on Run All Script Cards (20 carriers remain, ~$1.50-3).
+- [x] G21a (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed): script-path evidence gate now honors G14's tier-floor-as-
+      advisory ruling (decisions.md, 2026-07-31; deployed 89d151cd). Live repro: 4 machines on
+      d2e37cd6 whose cards PASS the referee (23/23 green pre-run) - HMS Activity (D94) Activity
+      class; CAM ships and MAC ships Archer class / Empire Mac-Ship conversions; CVA-01
+      predecessors Audacious class / Malta class; CVA-01 Queen Elizabeth class (1960s design)
+      CVA-01 class - each hit HTTP 200/0s/$0 "Script preview evidence gate failed:
+      ... advisory: [tier_floor_advisory] Verified source package needs at least one Tier 1-2
+      primary/authoritative source before Claude can write a card." Root cause:
+      _research_card_contract_warnings/_verified_machine_source_package_quality_errors already
+      tag the tier floor _ADVISORY_PREFIX + "[tier_floor_advisory]" (G14's own doc comment says
+      the CALLER must filter through _blocking_warnings() first) but the script-hold gate
+      (_run_static_script_hold's per-machine loop) and check_machine_script_preview_readiness
+      both did `if source_errors:` on the RAW list - any advisory-only card still hard-blocked.
+      Fix (both call sites): decide pass/fail on `_blocking_warnings(source_errors)`, carry the
+      full source_errors (advisory included) through onto the generated preview/script-block's
+      own warnings and the readiness response instead of dropping them. Scope guard proven: a
+      genuinely missing card, and a genuinely blocking card error (missing surprising_fact)
+      coexisting with a tier-floor advisory, both still hard-block exactly as before. 7 new
+      tests in test_machine_documentary_hold.py (4 fail without the fix, stash-proofed; 3 guard
+      pre-existing missing-card/unmatched-name/code-fallback behavior and pass either way).
+      Suite: file 292/292 (was 285/285); full backend suite 4244 passed / 28 failed / 4 skipped
+      (was 4237/28/4, byte-identical pre-existing set, zero new failures).
+- [x] G21b (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed): _locked_roster_item_for_machine (script-block roster
+      matching) fixed the same disease _roster_index_for_identity (research-card identity) was
+      already fixed for. Two DISTINCT roster entries can share one _normalized_unit_code - live
+      collision on d2e37cd6: "Lend-Lease escort carriers Attacker class (US-built)" (roster
+      slot 21) and "...Ruler class (US-built)" (slot 22) both normalize to
+      LENDLEASEESCORTCARRIERS; a SECOND pair on the same video, "CVA-01 predecessors Audacious
+      class / Malta class" (slot 9) and "CVA-01 Queen Elizabeth class (1960s design) CVA-01
+      class" (slot 13), both normalize to CVA01. The old code checked the normalized code
+      FIRST, so any label sharing a collided code resolved to whichever roster entry came first
+      - Ruler's machine-script-block save silently landed on (and overwrote) Attacker's scene
+      21. Fix: exact display-name match first across the WHOLE roster, code used only as a
+      fallback and only when it resolves to EXACTLY ONE entry - mirrors
+      _roster_index_for_identity's already-correct, already-documented order exactly. Ground
+      truth confirmed live via `se db` (read-only): scene 21 currently holds RULER's paragraph
+      text ("HMS Ruler and her sisters...", "The Royal Navy named the class Ruler..."); scene 22
+      was never written at all. 3 new tests in test_machine_documentary_hold.py: Attacker/Ruler
+      AND the CVA-01 pair both now resolve to their own distinct roster slot (1 of these fails
+      without the fix, stash-proofed - `assert matched_ruler == ruler` returned Attacker
+      pre-fix); an unmatched name returns None; an unambiguous code-only fallback (differently-
+      cased exact roster member) still resolves. Suite counts folded into the G21a run above
+      (same commit): 4244 passed / 28 failed / 4 skipped, zero new failures.
+      REPAIR PRESS LIST for after deploy (in priority order - fixes real data damage first):
+      1. Re-save "Attacker class (US-built)" -> lands on scene 21, overwrites the currently-
+         wrong Ruler text with Attacker's real paragraph.
+      2. Re-save "Ruler class (US-built)" -> lands on scene 22 (currently empty/never written).
+      3-6. Newly unblocked by G21a (previously hard-blocked, now proceed): HMS Activity (D94)
+         Activity class -> scene 17; CAM ships and MAC ships Archer class / Empire Mac-Ship
+         conversions -> scene 16; CVA-01 predecessors Audacious class / Malta class -> scene 9;
+         CVA-01 Queen Elizabeth class (1960s design) CVA-01 class -> scene 13.
+      7-9. Normal remaining backlog, unrelated to either bug (never run yet): Implacable class
+         -> scene 8; Pretoria Castle class -> scene 18; Nairana class -> scene 19; Campania
+         class -> scene 20. (14 saved + 9 remaining = 23; matches "14/23 saved+passing".)
+- [ ] G21c-candidate (H) [B][U] Backlog, not this chunk: the "Run All Script Cards" button
+      (frontend handleRegenerateScript -> POST /api/pipeline/script/{video_id} -> run_script ->
+      _run_static_script_hold with no target_machine) has NO skip guard - it regenerates and
+      re-spends on EVERY roster machine unconditionally, including ones already saved+approved
+      (Hermes "ship-ready", Furious post-G20d). Needs an engine-side skip-if-done, same shape as
+      C16's per-stage resumability (docs/failure-modes.md table) - only 1 of 23 machines on
+      d2e37cd6 is actually a saved script scene right now (machine_script_previews != saved
+      script rows; verified live via se db, 2026-08-03), so this is a real, current risk, not
+      theoretical.
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button

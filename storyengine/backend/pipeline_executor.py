@@ -594,17 +594,31 @@ def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
 
 
 def _locked_roster_item_for_machine(roster: list[str], machine: str) -> Optional[str]:
-    """Return the canonical locked-roster item matching a user/UI machine label."""
+    """Return the canonical locked-roster item matching a user/UI machine label.
+
+    G21b: exact display-name match FIRST, across the WHOLE roster, before
+    ever falling back to the normalized code. Two DISTINCT roster entries
+    can share the same _normalized_unit_code - live collision: "Lend-Lease
+    escort carriers Attacker class (US-built)" and "...Ruler class
+    (US-built)" both normalize to LENDLEASEESCORTCARRIERS, but their display
+    names never collide. The old code-first order returned whichever entry
+    happened to be FIRST in the roster for both labels, so the second
+    machine's script save silently landed on - and overwrote - the first
+    machine's scene. Code is used only as a fallback, and only when it
+    resolves to EXACTLY ONE roster entry - mirrors _roster_index_for_identity's
+    already-fixed pattern (that function's own docstring documents this
+    exact collision for the research-card-identity path; this was the same
+    disease in the script-block roster-matching path)."""
     target_name = _unit_display_name(machine).strip().lower()
+    if target_name:
+        for item in roster or []:
+            if _unit_display_name(item).strip().lower() == target_name:
+                return item
     target_code = _normalized_unit_code(_unit_display_name(machine))
-    for item in roster or []:
-        roster_name = _unit_display_name(item).strip().lower()
-        roster_code = _normalized_unit_code(item)
-        if target_code and roster_code == target_code:
-            return item
-        if target_name and roster_name == target_name:
-            return item
-    return None
+    if not target_code:
+        return None
+    candidates = [item for item in (roster or []) if _normalized_unit_code(item) == target_code]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _roster_index_for_identity(roster: list[str], identity: Any) -> Optional[int]:
@@ -12705,6 +12719,19 @@ class PipelineExecutor:
                 )
             return {"status": "failed", "error": msg, "video_id": video_id}
         source_gate_failures: list[str] = []
+        # G21a: the tier floor is advisory, never blocking (G14, decisions.md
+        # 2026-07-31) - _research_card_contract_warnings already tags it
+        # _ADVISORY_PREFIX + "[tier_floor_advisory]"/"[caution_only_sources_advisory]"
+        # for exactly this reason, but this gate was checking `if source_errors:`
+        # on the RAW list, so an advisory-only card (one that PASSES the
+        # referee) still hard-blocked script generation - the "23/23 pass"
+        # roster couldn't write 4 of its own cards. Only a genuinely
+        # BLOCKING error (missing evidence, ungrounded claims, etc. -
+        # anything _blocking_warnings doesn't strip) still stops the gate;
+        # the advisory notes are carried through into each machine's own
+        # generated preview/script-block warnings below instead of being
+        # silently dropped.
+        tier_floor_advisories_by_machine: dict[str, list[str]] = {}
         for _, machine in selected_units:
             selected_card = _research_card_for_machine(rp, machine) or {}
             source_package = _verified_source_package_for_machine(rp, machine)
@@ -12714,8 +12741,13 @@ class PipelineExecutor:
                 source_package,
                 require_source_package=True,
             )
-            if source_errors:
-                source_gate_failures.append(f"{machine}: " + "; ".join(source_errors))
+            blocking_source_errors = _blocking_warnings(source_errors)
+            if blocking_source_errors:
+                source_gate_failures.append(f"{machine}: " + "; ".join(blocking_source_errors))
+            else:
+                advisory_source_errors = [w for w in source_errors if w not in blocking_source_errors]
+                if advisory_source_errors:
+                    tier_floor_advisories_by_machine[machine] = advisory_source_errors
         if source_gate_failures:
             prefix = "Script preview evidence gate failed" if target_machine else "Script-hold evidence gate failed"
             msg = prefix + ": " + " | ".join(source_gate_failures)
@@ -13149,6 +13181,15 @@ class PipelineExecutor:
             bundle = polish_result["bundle"]
             polished = polish_result["polished"]
             pre_polish_paragraph = polish_result["pre_polish_paragraph"]
+            # G21a: the tier-floor gate above let this machine through only
+            # because its source_errors were advisory-only - carry those
+            # notes onto the generated preview/script block so they stay
+            # visible, instead of silently vanishing once the hard block
+            # is lifted.
+            if machine in tier_floor_advisories_by_machine:
+                warnings = list(warnings) + [
+                    w for w in tier_floor_advisories_by_machine[machine] if w not in warnings
+                ]
 
             # QL-7: classify and STORE the opener type; budget the name-openers.
             opener_type = _classify_opener_type(paragraph, machine)
@@ -14233,6 +14274,13 @@ scenes."""
             source_package,
             require_source_package=True,
         )
+        # G21a: same tier-floor-is-advisory fix as the generation gate above -
+        # readiness must agree with what generation will actually do, or the
+        # UI badge says "not ready" for a machine that writes fine. Only a
+        # genuinely blocking source_error marks the machine not-ready; an
+        # advisory-only list (tier_floor_advisory / caution_only_sources_advisory)
+        # is surfaced in `warnings` either way, never silently dropped.
+        blocking_source_errors = _blocking_warnings(source_errors)
         # Self-heal stale stored verdicts: this no-spend check just computed the
         # freshest strict verdict, so persist it (validation column ONLY - never
         # card text from a read path; UPDATE-only, failure-tolerant) and patch
@@ -14244,14 +14292,14 @@ scenes."""
             scene,
             {
                 "machine": matched,
-                "passed": not source_errors,
+                "passed": not blocking_source_errors,
                 "warnings": source_errors,
                 "revalidated_no_spend": True,
             },
         )
-        card["readiness"] = {"passed": not source_errors, "warnings": list(source_errors)}
-        if source_errors:
-            msg = "Script preview evidence gate failed: " + matched + ": " + "; ".join(source_errors)
+        card["readiness"] = {"passed": not blocking_source_errors, "warnings": list(source_errors)}
+        if blocking_source_errors:
+            msg = "Script preview evidence gate failed: " + matched + ": " + "; ".join(blocking_source_errors)
             return {
                 "status": "needs_review",
                 "ready": False,
@@ -14270,7 +14318,7 @@ scenes."""
             "machine": matched,
             "scene": scene,
             "summary": "Machine script preview is ready.",
-            "warnings": [],
+            "warnings": source_errors,
             "next_action": "run_machine_script_preview",
             # Writer pass 5 wrap-up: informational only - a preview run
             # self-heals these gaps with FREE package promotes before writing.
