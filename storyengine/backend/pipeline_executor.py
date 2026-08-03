@@ -163,13 +163,58 @@ def _locked_machine_identity_codes(machine: str) -> set[str]:
 _TRAILING_BRACKET_GROUP_RE = re.compile(r"\s*\([^)]*\)\s*$")
 
 
-def _static_paragraph_identity_fallback_term(machine: str) -> str:
-    """Soft last-resort identity signal for a NATURAL paragraph (see above)."""
+# G22: the single-last-word fallback above degraded to a near-useless term
+# for a real roster shape - a display name whose LAST word is a generic
+# roster-bookkeeping classifier ("... Campania class", "... Empire Mac-Ship
+# conversions") rather than a distinguishing name. A single-ship paragraph
+# ("HMS Campania (D48)...") never happens to write the word "class" itself,
+# so it blocked despite naming its own machine twice. Multi-ship class
+# entries (Colossus class, Attacker class) passed only by ACCIDENT, because
+# their paragraphs genuinely narrate several sister ships and so happen to
+# use the word "class" - not because the fallback was actually checking the
+# right thing. Confirmed live on video d2e37cd6: 7 of 23 machines, every one
+# a single-ship conversion or an awkward compound name, hit exactly this.
+# "hms" joins the stoplist for the same reason "class" does: it is the
+# universal Royal Navy ship prefix, present on nearly every roster entry, so
+# treating it as a distinguishing candidate would let almost any ship's
+# paragraph "identify" almost any OTHER ship - it carries zero distinguishing
+# power, exactly like the roster-bookkeeping words above.
+_GENERIC_IDENTITY_STOPWORDS = {
+    "class", "classes", "conversion", "conversions",
+    "ships", "ship", "and", "predecessors", "hms",
+}
+
+
+def _static_paragraph_identity_candidate_terms(machine: str) -> list[str]:
+    """Every meaningful identity word a NATURAL paragraph might use to name
+    this locked machine - not just the last word. The check accepts ANY of
+    these, never demands the full glued compound. Generic roster-bookkeeping
+    words (_GENERIC_IDENTITY_STOPWORDS) are stripped since they're never
+    genuinely distinguishing; if stripping would leave NOTHING (a real entry
+    whose every word happens to be generic), falls back to the OLD
+    single-last-word behavior rather than accepting everything - a stoplist
+    word must never be the only candidate that legalizes an entry. Order-
+    preserving de-dup (a name that repeats its own word, e.g. "Campania ...
+    Campania class", should not report a duplicate candidate)."""
     text = str(machine or "").strip()
     stripped = _TRAILING_BRACKET_GROUP_RE.sub("", text).strip()
     text = stripped or text
     words = text.split()
-    return words[-1].lower() if words else ""
+    if not words:
+        return []
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        cleaned = word.strip(".,;:()/").lower()
+        if (
+            cleaned
+            and any(ch.isalnum() for ch in cleaned)
+            and cleaned not in _GENERIC_IDENTITY_STOPWORDS
+            and cleaned not in seen
+        ):
+            candidates.append(cleaned)
+            seen.add(cleaned)
+    return candidates or [words[-1].lower()]
 
 
 def _non_target_designation_codes(text: str, machine: str) -> list[str]:
@@ -12374,13 +12419,21 @@ class PipelineExecutor:
         # d2e37cd6). Reuse the SAME tolerant identity check the research-card
         # fields already use (G16): the pennant-tolerant code set, OR the
         # softer trailing-name-word fallback, never a fresh regex family.
+        # G22: the fallback is now a CANDIDATE SET, not one word - a display
+        # name ending in a generic classifier ("...Campania class") used to
+        # degrade the single-last-word fallback to a term no single-ship
+        # paragraph ever writes; ANY non-generic word from the display name
+        # satisfies it now (see _static_paragraph_identity_candidate_terms).
         normalized_text = _normalized_unit_code(text)
         machine_codes = _locked_machine_identity_codes(machine)
         lower = text.lower()
         if (
             machine_codes
             and not any(code in normalized_text for code in machine_codes)
-            and _static_paragraph_identity_fallback_term(machine) not in lower
+            and not any(
+                term in lower
+                for term in _static_paragraph_identity_candidate_terms(machine)
+            )
         ):
             warnings.append(f"missing locked machine designation {machine_code}")
         meta_patterns = (
