@@ -169,6 +169,38 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       - the 28 are pre-existing test_custom_film_remotion.py fresh-worktree env-artifact
       failures per D12-1's finding, unchanged by this chunk). Deploy pending Ryan's approval.
   - G20c LIVE RESULT (2026-08-03 ~18:00Z): deployed 26a02d4f, Furious rerun via POST /api/pipeline/machine-script-block (exact roster name "HMS Furious (47) Furious", tenant-bound token minted via /tmp/mint_tenant_token.py on the VPS - se devtoken alone cannot bind tenant 561b872d). Card saved + referee passed, but polish DISCARDED again, same log signature. Diagnosis (offline repro, byte-identical warning reproduced): the G20b-era "polish dropped roughly" theory was WRONG. Real cause: in _validate_machine_story_sentences (~pipeline_executor.py:5682, 5739-5779) the `hedged` flag is sentence-scoped - any hedge word anywhere in a claim_map row legalizes EVERY number in that row, and the number-sourcing check deliberately scans ALL locked evidence (not the row's citations). Draft row 4 only passed because "about" (hedging the already-exempt year 1915) masked single-sourced "eighteen". Polish correctly fixed "in June about 1915" -> "in June 1915" (its own worked example!), flipping hedged False and exposing the pre-existing single-source gap -> discarded_new_blocking. Polish claim_map handling itself carries evidence ids through untouched (hypothesis (a) already true, refuted as a fix). G20c's HEDGE LAW remains correct for the hedge-attached-to-its-own-number case. RECOMMENDED FIX (G20d, awaiting Ryan): per-sentence salvage - on new blocking warnings, revert only the offending sentence(s) to the draft, keep the rest polished. SECONDARY FINDING (parked, riskier): the sentence-scoped hedged flag itself can mask real sourcing gaps; changing it alters the referee gate broadly.
+- [x] G20d (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed - Ryan approved the design, deploy pending his separate go
+      after judging the report): per-sentence salvage in _apply_dvsu_language_polish
+      (pipeline_executor.py). Root cause (from the G20c live-result diagnosis above): a
+      wholesale discard threw away a WORKING grammar fix elsewhere in the paragraph just
+      because ONE sentence's fix incidentally exposed an unrelated, genuinely single-sourced
+      number via the sentence-scoped hedge flag. Fix: when new blocking warnings appear,
+      every warning is attributed to a claim_map row via a new
+      _claim_map_row_numbers_for_warnings helper (regex on the validator's own
+      "claim_map row N ..." prefix, shared across every row-scoped warning site). If EVERY
+      new warning names a row, only that row's sentence + claim_map span are reverted to the
+      draft (others stay polished), the salvaged assembly is re-validated, and it's saved
+      only if (a) it's clean of new blocking warnings and (b) it's not byte-identical to the
+      draft (a salvage that reverts the only real change is a no-op, not "applied" - keeps
+      the pre-G20d no-change contract, object identity included, exactly intact for that
+      edge case). Any warning that can't be pinned to a row (paragraph-level, or the
+      un-mapped closer sentence) still falls back to the unchanged wholesale discard - proven
+      by a dedicated test. Logging unchanged at one [polish] line per run;
+      outcome=applied detail=salvaged_rows=[N,...] for the salvage path.
+      4 new tests in test_g20_language_polish_pass.py: salvage keeps row 1's real fix while
+      reverting row 4 (the live-bug shape, hand-built fixture since the shared Furious
+      fixture coincidentally double-counts "eighteen"/"18-inch" as two sources and can't
+      reproduce the bug - see the diagnosis above); salvage logs
+      outcome=applied detail=salvaged_rows=[4]; an unattributable new warning (closer
+      sentence gains an unsupported number) still fully discards even though row 4 alone
+      would have salvaged; a pure-improvement run still applies fully with no salvage
+      triggered. 2 of the 4 fail without the fix (stash-proofed); the other 2 guard
+      pre-G20d behavior and pass either way, by design. Suite evidence: polish+hold files
+      304/304 (was 300/300); full backend suite 4237 passed / 28 failed / 4 skipped (was
+      4233/28/4 - same pre-existing test_custom_film_remotion.py env-artifact set,
+      byte-identical, zero new failures). Worktree branch fast-forward-synced to main first
+      (main had moved one docs commit ahead after the G20c merge).
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button

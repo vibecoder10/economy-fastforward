@@ -817,3 +817,235 @@ def test_polish_prompt_protects_hedge_words_guarding_numbers():
     # The concrete live-bug case must be named so a future rewording can't
     # silently drop the exact example that broke prod.
     assert "roughly eighteen-inch" in prompt
+
+
+# ---------------------------------------------------------------------------
+# G20d: per-sentence salvage. G20c's HEDGE LAW fixed the case where polish
+# strips a hedge DIRECTLY attached to its own number ("roughly eighteen-inch"
+# -> "eighteen-inch"), but the live Furious rerun still discarded (2026-08-03,
+# outcome=discarded_new_blocking, "claim_map row 4 ... eighteen") for a
+# DIFFERENT reason, found by diagnosis: _validate_machine_story_sentences'
+# hedge check (`hedged = bool(_HEDGE_WORDS_RE.search(span_lower))`) is scoped
+# to the WHOLE claim_map row (one sentence), not to any one number. The draft
+# sentence "Laid down in June about 1915 ... with eighteen Swordfish ..."
+# passed only because the unrelated "about" (hedging the already-exempt year
+# 1915, nowhere near "eighteen") blanket-legalized every number in that
+# sentence. Polish's own prompt explicitly instructs fixing exactly this
+# jammed-date construction ("in June about 1915" -> "in June 1915") - a fully
+# HARD-LAW-compliant grammar fix that changes zero facts - but removing the
+# sentence's only hedge word exposed the genuinely single-sourced "eighteen"
+# (a real research gap, not something polish created) to the two-source gate.
+#
+# G20d's fix: a NEW blocking-warning set attributable ENTIRELY to specific
+# claim_map rows (every warning starts with "claim_map row N") gets those
+# rows reverted to the draft - sentence text AND claim_map span - while every
+# other polished sentence is kept, then re-validated. Any warning that can't
+# be pinned to a row (paragraph-level, or the un-mapped closer sentence)
+# still falls back to the old wholesale discard, unchanged.
+#
+# This fixture is hand-built (not the shared Furious fixture above) because
+# that fixture coincidentally double-counts "eighteen"/"18-inch" as two
+# independent sources via _normalize_machine_evidence's text-derived
+# numeric_tokens (see the diagnosis), so it never actually reproduces the
+# bug - "eighteen" here is genuinely single-sourced (only E4 mentions it).
+# ---------------------------------------------------------------------------
+
+_G20D_MACHINE = "HMS Test Ship"
+
+
+def _g20d_segment(evidence_id: str, claim: str, url: str, numbers: tuple = ()) -> dict:
+    return {
+        "evidence_id": evidence_id, "kind": "reality", "claim": claim, "source_excerpt": claim,
+        "source_url": url, "source_title": "Test source", "locator": f"{evidence_id}-loc",
+        "numeric_tokens": list(numbers), "confidence": "high",
+    }
+
+
+_G20D_E1 = _g20d_segment(
+    "E1",
+    "The design began as a coastal gun platform, the heavier configuration so far attempted "
+    "for that class, before requirements shifted entirely toward a new role.",
+    "https://source1.example/original",
+)
+_G20D_E2 = _g20d_segment(
+    "E2",
+    "Engineers reworked the layout after early sea trials exposed a structural flaw discovered "
+    "during rough-weather testing.",
+    "https://source2.example/engineering",
+)
+_G20D_E3 = _g20d_segment(
+    "E3",
+    "The redesign reduced top speed but strengthened the hull against rough seas encountered "
+    "on the northern convoy routes.",
+    "https://source3.example/tradeoff",
+)
+_G20D_E4 = _g20d_segment(
+    "E4",
+    "Laid down in June 1915, the ship was dispatched in April 1940 with eighteen escort "
+    "aircraft aboard, whose raid on enemy shipping achieved little effect.",
+    "https://naval-encyclopedia.example/reality",
+    ("1915", "1940", "eighteen"),
+)
+_G20D_PLAN = {
+    "slots": [
+        {"slot": "original_problem", "required": True, "evidence_ids": ["E1"], "evidence_segments": [_G20D_E1]},
+        {"slot": "engineering_decision", "required": True, "evidence_ids": ["E2"], "evidence_segments": [_G20D_E2]},
+        {"slot": "tradeoff", "required": True, "evidence_ids": ["E3"], "evidence_segments": [_G20D_E3]},
+        {"slot": "reality", "required": True, "evidence_ids": ["E4"], "evidence_segments": [_G20D_E4]},
+    ],
+    "contract": {},
+}
+_G20D_CLOSER = (
+    "The service learned hard lessons about naval aviation from a ship that began life as "
+    "something else entirely."
+)
+# Draft: row 1 drops "so far" (real grammar glitch, needs fixing); row 4 jams
+# "about" next to the exempt year 1915 - the ONLY hedge word in that
+# sentence, unrelated to "eighteen".
+_G20D_DRAFT_SENTENCES = [
+    "The design began as a coastal gun platform, the heavier configuration attempted for "
+    "that class, before requirements shifted entirely toward a new role.",
+    _G20D_E2["claim"],
+    _G20D_E3["claim"],
+    "Laid down in June about 1915, the ship was dispatched in April 1940 with eighteen escort "
+    "aircraft aboard, whose raid on enemy shipping achieved little effect.",
+    _G20D_CLOSER,
+]
+# Polish reply: row 1 genuinely fixed (restores "so far"); row 4 "fixed" per
+# the polish prompt's own worked example (drops the jammed "about") - which
+# is the regression; rows 2/3/closer untouched.
+_G20D_POLISHED_SENTENCES = [
+    _G20D_E1["claim"],
+    _G20D_E2["claim"],
+    _G20D_E3["claim"],
+    _G20D_E4["claim"],
+    _G20D_CLOSER,
+]
+
+
+def _g20d_bundle_for(sentences: list[str]) -> dict:
+    slots = ["original_problem", "engineering_decision", "tradeoff", "reality"]
+    ids = [["E1"], ["E2"], ["E3"], ["E4"]]
+    return {
+        "editorial_thesis": (
+            "The ship mattered because its early design compromise shaped its whole service "
+            "life and its wartime use."
+        ),
+        "twist": {
+            "type": "ironic_outcome", "substitute": None,
+            "summary": "Built for one job, used for another entirely different one.",
+        },
+        "formula_sentences": list(sentences),
+        "paragraph": " ".join(sentences),
+        "claim_map": [
+            {"slot": slot, "span": sentence, "used_evidence_ids": ids_for}
+            for slot, sentence, ids_for in zip(slots, sentences, ids)
+        ],
+        "onscreen_label": "",
+    }
+
+
+def _g20d_draft():
+    bundle = _g20d_bundle_for(_G20D_DRAFT_SENTENCES)
+    paragraph, warnings = pe._validate_machine_story_sentences(_G20D_MACHINE, _G20D_PLAN, bundle, {})
+    assert not pe._blocking_warnings(warnings), "fixture sanity: draft must pass clean today"
+    return bundle, paragraph, warnings
+
+
+def test_polish_salvages_only_the_regressing_row_and_keeps_the_rest():
+    """Row 4's fix regresses (strips the sentence's only hedge, exposing a
+    genuinely single-sourced number); row 1's fix is a real improvement. The
+    salvage must keep row 1 polished, revert ONLY row 4 to the draft, and
+    save the resulting MIXED paragraph - not discard the whole thing."""
+    draft_bundle, draft_paragraph, draft_warnings = _g20d_draft()
+    fake = _FakePolishClient(_G20D_POLISHED_SENTENCES)
+
+    result = asyncio.run(pe._apply_dvsu_language_polish(
+        anthropic_client=fake, machine=_G20D_MACHINE, paragraph=draft_paragraph,
+        warnings=draft_warnings, bundle=draft_bundle, story_plan=_G20D_PLAN,
+        dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+    ))
+
+    assert result["polished"] is True
+    assert result["pre_polish_paragraph"] == draft_paragraph
+    assert not pe._blocking_warnings(result["warnings"])
+    # Row 1: kept the real fix ("so far" restored).
+    assert result["bundle"]["claim_map"][0]["span"] == _G20D_E1["claim"]
+    assert result["bundle"]["formula_sentences"][0] == _G20D_E1["claim"]
+    # Row 4: reverted to the draft's original wording - "about" is back,
+    # "eighteen" was never touched either way (facts stay locked).
+    assert result["bundle"]["claim_map"][3]["span"] == _G20D_DRAFT_SENTENCES[3]
+    assert result["bundle"]["formula_sentences"][3] == _G20D_DRAFT_SENTENCES[3]
+    assert "about" in result["bundle"]["formula_sentences"][3]
+    assert "eighteen" in result["bundle"]["formula_sentences"][3]
+    # Rows 2/3/closer: draft == polish for these, so identical either way.
+    assert result["bundle"]["formula_sentences"][1] == _G20D_E2["claim"]
+    assert result["bundle"]["formula_sentences"][2] == _G20D_E3["claim"]
+    assert result["bundle"]["formula_sentences"][4] == _G20D_CLOSER
+    # The saved paragraph is a genuine mix, not identical to either extreme.
+    assert result["paragraph"] != draft_paragraph
+    assert result["paragraph"] != " ".join(_G20D_POLISHED_SENTENCES)
+
+
+def test_polish_salvage_logs_applied_with_salvaged_rows_detail(caplog):
+    draft_bundle, draft_paragraph, draft_warnings = _g20d_draft()
+    fake = _FakePolishClient(_G20D_POLISHED_SENTENCES)
+
+    with caplog.at_level(logging.INFO, logger="pipeline_executor"):
+        result = asyncio.run(pe._apply_dvsu_language_polish(
+            anthropic_client=fake, machine=_G20D_MACHINE, paragraph=draft_paragraph,
+            warnings=draft_warnings, bundle=draft_bundle, story_plan=_G20D_PLAN,
+            dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+        ))
+
+    assert result["polished"] is True
+    records = _polish_log_records(caplog)
+    assert len(records) == 1, f"exactly one [polish] line per run, salvage included - got {records}"
+    assert "outcome=applied" in records[0].message
+    assert "detail=salvaged_rows=[4]" in records[0].message
+    assert records[0].levelname == "INFO"
+
+
+def test_polish_full_discard_still_fires_when_new_blocking_is_unattributable():
+    """G20d salvage is all-or-nothing across the new-warning SET: a
+    paragraph-level warning (no 'claim_map row N' prefix - here, the closer
+    sentence, which has no claim_map row at all, picks up a brand-new
+    unsupported number) can't be pinned to one sentence, so the WHOLE batch
+    falls back to the pre-G20d wholesale discard - even though row 4 alone
+    would have been individually salvageable."""
+    draft_bundle, draft_paragraph, draft_warnings = _g20d_draft()
+    broken_sentences = list(_G20D_POLISHED_SENTENCES)
+    broken_sentences[4] = _G20D_CLOSER + " In 1962 nothing else changed."
+    fake = _FakePolishClient(broken_sentences)
+
+    result = asyncio.run(pe._apply_dvsu_language_polish(
+        anthropic_client=fake, machine=_G20D_MACHINE, paragraph=draft_paragraph,
+        warnings=draft_warnings, bundle=draft_bundle, story_plan=_G20D_PLAN,
+        dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+    ))
+
+    assert result["polished"] is False
+    assert result["pre_polish_paragraph"] is None
+    assert result["paragraph"] == draft_paragraph
+    assert result["bundle"] is draft_bundle
+    assert result["warnings"] == draft_warnings
+
+
+def test_polish_pure_improvement_still_applies_fully_no_salvage_needed():
+    """Sanity: when nothing regresses, the pre-G20d full-apply path is
+    unchanged - row 4 stays exactly as drafted, only row 1 (the sole real
+    change) lands, no salvage machinery involved."""
+    draft_bundle, draft_paragraph, draft_warnings = _g20d_draft()
+    clean_sentences = list(_G20D_DRAFT_SENTENCES)
+    clean_sentences[0] = _G20D_E1["claim"]
+    fake = _FakePolishClient(clean_sentences)
+
+    result = asyncio.run(pe._apply_dvsu_language_polish(
+        anthropic_client=fake, machine=_G20D_MACHINE, paragraph=draft_paragraph,
+        warnings=draft_warnings, bundle=draft_bundle, story_plan=_G20D_PLAN,
+        dvsu_rule_overrides={}, opening_brief="", video_id="video-test",
+    ))
+
+    assert result["polished"] is True
+    assert result["bundle"]["formula_sentences"][0] == _G20D_E1["claim"]
+    assert result["bundle"]["formula_sentences"][3] == _G20D_DRAFT_SENTENCES[3]
