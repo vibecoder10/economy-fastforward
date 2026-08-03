@@ -59,6 +59,23 @@ def _story_bundle(machine: str, words_per_sentence: int) -> str:
     })
 
 
+def _echo_polish_response(prompt: str):
+    """G20: every real draft now gets ONE extra `generate()` call for the
+    language-polish pass, which asks for a JSON array of the same sentences
+    line-edited for grammar. Fixtures below that scripted an exact
+    `outputs` queue (or an exact call count) predate that pass; rather than
+    hand-crafting a scripted polish reply for every fixture, detect the
+    polish prompt by its marker and echo its own input sentences straight
+    back - a true no-op polish, so it never consumes the `outputs` queue and
+    never changes any saved-paragraph assertion, only the call count."""
+    marker = "SENTENCES (JSON array, one entry per sentence, in order):\n"
+    if marker not in prompt:
+        return None
+    start = prompt.index(marker) + len(marker)
+    end = prompt.index("\n\n", start)
+    return prompt[start:end]
+
+
 def _claim_bundle_from_sentences(machine: str, sentences: list[str]) -> dict:
     roles_and_ids = [
         ("original_problem", ["E-PROBLEM"]),
@@ -5091,6 +5108,9 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
             self.system_prompts.append(kwargs["system_prompt"])
+            echo = _echo_polish_response(kwargs["prompt"])
+            if echo is not None:
+                return echo
             return self.outputs.pop(0)
 
     fake_anthropic = FakeAnthropic()
@@ -5133,7 +5153,9 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
     result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
 
     assert result["status"] == "ready_for_voice"
-    assert len(fake_anthropic.prompts) == 2, "under-length sentence jobs must trigger one fresh bundle repair"
+    # write + edit + one G20 language-polish call (no-op here: the fake echoes
+    # the polish prompt's own sentences straight back, see _echo_polish_response).
+    assert len(fake_anthropic.prompts) == 3, "under-length sentence jobs must trigger one fresh bundle repair"
     # PLAN -> WRITE -> EDIT (2026-07-17): prompt-content locks for the
     # restructured writer. Code picks facts and keeps the ledger; the model
     # only writes; failures get a minimal edit of the same draft.
@@ -5219,6 +5241,9 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
+            echo = _echo_polish_response(kwargs["prompt"])
+            if echo is not None:
+                return echo
             return self.outputs.pop(0)
 
     fake_anthropic = FakeAnthropic()
@@ -5272,8 +5297,11 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     assert "in conclusion" not in full_script.lower()
     assert "to summarize" not in full_script.lower()
     assert "what have we learned" not in full_script.lower()
+    # G20 inserts one no-op language-polish call per machine right after its
+    # write call (prompts[1] and prompts[3]) - the second machine's write
+    # prompt is now prompts[2], not prompts[1].
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
-    assert "OPENING ASSIGNMENT: Do NOT open with the machine name" in fake_anthropic.prompts[1]
+    assert "OPENING ASSIGNMENT: Do NOT open with the machine name" in fake_anthropic.prompts[2]
 
 
 def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):
@@ -6119,7 +6147,11 @@ def test_target_machine_preview_refuses_zero_row_preview_save(monkeypatch):
 
     assert result["status"] == "failed"
     assert "script preview save refused" in result["error"]
-    assert fake_anthropic.calls == 1
+    # write + one G20 language-polish call. This fake always returns the SAME
+    # deterministic _story_bundle(...) regardless of prompt, so the polish
+    # call's "reply" is byte-identical to the draft it's polishing - a true
+    # no-op, same as every other assertion in this test being unaffected.
+    assert fake_anthropic.calls == 2
     saved_preview_rows = [(query, args) for query, args in writes if "machine_script_previews" in query]
     assert saved_preview_rows and json.loads(saved_preview_rows[0][1][4]) == roster
     assert "preview" not in result
