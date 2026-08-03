@@ -153,6 +153,21 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       worker as G8b (retry invariant + per-machine attempt bound + two-invocation
       test). Verifier PASSED: chain-stop, stale-list, live cap re-read, unchanged
       paths, test meaningfulness.
+- [x] G20c (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed): one-line prompt fix for the G20/G20b language-polish pass.
+      Live run on HMS Furious (2026-08-03 17:18Z) hit outcome=discarded_new_blocking because
+      polish rewrote "roughly eighteen-inch" to an unhedged "eighteen-inch" - the referee
+      correctly flagged the now-exact number as needing two independent sources it didn't
+      have, fallback kept the draft (the discard worked as designed, but the rewrite should
+      never have been attempted). Fix: added a HEDGE LAW clause to the polish prompt
+      (_polish_dvsu_paragraph_sentences, pipeline_executor.py) naming the SHARED _HEDGE_WORDS
+      lexicon as load-bearing evidence - never removed, replaced, or reworded, hedge stays
+      attached to its number. New test test_polish_prompt_protects_hedge_words_guarding_numbers
+      (test_g20_language_polish_pass.py) - proven to FAIL without the fix and PASS with it via
+      an explicit stash-proof. Suite evidence: polish+hold test files 300/300 (was 299/299,
+      zero regressions); full backend suite 4233 passed / 28 failed / 4 skipped (was 4232/28/4
+      - the 28 are pre-existing test_custom_film_remotion.py fresh-worktree env-artifact
+      failures per D12-1's finding, unchanged by this chunk). Deploy pending Ryan's approval.
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button

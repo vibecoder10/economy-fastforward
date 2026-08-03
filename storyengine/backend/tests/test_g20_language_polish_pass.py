@@ -788,3 +788,32 @@ def test_polish_dvsu_paragraph_sentences_tolerates_prose_wrapped_reply():
     result = asyncio.run(pe._polish_dvsu_paragraph_sentences(ProseWrappedClient(), MACHINE, sentences))
     assert result["reason"] == ""
     assert result["sentences"] == sentences
+
+
+# ---------------------------------------------------------------------------
+# G20c: a live run (video d2e37cd6, HMS Furious, 2026-08-03 17:18Z) hit
+# outcome=discarded_new_blocking because the polish pass rewrote "roughly
+# eighteen-inch" to an unhedged "eighteen-inch" - the referee correctly
+# flagged the now-exact number as needing two independent sources it didn't
+# have, so the fallback kept the original draft (the discard worked exactly
+# as designed, but the rewrite should never have been attempted). A hedge
+# word guarding a number is load-bearing provenance (the shared _HEDGE_WORDS
+# lexicon that legalizes a single-source quantity), not filler grammar - the
+# polish prompt itself must say so explicitly.
+# ---------------------------------------------------------------------------
+
+def test_polish_prompt_protects_hedge_words_guarding_numbers():
+    fake = _FakePolishClient(DRAFT_SENTENCES)
+    asyncio.run(pe._polish_dvsu_paragraph_sentences(fake, MACHINE, DRAFT_SENTENCES))
+
+    prompt = fake.prompts[0].lower()
+    assert "hedge" in prompt
+    assert "never remove" in prompt
+    # The rule must name the SHARED hedge lexicon (not a re-typed, driftable
+    # copy) so the prompt can never silently drift out of sync with what the
+    # referee actually accepts as a legal hedge.
+    for word in pe._HEDGE_WORDS:
+        assert word.lower() in prompt, f"hedge word {word!r} missing from polish prompt"
+    # The concrete live-bug case must be named so a future rewording can't
+    # silently drop the exact example that broke prod.
+    assert "roughly eighteen-inch" in prompt
