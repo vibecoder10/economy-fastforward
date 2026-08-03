@@ -10722,3 +10722,369 @@ def test_machine_documentary_hold_roster_entries_gates_same_as_flat_accessor():
     }
     assert pe._machine_documentary_hold_roster(too_short) == []
     assert pe._machine_documentary_hold_roster_entries(too_short) == []
+
+
+# ---------------------------------------------------------------------------
+# G21a: the script-path evidence gate must honor G14's tier-floor-as-advisory
+# ruling (decisions.md, 2026-07-31; deployed 89d151cd). Live repro: 4 machines
+# on d2e37cd6 whose research cards PASS the referee (23/23 green pre-run) -
+# HMS Activity (D94) Activity class; CAM ships and MAC ships Archer class /
+# Empire Mac-Ship conversions; CVA-01 predecessors Audacious class / Malta
+# class; CVA-01 Queen Elizabeth class (1960s design) CVA-01 class - each hit
+# HTTP 200 / 0s / $0 "Script preview evidence gate failed:
+# ... advisory: [tier_floor_advisory] Verified source package needs at least
+# one Tier 1-2 primary/authoritative source..." because the SCRIPT-hold gate
+# (pipeline_executor.py's per-machine loop in _run_static_script_hold, plus
+# the mirrored check in check_machine_script_preview_readiness) treated the
+# RAW _research_card_contract_warnings() list as blocking instead of
+# filtering it through _blocking_warnings() first - the same function
+# _research_card_contract_warnings' own docstring says the caller must use.
+# ---------------------------------------------------------------------------
+
+def _tier3_only_evidence_segments() -> list[dict]:
+    """G14's own "package-level: zero Tier 1-2 anywhere" fixture pattern
+    (test_g14_tier_floor_and_caution_only_gaps_all_advisory_not_blocking,
+    item 1 above) - every source is a generic non-tier-1-2, non-caution
+    (Tier 3) URL, so the ONLY source_error this card/package can produce is
+    the advisory-prefixed tier_floor_advisory, never a blocking one."""
+    segments = _evidence_segments()
+    for index, segment in enumerate(segments):
+        segment["source_url"] = f"https://example-secondary.test/boeing-xb-15-{index}"
+    return segments
+
+
+def test_g21a_tier_floor_advisory_only_card_still_writes_script_and_carries_advisory(monkeypatch):
+    """A card whose ONLY source_error is tier_floor_advisory must reach
+    'ready_for_voice' (the card writes, the run completes) with the advisory
+    note carried through into the saved script_hold unit's warnings - not
+    silently dropped, and not blocking."""
+    roster = ["Boeing XB-15"]
+    segments = _tier3_only_evidence_segments()
+    card = _valid_research_card("Boeing XB-15", segments)
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    # Sanity: prove this fixture really does carry the tier_floor_advisory
+    # and NOTHING blocking - otherwise this test would pass for the wrong
+    # reason (a fixture that never actually triggers the gate).
+    sanity_errors = pe._research_card_contract_warnings(
+        "Boeing XB-15", card,
+        _verified_package_for_segments("Boeing XB-15", segments),
+        require_source_package=True,
+    )
+    assert any("tier_floor_advisory" in w for w in sanity_errors)
+    assert pe._blocking_warnings(sanity_errors) == []
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.prompts = []
+
+        async def generate(self, **kwargs):
+            self.prompts.append(kwargs["prompt"])
+            echo = _echo_polish_response(kwargs["prompt"])
+            if echo is not None:
+                return echo
+            return _story_bundle("Boeing XB-15", 19)
+
+    fake_anthropic = FakeAnthropic()
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": fake_anthropic, "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(_query, *_args):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_update_status(*_args, **_kwargs):
+        return None
+
+    async def fake_validate(_video_id):
+        return {"passed": True}
+
+    def passed_quality_audit(*_args, **_kwargs):
+        return _passing_quality_audit()
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(pe, "_anton_preview_quality_audit", passed_quality_audit)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
+    monkeypatch.setattr(executor, "_update_video_status", fake_update_status)
+    monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "ready_for_voice"
+    atomic_replacements = [(query, args) for query, args in writes if "jsonb_to_recordset" in query]
+    assert len(atomic_replacements) == 1, "the card must actually WRITE - not stop at the gate"
+    validation = json.loads(atomic_replacements[0][1][6])
+    unit = validation["script_hold"]["units"][0]
+    assert unit["passed"] is True
+    assert any("tier_floor_advisory" in w for w in unit["warnings"]), (
+        "the advisory must be carried through onto the saved unit, not dropped"
+    )
+    # The advisory is exactly that - advisory. Nothing about carrying it
+    # through should introduce a NEW blocking warning on the saved unit.
+    assert pe._blocking_warnings(unit["warnings"]) == []
+
+
+def test_g21a_missing_research_card_still_hard_blocks_script_hold(monkeypatch):
+    """Scope guard: G21a unblocks ONLY the tier-floor failure class. A
+    machine with NO saved research card at all must still hard-block before
+    any generation call, exactly as before this chunk."""
+    roster = ["Boeing XB-15"]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {"unit_roster": roster, "unit_research_cards": []},
+    }
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("missing card must fail before any generation call")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (), {"anthropic": ForbiddenAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "failed"
+    assert "saved research card" in result["error"]
+    assert writes == []
+
+
+def test_g21a_genuinely_blocking_card_error_still_blocks_alongside_tier_floor_advisory(monkeypatch):
+    """Scope guard: a card that carries BOTH the tier_floor_advisory AND a
+    genuinely blocking error (here, missing surprising_fact - a real
+    referee gate unrelated to source tier) must still hard-block on the
+    blocking error. Advisory-only unblocking must never widen into
+    "any source_errors present is fine"."""
+    roster = ["Boeing XB-15"]
+    segments = _tier3_only_evidence_segments()
+    card = _valid_research_card("Boeing XB-15", segments, surprising_fact="")
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("a genuinely blocking card error must fail before any generation call")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (), {"anthropic": ForbiddenAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return []
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "failed"
+    assert "Script-hold evidence gate failed" in result["error"]
+    assert "missing surprising_fact" in result["error"]
+    # The advisory must NOT appear in the blocking failure message - it was
+    # correctly filtered out, the surprising_fact error is what stopped it.
+    assert "tier_floor_advisory" not in result["error"]
+    assert writes == []
+
+
+def test_g21a_readiness_check_agrees_with_generation_for_tier_floor_advisory_only(monkeypatch):
+    """check_machine_script_preview_readiness (the no-spend UI pre-flight
+    check) must not report a machine as needing review when the generation
+    gate would actually let it through - same tier-floor-is-advisory fix,
+    same source_errors, must agree."""
+    # _machine_documentary_hold_roster (called internally by the readiness
+    # check) requires render_mode=static_docu, a documentary_style marker,
+    # AND a roster of at least 3 - unlike the _run_static_script_hold tests
+    # above, which pass their roster straight in as an argument.
+    roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
+    segments = _tier3_only_evidence_segments()
+    card = _valid_research_card("Boeing XB-15", segments)
+    video = {
+        "id": "video-test",
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "designed_vs_used",
+            "unit_roster": roster,
+            "unit_research_cards": [card],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key("Boeing XB-15"): _verified_package_for_segments("Boeing XB-15", segments),
+            },
+        },
+    }
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return video
+
+    async def fake_load(_video_id, payload, _roster_arg, target_machine=None):
+        return dict(payload)
+
+    async def fake_update_validation(*_args, **_kwargs):
+        return None
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        # No stored per-card verdict rows - enrich_research_payload_readiness
+        # (a real, unmocked module-level function) reads through pe.fetch_all
+        # and degrades to readiness=None for every card when this is empty,
+        # exactly like a fresh/never-enriched payload.
+        return []
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load)
+    monkeypatch.setattr(executor, "_update_machine_research_validation", fake_update_validation)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(executor.check_machine_script_preview_readiness("video-test", "Boeing XB-15"))
+
+    assert result["status"] == "completed"
+    assert result["ready"] is True
+    assert any("tier_floor_advisory" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# G21b: two DISTINCT roster entries can share the same _normalized_unit_code
+# - live collision (video d2e37cd6): "Lend-Lease escort carriers Attacker
+# class (US-built)" (roster slot 21) and "...Ruler class (US-built)" (slot
+# 22) both normalize to LENDLEASEESCORTCARRIERS. _locked_roster_item_for_machine
+# used to check the normalized code FIRST, so BOTH names resolved to
+# whichever entry happened to be first in the roster - the second
+# machine-script-block save for "Ruler" silently landed on (and overwrote)
+# scene 21, Attacker's slot. _roster_index_for_identity (a sibling helper,
+# used for research-card identity) already had the correct name-first,
+# code-fallback-only-if-unambiguous order and documents this exact collision
+# shape; _locked_roster_item_for_machine (used for SCRIPT-block roster
+# matching) had the same disease. Ground truth confirmed live via `se db`:
+# scene 21 currently holds RULER's paragraph (the second, overwriting save);
+# scene 22 was never written at all.
+# ---------------------------------------------------------------------------
+
+def test_g21b_locked_roster_item_for_machine_resolves_lend_lease_collision_pair():
+    # Real roster shape from video d2e37cd6 (name+designation structured
+    # entries, confirmed live via `se db`): scene 21 = Attacker, scene 22 =
+    # Ruler, scene 9 = the Audacious/Malta CVA-01-predecessors entry, scene
+    # 13 = the CVA-01-class entry - TWO independent collision pairs on the
+    # same roster.
+    roster_items = [
+        {"name": "Audacious class / Malta class", "designation": "CVA-01 predecessors"},  # scene 9
+        {"name": "CVA-01 class", "designation": "CVA-01 Queen Elizabeth class (1960s design)"},  # scene 13
+        {"name": "Attacker class (US-built)", "designation": "Lend-Lease escort carriers"},  # scene 21
+        {"name": "Ruler class (US-built)", "designation": "Lend-Lease escort carriers"},  # scene 22
+    ]
+    video = {
+        "render_mode": "static_docu",
+        "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster_items},
+    }
+    roster = pe._machine_documentary_hold_roster(video)
+
+    attacker = "Lend-Lease escort carriers Attacker class (US-built)"
+    ruler = "Lend-Lease escort carriers Ruler class (US-built)"
+    cva01_predecessors = "CVA-01 predecessors Audacious class / Malta class"
+    cva01_class = "CVA-01 Queen Elizabeth class (1960s design) CVA-01 class"
+    assert roster == [cva01_predecessors, cva01_class, attacker, ruler]
+
+    # Both share the SAME normalized code in each pair - the root cause,
+    # proven directly.
+    assert pe._normalized_unit_code(attacker) == pe._normalized_unit_code(ruler)
+    assert pe._normalized_unit_code(cva01_predecessors) == pe._normalized_unit_code(cva01_class)
+
+    matched_attacker = pe._locked_roster_item_for_machine(roster, attacker)
+    matched_ruler = pe._locked_roster_item_for_machine(roster, ruler)
+    matched_predecessors = pe._locked_roster_item_for_machine(roster, cva01_predecessors)
+    matched_class = pe._locked_roster_item_for_machine(roster, cva01_class)
+    assert matched_attacker == attacker
+    assert matched_ruler == ruler
+    assert matched_attacker != matched_ruler
+    assert matched_predecessors == cva01_predecessors
+    assert matched_class == cva01_class
+    assert matched_predecessors != matched_class
+    # Scene numbers derive from roster.index(matched) + 1 in
+    # _run_static_script_hold - the real bug surface. Prove each name now
+    # earns its OWN slot.
+    assert roster.index(matched_attacker) + 1 == roster.index(attacker) + 1 == 3
+    assert roster.index(matched_ruler) + 1 == roster.index(ruler) + 1 == 4
+    assert roster.index(matched_predecessors) + 1 == roster.index(cva01_predecessors) + 1 == 1
+    assert roster.index(matched_class) + 1 == roster.index(cva01_class) + 1 == 2
+
+
+def test_g21b_locked_roster_item_for_machine_returns_none_for_unmatched_name():
+    roster = [
+        "Lend-Lease escort carriers Attacker class (US-built)",
+        "Lend-Lease escort carriers Ruler class (US-built)",
+    ]
+    assert pe._locked_roster_item_for_machine(roster, "USS Nonexistent Ship") is None
+
+
+def test_g21b_locked_roster_item_for_machine_still_resolves_unambiguous_code_fallback():
+    """A label that doesn't exact-match any roster display name (different
+    case, extra whitespace) but whose normalized code is UNAMBIGUOUS across
+    the roster must still resolve via the code fallback - the fix narrows
+    the ORDER (name before code), it does not remove the fallback."""
+    roster = ["HMS Furious (47) Furious", "HMS Hermes (95) Hermes"]
+    assert pe._locked_roster_item_for_machine(roster, "  hms furious (47) furious  ") == "HMS Furious (47) Furious"
