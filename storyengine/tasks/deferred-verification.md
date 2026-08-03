@@ -4191,4 +4191,36 @@ stand unchanged.
   G13/G14/G16 — missing Remotion font/asset files in this worktree, unrelated). 4203 passed /
   28 failed / 4 skipped post-G17 (4195 passed pre-G17, +8 new tests, zero regressions).
   `py_compile` clean.
+- **G20 language-polish pass — live check deferred (no paid calls made by this chunk).**
+  Added ONE cheap-tier (`Models.CLAUDE_HAIKU`) `generate()` call inside `_run_static_script_hold`
+  (`_apply_dvsu_language_polish` / `_polish_dvsu_paragraph_sentences`, module-level in
+  `pipeline_executor.py`) after a machine's draft paragraph settles: it line-edits grammar only,
+  then the SAME `_validate_machine_story_sentences` / `_validate_static_unit_paragraph` referee
+  re-runs on the polished text; any NEW blocking warning discards the polish and keeps the draft
+  (fail-soft — a provider error, malformed reply, or true no-op all resolve to "keep the draft").
+  Every test in `tests/test_g20_language_polish_pass.py` uses a fake Anthropic client (scripted
+  JSON replies) — **the one thing that cannot be verified offline: does the LIVE Haiku model
+  actually fix real grammar glitches without inventing/altering a fact, and does it hold up across
+  the real 23-machine roster's variety of phrasing?** Recipe for whoever runs it next:
+  1. After deploy, rerun the single-machine script preview for **HMS Furious (47) Furious** on
+     video d2e37cd6 ("Every British Aircraft Carrier Class Ever Built") — the exact machine whose
+     stored preview carried "a large caliber ever designed", "did not fired the guns", and "Laid
+     up in June about 1915" pre-G20.
+  2. **Expected outcome:** the new preview's `paragraph` no longer contains any of those three
+     phrases (or the live model's own equivalent garble, if the underlying first-pass draft
+     differs this time) — grammatically clean — while every number/date/name in the paragraph
+     stays byte-identical to what the evidence supports (no new/changed fact). The preview's
+     `polished` field is `true` and `pre_polish_paragraph` holds the pre-polish draft for audit.
+  3. Also check **HMS Argus (I49) Argus** on the same video — it independently carried "by the
+     late about 1930s" (a second live instance of the same jammed-date-construction bug) in the
+     pre-G20 stored preview pulled for this chunk's evidence.
+  4. If either preview shows `polished: false` with the SAME glitch still present, read
+     `pre_polish_paragraph` vs `paragraph` in the stored preview: identical text means the polish
+     model returned a no-op (didn't recognize the glitch — worth a follow-up prompt tweak);
+     different text with the glitch still there means the referee discarded the polish for
+     grading worse (read `warnings` for what changed) — both are safe-by-design outcomes, not
+     crashes, but only the first case (`polished: true`, glitch gone) is the fix actually landing.
+  5. Cost: one extra Haiku-tier call per machine per script-hold run (~110-170 word input +
+     output, well under $0.001/call at current Haiku pricing) — negligible next to the Sonnet
+     write/edit calls already in this same loop.
 

@@ -355,6 +355,25 @@ _STATIC_PARAGRAPH_NO_CHRONOLOGY_RULE = (
     "they prove the engineering problem, decision, tradeoff, or reality."
 )
 
+# G20: the writer's own GROUNDING pressure ("prefer the evidence's own
+# concrete nouns") teaches the model to keep evidence-exact wording even
+# where it breaks grammar - the real fault behind glitches that shipped in
+# PASSING stored previews (video d2e37cd6, HMS Furious/Argus): "a large
+# caliber ever designed" (word squeezed out), "a ship that did not fired the
+# guns" (broken verb), "Laid up in June about 1915" (jammed date
+# construction). The fact-grounding referee is airtight but has no
+# grammar/flow check, so these shipped uncaught. Grammar is never part of
+# the evidence-preference contest: only concrete nouns/numbers prefer
+# evidence wording; function words, verb forms, and date phrasing are free.
+# Shared constant so every prompt stating the vocabulary-preference pressure
+# states this outranking rule in the same breath, every time - never
+# re-typed, never allowed to drift.
+_GRAMMAR_OUTRANKS_VOCABULARY_RULE = (
+    "Grammatical correctness always outranks vocabulary preference: function "
+    "words, verb forms, and date phrasing are free to write naturally; only "
+    "concrete nouns and numbers prefer the evidence's exact wording."
+)
+
 
 def _blocking_warnings(warnings: list) -> list:
     """Warn-severity (advisory-prefixed) flags never block or trigger repair."""
@@ -7597,6 +7616,197 @@ async def _cache_channel_thumbnail_blueprint(tenant_id: str, blueprint: str) -> 
         "WHERE tenant_id = $1", tenant_id, _json.dumps(merged))
 
 
+# G20: language-polish pass. The fact-grounding referee (_validate_machine_
+# story_sentences / _validate_static_unit_paragraph) is airtight on WHAT is
+# claimed but has no grammar/flow check, so a paragraph that garbles a
+# sentence still PASSES if every fact stays put - the real bug behind stored
+# previews shipping with "a large caliber ever designed" and "a ship that
+# did not fired the guns" (video d2e37cd6). This one cheap-tier pass fixes
+# grammar/flow ONLY, then the SAME validators re-run on the polished text -
+# polish can only ever improve or no-op, never trade a passing draft for a
+# worse-graded one.
+_DVSU_POLISH_SYSTEM_PROMPT = (
+    "You are a line editor for spoken documentary narration. You repair "
+    "grammar, malformed phrases, broken verb forms, jammed date "
+    "constructions, and abrupt sentence-to-sentence transitions. "
+    + _GRAMMAR_OUTRANKS_VOCABULARY_RULE +
+    " HARD LAW: never add, remove, or alter any fact, number, date, name, or "
+    "claim - you repair only HOW the existing facts are said, never WHAT is "
+    "claimed. Output only valid JSON."
+)
+
+
+async def _polish_dvsu_paragraph_sentences(
+    anthropic_client: Any, machine: str, sentences: list[str],
+) -> Optional[list[str]]:
+    """ONE cheap-tier call fixes grammar/flow per sentence, never facts.
+
+    Returns the corrected sentence list (same length, same order) or None on
+    ANY provider error or malformed/wrong-shaped reply - callers treat None
+    exactly like "polish unavailable" and keep the draft untouched. Never
+    raises: a flaky polish provider must never crash or block script-hold.
+    """
+    import json as _json_polish
+
+    if not anthropic_client or not sentences:
+        return None
+    from orchestrator.pipeline_constants import Models
+
+    prompt = (
+        "LINE-EDIT THESE SENTENCES OF ONE DOCUMENTARY PARAGRAPH FOR GRAMMAR AND FLOW ONLY.\n\n"
+        f"MACHINE: {machine}\n\n"
+        "Fix broken verb forms, malformed or word-dropped phrases, jammed date "
+        "constructions (example: \"in June about 1915\" -> \"in June 1915\"), and "
+        "abrupt sentence-to-sentence transitions. Keep each corrected sentence "
+        "roughly the same length as the original.\n\n"
+        "HARD LAW: never add, remove, or alter any fact, number, date, name, or "
+        "claim. If a sentence already reads correctly, return it byte-for-byte "
+        "unchanged.\n\n"
+        "SENTENCES (JSON array, one entry per sentence, in order):\n"
+        f"{_json_polish.dumps(sentences, ensure_ascii=False)}\n\n"
+        "Return ONLY a JSON array of exactly the same length with the corrected "
+        "sentences, in the same order. No markdown, no explanation, no extra "
+        "keys, no wrapping object."
+    )
+    try:
+        raw = await anthropic_client.generate(
+            prompt=prompt,
+            system_prompt=_DVSU_POLISH_SYSTEM_PROMPT,
+            model=Models.CLAUDE_HAIKU,
+            max_tokens=900,
+            temperature=0.0,
+        )
+    except Exception:
+        return None
+    text = str(raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = _json_polish.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(parsed, dict):
+        for key in ("sentences", "formula_sentences", "corrected", "result"):
+            if isinstance(parsed.get(key), list):
+                parsed = parsed[key]
+                break
+    if not isinstance(parsed, list) or len(parsed) != len(sentences):
+        return None
+    polished = [" ".join(str(item or "").split()) for item in parsed]
+    if any(not item for item in polished):
+        return None
+    return polished
+
+
+async def _apply_dvsu_language_polish(
+    *,
+    anthropic_client: Any,
+    machine: str,
+    paragraph: str,
+    warnings: list[str],
+    bundle: Optional[dict],
+    story_plan: Optional[dict],
+    dvsu_rule_overrides: Optional[dict],
+    opening_brief: str,
+) -> dict:
+    """Run the G20 language-polish pass on a FINAL draft, then re-run the
+    SAME validators used to grade that draft.
+
+    Fallback law: if the polished text's BLOCKING-warning set contains any
+    warning the draft's didn't have, the polish is discarded and the draft
+    is returned untouched - polish can only ever improve or no-op. A
+    provider error, a malformed reply, or a true no-op (identical text) all
+    resolve to "keep the draft" the same way; only the audit-trail fields
+    differ.
+
+    Returns ``{"paragraph", "warnings", "bundle", "polished",
+    "pre_polish_paragraph"}``. ``bundle`` is the (possibly re-keyed) claim
+    bundle for complete_inventory_mode callers, or whatever was passed in
+    (typically ``None``) for the legacy paragraph-only path.
+    """
+    draft_result = {
+        "paragraph": paragraph,
+        "warnings": warnings,
+        "bundle": bundle,
+        "polished": False,
+        "pre_polish_paragraph": None,
+    }
+    normalized_paragraph = " ".join(str(paragraph or "").split())
+    if not normalized_paragraph:
+        return draft_result
+
+    has_sentence_bundle = (
+        isinstance(bundle, dict)
+        and isinstance(bundle.get("formula_sentences"), list)
+        and bool(bundle.get("formula_sentences"))
+    )
+    if has_sentence_bundle:
+        original_sentences = [" ".join(str(s or "").split()) for s in bundle["formula_sentences"]]
+    else:
+        original_sentences = _resplit_story_sentences(normalized_paragraph)
+    if not original_sentences:
+        return draft_result
+
+    polished_sentences = await _polish_dvsu_paragraph_sentences(anthropic_client, machine, original_sentences)
+    if not polished_sentences:
+        return draft_result
+
+    polished_paragraph = " ".join(polished_sentences)
+    if polished_paragraph == normalized_paragraph:
+        # True no-op: nothing changed, so there is nothing to audit as a polish.
+        return draft_result
+
+    if has_sentence_bundle:
+        polished_bundle = dict(bundle)
+        polished_bundle["formula_sentences"] = list(polished_sentences)
+        old_claim_map = bundle.get("claim_map") if isinstance(bundle.get("claim_map"), list) else []
+        new_claim_map = []
+        for row in old_claim_map:
+            if not isinstance(row, dict):
+                new_claim_map.append(row)
+                continue
+            new_row = dict(row)
+            old_span = " ".join(str(row.get("span") or "").split())
+            # Common case (verified against real stored previews): a claim_map
+            # span equals one full formula sentence exactly, so an exact-match
+            # lookup re-keys the span to the polished sentence at the same
+            # slot. A span that is only a SUBSTRING of a sentence can't be
+            # safely remapped here - it is left unchanged, which will fail the
+            # validator's "span is not present in paragraph" check if polish
+            # touched it, correctly discarding the polish for that machine.
+            try:
+                idx = original_sentences.index(old_span)
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(polished_sentences):
+                new_row["span"] = polished_sentences[idx]
+            new_claim_map.append(new_row)
+        polished_bundle["claim_map"] = new_claim_map
+        polished_paragraph, polished_warnings = _validate_machine_story_sentences(
+            machine, story_plan or {}, polished_bundle, dvsu_rule_overrides,
+        )
+    else:
+        polished_bundle = bundle
+        polished_warnings = list(
+            PipelineExecutor._validate_static_unit_paragraph(machine, polished_paragraph, dvsu_rule_overrides)
+        )
+        polished_warnings.extend(_opening_assignment_warnings(machine, polished_paragraph, opening_brief))
+
+    draft_blocking = set(_blocking_warnings(warnings))
+    polished_blocking = set(_blocking_warnings(polished_warnings))
+    if polished_blocking - draft_blocking:
+        # Polish made the blocking-warning set WORSE - discard, keep the draft.
+        return draft_result
+
+    return {
+        "paragraph": polished_paragraph,
+        "warnings": list(dict.fromkeys(polished_warnings)),
+        "bundle": polished_bundle,
+        "polished": True,
+        "pre_polish_paragraph": normalized_paragraph,
+    }
+
+
 class PipelineExecutor:
     """Executes pipeline stages with StoryEngine integration.
 
@@ -12299,6 +12509,11 @@ class PipelineExecutor:
                         }
                     ],
                 },
+                # G20: no paragraph was ever produced on this early-failure
+                # path, so there is nothing to polish - keep the schema
+                # consistent for every preview consumer regardless of path.
+                "polished": False,
+                "pre_polish_paragraph": None,
             }
             preview_save_result = await self._checkpoint_machine_script_preview(
                 video_id, machine_key, preview, locked_roster_snapshot,
@@ -12541,6 +12756,7 @@ class PipelineExecutor:
                 voice_rules = (
                     "VOICE RULES (the only laws the writer owns - everything else is planned for you):\n"
                     "- GROUNDING: zero freedom in WHAT is claimed. Every checkable fact (number, date, proper noun, spec) must come from this sentence's listed evidence. Abstract vocabulary and common verbs are free; prefer the evidence's own concrete nouns. Never invent a month, place, or name the evidence lacks.\n"
+                    f"- {_GRAMMAR_OUTRANKS_VOCABULARY_RULE}\n"
                     "- Sourced names stay as written: never expand an abbreviation (`RAF` never becomes `Royal Air Force`).\n"
                     "- The narration must say the locked machine designation at least once (a precursor model name does not count).\n"
                     f"- Hedge lexicon (the gate recognizes exactly these): {', '.join(_HEDGE_WORDS)}. A single-source quantity is stated as a hedged round, never dropped. Designations are names: never hedge or respell their digits.\n"
@@ -12698,6 +12914,7 @@ class PipelineExecutor:
                         "VERDICT PUNCH (hard): the closer must be single-hammer, antithesis, concede-then-cut, or triad - never a summary or recap. If the flagged closer restates facts, rewrite it as the house punch: a two-part parallel antithesis restating the designed-vs-used gap and landing on the result side, each half four to nine words. "
                         "CLOSER FREEDOM: the closer may use any editorial or abstract vocabulary, including nationality/geographic color; it may NOT introduce new person, organization, or operation names, new designations, or a new number paired with a new entity. "
                         "GROUNDING LAW: checkable facts (numbers, dates, proper nouns, designations, spec claims) must appear in locked evidence; abstract vocabulary is free; prefer evidence wording for colorful concrete nouns. A hedged direction-consistent round of a sourced value is legal; exact dates need one locked source, quantities need two. "
+                        f"{_GRAMMAR_OUTRANKS_VOCABULARY_RULE} "
                         "Every unhedged exact number, specification, production count, date, or superlative must appear in locked evidence from two independent sources (two different source URLs anywhere in the locked story plan, not only the cited IDs); otherwise HEDGE the claim - do not drop it. Designations are exempt: never hedge, source-check, or reword a designation. "
                         "SPEC LAW (hard): a single-source number is HEDGED, never omitted - when the plan carries sourced scale, capability, or production numbers, keep the spec block and production reality with real numbers, writing single-sourced values as hedged rounds; `many`/`several` where a count exists is a rejection. "
                         "NUMBER FLOOR (hard, Strategic Bomber benchmark): the evidence-backed sentences must carry at least TWO sourced numerical details inside claim-mapped spans (spec figure, production count, loss figure, range, or speed); a number-free paragraph is rejected. "
@@ -12756,6 +12973,26 @@ class PipelineExecutor:
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph, dvsu_rule_overrides)
                     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
+
+            # G20: language-polish pass on the FINAL draft (whatever the two
+            # branches above settled on). The SAME validators re-run on the
+            # polished text below; a polish that grades worse (any new
+            # blocking warning) is discarded and the draft is kept untouched.
+            polish_result = await _apply_dvsu_language_polish(
+                anthropic_client=anthropic_client,
+                machine=machine,
+                paragraph=paragraph,
+                warnings=warnings,
+                bundle=bundle,
+                story_plan=story_plan,
+                dvsu_rule_overrides=dvsu_rule_overrides,
+                opening_brief=opening_brief,
+            )
+            paragraph = polish_result["paragraph"]
+            warnings = polish_result["warnings"]
+            bundle = polish_result["bundle"]
+            polished = polish_result["polished"]
+            pre_polish_paragraph = polish_result["pre_polish_paragraph"]
 
             # QL-7: classify and STORE the opener type; budget the name-openers.
             opener_type = _classify_opener_type(paragraph, machine)
@@ -12816,6 +13053,8 @@ class PipelineExecutor:
                 "opener_type": opener_type,
                 "twist_type": twist_type_label,
                 "quality_audit": quality_audit,
+                "polished": polished,
+                "pre_polish_paragraph": pre_polish_paragraph,
             })
             if target_machine:
                 claim_bundle = bundle if isinstance(bundle, dict) else {}
@@ -12833,6 +13072,12 @@ class PipelineExecutor:
                     "opener_type": opener_type,
                     "twist_type": twist_type_label,
                     "quality_audit": quality_audit,
+                    # G20: language-polish audit trail - polished=True means the
+                    # stored paragraph differs from the model's own first draft
+                    # (pre_polish_paragraph) after grammar-only editing that the
+                    # SAME grounding validators re-approved.
+                    "polished": polished,
+                    "pre_polish_paragraph": pre_polish_paragraph,
                 }
                 if save_target_script:
                     preview["saved"] = False
