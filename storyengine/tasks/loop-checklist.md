@@ -201,6 +201,7 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       4233/28/4 - same pre-existing test_custom_film_remotion.py env-artifact set,
       byte-identical, zero new failures). Worktree branch fast-forward-synced to main first
       (main had moved one docs commit ahead after the G20c merge).
+  - G20d LIVE PROOF (2026-08-03 18:25Z): deployed 0e9b4072 (safe drain deploy #2 of the day), Furious rerun via POST /api/pipeline/machine-script-block -> `[polish] outcome=applied`, polished:true, referee passed, 134 words (inside the 110-150 major band), paragraph reads clean (orchestrator eyeballed it). The fresh draft did not hit the salvage trap, so this was a full application with no salvaged_rows - salvage stays the safety net. Rerun recipe now proven twice: tenant-bound token via /tmp/mint_tenant_token.py (se devtoken cannot bind tenant 561b872d), exact roster name "HMS Furious (47) Furious". $20 max_spend set on d2e37cd6 via the MCP budget_cap verb. NEXT: Ryan's go on Run All Script Cards (20 carriers remain, ~$1.50-3).
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button
