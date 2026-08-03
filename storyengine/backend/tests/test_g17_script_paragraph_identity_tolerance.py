@@ -133,18 +133,22 @@ def test_sibling_screening_still_rejects_a_different_machines_paragraph():
     assert any(w.startswith("missing locked machine designation") for w in warnings), warnings
 
 
-def test_static_paragraph_identity_fallback_term_strips_one_trailing_bracket_only():
-    """The helper's own contract: strip at most ONE trailing purely-bracketed
-    group before taking the last word; every other roster shape (whose last
-    word is already the real name, never a bracket) is untouched."""
-    assert pe._static_paragraph_identity_fallback_term(ARGUS) == "argus"
-    assert pe._static_paragraph_identity_fallback_term(AUDACIOUS) == "class"
-    assert pe._static_paragraph_identity_fallback_term(COURAGEOUS) == "class"
-    assert pe._static_paragraph_identity_fallback_term(CENTAUR) == "class"
-    assert pe._static_paragraph_identity_fallback_term(FURIOUS) == "furious"
+def test_static_paragraph_identity_candidate_terms_strips_one_trailing_bracket_only():
+    """The helper's own contract (G22: now a candidate SET, not one term -
+    see the G22 section below for why): strip at
+    most ONE trailing purely-bracketed group before splitting into words;
+    every other roster shape (whose last word is already the real name,
+    never a bracket) is untouched. "class" is excluded from AUDACIOUS/
+    COURAGEOUS/CENTAUR's candidates (generic stopword), but each still
+    carries its real distinguishing name word(s)."""
+    assert pe._static_paragraph_identity_candidate_terms(ARGUS) == ["argus", "i49"]
+    assert pe._static_paragraph_identity_candidate_terms(AUDACIOUS) == ["cva-01", "audacious", "malta"]
+    assert pe._static_paragraph_identity_candidate_terms(COURAGEOUS) == ["courageous", "glorious"]
+    assert pe._static_paragraph_identity_candidate_terms(CENTAUR) == ["centaur", "albion", "bulwark", "hermes", "r12"]
+    assert pe._static_paragraph_identity_candidate_terms(FURIOUS) == ["furious", "47"]
     # The one case the bracket-strip actually changes: without it, this would
-    # be the literal, never-written-verbatim token "(1937)".
-    assert pe._static_paragraph_identity_fallback_term(ARK_ROYAL_1937) == "royal"
+    # carry the literal, never-written-verbatim token "1937".
+    assert pe._static_paragraph_identity_candidate_terms(ARK_ROYAL_1937) == ["ark", "royal", "91"]
 
 
 def test_designation_gate_reuses_locked_machine_identity_codes_not_a_new_regex_family():
@@ -391,3 +395,144 @@ def test_inventory_mode_first_pass_prompt_teaches_both_previously_checker_only_r
     assert pe._STATIC_PARAGRAPH_NO_CHRONOLOGY_RULE in first_pass_prompt
     # Regression: the designation rule that was ALREADY taught stays present.
     assert "say the locked machine designation at least once" in first_pass_prompt
+
+
+# ---------------------------------------------------------------------------
+# G22: the single-last-word fallback above still had a live gap. A roster
+# entry whose display name happens to END with a generic roster-bookkeeping
+# classifier ("... Campania class", "... Empire Mac-Ship conversions")
+# degraded the fallback to a term no SINGLE-SHIP paragraph naturally writes
+# ("class"), even though the paragraph names its own machine by name twice.
+# Multi-ship class entries (Colossus class, Attacker class - both PASS)
+# only survived by accident: their paragraphs genuinely narrate several
+# sister ships, so the word "class" happens to appear. Live repro: 7 of 23
+# machines on video d2e37cd6 - every one a single-ship conversion or an
+# awkward slash/compound name - hit exactly "missing locked machine
+# designation" with zero other blocking warnings. Fix: the fallback is now
+# a candidate SET (_static_paragraph_identity_candidate_terms) - every
+# meaningful word from the display name, generic classifiers stripped -
+# and the check passes if the paragraph contains ANY of them.
+# ---------------------------------------------------------------------------
+
+# The 7 real holdout roster display strings (video d2e37cd6, confirmed live
+# via `se db` - not invented shapes).
+ACTIVITY = "HMS Activity (D94) Activity class"
+CAMPANIA = "HMS Campania (D48) Campania class"
+PRETORIA_CASTLE = "HMS Pretoria Castle (F61) Pretoria Castle class"
+NAIRANA = "Nairana, Vindex Nairana class"
+ARCHER_MAC_SHIP = "CAM ships and MAC ships Archer class / Empire Mac-Ship conversions"
+CVA01_PREDECESSORS = "CVA-01 predecessors Audacious class / Malta class"
+CVA01_CLASS = "CVA-01 Queen Elizabeth class (1960s design) CVA-01 class"
+
+# Campania's REAL generated draft (captured live from a machine-script-block
+# response, /tmp/campania.json) - names "HMS Campania (D48)" twice, never
+# the word "class", and blocked with EXACTLY "missing locked machine
+# designation HMSCAMPANIAD48CAMPANIA" before this fix.
+CAMPANIA_REAL_PARAGRAPH = _natural_paragraph(
+    "Converted from a passenger cargo vessel ordered by Shaw Savill Line in 1940, the ship "
+    "that became HMS Campania (D48) entered service as an escort carrier before a strange "
+    "final chapter began.",
+    "HMS Campania (D48)'s final mission came in October 1952, when she was towed to the "
+    "Monte Bello Islands to measure the shockwave of Britain's first atomic bomb test.",
+    "The escort carrier spent her last days not hunting submarines, but measuring shockwaves, "
+    "a fittingly strange coda for a ship built to ferry cargo.",
+)
+
+
+def test_g22_all_seven_real_holdout_names_produce_sensible_candidate_terms():
+    """Every one of the 7 live-blocked machines must derive a candidate set
+    that actually contains its real distinguishing name word(s), not just
+    the generic classifier that was silently degrading the old fallback."""
+    assert pe._static_paragraph_identity_candidate_terms(ACTIVITY) == ["activity", "d94"]
+    assert pe._static_paragraph_identity_candidate_terms(CAMPANIA) == ["campania", "d48"]
+    assert pe._static_paragraph_identity_candidate_terms(PRETORIA_CASTLE) == ["pretoria", "castle", "f61"]
+    assert pe._static_paragraph_identity_candidate_terms(NAIRANA) == ["nairana", "vindex"]
+    archer_terms = pe._static_paragraph_identity_candidate_terms(ARCHER_MAC_SHIP)
+    assert "archer" in archer_terms and "mac-ship" in archer_terms
+    cva01_predecessors_terms = pe._static_paragraph_identity_candidate_terms(CVA01_PREDECESSORS)
+    assert "malta" in cva01_predecessors_terms and "audacious" in cva01_predecessors_terms
+    cva01_class_terms = pe._static_paragraph_identity_candidate_terms(CVA01_CLASS)
+    assert "cva-01" in cva01_class_terms
+    assert "queen" in cva01_class_terms and "elizabeth" in cva01_class_terms
+    # None of the 7 should EVER resolve to a bare generic classifier as their
+    # only candidate - that was the whole bug.
+    for machine in (ACTIVITY, CAMPANIA, PRETORIA_CASTLE, NAIRANA, ARCHER_MAC_SHIP, CVA01_PREDECESSORS, CVA01_CLASS):
+        terms = pe._static_paragraph_identity_candidate_terms(machine)
+        assert terms, f"{machine!r} produced no candidates at all"
+        assert not all(term in pe._GENERIC_IDENTITY_STOPWORDS for term in terms), (
+            f"{machine!r} candidates are ALL generic: {terms}"
+        )
+
+
+def test_g22_campania_real_captured_draft_now_passes():
+    """Campania's ACTUAL generated draft (captured live, currently blocking
+    in prod) must pass under the fix - a pure check fix, zero re-drafting,
+    zero paid calls needed to repair this scene."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    warnings = validate(CAMPANIA, CAMPANIA_REAL_PARAGRAPH)
+    assert not any(w.startswith("missing locked machine designation") for w in warnings), warnings
+
+
+def test_g22_furious_still_passes_without_its_pennant():
+    """Regression: Furious's real shape (names itself, never writes the
+    pennant "(47)") must keep passing - the fix only ADDS candidates, it
+    must never narrow what already worked."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    warnings = validate(FURIOUS, FURIOUS_PARAGRAPH)
+    assert not any(w.startswith("missing locked machine designation") for w in warnings), warnings
+
+
+def test_g22_paragraph_that_never_names_its_machine_still_blocks():
+    """Identity enforcement stays intact: broadening the candidate SET must
+    never let a paragraph that genuinely never mentions its own machine
+    (by any of its distinguishing name words - "campania" or "d48") slip
+    through. Deliberately never writes either word, and padded past the
+    80-word hard floor so ONLY the designation check is under test here."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    unrelated_paragraph = _natural_paragraph(
+        "A separate design entirely, this vessel answered a different requirement altogether, "
+        "built to a specification nobody on this roster ever proposed.",
+        "Engineers solved a completely unrelated problem with an unrelated hull shape, "
+        "trading one set of tradeoffs for another the Admiralty never asked for.",
+        "None of this text refers to the locked machine by either of its own name words, "
+        "on purpose, proving the gate still catches a genuine miss.",
+        "The story stays deliberately generic, describing a service history that could "
+        "belong to any hull in the fleet rather than this one specifically.",
+        "Nothing in these sentences should ever satisfy a candidate term for the ship this "
+        "paragraph was actually supposed to be about.",
+    )
+    warnings = validate(CAMPANIA, unrelated_paragraph)
+    assert any(w.startswith("missing locked machine designation") for w in warnings), warnings
+
+
+def test_g22_all_stoplist_name_falls_back_to_last_word_behavior():
+    """If stripping the generic stoplist would leave NOTHING (a constructed
+    entry whose every word is generic), the fix must fall back to the OLD
+    single-last-word behavior rather than accepting everything - a stoplist
+    word must never be the only candidate that legalizes an entry."""
+    all_stoplist_name = "Ship Class Conversions"
+    terms = pe._static_paragraph_identity_candidate_terms(all_stoplist_name)
+    # Every word in the name IS a stopword, so stripping leaves nothing -
+    # falls back to the bare last word, exactly like the pre-G22 helper did.
+    assert terms == ["conversions"]
+
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    paragraph_with_word = _natural_paragraph(
+        "This entry only ever gets called out through its own generic bookkeeping word.",
+        "The paragraph names the fallback conversions term explicitly right here.",
+        "No specific ship name exists for this constructed edge case on purpose.",
+        "The fallback must still legalize the paragraph through that one word.",
+        "Padding sentence to clear the hard word floor for this synthetic fixture only.",
+    )
+    warnings = validate(all_stoplist_name, paragraph_with_word)
+    assert not any(w.startswith("missing locked machine designation") for w in warnings), warnings
+
+    paragraph_without_word = _natural_paragraph(
+        "This entry is discussed here without ever using its own fallback bookkeeping term.",
+        "Every sentence carefully avoids the one word that would legalize it under the fallback.",
+        "No specific ship name exists for this constructed edge case on purpose.",
+        "The gate must still correctly block since neither a code nor the fallback word appears.",
+        "Padding sentence to clear the hard word floor for this synthetic fixture only.",
+    )
+    warnings = validate(all_stoplist_name, paragraph_without_word)
+    assert any(w.startswith("missing locked machine designation") for w in warnings), warnings

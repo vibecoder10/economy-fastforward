@@ -267,6 +267,54 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       d2e37cd6 is actually a saved script scene right now (machine_script_previews != saved
       script rows; verified live via se db, 2026-08-03), so this is a real, current risk, not
       theoretical.
+- [x] G22 (S) [B][V] DONE 2026-08-03 (branch claude/dazzling-euclid-adafcc, merged to local
+      main, not pushed/deployed - Ryan approved the design): script-paragraph designation gate
+      widened from a single last-word fallback to a candidate-term SET. Live repro after the
+      G21a/G21b repair run (16/23 saved): 7 holdouts each failed with exactly ONE blocking
+      warning, "missing locked machine designation ..." - HMS Activity (D94) Activity class
+      (scene 17); HMS Campania (D48) Campania class (20, real captured draft names "HMS
+      Campania (D48)" TWICE and still blocked); HMS Pretoria Castle (F61) Pretoria Castle class
+      (18); Nairana, Vindex Nairana class (19); CAM ships and MAC ships Archer class / Empire
+      Mac-Ship conversions (16); CVA-01 predecessors Audacious class / Malta class (9); CVA-01
+      Queen Elizabeth class (1960s design) CVA-01 class (13). Root cause diagnosed first
+      (read-only, no build): _static_paragraph_identity_fallback_term took ONLY the display
+      name's single LAST word as the natural-paragraph fallback signal; for these 7, that word
+      is a generic roster-bookkeeping classifier ("class"/"conversions") no single-ship
+      paragraph naturally writes, while the passing "...class" entries (Colossus, Majestic,
+      Centaur, Invincible, Queen Elizabeth, and the just-repaired Attacker/Ruler) only passed by
+      ACCIDENT because their paragraphs genuinely narrate several sister ships and so happen to
+      use the word "class" - confirmed live via `se db` on all 5 originally-passing scenes.
+      Checked against G16 (research-card identity, different check) and the "class entries
+      exempt from sibling-pennant screen" lesson (_non_target_designation_codes, different
+      check, unaffected) - NOT a contradiction of a settled ruling like G21a was; a residual gap
+      inside G17's own already-approved same-direction fix for this exact check. Fix (Ryan
+      approved the robust variant): new _static_paragraph_identity_candidate_terms returns
+      EVERY meaningful word from the display name (one trailing bracket group stripped first,
+      as before), stripping a generic stoplist (class, classes, conversion, conversions, ships,
+      ship, and, predecessors, hms - "hms" added since it is a universal, zero-distinguishing
+      prefix on nearly every entry); the check passes if the paragraph contains ANY candidate,
+      case-insensitive; if stripping the stoplist would leave nothing, falls back to the OLD
+      single-last-word behavior (never accepts everything). Branch (A), the normalized-code
+      containment check, is untouched. Old `_static_paragraph_identity_fallback_term` (single
+      term, one caller) replaced outright by the new function - no dead code left. 5 new tests +
+      1 existing test updated to the new contract in test_g17_script_paragraph_identity_
+      tolerance.py: all 7 real holdout names produce candidate sets containing their real
+      distinguishing words (activity/d94, campania/d48, pretoria+castle/f61, nairana/vindex,
+      archer+mac-ship, malta+audacious, cva-01+queen+elizabeth) and never ALL-generic; Campania's
+      REAL captured draft (from a live machine-script-block response) now passes with zero
+      re-drafting - proven a pure $0 check fix; Furious still passes without its pennant; a
+      paragraph that genuinely never names its machine still blocks; an all-stoplist
+      constructed name ("Ship Class Conversions") falls back to last-word behavior exactly as
+      before. Stash-proofed: 4 of the 5 new tests + the 1 updated test fail without the fix (5
+      total); the other 4 (Furious, sibling-screening, code-reuse, identity-codes-superset, plus
+      the never-names-its-machine block) pass either way, by design. Suite: file 13/13 (was
+      8/8); full backend suite 4249 passed / 28 failed / 4 skipped (was 4244/28/4, byte-
+      identical pre-existing test_custom_film_remotion.py set, zero new failures).
+      REPAIR: pure check fix on EXISTING drafts - Campania proven directly; the other 6 very
+      likely also resolve with zero re-drafting (writer prompt already requires "say the locked
+      machine designation at least once"), NOT independently verified for those 6 (their draft
+      text wasn't captured/available for offline repro) - confirm live after deploy before
+      assuming zero spend for all 7.
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button
