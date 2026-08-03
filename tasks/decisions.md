@@ -870,3 +870,22 @@ only when the assembly hash is current and the scene is assembled or accepted.
   load-bearing); or per-beat tier exceptions (more rulebook, same disease).
 - Why this won: Ryan's quality target is accurate research in the script, not archival
   pedigree. The verbatim-grounding check alone already prevents invented facts.
+
+## 2026-08-01 - Word-ceiling/floor near-misses are advisory, not a block (Ryan, dvsu-bulletproof session)
+- Decision: a script paragraph that lands slightly outside the hard word floor/ceiling
+  (80-170 words) is no longer a blocking failure. A +/-10% grace band around each hard
+  bound (down to 72 words, up to 187 words) now reports an ADVISORY near-miss instead;
+  only a real overshoot/undershoot beyond that grace band still hard-blocks. One shared
+  helper (`_paragraph_word_band_verdict` in `pipeline_executor.py`) backs every
+  enforcement site - the script-hold paragraph validator and the preview quality-audit
+  checklist - so the two can never drift apart. Writer prompts still state the plain
+  80/170 WORD LAW unchanged; only the checker gets the grace.
+- Context: video d2e37cd6's HMS Argus static-docu script preview came back 177 words
+  against the 170-word hard ceiling. The validator's ONLY hard failure was "word count
+  177 over the 170-word hard ceiling - split or cut the entry" - every other flag on
+  that paragraph was already advisory. Ryan's verbatim ruling: "7 words over isnt bad,
+  i call that nit picky and wouldnt worry about it."
+- Why this won: near-misses are editorial nits, not quality failures, and blocking on
+  them burns a paid repair round for no real gain. The grace band keeps the actual
+  protection this law exists for - a genuinely rambling or thin paragraph (30+ words
+  over/under) still hard-blocks.

@@ -267,6 +267,17 @@ _ANTON_PARAGRAPH_HARD_MAX_WORDS = 170
 _ANTON_PARAGRAPH_MIN_WORDS = 95   # warn-band top: 80-95 = advisory "confirm terse"
 _ANTON_PARAGRAPH_MAX_WORDS = 120  # spec-block register ceiling (guidance band)
 
+# G18 (Ryan's ruling, 2026-08-01, real case: video d2e37cd6's HMS Argus preview
+# at 177/170 words): a near-miss over the hard ceiling (or under the hard
+# floor) is an editorial nit, not a blocking failure - "7 words over isnt bad,
+# i call that nit picky". Word counts within this fraction of the hard bound
+# (170 * 1.10 = 187; 80 * 0.90 = 72) are reported as an ADVISORY near-miss
+# instead of a hard block. Beyond the grace band, the hard block stays -
+# this protects against genuinely rambling/thin paragraphs, it just stops
+# punishing single-digit overshoots. Writer prompts keep stating the plain
+# 80/170 WORD LAW unchanged; only the checker gets the grace.
+_ANTON_PARAGRAPH_CEILING_GRACE = 0.10
+
 # QL-1 registers: the law names the register and its band, not one number.
 # The bomber-style spec-block video targets 100-120.
 _DVSU_REGISTER_TARGETS = {
@@ -275,6 +286,54 @@ _DVSU_REGISTER_TARGETS = {
     "long_form": "110-130",
 }
 _DVSU_DEFAULT_REGISTER = "spec_block"
+
+
+def _paragraph_word_band_verdict(
+    word_count: int, hard_min: int, hard_max: int,
+    grace: float = _ANTON_PARAGRAPH_CEILING_GRACE,
+) -> dict:
+    """Single shared classifier for the hard floor/ceiling word-count law.
+
+    Every enforcement site (the script-hold paragraph validator AND the
+    preview quality-audit checklist) calls this - no site-local
+    reimplementation of the grace-band math, so the two can never drift.
+
+    Returns one of:
+      - {"status": "ok", "blocking": False, "message": None} - inside the band.
+      - {"status": "near_floor"/"near_ceiling", "blocking": False, "message": str}
+        - outside the hard bound but within `grace` of it (e.g. 72-79 words,
+          or 171-187 words): a near-miss, advisory only, never blocks.
+      - {"status": "under_floor"/"over_ceiling", "blocking": True, "message": str}
+        - beyond the grace band: a real overshoot/undershoot, still blocks.
+    """
+    grace_min = hard_min - (hard_min * grace)
+    grace_max = hard_max + (hard_max * grace)
+    if word_count > hard_max:
+        if word_count <= grace_max:
+            return {
+                "status": "near_ceiling",
+                "blocking": False,
+                "message": f"{word_count} words, over the {hard_max}-word target - trim when convenient",
+            }
+        return {
+            "status": "over_ceiling",
+            "blocking": True,
+            "message": f"word count {word_count} over the {hard_max}-word hard ceiling - split or cut the entry",
+        }
+    if word_count < hard_min:
+        if word_count >= grace_min:
+            return {
+                "status": "near_floor",
+                "blocking": False,
+                "message": f"{word_count} words, under the {hard_min}-word target - thicken when convenient",
+            }
+        return {
+            "status": "under_floor",
+            "blocking": True,
+            "message": f"word count {word_count} under the {hard_min}-word hard floor - thicken or fold the entry",
+        }
+    return {"status": "ok", "blocking": False, "message": None}
+
 
 # Advisory channel: warn-severity law flags carry this prefix. They surface in
 # stored warnings for review but never block, never trigger a repair round.
@@ -6238,14 +6297,25 @@ def _anton_preview_quality_audit(
     twist_type = str(twist.get("type") or "").strip().lower().replace("-", "_").replace(" ", "_")
     deliberately_bare = bool(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("deliberately_bare"))
     twist_tokens = ["designed-vs-used twist", "no gap and no substitute"]
+    # G18: near-miss overshoots/undershoots (within grace of the hard bound)
+    # are advisory, not a blocking failure - same shared helper the paragraph
+    # validator uses, so this checklist entry can never drift from it.
+    word_range_band = _paragraph_word_band_verdict(word_count, audit_hard_min, audit_hard_max)
+    word_range_advisory = word_range_band["status"] in ("near_floor", "near_ceiling")
+    word_range_passed = word_range_band["status"] in ("ok", "near_floor", "near_ceiling")
     checks = [
         check(
             "word_range",
             # QD-6: hard window 80-170; the register band is guidance.
             # Checklist C46c: bounds come from a seeded QL-1 row when present.
             f"{audit_hard_min}-{audit_hard_max} words hard window",
-            audit_hard_min <= word_count <= audit_hard_max,
-            f"{word_count} words (register target {narrative_target})",
+            word_range_passed,
+            (
+                f"{word_count} words (register target {narrative_target})"
+                if word_range_band["status"] == "ok"
+                else f"{word_range_band['message']} (register target {narrative_target})"
+            ),
+            advisory=word_range_advisory,
         ),
         check(
             "sentence_shape",
@@ -11898,14 +11968,18 @@ class PipelineExecutor:
         # a floor/ceiling miss to advisory rather than blocking.
         floor_blocking = word_floor.get("severity", "hard_gate") == "hard_gate"
         floor_prefix = "" if floor_blocking else _ADVISORY_PREFIX
-        if text and wc < hard_min:
-            warnings.append(
-                floor_prefix + f"word count {wc} under the {hard_min}-word hard floor - thicken or fold the entry"
-            )
-        elif wc > hard_max:
-            warnings.append(
-                floor_prefix + f"word count {wc} over the {hard_max}-word hard ceiling - split or cut the entry"
-            )
+        # G18 (Ryan's ruling, 2026-08-01): a near-miss within the grace band
+        # of the hard bound is an advisory nit, never a block - shared helper
+        # so this can't drift from the preview quality-audit's own check.
+        word_band = _paragraph_word_band_verdict(wc, hard_min, hard_max)
+        if text and word_band["status"] == "under_floor":
+            warnings.append(floor_prefix + word_band["message"])
+        elif text and word_band["status"] == "near_floor":
+            warnings.append(_ADVISORY_PREFIX + word_band["message"])
+        elif word_band["status"] == "over_ceiling":
+            warnings.append(floor_prefix + word_band["message"])
+        elif word_band["status"] == "near_ceiling":
+            warnings.append(_ADVISORY_PREFIX + word_band["message"])
         elif text and wc < warn_top:
             warnings.append(
                 _ADVISORY_PREFIX + f"word count {wc} in the {hard_min}-{warn_top} "
