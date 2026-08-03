@@ -1,246 +1,45 @@
-# HANDOFF - updated 2026-08-03 - script stage in progress on the carrier video
+# HANDOFF - 2026-08-03 - script stage complete (23/23), polish + gates hardened; VOICE is next
 
-## CURRENT STATE (read this block first, ignore older sections below until needed)
-- Script stage on the carrier video (d2e37cd6, tenant 561b872d): 18/23 production scenes SAVED+PASSING (scenes 1-8, 10-12, 14-15, 18, 20-23). Was 1/23 at session start ("3 written" in the old handoff was wrong - Argus/Hermes were previews only, never saved).
-- Shipped + proven today (4 deploys, final a36e2ffe): G20c hedge law, G20d per-sentence polish salvage (Furious outcome=applied live), G21a script gate honors tier-floor-as-advisory (G14 ruling), G21b roster-name collision fix (Attacker/Ruler + latent CVA-01 pair), G22 designation fallback uses meaningful name words not "class". Polish at scale: 15+ applied / 3 safely discarded / 0 crashes.
-- $20 max_spend set on d2e37cd6 (was NULL). ~$4-6 workspace-key spend today; NOTE script-stage calls don't ledger (0 generation_ledger rows) - backlog.
-- SCRIPT STAGE COMPLETE (2026-08-03 ~22:45Z): 23/23 production scenes, video at ready_for_voice. The 5 residue cards were hand-written by the orchestrator from locked evidence and submitted through the new G23a door (POST /api/pipeline/machine-script-submit/{video_id} {machine, paragraph} - free, same referee, verbatim). G23b volume gate DROPPED per Ryan (measurement refuted the thin-folder theory). G24a (cross-press violation memory) + G24b (writer escalation after 2 rejections) DEPLOYED (da9841bb, 23:18Z). Live proof deferred: watch for `[script] ... escalated_model=... reason=two_rejections` on the next video with a hard card. TODAY'S LOOP IS CLOSED - 6 deploys, script stage 23/23 at ready_for_voice, ~$5-6 spent of the $20 cap. NEXT SESSION: the VOICE stage on the carrier video (d2e37cd6).
-- Rerun recipe (proven ~40 times): POST /api/pipeline/machine-script-block/{video_id} {"machine":"<exact roster name>"} on VPS localhost:8001, tenant-bound token via /tmp/mint_tenant_token.py (se devtoken CANNOT bind tenant 561b872d - both Ryan accounts resolve to an older ee93e6d1 owner membership).
-- UI driving: worktree launch.json launches the WORKTREE frontend - copy storyengine/frontend/.env.local (prod API URL + dev token) into the worktree's frontend or auth breaks against a stray local backend. Dev pipeline page can transiently render blank; wait + reload recovers.
-- Backlog: Run All Script Cards button has no skip guard (rerolls saved cards - G21c candidate); script calls not ledgered; UI copy nits (preview-test counter, contradictory roster gate line); failure-visibility ("Something went wrong" scrubs referee detail in bot_activity); plus prior parked items (G4/G6/G7/G10/G11/G15/G19, C13, GAP3, Stripe chip).
+## State
+- Prod: da9841bb deployed (se health verified, 23:18Z - 6th deploy today), backend + worker + frontend healthy.
+- Branch: main pushed clean through a96d8d6b (docs). Session worktree claude/dazzling-euclid-adafcc fully folded back.
+  Pre-existing dirt in the shared checkout, untouched and unrelated: storyengine/frontend/next-env.d.ts,
+  storyengine/tasks/loop-handoff.md (stale July content), stray storyengine/tasks/HANDOFF-D6-boardlaws.md (cleanup candidate).
+- What shipped this session:
+  - G20c/G20d: polish hedge law + per-sentence salvage. Polish proven live at scale: 15+ applied, 3 safe discards, 0 crashes.
+  - G21a/G21b/G22: script gate honors tier-floor-as-advisory (G14 ruling); roster name-collision fix (Attacker/Ruler + latent
+    CVA-01 pair); designation check accepts real name words instead of demanding the filler word "class".
+  - G23a: hand-edit door - POST /api/pipeline/machine-script-submit/{video_id} {"machine","paragraph"} - free, verbatim,
+    same referee. Used to land the final 5 cards at $0. G23b volume gate DROPPED per Ryan (measurement refuted the
+    thin-folder theory; see tasks/decisions.md 2026-08-03 at repo root).
+  - G24a/G24b: writer violation-memory across presses + auto-escalation to a stronger writer model after 2 rejections.
+  - Carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e (tenant 561b872d-7b73-45e3-9c44-7f30c3566eda): 1/23 -> 23/23
+    production scenes, status ready_for_voice. $20 max_spend set. ~$5-6 spent today (script calls do NOT ledger - backlog).
 
-# OLDER: HANDOFF - 2026-07-30 evening - MISSION: make the standalone API pipeline bulletproof
-
-## Read this first
-Ryan's explicit request (2026-07-30, repeated and firm): **the DVsU pipeline must run
-bulletproof on StoryEngine ALONE - no MCP, no coordinator session, no simulator - using
-the workspace API keys.** Today's session proved the full research stage end-to-end and
-fixed 8 real pipeline bugs, but three capabilities that made it work still live OUTSIDE
-the engine, in coordinator-side scripts. Your job is to move them IN. No cutting corners.
-
-## State (all verified, referee-proof)
-- Video d2e37cd6 ("Every British Aircraft Carrier Class Ever Built", tenant 561b872d):
-  status `ready_for_scripting`, roster green (22/23 photos + CVA-01 honestly never-built),
-  **all 23 research cards on the row, each passing prod's own referee** (23/23 PASS run
-  ON the VPS with prod code). Script stage is unlocked, untouched. Hard cap $20/video.
-- Prod deployed at `f75da81d`-era main (last deploy 67e8224e + handoff commit). Healthy.
-- The research simulator (subscription-Claude subagents + mechanical provenance
-  verification) is archived at **`tasks/evidence/dvsu-research-simulator/`** - its
-  STATE.md documents the whole method; build_package.py / validate_card.py /
-  reanchor_card.py / submit_research.py are the reference implementations you are
-  porting FROM.
-- Pipeline fixes already shipped today (deployed, tested - do not redo): live roster-gate
-  recompute (`_live_roster_gate`), never-built machines satisfy the roster stage, ship
-  vocab in `_visual_identity_warnings` + `_anton_source_slot_hints` (incl. sunk/completed/
-  commissioned/ordered), Commonwealth+gov.uk+NAO source tiers, class entries exempt from
-  the sibling-pennant designation screen, "20.9 m2" not a designation, auto-sweep live
-  progress + task_type. Tests: `backend/tests/functional/test_live_roster_gate.py`,
-  `test_visual_identity_cross_domain.py`, `test_source_tier_domains.py`,
-  `test_ship_roster_shapes.py` (extended).
-
-## 2026-07-31 - DEPLOYED + LIVE TEST RAN + the real last mile found (G8/G9 in flight)
-Everything below (G1/G2/G2b/G5 + the D-session's work + migrations 146-153) is DEPLOYED
-to prod (c6a9ba5c, 13:19Z). Ship rescue ran: d2e37cd6 back to 23/23 cards, idempotent.
-The live user-path test (chat -> create -> approve -> research) then found, in order:
-- Roster path only triggers on title regex every/all/ever-built/complete-list (G6 chunk);
-  no default per-video spend cap exists (G7); a compound reply to an approval card
-  silently destroys it and title-edit requests are ignored (G9 IN FLIGHT, chat.py:2041);
-  and THE BIG ONE: the autobuild chain dead-ends at the Jul-12 bulk-generation safety
-  gate because nothing engine-side loops roster entries through the safe one-machine
-  research path - the carrier video only ever worked because the coordinator looped by
-  hand (G8 IN FLIGHT). Both G8/G9 briefs + full diagnosis in tasks/loop-checklist.md.
-- Test videos on prod: c18589b3 (wrong format, harmless, ~$0.75 max), d05efae3 (KGV,
-  $5 cap, roster discovered 5 ships, parked at the gate - the designated live subject
-  for G8's deferred verification; Ryan has approved re-running research on it).
-- After G8/G9 merge: needs a second deploy window (ask Ryan) + resume the live test on
-  d05efae3, then the ledger cost report.
-- RESOLVED 2026-08-01: Ryan topped up $10. Per his call, the live proof ran on the
-  REAL carrier video instead of a throwaway: the Repair All (Orchestrator) button on
-  d2e37cd6 walked the 4 needs-review cards cheapest-verb-first and finished ALL 23
-  research cards passing in ~5 min (2 fixed FREE by the G2 re-anchor pass on replay-
-  drifted citations, 2 via penny repairs). Video at ready_for_scripting, script cards
-  unlocked, seen in the UI. The DVsU research chapter of the carrier Bible is DONE,
-  by the engine alone, through the product UI. The 5-ship test video (2709939d) was
-  never run and can be deleted or kept as a spare test subject. Remaining candidates
-  (G4/G6/G7/G10/G11/G15, C13, GAP3 plan approval, Stripe chip) unchanged.
-- WAS BLOCKING, 23:27Z (now resolved): **the workspace Anthropic API account was OUT OF CREDITS** - every
-  model call on prod fails ("credit balance is too low", request req_011Cdb16DNLx...).
-  ALL customer builds are dead until Ryan tops up (Anthropic console, Plans & Billing).
-  The final proof video (2709939d, "All 5 King George V Class Battleships Ever Built",
-  $5 cap) is created, approved, and cost $0 - it died pre-spend. Re-run = one build
-  click after top-up. G16 (pennant tolerance + writer-prompt rules) is DEPLOYED
-  (4a5da1de, deploy #4) but its live proof is pending that top-up. Chat UI showed the
-  customer NOTHING for this failure - the park/failure-visibility bug on the list
-  demonstrated live.
-- LATE UPDATE: three deploys shipped (final: 89d151cd, 19:58Z - G13 ship-aware gather
-  + G14 tier-floor-to-advisory per Ryan's decision in tasks/decisions.md). Retry #2 on
-  d05efae3: all 5 ships now WRITE cards (big step), 0/5 pass on exactly two remaining
-  hard classes -> chunk G16 in loop-checklist.md (pennant-prefix identity tolerance +
-  content-shape rules moved into the writer prompt). G8b attempt bound means the next
-  live proof needs a fresh 5-ship video. Stripe webhook crash found in passing
-  (billing.py:145, task chip spawned). Ryan's standing rule recorded in memory +
-  lessons.md: 2+ failed rounds against a gate = question the design, bring him the
-  issue + one fix.
-
-## 2026-07-30 late session - GAP 1 + GAP 2 SHIPPED to LOCAL main (not pushed, not deployed)
-Maestro loop "dvsu-bulletproof"; full evidence in tasks/loop-checklist.md top section.
-- **G1 gatherer fallbacks** merged 51d5a67c: tolerant normalizer now IS the referee's
-  comparison fold (_normalized_source_text, used at validate time 1497/1510); NA
-  Discovery JSON API (retry on empty 202) -> real Wayback availability-API fallback
-  fires exactly when live fetch + tavily_raw_content are both empty; iwm.org.uk in
-  exclude_domains on every Tavily call + one extra naval-scoped query for ship
-  contexts. +15 offline fixture tests. Adversarially verified: capture_method is
-  server-side only, referee overwrites card-claimed methods, so provenance cannot be
-  forged through the new methods.
-- **G2 repair convergence** merged 9e6b3f81: free deterministic pre-repair pass
-  (re-anchor by excerpt text + inflection swaps, ported from reanchor_card.py) runs
-  before each paid round and consumes none; repair prompt now gets NAMED per-failure
-  fixes by reusing the interactive Repair-button machinery (_segment_surgery_plan);
-  (D48) quirk fixed (allowed_designations also scans the display name). 8 tests incl.
-  a zero-paid-rounds convergence proof. Adversarially verified: re-anchor constrained
-  to the machine's own fetched package, referee re-validates from scratch after.
-- **G2b** merged ba44fc62: _is_naval_gather_context word-boundary matching
-  (championship/friendship/flagship no longer trigger; battleship/warship added as
-  explicit terms).
-- **GAP 3 NOT built, by design**: scoping plan for Ryan at tasks/GAP3-identity-plan.md
-  (collision confirmed live: 21 rows / 23 entries, indices 9+21 overwritten; Phase 0 =
-  key by roster_index + replay, decision pending).
-- **Fresh-eyes audit (G-FINAL)**: every in-sandbox DoC element MET; no spec drops, no
-  vacuous tests, no dead code. Suite on local main: 1 failed / 3983 passed - the one
-  failure is pre-existing test_youtube_oauth_diagnostics (routes.google_auth attr
-  missing), NOT this loop's.
-- **New finding, parked as G4-candidate**: seed_reference_from_url (static_docu.py:2276,
-  the human paste-a-URL photo path) has no fallback chain - dead/bot-walled pasted
-  URLs reject generically instead of trying Wayback.
-- **Ryan still owes** (see completion report + G-DEC chunks): yes/no on the paid 5-ship
-  proof run (quote from the estimator first, cap $20), the GAP3 plan call, a deploy
-  window (bundle with the D-session's parked deploy - nothing from either loop is on
-  prod yet).
-
-## The mission: three gaps, in priority order
-
-### GAP 1 - the pipeline's own web gatherer has no fallbacks (highest value)
-Where: `pipeline_executor.py::_gather_verified_machine_source_package` (~line 7503,
-Tavily-based) and static_docu's reference fetching. Today the coordinator's
-`build_package.py` (in the archived simulator) did what the pipeline cannot:
-- **Per-excerpt mechanical verification** with a tolerant normalizer: strip citation
-  markers ("carrier.[9]"), collapse orphan spaces before punctuation AND one-sided
-  hyphen spaces ("equipped- Hellcat" from stripped inline tags), fold smart quotes/
-  dashes, NBSP. Every one of these each rejected REAL excerpts today before being fixed.
-- **Fallback chain when a live fetch fails**: National Archives Discovery records ->
-  their JSON API (`/API/records/v1/details/{id}`, retry on empty 202 responses);
-  any URL -> real Wayback snapshot via the availability API (never trust a claimed
-  archive URL - query the CDX/availability API yourself; an agent fabricated one today).
-- **Source steering**: iwm.org.uk 403s ALL automation (curl, WebFetch, everything) -
-  the gather prompt/source list must prefer awm.gov.au + rmg.co.uk collection object
-  pages, .gov.uk, naval-encyclopedia.com, naval-history.net, uboat.net.
-Port all three into the pipeline's gather step so a machine whose best sources sit
-behind a bot-wall still yields a passing package. Add tests with recorded fixtures.
-
-### GAP 2 - repair rounds don't converge without a coordinator
-Where: the card build/repair loop in `_run_unit_research_hold` (~9937-10440; repair
-prompt ~10386). Today's cards needed 1-3 rounds WITH precise coordinator feedback; the
-pipeline's generic repair prompt would burn its 2 rounds on the same machines. Port the
-mechanical lessons (all are string-checkable before spending a model call):
-- Deterministic PRE-repair pass (free): re-anchor citations by excerpt TEXT when ids/
-  locators drifted (reanchor_card.py logic); single-word grounding fixes are usually an
-  inflection swap to the excerpt's own word ("spent"->"spending", drop "seen"/"ship"/
-  "plus"/"toward").
-- Feed the repair prompt STRUCTURED, named fixes, not just warning strings: which
-  segment, which row to re-cite (a hinted Tier 1-3 row for that beat), the exact rules -
-  fields must contain the display name's LAST token; the specificity check passes if a
-  field OPENS with the machine's first 4 tokens; never kind "context"/"spec"; required
-  beats never on Tier-4 rows; apostrophes tokenize ("Attacker's" leaves a stray "s").
-- Known checker quirk to fix or document: `_unit_code`'s 4-token glob makes a bracketed
-  pennant like "(D48)" read as an unsupported designation inside
-  why_this_unit_deserves_a_paragraph for class-style names.
-
-### GAP 3 - machine identity is guessed from a glued display string (structural)
-The collisions are REAL on this very video: both "Lend-Lease escort carriers ... class
-(US-built)" entries -> machine_key LENDLEASEESCORTCARRIERS; both CVA-01-containing
-entries -> CVA01. `machine_research_cards` silently overwrote 2 of 23 rows (21 on the
-table; payload holds all 23 and readers fall back, so it is benign TODAY by accident).
-Fix per the parked plan: research DECLARES identity per roster entry -
-`canonical_name`, `search_aliases`, `disambiguators`, `identifier_kind`, `member_units` -
-and machine_key derives from canonical identity, never the glued string. Includes:
-migration for machine_research_cards keys, the two collision pairs on this video,
-and killing the downstream regex re-derivations (the handoff notes below list the known
-next breakages: `_BUILT_COUNT_ZERO_RE`, `_GENERIC` in static_docu, "M4"/"MB" token
-collisions for ground vehicles). This deserves its own GOAL.md planning pass with Ryan
-before implementation - scope it, show him the plan, then build.
-
-## Definition of Complete
-A fresh test video with a ship roster (clone d2e37cd6's shape or make a small 5-ship
-one) runs `run research` -> photos -> per-machine research **through the pipeline's own
-API path only** (no MCP, no coordinator, no sidecar files) and reaches
-ready_for_scripting with all cards passing the referee - proven by driving the UI like
-a user and by `se db` reads, not by code inspection. Gatherer fallback + repair-lesson
-+ normalizer behavior each pinned by tests. Budget: quote any paid test run first
-(a 5-ship roster keeps it small); deploys via `se deploy` protocol.
-
-## Where everything lives
-- Reference implementations: `tasks/evidence/dvsu-research-simulator/` (STATE.md first).
-- Today's commits (all on main, deployed): 82fd0051, 564055a6, 88afae2e, 574a0b6b,
-  94ace070, bcb5f446, 023b15ec + handoff/evidence commits.
-- The carrier video continues separately: script stage is next there (see Open threads).
+## Next action (start here cold)
+Voice stage on d2e37cd6. Per-scene resumable/skip-if-done (skills/video-pipeline/voice/run.py:86-96), so safe to retry.
+1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
+   "Rachel"). This is a creative call, get it before spending.
+2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.
+3. Trigger the engine's own voice stage (find the verb in storyengine/backend/routes/pipeline.py; the MCP `voice` tool
+   also exists). Auth for direct REST: se devtoken CANNOT bind this tenant (both Ryan accounts resolve to an older
+   ee93e6d1 owner membership) - mint with:
+   ssh storyengine-vps '~/projects/economy-fastforward/storyengine/backend/venv/bin/python3 /tmp/mint_tenant_token.py ryan.ayler@gmail.com 561b872d-7b73-45e3-9c44-7f30c3566eda'
+4. Verify per-scene audio via get_script (voice status per scene) + a UI walk of the Script/Voice tab.
 
 ## Open threads
-- **Auto-sweep progress bug - FIXED but NOT DEPLOYED.** Commit `82fd0051`, pushed to origin/main,
-  NOT on prod (prod is `068ce0b3`). The Roster panel's live progress used to fire only for the
-  manual "Re-check missing" button, because `showRunning` matched the literal string
-  `"machine reference"` which only `recheck_roster_references` writes; the auto-dispatched sweep
-  showed a frozen panel for ~10 minutes. Fix threads a structured `task_type="roster_prefetch"`
-  through the task-status channel instead of string-matching, with the old substring match kept as
-  a backstop. Verified against the auto path specifically. **This is the one thing pending a
-  deploy** - `./scripts/se.sh deploy <session-name> --with-frontend` (session name BEFORE flags or
-  the frontend build silently skips). It touches the frontend, so `--with-frontend` is required.
-- **NEW bug found by that work, not fixed.** `_db_persist_task`'s existing-running-row lookup
-  (`WHERE video_id=$1 AND status='running'`) has no `task_type` filter. If a manual recheck and an
-  auto sweep are ever concurrently active (the C16 gap below), the manual path's `_set_task_status`
-  can UPDATE the auto sweep's own `background_tasks` row instead of inserting its own, stomping the
-  auto sweep's progress message. Pre-existing and generic to every route using `_set_task_status`.
-- **RESOLVED for this video (cache photo verified = MV Rapana, a real MAC ship); the alias MECHANISM risk stands until GAP 3 lands.** The roster entry
-  `"Archer class / Empire Mac-Ship conversions"` describes MAC ships, but slash-splitting yields the
-  alias `"Archer class"`, which matches the real-but-different RN Archer-class escort carrier. The
-  alias mechanism can now cache a confidently wrong ship. The token hardening does not catch it -
-  this is a name collision, not a substring bug.
-- **3 suspect cache rows NOT purged** (not authorized): Boeing B-47 Stratojet (`NNSA-NSO-990.jpg`,
-  unidentifiable filename), Northrop Grumman B-2 Spirit (primarily an F-35B training photo),
-  Rockwell B-1 Lancer (identical file to the separate B-1B row). Needs a visual check.
-- **Parked decisions for Ryan.** C13: should `submit_research` run the unit-research hold? It skips
-  it today, and the MCP docs call that path "THE STANDARD WAY", so the strictest gate runs on the
-  least-used route. C15: subvariant-padding was reclassified SOFT, loosening the gate for aircraft
-  rosters (B-29 + B-29B padding now advances flagged instead of blocking). C16: a manual re-check
-  can run concurrently with an auto sweep, risking duplicate PAID vision calls.
-- **Next phase, agreed but not started - domain-agnostic machine identity.** Everything in this loop
-  patched an aircraft-shaped foundation. The channel must cover helicopters, ships, bombers, ground
-  vehicles, jeeps. Ground vehicles are worse than ships: "M4 Sherman" -> token `m4` (collides with
-  M4 carbine, M4 motorway); "Willys MB" -> `mb`. Already-identified next breakages:
-  `_BUILT_COUNT_ZERO_RE` enumerates ships/units/aircraft/hulls/vehicles/prototypes but NOT
-  helicopters/tanks/jeeps; `_GENERIC` in `static_docu.py` lists singular "helicopter"/"tank" but not
-  plurals. Real fix: research DECLARES identity (canonical_name, search_aliases, disambiguators,
-  identifier_kind) instead of downstream regexes re-deriving it from a glued display string. Needs
-  its own GOAL.md planning session.
-- Full chunk history, evidence and known-debt reasoning: `tasks/loop-checklist.md` (top section).
-  Live-check recipes Ryan still owes: `tasks/deferred-verification.md`.
+- G24 live proof deferred by design: on the next video with a hard card, watch backend logs for
+  `[script] machine=... escalated_model=... reason=two_rejections` and confirm the third draft stops repeating rejections.
+- Backlog: Run All Script Cards has no skip guard (rerolls saved cards - G21c candidate in tasks/loop-checklist.md);
+  script-stage calls write no generation_ledger rows; UI copy nits (roster header counts preview tests "2/23" not real
+  scenes; roster gate line self-contradicts); bot_activity scrubs referee detail to "Something went wrong";
+  older parked items (G4/G6/G7/G10/G11/G15/G19, C13, GAP3, Stripe chip) unchanged in tasks/loop-checklist.md.
 
 ## Gotchas learned this session
-- **Agent worktree isolation can branch from a STALE head, not current local main.**
-  The G2 worker's worktree was based on efc50bd8 while main already had the G1 merge;
-  the worker caught it with `git merge-base --is-ancestor <required-sha> HEAD` before
-  building. Every worker brief must state the required base sha and make that check
-  step 0, with "merge the sha in, or stop and flag" as the remedy.
-- **Verify claims against real DB rows, not fixtures.** A never-built classifier passed 11 tests
-  against an enriched fixture while doing literally nothing on the real row - the real CVA-01 has
-  `status="cancelled-built"` (not `"cancelled"`) with `built_count="0 ships built"`. Pull the actual
-  row with `se db` before trusting any chunk report.
-- **Worktree isolation fails when the orchestrating session's cwd is outside the git repo** (e.g.
-  running from ~/Desktop). Parallel lanes must be file-scoped by brief instead.
-- **`git stash` is dangerous with concurrent workers in one checkout.** A `stash pop` collided with
-  another lane's commits and briefly wiped a worker's uncommitted changes. Use file-copy swaps for
-  stash-proofs; if you must stash, always `git stash push -- <explicit paths>`.
-- **Raw test counts drift when other lanes commit mid-session.** The trustworthy method is running
-  the suite with and without the change and diffing the sorted FAILED/ERROR lines.
-- **The in-app Browser pane hits a login wall on prod** and does not carry Ryan's session. Do not
-  script past auth - that is an explicit project boundary. Ryan drives a logged-in window, or the
-  check is deferred.
+- Hand-submitted machine cards (G23a house rules, full list in loop-checklist G23a entry): no semicolons; no only/never
+  unless verbatim in slot evidence; each beat sentence may cite ONLY its own plan-slot evidence (memorable_fact facts are
+  unusable cross-slot); final sentence may not introduce new named entities; hedge any number-bearing sentence; digits
+  matching evidence tokens beat spelled-out number words.
+- Worktree UI driving: the worktree's own launch.json starts the WORKTREE frontend - copy storyengine/frontend/.env.local
+  (prod API URL + dev token) into the worktree's frontend first, or auth silently breaks against a stray localhost:8001.
+- Batch-press scripts must log the FULL blocking-warnings list per item; summary lines lie (tasks/lessons.md 2026-08-03).
