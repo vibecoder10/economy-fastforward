@@ -703,3 +703,8 @@ THE RULE: when the same gate/spec eats 2+ rounds of fixes, stop and question the
 design. Bring Ryan: what keeps failing, why the design causes it, ONE recommended
 change, the tradeoff in plain words. Inherited gates from earlier sessions are not
 sacred. Silent grinding against a bad rule is the most expensive form of diligence.
+
+### Batch-press scripts must log FULL warnings (2026-08-03)
+- The 22-card and repair-run scripts logged only pass/fail summaries; diagnosing the residue cost 5 extra paid presses to recapture warnings the responses already contained. Any batch runner must log the complete blocking-warnings list per item.
+- A "RUN COMPLETE ok=22" line is not success - count per-card outcomes (4 of those "ok" were 0-second no-ops). Sum lines lie; per-item lines don't.
+- Log-line claims from a previous session are hypotheses, not diagnoses: "polish dropped roughly" was wrong twice over - the real causes were a sentence-scoped hedge flag and a last-word designation fallback. Reproduce offline through the REAL function before building a fix.

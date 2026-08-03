@@ -1,36 +1,13 @@
 # HANDOFF - updated 2026-08-03 - script stage in progress on the carrier video
 
 ## CURRENT STATE (read this block first, ignore older sections below until needed)
-- Mission "bulletproof API pipeline" is DONE and deployed (research 23/23 on d2e37cd6,
-  full trail in tasks/loop-checklist.md G-section). Now in the SCRIPT stage of
-  "Every British Aircraft Carrier Class Ever Built" (d2e37cd6, tenant 561b872d).
-- Script cards written so far: Argus (good, 1 glitch phrase), Hermes (ship-ready),
-  Furious (passed referee but language broken - see G20 below). 20 carriers unwritten.
-- Ryan's quality rulings this stage (all in tasks/decisions.md): word-ceiling
-  near-misses are nits not blocks (G18, grace band deployed); language quality
-  matters - referee checks facts but "can't hear" grammar.
-- G20 language polish pass (cheap Haiku call fixes grammar, facts locked, referee
-  re-checks, discard-on-regression) deployed but went SILENT on first live run
-  (polished:false, no logs). G20b (hardened reply parsing - likely true culprit -
-  + loud outcome logging) merged 4b7b9063, deploy #8 in flight as of handoff.
-- SOLVED 2026-08-03 17:18Z, cause named by the new logging on a live Furious rerun:
-  `[polish] outcome=discarded_new_blocking detail=claim_map row 4 needs two
-  independent sources or a hedge for exact numerical detail(s): eighteen`.
-  The polish pass WORKS and the discard-protection worked as designed: polish
-  dropped the hedge word ("roughly eighteen-inch" -> unhedged), the referee
-  correctly flagged the now-exact number, fallback kept the draft.
-- NEXT (chunk G20c, first thing in the fresh session): one-line fix + test - the
-  polish prompt must treat hedge words guarding numbers (roughly/about/around/
-  some/over) as load-bearing facts, never removed. Same worktree pattern, merge,
-  deploy (ask Ryan), rerun Furious, expect outcome=applied + clean paragraph,
-  THEN Ryan's go on Run All Script Cards (~$1.50-3, video capped at $20... check
-  actual max_spend on d2e37cd6 first - it was NULL, consider setting one).
-- G20c (hedge law) + G20d (per-sentence salvage) BOTH deployed (0e9b4072) and PROVEN live 18:25Z: Furious rerun -> [polish] outcome=applied, clean 134-word paragraph, referee passed. Polish chapter closed. $20 max_spend now set on d2e37cd6. NEXT: Ryan's go on Run All Script Cards (20 carriers, ~$1.50-3), then walk the script stage in the UI.
-- UI driving notes: dev server via launch.json 'storyengine' + se devtoken; JS
-  .click() opens dialogs but Confirm buttons need a full pointer-event sequence
-  (pattern in session; dialogs sometimes render off-viewport).
-- Parked backlog: G4/G6/G7/G10/G11/G15/G19 candidates + C13 + GAP3 plan
-  (tasks/GAP3-identity-plan.md) in tasks/loop-checklist.md; Stripe webhook chip.
+- Script stage on the carrier video (d2e37cd6, tenant 561b872d): 18/23 production scenes SAVED+PASSING (scenes 1-8, 10-12, 14-15, 18, 20-23). Was 1/23 at session start ("3 written" in the old handoff was wrong - Argus/Hermes were previews only, never saved).
+- Shipped + proven today (4 deploys, final a36e2ffe): G20c hedge law, G20d per-sentence polish salvage (Furious outcome=applied live), G21a script gate honors tier-floor-as-advisory (G14 ruling), G21b roster-name collision fix (Attacker/Ruler + latent CVA-01 pair), G22 designation fallback uses meaningful name words not "class". Polish at scale: 15+ applied / 3 safely discarded / 0 crashes.
+- $20 max_spend set on d2e37cd6 (was NULL). ~$4-6 workspace-key spend today; NOTE script-stage calls don't ledger (0 generation_ledger rows) - backlog.
+- RESIDUE, awaiting Ryan: 5 cards where the referee correctly blocks writer hallucination on thin evidence - CAM/MAC (16, style-only rhythm fail, closest), Nairana (19, invented "lieutenant"), Activity (17, invents tonnage numbers), CVA-01 predecessors (9) + CVA-01 QE (13, both keep inventing "ten"). Options: more presses (~$0.10 ea), one-machine research refresh to enrich evidence then re-press, or hand-edit in UI. Full diagnosis in loop-checklist G22 section.
+- Rerun recipe (proven ~40 times): POST /api/pipeline/machine-script-block/{video_id} {"machine":"<exact roster name>"} on VPS localhost:8001, tenant-bound token via /tmp/mint_tenant_token.py (se devtoken CANNOT bind tenant 561b872d - both Ryan accounts resolve to an older ee93e6d1 owner membership).
+- UI driving: worktree launch.json launches the WORKTREE frontend - copy storyengine/frontend/.env.local (prod API URL + dev token) into the worktree's frontend or auth breaks against a stray local backend. Dev pipeline page can transiently render blank; wait + reload recovers.
+- Backlog: Run All Script Cards button has no skip guard (rerolls saved cards - G21c candidate); script calls not ledgered; UI copy nits (preview-test counter, contradictory roster gate line); failure-visibility ("Something went wrong" scrubs referee detail in bot_activity); plus prior parked items (G4/G6/G7/G10/G11/G15/G19, C13, GAP3, Stripe chip).
 
 # OLDER: HANDOFF - 2026-07-30 evening - MISSION: make the standalone API pipeline bulletproof
 
