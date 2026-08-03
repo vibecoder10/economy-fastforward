@@ -464,6 +464,7 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       first implementation pass, before the fix was corrected - kept green, not broken).
       Suite: file 12/12; full backend suite 4266 passed / 28 failed / 4 skipped (was 4254/28/4,
       byte-identical pre-existing test_custom_film_remotion.py set, zero new failures).
+- [x] G24 DEPLOYED 2026-08-03 23:18Z (da9841bb, deploy #6). Live proof deferred by design: fires naturally the first time a future card fails referee twice - the tell is the `[script] machine=... escalated_model=... reason=two_rejections` log line. Deferred-verification: watch for that line on the next hard video and confirm the third press's draft stops repeating the previous rejections.
 - [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
       stored script-preview verdicts go STALE when validator rules change (Argus
       preview holds passed=false from the pre-G18 ceiling; the UI Check button

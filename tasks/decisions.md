@@ -889,3 +889,9 @@ only when the assembly hash is current and the scene is assembled or accepted.
   them burns a paid repair round for no real gain. The grace band keeps the actual
   protection this law exists for - a genuinely rambling or thin paragraph (30+ words
   over/under) still hard-blocks.
+
+## 2026-08-03, G23b: volume-based evidence-abundance gate DROPPED. Measurement showed residue cards statistically indistinguishable from passing cards on all volume metrics; the failure mechanism is writer behavior on hard composite entries, not folder size. Rule reaffirmed: measure before gating - a worker refusing to build an unsupported gate is correct behavior.
+
+## 2026-08-03, G23a: hand-written machine paragraphs are a first-class path - POST /api/pipeline/machine-script-submit (free, same referee, verbatim). This is the human escalation path for cards the writer cannot land.
+
+## 2026-08-03, G24: the durable fix for repeated writer hallucination is memory + escalation, not gate changes: rejected drafts' blocking warnings feed the next attempt's prompt (bounded, cleared on pass), and two consecutive rejections escalate the writer model (referee unchanged).
