@@ -5293,6 +5293,90 @@ def _map_submitted_paragraph_to_claim_bundle(machine: str, sentences: list[str],
     }
 
 
+# G24a/G24b: cross-press machine-script attempt memory + escalation ladder.
+# Lives in the SAME videos.script_validation JSON every other per-machine
+# hold state already lives in, under its own "machine_script_attempts" key
+# (never touching machine_script_blocks/script_hold, which stay pass-only).
+# Read+write helpers are module-level pure functions (no I/O) so they're
+# directly unit-testable; the actual DB read-modify-write is one shared
+# async method (PipelineExecutor._persist_machine_script_attempt_state,
+# defined near _save_machine_script_block below), called from EVERY exit
+# path in _run_static_script_hold's per-machine loop - single-machine
+# preview, single-machine save, bulk continue, bulk stop-on-fail - which is
+# how both entry points (run_machine_script_block's single-machine call and
+# the bulk hold loop) get this for free: they share this one function.
+_MACHINE_SCRIPT_ATTEMPT_MEMORY_DEPTH = 2  # G24a: bounded - last 2 failed attempts only
+_MACHINE_SCRIPT_ESCALATION_THRESHOLD = 2  # G24b: escalate after this many CONSECUTIVE rejections
+
+
+def _machine_script_attempt_state(video: dict, machine: str) -> dict:
+    """This machine's cross-press attempt memory, read from
+    video.script_validation.machine_script_attempts.<machine>. {} for a
+    machine with no recorded attempt (first press ever, or its last
+    recorded attempt passed and was cleared)."""
+    import json as _json_attempt
+
+    existing = video.get("script_validation") if isinstance(video, dict) else None
+    try:
+        validation = (
+            _json_attempt.loads(existing)
+            if isinstance(existing, str) and existing.strip()
+            else (existing or {})
+        )
+    except Exception:
+        validation = {}
+    if not isinstance(validation, dict):
+        return {}
+    attempts = validation.get("machine_script_attempts")
+    if not isinstance(attempts, dict):
+        return {}
+    state = attempts.get(machine)
+    return state if isinstance(state, dict) else {}
+
+
+def _violation_memory_prompt_block(attempt_state: dict) -> str:
+    """G24a: a short prompt section naming the most recent failed
+    attempt(s)' VERBATIM blocking warnings, so a writer press that would
+    otherwise start blind sees what already went wrong - the real failure
+    mode this closes: both CVA-01 entries invented the number "ten" on
+    every one of 4+ separate presses because each press never saw the
+    prior one's rejection. Empty string when there is nothing to warn
+    about (first attempt, or the last recorded attempt passed)."""
+    recent = attempt_state.get("recent_blocking_warnings") if isinstance(attempt_state, dict) else None
+    if not isinstance(recent, list) or not recent:
+        return ""
+    lines: list[str] = []
+    for attempt_warnings in recent[-_MACHINE_SCRIPT_ATTEMPT_MEMORY_DEPTH:]:
+        if not isinstance(attempt_warnings, list):
+            continue
+        lines.extend(f"- {warning}" for warning in attempt_warnings if str(warning or "").strip())
+    if not lines:
+        return ""
+    return (
+        "YOUR PREVIOUS DRAFT WAS REJECTED FOR:\n"
+        + "\n".join(lines)
+        + "\nDo not repeat these mistakes.\n\n"
+    )
+
+
+def _resolve_escalated_writer_model(anthropic_client: Any) -> Optional[str]:
+    """G24b: the escalation ladder's model choice. Reuses the SAME
+    provider-branching precedent claude_model_for_direct_client
+    (shared.channel_profile) already established, rather than a fresh
+    convention - a raw Anthropic-style model id (orchestrator.pipeline_
+    constants.Models.CLAUDE_OPUS) is only meaningful for AnthropicDirectClient
+    (the live path for any tenant with its own Anthropic key - every DVsU
+    carrier-video run this whole loop has exercised uses exactly this
+    client). A Kie-wrapped client has no stronger tier in CLAUDE_MODELS's
+    own registry, so it stays on its own best documented "smart" tier
+    rather than guessing an unverified raw model string for it."""
+    if type(anthropic_client).__name__ == "AnthropicDirectClient":
+        from orchestrator.pipeline_constants import Models
+        return Models.CLAUDE_OPUS
+    from shared.channel_profile import CLAUDE_MODELS
+    return CLAUDE_MODELS["kie"]["smart"]
+
+
 def _repair_machine_story_bundle_mechanics(machine: str, plan: dict, bundle: dict) -> dict:
     """Fix mechanical JSON-bundle failures without loosening source validation."""
     if not isinstance(bundle, dict):
@@ -12939,6 +13023,25 @@ class PipelineExecutor:
                 f"NEXT MACHINE: {next_machine}\n"
             )
             research_source, research_source_kind = _research_source_for_machine(rp, machine)
+            # G24a/G24b: cross-press memory for THIS machine, read once per
+            # iteration - covers both entry points (single-machine calls and
+            # the bulk loop) because both run through this same per-machine
+            # body. violation_memory_block is injected into the write
+            # prompt below; escalated_writer_model overrides the default
+            # writer model after 2+ consecutive rejections.
+            machine_attempt_state = _machine_script_attempt_state(video, machine)
+            violation_memory_block = _violation_memory_prompt_block(machine_attempt_state)
+            consecutive_rejections = int(machine_attempt_state.get("consecutive_rejections") or 0)
+            escalated_writer_model = (
+                _resolve_escalated_writer_model(anthropic_client)
+                if consecutive_rejections >= _MACHINE_SCRIPT_ESCALATION_THRESHOLD else None
+            )
+            if escalated_writer_model:
+                _logger.warning(
+                    "[script] machine=%s escalated_model=%s reason=two_rejections "
+                    "note=opus-tier calls run several times sonnet's per-token cost",
+                    machine, escalated_writer_model,
+                )
             # Anton allows only 4-5 name-openers across a full video. Assign them
             # deterministically so independent calls cannot all default to the
             # easiest Wikipedia-style opening.
@@ -13116,6 +13219,7 @@ class PipelineExecutor:
                     )
                 write_prompt = (
                     "WRITE ONE ANTON-STYLE PARAGRAPH AS FIVE SENTENCES FROM THE BEAT PLAN BELOW.\n\n"
+                    f"{violation_memory_block}"
                     f"VIDEO TITLE: {title}\n"
                     f"{machine_scope_line}"
                     f"{neighbor_context}"
@@ -13141,6 +13245,7 @@ class PipelineExecutor:
                     system_prompt=story_distiller_system_prompt + inventory_system_override,
                     max_tokens=1200,
                     temperature=0.2,
+                    **({"model": escalated_writer_model} if escalated_writer_model else {}),
                 )
                 bundle = _parse_planned_story_sentences(raw_story, beat_plan)
                 bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
@@ -13170,6 +13275,7 @@ class PipelineExecutor:
                         system_prompt=story_distiller_system_prompt + inventory_system_override,
                         max_tokens=1200,
                         temperature=0.1,
+                        **({"model": escalated_writer_model} if escalated_writer_model else {}),
                     )
                     edited = _parse_planned_story_sentences(raw_story, beat_plan)
                     if edited.get("_parse_error"):
@@ -13183,6 +13289,7 @@ class PipelineExecutor:
             else:
                 prompt = (
                     "Write ONE spoken narration paragraph for a Designed vs Used static machine documentary.\n\n"
+                    f"{violation_memory_block}"
                     f"VIDEO TITLE: {title}\n"
                     f"VIDEO THESIS / ARC: {video_thesis}\n"
                     f"{machine_scope_line}"
@@ -13211,6 +13318,7 @@ class PipelineExecutor:
                     system_prompt=script_system_prompt + inventory_system_override,
                     max_tokens=450,
                     temperature=0.45,
+                    **({"model": escalated_writer_model} if escalated_writer_model else {}),
                 )
                 paragraph = self._clean_static_unit_paragraph(paragraph)
                 warnings = self._validate_static_unit_paragraph(machine, paragraph, dvsu_rule_overrides)
@@ -13301,6 +13409,7 @@ class PipelineExecutor:
                         system_prompt=script_system_prompt + "\n\nRepair only the supplied paragraph. Output only final spoken narration.",
                         max_tokens=450,
                         temperature=0.25,
+                        **({"model": escalated_writer_model} if escalated_writer_model else {}),
                     )
                     paragraph = self._clean_static_unit_paragraph(paragraph)
                     warnings = self._validate_static_unit_paragraph(machine, paragraph, dvsu_rule_overrides)
@@ -13432,11 +13541,19 @@ class PipelineExecutor:
                             title=title,
                             voice_id=voice_id,
                         )
+                        # G24a/G24b: after _save_machine_script_block, not
+                        # before - that call's own script_validation write is
+                        # built from the (possibly stale) `video` snapshot,
+                        # so ours must land on top of it, not under it.
+                        await self._persist_machine_script_attempt_state(video_id, machine, [], True)
                         await self._log_activity(
                             bot_name, video_id, "completed",
                             f"Single-machine script block saved: {machine}",
                         )
                         return {"status": "completed", "video_id": video_id, "script_block": script_block}
+                    await self._persist_machine_script_attempt_state(
+                        video_id, machine, _blocking_warnings(warnings), False,
+                    )
                     await self._log_activity(
                         bot_name, video_id, "failed",
                         f"Single-machine script block needs review: {machine}",
@@ -13454,6 +13571,15 @@ class PipelineExecutor:
                     _verified_source_cache_key(machine),
                     preview,
                 )
+                # G24a/G24b deliberately does NOT persist attempt memory
+                # here: run_machine_script_preview's own contract is
+                # "isolated... without touching production script rows OR
+                # STATUS" (see its docstring and the regression tests that
+                # assert zero script_validation writes on this exact path).
+                # Cross-press memory/escalation is scoped to machine-script-
+                # block and the bulk hold loop, per the brief - a preview
+                # press still READS whatever memory those wrote, it just
+                # never writes its own.
                 await self._log_activity(
                     bot_name, video_id, "completed" if preview_passed else "failed",
                     f"Single-machine script preview {'passed' if preview_passed else 'needs review'}: {machine}",
@@ -13469,6 +13595,12 @@ class PipelineExecutor:
                 await execute(
                     "UPDATE videos SET script_validation = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
                     _json_sh.dumps(validation), video_id, self.tenant_id,
+                )
+                # G24a/G24b: after the line above, which OVERWRITES
+                # script_validation wholesale - ours must be the last write
+                # so the attempt-memory key survives it.
+                await self._persist_machine_script_attempt_state(
+                    video_id, machine, _blocking_warnings(warnings), False,
                 )
                 msg = f"Script-hold stopped at machine {i}/{len(roster)} ({machine}): " + "; ".join(
                     _review_messages(warnings) or [str((quality_audit or {}).get("summary") or "Anton quality audit needs review")]
@@ -13498,6 +13630,11 @@ class PipelineExecutor:
                    WHERE id = $2 AND tenant_id = $3""",
                 _json_sh.dumps(progress_hold), video_id, self.tenant_id,
             )
+            # G24a/G24b: after the jsonb_set progress write above (a targeted
+            # merge, not a full replace, but ours still needs the freshest
+            # read - see the known residual gap noted on the persist method
+            # itself for the bulk-all-pass final write below).
+            await self._persist_machine_script_attempt_state(video_id, machine, [], True)
             await self._log_activity(bot_name, video_id, "started", f"Script-hold paragraph {i}/{len(roster)} passed: {machine}")
 
         full_script = "\n\n".join(paragraphs)
@@ -14205,6 +14342,75 @@ scenes."""
             actual_cost=SCRIPT_COST_ESTIMATE,
         )
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
+
+    async def _persist_machine_script_attempt_state(
+        self, video_id: str, machine: str, blocking_warnings: list[str], passed: bool,
+    ) -> None:
+        """G24a/G24b: one shared write, called from EVERY exit path in
+        _run_static_script_hold's per-machine loop (single-machine preview,
+        single-machine save, bulk continue, bulk stop-on-fail) - cross-press
+        memory only works if every path that can end a machine's turn
+        updates the SAME state a later, separate HTTP press will read.
+
+        Always does a fresh read-modify-write (never trusts an in-memory
+        `video` snapshot, which can be stale by the time this fires) so it
+        composes correctly with whatever the SAME request's OTHER
+        script_validation writes (progress_hold, _save_machine_script_block,
+        the bulk early-fail write) already committed - this function must
+        run AFTER those, not before, or its update would be clobbered by a
+        later stale-snapshot-based write. Known residual gap (documented,
+        not fixed here - narrow and non-destructive): the bulk path's own
+        FINAL post-loop write (only reached when every machine in that run
+        passes) rebuilds script_validation from the request's ORIGINAL
+        snapshot too, so a mid-loop clear for a machine that passed in a
+        prior separate press could be reverted to stale state at the very
+        end of an all-pass bulk run - worst case is one unnecessary
+        violation-memory line or an early escalation on that machine's next
+        attempt, never a lost pass or a wrong block.
+
+        Clears this machine's entry entirely on pass. On fail, appends this
+        attempt's blocking warnings (bounded to the last
+        _MACHINE_SCRIPT_ATTEMPT_MEMORY_DEPTH attempts) and increments the
+        consecutive-rejection counter G24b's escalation ladder reads.
+        """
+        import json as _json_attempt
+
+        rows = await fetch_all(
+            "SELECT script_validation FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id, self.tenant_id,
+        )
+        existing = rows[0].get("script_validation") if rows else None
+        try:
+            validation = (
+                _json_attempt.loads(existing)
+                if isinstance(existing, str) and existing.strip()
+                else (existing or {})
+            )
+        except Exception:
+            validation = {}
+        if not isinstance(validation, dict):
+            validation = {}
+        attempts = validation.get("machine_script_attempts")
+        if not isinstance(attempts, dict):
+            attempts = {}
+        if passed:
+            attempts.pop(machine, None)
+        else:
+            prior = attempts.get(machine) if isinstance(attempts.get(machine), dict) else {}
+            prior_recent = (
+                prior.get("recent_blocking_warnings")
+                if isinstance(prior.get("recent_blocking_warnings"), list) else []
+            )
+            recent = (list(prior_recent) + [list(blocking_warnings)])[-_MACHINE_SCRIPT_ATTEMPT_MEMORY_DEPTH:]
+            attempts[machine] = {
+                "recent_blocking_warnings": recent,
+                "consecutive_rejections": int(prior.get("consecutive_rejections") or 0) + 1,
+            }
+        validation["machine_script_attempts"] = attempts
+        await execute(
+            "UPDATE videos SET script_validation = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+            _json_attempt.dumps(validation), video_id, self.tenant_id,
+        )
 
     async def _save_machine_script_block(
         self,
