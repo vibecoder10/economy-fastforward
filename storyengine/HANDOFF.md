@@ -25,7 +25,8 @@
   deploy (ask Ryan), rerun Furious, expect outcome=applied + clean paragraph,
   THEN Ryan's go on Run All Script Cards (~$1.50-3, video capped at $20... check
   actual max_spend on d2e37cd6 first - it was NULL, consider setting one).
-- G20c hedge-word fix built + tested + merged to local main (commit f50869e1), NOT pushed/deployed - awaiting Ryan's deploy approval.
+- G20c hedge-word fix built + tested + merged to local main (commit f50869e1), deployed 26a02d4f.
+- G20c live rerun: card good, polish DISCARDED again - real root cause found (sentence-scoped hedged flag masked single-sourced "eighteen"; polish removing unrelated "about" exposed it - full diagnosis in loop-checklist G20c). Proposed G20d per-sentence salvage awaiting Ryan's call. Run All parked.
 - UI driving notes: dev server via launch.json 'storyengine' + se devtoken; JS
   .click() opens dialogs but Confirm buttons need a full pointer-event sequence
   (pattern in session; dialogs sometimes render off-viewport).
