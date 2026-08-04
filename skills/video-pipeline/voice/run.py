@@ -6,9 +6,13 @@ Advances: Ready For Voice → Ready For Image Prompts
 Clients: elevenlabs, google, airtable, slack
 """
 
+import io
+import logging
 import re
 
 from orchestrator.pipeline_constants import Statuses, IdeaFields, ScriptFields
+
+logger = logging.getLogger(__name__)
 
 # The narrator must never read what isn't narration. Heard live: the scene VO
 # spoke the ENTIRE raw scene text — "**Marco:** ¡Espera!" labels, the
@@ -29,6 +33,24 @@ def narration_text(scene_text: str, dialogue_mode: str = "") -> str:
         text = _SPEAKER_LINE_RE.sub("", text)
     text = _MD_MARKS_RE.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def mp3_duration_seconds(data: bytes) -> "float | None":
+    """Real duration read straight from the MP3 header (mutagen — already a
+    pinned dependency, used the same way in dialogue_voice.py's per-segment
+    timing). Returns None (after logging a warning) if the bytes can't be
+    parsed for any reason — a scene's narration MP3 must still upload and
+    voice_over_url must still get written even when duration can't be
+    determined. Rounded to 2 decimals."""
+    try:
+        from mutagen.mp3 import MP3
+        length = float(MP3(io.BytesIO(data)).info.length)
+        if length > 0:
+            return round(length, 2)
+        logger.warning("voice duration: mutagen returned a non-positive length")
+    except Exception as e:
+        logger.warning("voice duration: failed to read MP3 duration (%s)", e)
+    return None
 
 
 async def run(pipeline) -> dict:
@@ -122,6 +144,11 @@ async def run(pipeline) -> dict:
             # Download audio (reads temp file or URL)
             audio_content = await pipeline.elevenlabs.download_audio(audio_url)
 
+            # Real duration from the MP3 bytes we already have in memory —
+            # never lets a duration-parsing failure fail the scene; None
+            # just means the column stays NULL like it did before this fix.
+            voice_duration = mp3_duration_seconds(audio_content)
+
             # Upload to Google Drive
             filename = f"Scene {scene_number}.mp3"
             drive_result = pipeline.google.upload_audio(audio_content, filename, pipeline.project_folder_id)
@@ -132,8 +159,10 @@ async def run(pipeline) -> dict:
             else:
                 persistent_url = audio_url  # fallback to original URL
 
-            # Update Supabase with persistent Drive URL
-            pipeline.airtable.mark_script_finished(script["id"], persistent_url)
+            # Update Supabase with persistent Drive URL + real duration —
+            # same call, same DB update (adapter writes both columns together).
+            pipeline.airtable.mark_script_finished(
+                script["id"], persistent_url, voice_duration_seconds=voice_duration)
             voice_count += 1
             total_chars += len(scene_text)
         else:

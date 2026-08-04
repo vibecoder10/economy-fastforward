@@ -2258,7 +2258,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine script roster</h3>
           </div>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {machineScriptPreviewPassCount}/{machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.
+            {machineScriptProductionCount > machineScriptPreviewPassCount
+              ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes scripted. ${machineScriptProductionCount === machineRosterLabels.length ? "Script complete." : "Run remaining cards, or run all script cards to finish the rest."}`
+              : `${machineScriptPreviewPassCount}/${machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.`}
           </p>
           <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
             <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (Math.max(machineScriptPreviewPassCount, machineScriptProductionCount) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: scriptDone ? "var(--green)" : "var(--orange)" }} />
