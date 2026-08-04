@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2, AlertTriangle, ImageOff, Images, Loader2, RefreshCw, ThumbsUp,
+  CheckCircle2, AlertTriangle, ChevronLeft, ChevronRight, ImageOff, Images, Loader2, RefreshCw, ThumbsUp,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useToast } from "@/components/ui/toast";
@@ -43,6 +43,123 @@ function cardStatusFor(status: string | null | undefined): CardStatus {
   // crashing. Keeps this panel forward-compatible with whatever the
   // in-flight qa_rejected-parking work above (another session) may still add.
   return "other";
+}
+
+/**
+ * One machine's up-to-3 views (three-quarter, top-oblique, detail), cycled
+ * through with left/right arrows instead of shown 3-up — plain local index
+ * state, no new dependency. Arrows and the position indicator only render
+ * when there's more than one view to cycle through; a single view or zero
+ * views renders exactly as the old 3-up grid did for that case.
+ */
+function AircraftViewCarousel({
+  scene, title, assets: unitAssets, approvingId, onApprove,
+}: {
+  scene: number;
+  title: string;
+  assets: Asset[];
+  approvingId: string | null;
+  onApprove: (assetId: string, scene: number) => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const count = unitAssets.length;
+  const current = Math.min(index, Math.max(count - 1, 0));
+  const asset = unitAssets[current];
+  const canCycle = count > 1;
+
+  if (!asset) {
+    return (
+      <div
+        className="w-full aspect-video rounded-lg flex items-center justify-center"
+        style={{ background: "var(--bg-elevated)", border: "1px dashed var(--border)" }}
+      >
+        <Images size={28} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+      </div>
+    );
+  }
+
+  const viewStatus = cardStatusFor(asset.status);
+  const viewMeta = STATUS_META[viewStatus];
+  const viewCaption = parseStaticDocuCaption(asset.caption);
+  const viewLabel = staticDocuViewLabel(viewCaption, asset.image_index);
+  // Rejected renders are parked in drive_image_url so the operator can
+  // inspect them without letting render_static ship them before explicit
+  // approval.
+  const imgUrl = asset.image_url || (viewStatus === "qa_rejected" ? asset.drive_image_url : null);
+
+  const goPrev = () => setIndex((count + current - 1) % count);
+  const goNext = () => setIndex((current + 1) % count);
+
+  return (
+    <div className="min-w-0">
+      <div
+        className="aspect-video rounded-lg overflow-hidden flex items-center justify-center relative"
+        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+      >
+        {imgUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={toDisplayImageUrl(imgUrl)}
+            alt={`${title} — ${viewLabel}`}
+            className="w-full h-full object-cover"
+          />
+        ) : viewStatus === "blocked_no_reference" ? (
+          <ImageOff size={20} style={{ color: "var(--red)", opacity: 0.55 }} />
+        ) : (
+          <Images
+            size={20}
+            className={viewMeta.pulse ? "animate-pulse" : undefined}
+            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+          />
+        )}
+        {canCycle && (
+          <>
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label={`Previous view (${title})`}
+              className="absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center transition-all hover:brightness-125"
+              style={{ background: "rgba(0,0,0,0.55)", color: "white", backdropFilter: "blur(4px)" }}
+            >
+              <ChevronLeft size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label={`Next view (${title})`}
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center transition-all hover:brightness-125"
+              style={{ background: "rgba(0,0,0,0.55)", color: "white", backdropFilter: "blur(4px)" }}
+            >
+              <ChevronRight size={12} />
+            </button>
+            <span
+              className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-semibold"
+              style={{ background: "rgba(0,0,0,0.55)", color: "white", backdropFilter: "blur(4px)" }}
+            >
+              {current + 1}/{count}
+            </span>
+          </>
+        )}
+      </div>
+      <p className="text-[9px] mt-1 truncate font-semibold" style={{ color: "var(--text-secondary)" }} title={viewLabel}>
+        {viewLabel}
+      </p>
+      <p className="text-[9px] truncate" style={{ color: viewMeta.color }}>
+        {viewStatus === "other" ? asset.status : viewMeta.label}
+      </p>
+      {viewStatus === "qa_rejected" && asset.id && (
+        <button
+          onClick={() => onApprove(asset.id, scene)}
+          disabled={approvingId === asset.id}
+          className="w-full mt-1 px-1 py-1 rounded text-[9px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {approvingId === asset.id ? <Loader2 size={9} className="animate-spin" /> : <ThumbsUp size={9} />}
+          {approvingId === asset.id ? "Approving…" : "Approve"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -252,70 +369,13 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
                 </div>
               )}
 
-              {unitAssets.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {unitAssets.map((asset) => {
-                    const viewStatus = cardStatusFor(asset.status);
-                    const viewMeta = STATUS_META[viewStatus];
-                    const viewCaption = parseStaticDocuCaption(asset.caption);
-                    const viewLabel = staticDocuViewLabel(viewCaption, asset.image_index);
-                    // Rejected renders are parked in drive_image_url so the
-                    // operator can inspect them without letting render_static
-                    // ship them before explicit approval.
-                    const imgUrl = asset.image_url
-                      || (viewStatus === "qa_rejected" ? asset.drive_image_url : null);
-                    return (
-                      <div key={asset.id} className="min-w-0">
-                        <div
-                          className="aspect-[4/3] rounded-lg overflow-hidden flex items-center justify-center relative"
-                          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-                        >
-                          {imgUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={toDisplayImageUrl(imgUrl)}
-                              alt={`${title} — ${viewLabel}`}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : viewStatus === "blocked_no_reference" ? (
-                            <ImageOff size={20} style={{ color: "var(--red)", opacity: 0.55 }} />
-                          ) : (
-                            <Images
-                              size={20}
-                              className={viewMeta.pulse ? "animate-pulse" : undefined}
-                              style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-                            />
-                          )}
-                        </div>
-                        <p className="text-[9px] mt-1 truncate font-semibold" style={{ color: "var(--text-secondary)" }} title={viewLabel}>
-                          {viewLabel}
-                        </p>
-                        <p className="text-[9px] truncate" style={{ color: viewMeta.color }}>
-                          {viewStatus === "other" ? asset.status : viewMeta.label}
-                        </p>
-                        {viewStatus === "qa_rejected" && asset.id && (
-                          <button
-                            onClick={() => handleApprove(asset.id, scene)}
-                            disabled={approvingId === asset.id}
-                            className="w-full mt-1 px-1 py-1 rounded text-[9px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
-                            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                          >
-                            {approvingId === asset.id ? <Loader2 size={9} className="animate-spin" /> : <ThumbsUp size={9} />}
-                            {approvingId === asset.id ? "Approving…" : "Approve"}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div
-                  className="w-full aspect-video rounded-lg flex items-center justify-center"
-                  style={{ background: "var(--bg-elevated)", border: "1px dashed var(--border)" }}
-                >
-                  <Images size={28} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
-                </div>
-              )}
+              <AircraftViewCarousel
+                scene={scene}
+                title={title}
+                assets={unitAssets}
+                approvingId={approvingId}
+                onApprove={handleApprove}
+              />
 
               {unitState === "blocked" && unitAssets.some((asset) => asset.status === "blocked_no_reference") && (
                 <p className="text-[10px] leading-snug" style={{ color: "var(--red)" }}>
