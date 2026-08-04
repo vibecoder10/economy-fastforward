@@ -28,6 +28,22 @@ STATIC_VIEWS_MINIMUM = 2
 # flowing from subject planning (`_scene_subjects`) unused by the current
 # plans; a future 4th view could reintroduce a detail/close-up role and pick
 # it back up.
+#
+# three_quarter geometry relaxed for large vehicles (2026-08-03, same-day
+# follow-up): live output on HMS Argus (video d2e37cd6, scene 1) showed
+# side_profile and top_planform pass role-conformance QA on the first try,
+# but three_quarter was generated twice and REJECTED twice ($0.10 burned,
+# parked qa_rejected) — a 170m warship shot "at natural eye-level height"
+# while also showing both the bow/front AND a full side is near-geometrically
+# contradictory (eye-level foreshortens everything for a subject that long),
+# and the model — anchored to a side-on reference photo — kept splitting the
+# difference between the two demands instead of committing to either. Fixed
+# direction asks for the classic bow-quarter press/aerial photo instead: a
+# SLIGHTLY elevated vantage (not eye-level, not steep), which is exactly how
+# real-world three-quarter identification shots of large aircraft, ships, and
+# vehicles are actually taken. Bow/front and one side both stay clearly
+# visible and overall shape/length must read cleanly — identity accuracy is
+# untouched, only the eye-level constraint is dropped.
 STATIC_VIEW_PLANS = (
     {
         "role": "three_quarter",
@@ -35,9 +51,12 @@ STATIC_VIEW_PLANS = (
         "shot_type": "wide",
         "composition": "wide",
         "direction": (
-            "CAMERA: a front three-quarter angle at natural eye-level height, "
-            "positioned so BOTH the nose/front and one full side of the "
-            "machine are visible together in the same frame. This is the "
+            "CAMERA: a front three-quarter view from a slightly elevated "
+            "vantage point — the classic bow-quarter press or aerial "
+            "identification photo, not eye-level and not a steep overhead "
+            "angle. Positioned so BOTH the bow/front and one full side of "
+            "the machine are visible together in the same frame, with the "
+            "overall shape and length clearly readable. This is the "
             "standard identification angle — not a flat side-on profile and "
             "not a top-down angle."
         ),
