@@ -2269,16 +2269,157 @@ def _subjects_chunk_max_tokens(chunk_len: int) -> int:
     return max(_SUBJECTS_TOKENS_FLOOR, chunk_len * _SUBJECTS_TOKENS_PER_SCENE)
 
 
+# --- G25 (2026-08-04): per-machine research-card facts for the planner ------
+#
+# Root cause (live, video d2e37cd6, scene 19 "Nairana class" / HMS Nairana &
+# HMS Vindex): the `facts` block above is built ONLY from research_payload's
+# `fact_sheet`/`character_dossier`/`headline` keys. The machine-documentary
+# (DVsU/Anton) format never populates those — its real, sourced research
+# lives per-machine in `machine_research_cards` (mirrored into
+# research_payload.unit_research_cards by pipeline_executor.py's
+# _load_machine_research_cards). Scene 19's own narration text carries zero
+# numeric specs, so with no research facts to fall back on either, the
+# planner had nothing to build `caption_specs` from, returned [], and the
+# metadata gate in `_one_scene` bounced the scene forever.
+#
+# Fix: hand the planner each segment's OWN machine's sourced facts, inline
+# with that segment's text (never as one shared blob — six different
+# machines share a chunk, and blending their facts risks the model citing
+# machine A's spec for machine B's scene). Scene -> machine is resolved
+# POSITIONALLY, not by name-matching: a locked machine-documentary roster's
+# scene numbering is 1:1 with roster order (pipeline_executor.py's
+# _run_static_script_hold saves every machine's paragraph at
+# `scene = roster.index(machine) + 1` — the ONLY script-writing path for
+# this render mode), so scene N's machine is simply `roster_entries[N-1]`.
+# This has to run BEFORE the planner call produces its own "machine" guess
+# (that's this function's whole job), so the alias-aware, LLM-guess-driven
+# `_roster_entry_for_scene_machine` used later in `_one_scene` cannot apply
+# here — there is no guess yet to match against.
+#
+# Cards are read straight from `machine_research_cards` (tenant_id, video_id,
+# roster_index) rather than the video's persisted research_payload — the
+# same source of truth pipeline_executor.py's _load_machine_research_cards
+# rehydrates that field from at script-hold time (migration 153's
+# roster_index identity). Live proof this matters: on d2e37cd6,
+# research_payload.unit_research_cards carries only 21 of the roster's 23
+# cards; the table has all 23 (including scene 19's).
+_CARD_NUMERIC_CLAIM_LIMIT = 4
+_CARD_FACTS_MAX_CHARS = 700
+
+
+def _machine_facts_for_planner(entry: Optional[dict], card: Optional[dict]) -> str:
+    """Compact, sourced-fact digest for ONE roster machine, trimmed to a
+    bounded length so a multi-machine chunk prompt stays bounded.
+
+    Two sources, both already trusted elsewhere in this file for grounding
+    an image prompt in real facts rather than an invention:
+      - `entry["facts"]` (role/years/status/built_count) — the SAME coarse
+        roster-item facts `_generate_blueprint_view` already grounds a
+        never-built blueprint prompt with (see that function below). Always
+        available for a locked roster entry; no lookup required.
+      - `card` (this machine's own `machine_research_cards` row) —
+        `timeframe` and `visual_identity` are the schema's own image-brief/
+        on-screen fields (pipeline_executor.py's card-generation prompt:
+        "visual_identity is Producer File/image-brief basis only"), and any
+        `evidence_segments[].claim` whose `numeric_tokens` is non-empty is
+        the schema's own marker for a sourced number ("numeric_tokens must
+        list every number-like token used by claim ... present in claim or
+        source_excerpt" — never invented). `card` may be None (no card yet,
+        or this roster slot's card failed to persist) — degrades gracefully
+        to roster-entry facts only.
+    """
+    parts: list[str] = []
+    if isinstance(entry, dict):
+        entry_facts = entry.get("facts") or {}
+        for key in ("role", "years", "status", "built_count"):
+            value = str(entry_facts.get(key) or "").strip()
+            if value:
+                parts.append(f"{key.replace('_', ' ')}: {value}")
+    if isinstance(card, dict):
+        timeframe = str(card.get("timeframe") or "").strip()
+        if timeframe:
+            parts.append(f"timeframe: {timeframe}")
+        visual_identity = str(card.get("visual_identity") or "").strip()
+        if visual_identity:
+            parts.append(f"visual identity: {visual_identity}")
+        numeric_claims = []
+        for segment in card.get("evidence_segments") or []:
+            if not isinstance(segment, dict):
+                continue
+            tokens = segment.get("numeric_tokens")
+            claim = str(segment.get("claim") or "").strip()
+            if claim and isinstance(tokens, list) and tokens:
+                numeric_claims.append(claim)
+        if numeric_claims:
+            parts.append(
+                "sourced numeric claims: "
+                + " | ".join(numeric_claims[:_CARD_NUMERIC_CLAIM_LIMIT])
+            )
+    return " ; ".join(parts)[:_CARD_FACTS_MAX_CHARS]
+
+
+async def _research_card_facts_by_scene(
+    tenant_id: str, video_id: str, scenes: list[dict], roster_entries: list[dict],
+) -> dict[int, str]:
+    """Scene number -> "<machine name> — <sourced facts>" for every scene
+    whose positional roster entry (`roster_entries[scene - 1]`) has usable
+    facts (see the module comment above `_machine_facts_for_planner`).
+    Empty dict when there is no locked machine roster — the ordinary
+    non-machine static-docu path is completely unaffected."""
+    if not roster_entries:
+        return {}
+    indices = sorted({
+        sc for s in scenes
+        if isinstance((sc := s.get("scene")), int) and 1 <= sc <= len(roster_entries)
+    })
+    if not indices:
+        return {}
+    rows = await fetch_all(
+        "SELECT roster_index, card FROM machine_research_cards "
+        "WHERE tenant_id=$1 AND video_id=$2 AND roster_index = ANY($3::int[])",
+        tenant_id, video_id, indices,
+    )
+    cards_by_index: dict[int, dict] = {}
+    for row in rows or []:
+        card = row.get("card")
+        if isinstance(card, str):
+            try:
+                card = json.loads(card)
+            except (ValueError, TypeError):
+                card = None
+        if isinstance(card, dict):
+            cards_by_index[row.get("roster_index")] = card
+
+    out: dict[int, str] = {}
+    for sc in indices:
+        entry = roster_entries[sc - 1]
+        text = _machine_facts_for_planner(entry, cards_by_index.get(sc))
+        if text:
+            out[sc] = f"{entry.get('name') or ''} — {text}"
+    return out
+
+
 async def _scene_subjects_chunk(client: Any, model: Optional[str], facts: str,
-                                chunk: list[dict]) -> Optional[dict[int, dict]]:
+                                chunk: list[dict],
+                                card_facts_by_scene: Optional[dict[int, str]] = None,
+                                ) -> Optional[dict[int, dict]]:
     """One planning call for a chunk of scenes.
 
     Returns None when the reply could not be parsed as a JSON array at all
     (the truncation failure mode) — the caller retries once, then gives up
     on just this chunk rather than the whole roster.
     """
-    listing = "\n\n".join(
-        f"[{s['scene']}] {(s['scene_text'] or '')[:800]}" for s in chunk)
+    listing_items = []
+    for s in chunk:
+        line = f"[{s['scene']}] {(s['scene_text'] or '')[:800]}"
+        scene_card_facts = (card_facts_by_scene or {}).get(s["scene"])
+        if scene_card_facts:
+            # Attached to THIS segment only (never pooled with the chunk's
+            # other machines) so the model can never cite one segment's
+            # machine using another segment's sourced numbers.
+            line += f"\nSOURCED RESEARCH FOR THIS SEGMENT'S MACHINE: {scene_card_facts}"
+        listing_items.append(line)
+    listing = "\n\n".join(listing_items)
     kwargs: dict[str, Any] = {
         "prompt": _SUBJECT_HEADER.format(facts=facts or "(none)", segments=listing),
         "max_tokens": _subjects_chunk_max_tokens(len(chunk)),
@@ -2315,11 +2456,19 @@ async def _scene_subjects_chunk(client: Any, model: Optional[str], facts: str,
 
 async def _scene_subjects(
     tenant_id: str, scenes: list[dict], research_payload: Optional[dict],
+    video_id: Optional[str] = None, roster_entries: Optional[list[dict]] = None,
 ) -> tuple[dict[int, dict], list[int]]:
     """Grounded subject, title-card, and detail metadata for every scene,
     planned in chunks of _SUBJECTS_CHUNK_SIZE scenes per Claude call (see the
     module comment above for why one call per whole roster used to truncate
     on large videos).
+
+    ``video_id``/``roster_entries`` are additive (both optional, default to
+    no per-machine facts): when the video is on the locked machine-
+    documentary roster path, they let each chunk carry that segment's own
+    sourced research-card facts (see the G25 module comment above
+    `_machine_facts_for_planner`) — without them this degrades to the
+    original fact_sheet/dossier/headline-only behavior.
 
     Returns (subjects, unparseable_scenes). unparseable_scenes lists the
     scene numbers whose chunk never produced a parseable reply even after
@@ -2334,6 +2483,10 @@ async def _scene_subjects(
             f"[{k}] {str(research_payload.get(k) or '')[:1200]}"
             for k in ("fact_sheet", "character_dossier", "headline")
             if research_payload.get(k))
+    card_facts_by_scene: dict[int, str] = {}
+    if video_id and roster_entries:
+        card_facts_by_scene = await _research_card_facts_by_scene(
+            tenant_id, video_id, scenes, roster_entries)
     client = await get_text_client_for_tenant(tenant_id)
     model = claude_model_for_direct_client(client)
 
@@ -2343,7 +2496,8 @@ async def _scene_subjects(
         chunk = scenes[i:i + _SUBJECTS_CHUNK_SIZE]
         result = None
         for _attempt in range(2):  # one retry on an unparseable/truncated reply
-            result = await _scene_subjects_chunk(client, model, facts, chunk)
+            result = await _scene_subjects_chunk(
+                client, model, facts, chunk, card_facts_by_scene)
             if result is not None:
                 break
         if result is None:
@@ -2432,7 +2586,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     roster_entries = _machine_documentary_hold_roster_entries(v)
 
     _p("Identifying each segment's machine…")
-    subjects, unparseable_scenes = await _scene_subjects(tenant_id, scenes, rp)
+    subjects, unparseable_scenes = await _scene_subjects(
+        tenant_id, scenes, rp, video_id=video_id, roster_entries=roster_entries)
     unparseable_scene_set = set(unparseable_scenes)
 
     try:
@@ -2513,6 +2668,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             "video_id=$1 AND tenant_id=$2 AND scene=$3 AND generation_method=$4",
             video_id, tenant_id, sc, STATIC_RENDER_MODE,
         )
+        # G26: whether a PRIOR run already parked a blocked_missing_metadata
+        # placeholder for this scene — computed straight off existing_rows
+        # (not the loop below, since that loop skips any row whose role
+        # isn't one of THIS contract's view roles, and
+        # "blocked_missing_metadata" deliberately never is one). Used below
+        # to make both cleanup deletes conditional: a scene that has never
+        # bounced must never emit an extra no-op DELETE query.
+        has_stale_blocked_metadata_row = any(
+            (row or {}).get("status") == "blocked_missing_metadata"
+            for row in existing_rows or []
+        )
+
         done_role_ids: dict = {}
         done_role_urls: dict = {}
         parked_role_ids: dict = {}
@@ -2589,24 +2756,6 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         ][:2]
         detail_focus = sub.get("detail_focus") or "overall machine geometry"
 
-        # The feedback requires operator/years + at least one key spec. Stop
-        # before the paid image door if the grounded metadata planner could
-        # not supply those fields; never fill a title card with invented facts.
-        if not caption_sub or "•" not in caption_sub or not caption_specs:
-            if sc in unparseable_scene_set:
-                _p(
-                    f"Segment {sc}: subject planning failed for this scene "
-                    "(the model's reply for its batch could not be parsed as "
-                    "JSON, even after a retry) — no images generated."
-                )
-                return {"scene": sc, "done": 0, "reason": "subject_planning_unparseable"}
-            _p(
-                f"Segment {sc}: title-card metadata is incomplete for {machine} "
-                "(operator/service years and at least one sourced spec required) "
-                "— no images generated."
-            )
-            return {"scene": sc, "done": 0, "reason": "missing_title_metadata"}
-
         def _caption(view_plan: dict) -> dict:
             cap = {
                 "title": caption_title,
@@ -2636,19 +2785,108 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             return cap
 
         async def _insert_placeholder(view_index: int, view_plan: dict,
-                                      reference_url: Optional[str] = None) -> str:
+                                      reference_url: Optional[str] = None,
+                                      status: str = "generating",
+                                      image_prompt: Optional[str] = None) -> str:
             new_id = str(uuid.uuid4())
             await execute(
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
                 "sentence_index, sentence_text, shot_type, video_title, aspect_ratio, "
-                "status, hero_shot, generation_method, caption, drive_image_url) "
-                "VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'generating',$10,$11,$12,$13)",
+                "status, hero_shot, generation_method, caption, drive_image_url, "
+                "image_prompt) "
+                "VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$14,$10,$11,$12,$13,$15)",
                 new_id, tenant_id, video_id, sc, view_index,
                 (s["scene_text"] or "")[:500], view_plan["shot_type"],
                 v["video_title"], v["aspect"], view_index == 1,
                 STATIC_RENDER_MODE, json.dumps(_caption(view_plan)), reference_url,
+                status, image_prompt,
             )
             return new_id
+
+        # G26 (2026-08-04, live: video d2e37cd6 scene 19 "Nairana class"):
+        # the metadata gate below used to `return` the moment title-card
+        # metadata was incomplete — BEFORE `_insert_placeholder` ever ran for
+        # this scene. That left the scene with ZERO asset rows: invisible to
+        # every count/review that reads the assets table (video_summary's
+        # `pics`, the frontend readiness panel, this same function's own
+        # `_bounded` timeout cleanup), not merely "blocked" like a failed
+        # reference hunt (`blocked_no_reference`, later in this function,
+        # which at least reuses an already-inserted row). A scene stuck here
+        # looked identical to a scene that was simply never attempted yet.
+        #
+        # Fix: insert ONE placeholder row carrying the reason, using the SAME
+        # `_insert_placeholder` machinery every real view uses — just with a
+        # dedicated status and the bounce reason in image_prompt instead of a
+        # real generation. image_url stays NULL (the INSERT never sets it),
+        # so this can never be counted as done/ready anywhere: video_summary
+        # counts `image_url IS NOT NULL`; frame_arbiter and the images
+        # readiness check filter `status = 'done'`; the frontend's
+        # BLOCKED_VIEW_STATUSES set (frontend/src/lib/static-docu.ts) now
+        # includes this status so the unit reads "blocked", not "not
+        # started". The synthetic view_plan's role ("blocked_missing_
+        # metadata") is deliberately outside `view_plans_for_scene`'s real
+        # roles, so it can never satisfy `current_roles` on a later run —
+        # meaning a later run always treats this scene as 0/N done and takes
+        # the full-regenerate branch below, whose blanket DELETE (scoped to
+        # this scene's own generation_method rows) sweeps this placeholder
+        # away before writing real views. A repeat bounce (still missing
+        # metadata) never reaches that DELETE — it returns from this same
+        # gate again — so the row is deleted here first, up front, to keep
+        # "exactly one" true across repeated bounces too.
+        if not caption_sub or "•" not in caption_sub or not caption_specs:
+            if sc in unparseable_scene_set:
+                reason = "subject_planning_unparseable"
+                bounce_detail = (
+                    f"[metadata-bounce] subject planning failed for this segment "
+                    f"(the model's reply for its batch could not be parsed as JSON, "
+                    f"even after a retry) for {machine}"
+                )
+                _p(
+                    f"Segment {sc}: subject planning failed for this scene "
+                    "(the model's reply for its batch could not be parsed as "
+                    "JSON, even after a retry) — no images generated."
+                )
+            else:
+                reason = "missing_title_metadata"
+                bounce_detail = (
+                    f"[metadata-bounce] planner produced no sourced spec for {machine}"
+                )
+                _p(
+                    f"Segment {sc}: title-card metadata is incomplete for {machine} "
+                    "(operator/service years and at least one sourced spec required) "
+                    "— no images generated."
+                )
+            if has_stale_blocked_metadata_row:
+                # A repeat bounce — remove the PREVIOUS attempt's placeholder
+                # first so "exactly one" holds across N consecutive bounces.
+                # A fresh scene (no stale row) skips this no-op query.
+                await execute(
+                    "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+                    "AND generation_method=$4 AND status=$5",
+                    video_id, tenant_id, sc, STATIC_RENDER_MODE, "blocked_missing_metadata")
+            await _insert_placeholder(
+                0,
+                {"role": "blocked_missing_metadata",
+                 "label": "Blocked — missing metadata", "shot_type": None},
+                status="blocked_missing_metadata", image_prompt=bounce_detail,
+            )
+            return {"scene": sc, "done": 0, "reason": reason}
+
+        # Subject planning succeeded this run — clear a stale
+        # `blocked_missing_metadata` placeholder a PRIOR run's bounce parked
+        # for this scene (see the gate above), ahead of the FILL-vs-full-
+        # regenerate branch below: the full-regenerate DELETE a few lines
+        # down only fires in ITS branch and FILL mode never reaches it, so
+        # without this a stale bounce row surviving into a FILL-mode scene
+        # (already >= STATIC_VIEWS_MINIMUM done from an earlier run) would
+        # never get swept once planning starts succeeding again. Gated on
+        # has_stale_blocked_metadata_row so an ordinary scene that never
+        # bounced (the overwhelming common case) never emits this query.
+        if has_stale_blocked_metadata_row:
+            await execute(
+                "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+                "AND generation_method=$4 AND status=$5",
+                video_id, tenant_id, sc, STATIC_RENDER_MODE, "blocked_missing_metadata")
 
         # Placeholder row FIRST: the media proxy only serves file ids present
         # in allowlisted DB columns, and the self-hosted reference must be
@@ -3424,14 +3662,16 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             except Exception:  # noqa: BLE001 — timeout or any error: isolate this scene
                 try:
                     # Never sweep up a row _one_scene deliberately parked for
-                    # the operator (qa_rejected / blocked_no_reference) — both
-                    # carry image_url NULL by design, and a timeout cancelling
-                    # _one_scene right after it parked would otherwise delete
-                    # the parked render here.
+                    # the operator (qa_rejected / blocked_no_reference /
+                    # blocked_missing_metadata) — all three carry image_url
+                    # NULL by design, and a timeout cancelling _one_scene
+                    # right after it parked would otherwise delete the
+                    # parked row here.
                     await execute(
                         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 "
                         "AND scene=$3 AND generation_method=$4 AND image_url IS NULL "
-                        "AND status NOT IN ('qa_rejected','blocked_no_reference')",
+                        "AND status NOT IN "
+                        "('qa_rejected','blocked_no_reference','blocked_missing_metadata')",
                         video_id, tenant_id, s["scene"], STATIC_RENDER_MODE)
                 except Exception:  # noqa: BLE001
                     pass
