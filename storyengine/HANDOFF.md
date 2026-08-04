@@ -108,7 +108,22 @@ CVA-01 scenes 9+13 remain (impossible by design, RYAN'S PARKED DECISION - option
 title-card-only / cut scenes; this gates thumbnail+render, the picture gate blocks until resolved). 4 machines sit at
 2/3 views (parked third views, retryable via fill for ~$0.05 each - not blockers). Independent 59-frame visual review
 worker dispatched (frame-review). Ledgered $7.22 of $20 ($2.97 voice + $4.25 images).
-NEXT: (1) frame-review verdicts -> fix any flagged frames; (2) Ryan's CVA-01 call; (3) thumbnail + render quotes. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+FRAME REVIEW + REDOS (05:50-06:40Z): independent 59-frame review found 51 clean + 3 problem machines, each a different
+root cause, all fixed and re-verified by orchestrator eyes: Unicorn (reference photo contained TWO ships - engine's own
+re-hunt after cache clear via POST /api/pipeline/roster-seed-reference/{video_id} {machine,url} with the single-ship
+Wikipedia lead; now one ship), Melbourne (reference lacked visible angled deck vs caption promise - seeded the Pearl
+Harbor 1958 aerial; angled deck now clearly rendered, gibberish hull text gone on re-roll), Invincible (re-roll restored
+the subtle bow ramp). RYAN'S CVA-01 DECISION: blueprint images - IMPLEMENTED (96eec608): never-built machines generate
+2 monochrome Jane's-style technical drawings (side elevation + deck plan), grounded only in roster facts, caption stamped
+"Design study - never built" + design_study:true, adapted identity QA (no photo to compare), role QA reused. NOT yet
+deployed. SCENE 19 FOUND INVISIBLE (Nairana/Vindex): its narration has zero numeric specs, planner gets no research
+facts for this format (fact_sheet/character_dossier keys absent - the real facts live in the machine research cards,
+never passed), metadata gate bounces BEFORE creating any asset row so the scene vanished from every count. planner-facts
+worker building: (1) feed machine-card facts to the planning chunks, (2) metadata bounces insert a visible
+blocked_missing_metadata row. Ledgered $7.87 of $20.
+NEXT: planner-facts lands -> deploy (blueprint + facts together) -> run scene 19 + CVA-01 scenes 9/13 (~$0.35-0.50) ->
+eyes on new frames -> 23/23 COMPLETE -> thumbnail + render quotes. Matcher hardening runs in a SEPARATE session
+(task_92cb9dd0) - expect a merge on static_docu.py later; this branch's changes are all committed. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
