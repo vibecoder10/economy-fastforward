@@ -111,3 +111,25 @@ STATIC_VIEW_PLANS = (
         ),
     },
 )
+
+# Never-built machines (Ryan's decision, 2026-08-04): a roster entry
+# pipeline_executor._roster_entry_never_built classifies as a cancelled
+# programme with ZERO physical hulls/airframes ever completed (the live
+# case: CVA-01 class, cancelled February 1966 before construction — video
+# d2e37cd6, scenes 9 and 13) can never have a reference photograph. The
+# fail-closed reference-hunt gate in static_docu.py is correct to refuse a
+# photo-grounded render for it, but that also permanently, unhelpfully
+# blocks the scene's render gate for a machine everyone already knows was
+# never built. Those scenes get a monochrome technical blueprint instead:
+# exactly the side_profile and top_planform roles below (a side elevation
+# and a top plan — the two view roles that map naturally onto an
+# orthographic technical drawing), never three_quarter — there is no
+# reference photo's own angle to lock a bow/stern identification shot
+# against, and "a slightly elevated three-quarter identification photo" is
+# a photographic framing concept, not a technical-drawing one. Exactly 2
+# views, which both equals and exhausts STATIC_VIEWS_MINIMUM — there is no
+# third view to fall back on if one gets parked.
+NEVER_BUILT_VIEW_ROLES = ("side_profile", "top_planform")
+NEVER_BUILT_VIEW_PLANS = tuple(
+    plan for plan in STATIC_VIEW_PLANS if plan["role"] in NEVER_BUILT_VIEW_ROLES
+)
