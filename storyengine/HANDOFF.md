@@ -1,42 +1,37 @@
-# HANDOFF - 2026-08-04 - render fix deployed, carrier video RENDERING now
+# HANDOFF - 2026-08-04 - carrier video RENDERED and verified; upload is the only step left
 
 ## State
-- Prod: 8d373f7d deployed 20:06 UTC (fable-render-unblock). Both fix branches folded to main:
-  - claude/xenodochial-tharp-cd2cd6 (task_baa632d0): render verb is format-aware - static_docu gates on
-    voice+views, not clip count. Proven live: verb quoted $0.00 instead of refusing.
-  - claude/vibrant-einstein-0375bf (task_92cb9dd0): G24b discriminative roster matching. Merge conflict
-    resolved: kept the new scene-22 e2e test AND the blueprint-path never-built test; dropped the branch's
-    stale still-blocks test (written before Ryan's blueprint decision).
-- Full backend suite on merged main: 4390 passed, 0 failed (the 28-failure baseline only bites fresh
-  worktrees missing Remotion assets; main checkout has them).
-- Carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e (tenant 561b872d):
-  - Advanced ready_for_thumbnail -> ready_to_render via MCP advance verb.
-  - RENDER RUNNING since 20:08 UTC: background_tasks 36677014-547c-40ae-a164-037db24a4c8d, remotion
-    rendering /tmp/static_d2e37cd6_hyu98wjq/out.mp4 on the VPS (concurrency=3, swangle - slow, expect 1-3h).
-  - Ledger unchanged at $8.42 of $20; render quoted $0.00 (compute-only).
+- Prod: 8d373f7d deployed 20:06 UTC. Render-verb fix (format-aware gate) + G24b matcher hardening both
+  folded to main and live. Full suite on merged main: 4390 passed, 0 failed.
+- Carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e (tenant 561b872d): status RENDERED.
+  - Render ran 20:08-21:2x UTC, $0.00 external (25.00 render minutes charged internally).
+  - Output verified EYES-ON from a fresh Drive download (file id 1l86Dkw-2QJAGvG71LsEduvE3KbkOKCbH,
+    425MB, 25:11, 1080p h264+aac): 16 frames sampled across the full runtime - clean museum-model style
+    throughout, correct opening title card (Argus 1918, flush-deck fact), rotated views present,
+    CVA-01 (scene 13) renders as honest Jane's-style blueprints (side elevation + top-plan sheet),
+    narration audio present at 100s/700s/1400s. No black frames, no broken text.
+  - Drive folder: https://drive.google.com/drive/folders/1qQGwDe5wVRKvjQnson0zWy2KgWunVO83
+  - Ledger $8.42 of $20 cap. Creative + render 100% done.
 
 ## Next action (start here cold)
-1. Check render: se db "SELECT status FROM background_tasks WHERE id='36677014-547c-40ae-a164-037db24a4c8d'"
-   plus pgrep -f 'remotion render Main' on the VPS (a dead process with a stuck 'running' row is the failure
-   mode to watch for).
-2. When completed: find the output (video row render/final URL fields, or /tmp/static_d2e37cd6_hyu98wjq/out.mp4),
-   download it, and EYES ON IT - watch the actual video, check text cards, captions, audio sync, blueprint
-   scenes (CVA-01), before any upload talk. Upload has skip-if-done.
-3. If failed: read error_message + journalctl around the failure; the render path is render_static.py ->
-   remotion-video.
+UPLOAD - needs Ryan's explicit go (publishing to YouTube is outward-facing).
+When he says go: MCP upload verb on d2e37cd6 (it has skip-if-done), then verify the YouTube draft
+(SEO title/desc/tags, thumbnail attached) before any publish. YouTube upload quota today: 100 remaining.
 
 ## Open threads
-- 4 machines have 2/3 views (parked thirds, honest judge rejects) - $0.05 each via fill runs, cosmetic.
+- 4 machines have 2/3 views (parked thirds) - $0.05 each via fill runs, cosmetic.
 - Backlog: script-stage calls don't ledger; production-guide next_step says "characters" for static_docu
-  (cosmetic, confirmed again today); scripts.voice_id column stamps wrong id; older items in tasks/loop-checklist.md.
-- Unmerged branches that may still hold work: claude/festive-bouman-6e2cb8 (self-provision Remotion assets
-  in fresh worktrees - would kill the 28-failure baseline for worktree sessions), claude/stoic-allen-c5af1a
-  (remove dead _target_machine_research_source). Neither is a blocker.
+  (cosmetic, confirmed again 2026-08-04); scripts.voice_id stamps wrong id; voice_duration_seconds null
+  for THIS video's scenes (stamping only applies to future videos); tasks/loop-checklist.md older items.
+- Unmerged branches, not blockers: claude/festive-bouman-6e2cb8 (self-provision Remotion assets in fresh
+  worktrees), claude/stoic-allen-c5af1a (dead code removal).
 
 ## Gotchas learned this session
-- ps + grep + head can hide the hot process (PID order puts old idle chromium first; head cuts the real
-  render). Sort by CPU (ps aux --sort=-%cpu) before concluding "nothing is running".
-- A branch cut before a design decision can carry a test asserting the OLD behavior - on merge, keep the
-  decision, not the chronology (still-blocks vs blueprint-path).
-- Prior gotchas (Drive update-in-place, se db read-only, scene-scoped runs don't advance status, re-voice
-  needs script_status flip, one billable unit after a fix) all still stand - see git log e6fbfbad for detail.
+- ps + grep + head can hide the hot process (old idle PIDs sort first; head cuts the render). Use
+  ps aux --sort=-%cpu before concluding "nothing is running".
+- A branch cut before a design decision can carry a test asserting the OLD behavior - on merge, keep
+  the decision, not the chronology (still-blocks vs blueprint-path).
+- rclone backend copyid gdrive: <fileid> <dest> downloads a Drive file by id cleanly (no uc?id
+  interstitial trouble at 425MB).
+- Prior session gotchas (Drive update-in-place, se db read-only, scene-scoped runs don't advance
+  status, re-voice needs script_status flip, one billable unit after a fix) still stand.
