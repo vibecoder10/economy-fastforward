@@ -100,11 +100,15 @@ $0.05 each). 9 rows blocked_no_reference: scenes 9+13 are CVA-01 (never built, c
 4,5,16,17,21,22,23 (Eagle, Courageous, MAC ship, Activity, Ruler x2, Unicorn) are a WIRING GAP - the roster stage
 verified photos for these machines but static_docu's reference hunt never consults the video's own roster photos
 (roster-ref-reuse worker building the fix: roster photo as a reference layer after the tenant cache).
-NEXT: (1) roster-ref fix lands -> deploy -> whole-video images fill run (completes the approved batch, ~$1.05-1.50 more,
-still inside the $3.45 quote); (2) full 60+ frame eyes-on review before render; (3) PARKED DECISION FOR RYAN - CVA-01
-scenes 9+13 can never have a real photo and the render gate will block on them: options are (a) official design drawings
-with an honest "design study - never built" caption (needs a deliberate exception to the verified_reference law),
-(b) render those scenes title-card-only, (c) cut the scenes. Ledgered $5.47 of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+PICTURES STAGE MAX-COMPLETE (05:40Z): roster-ref fix deployed e03efca2; two stragglers (scene 17 "HMS Activity (D94)"
+key-suffix mismatch, scene 22 "Ruler-class Escort Carrier" two-entry ambiguity fail-close) fixed by SEEDING
+static_reference_cache alias keys pointing at the same roster-verified photos ($0, durable, script pattern in session
+scratchpad); matcher hardening filed as task chip task_92cb9dd0. FINAL: 21/23 scenes ready, 59 done frames, only
+CVA-01 scenes 9+13 remain (impossible by design, RYAN'S PARKED DECISION - options: design drawings with honest caption /
+title-card-only / cut scenes; this gates thumbnail+render, the picture gate blocks until resolved). 4 machines sit at
+2/3 views (parked third views, retryable via fill for ~$0.05 each - not blockers). Independent 59-frame visual review
+worker dispatched (frame-review). Ledgered $7.22 of $20 ($2.97 voice + $4.25 images).
+NEXT: (1) frame-review verdicts -> fix any flagged frames; (2) Ryan's CVA-01 call; (3) thumbnail + render quotes. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
