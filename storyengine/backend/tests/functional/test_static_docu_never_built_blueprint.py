@@ -100,7 +100,7 @@ CVA01_SCENE_TEXT = (
 def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=(),
                    style_reasons=(), role_reasons=(), scene_text=CVA01_SCENE_TEXT,
                    machine="CVA-01", roster=None, scene_number=1,
-                   scene_aliases=None, hunt_finds_nothing=False):
+                   scene_aliases=None, hunt_finds_nothing=False, card=None):
     """`roster`/`scene_number`/`scene_aliases`/`hunt_finds_nothing` (G26,
     2026-08-04) let a test drive the POSITIONAL never-built resolution path
     directly, on top of the original single-scene/single-roster shape every
@@ -117,7 +117,13 @@ def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=()
         never running it at all — replaces the original tripwire-everything
         behavior with `_gather_reference_candidates` returning [] (so the
         scene ends up correctly `blocked_no_reference`, never a blueprint,
-        without needing to fake the whole Wikipedia/Commons chain)."""
+        without needing to fake the whole Wikipedia/Commons chain).
+      - `card` (G27, 2026-08-04): this scene's `machine_research_cards` row
+        (roster_index == scene_number), returned from the SAME query
+        `_machine_research_cards_by_scene` issues — lets a test set
+        `blueprint_override` on the scene's own card. `None` (the default)
+        means no row at all for this scene, exactly like every test above
+        that doesn't care about the override."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
     roster = roster if roster is not None else (
@@ -149,6 +155,10 @@ def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=()
     async def fake_fetch_all(query, *args):
         if "FROM scripts" in query:
             return [{"scene": scene_number, "scene_text": scene_text}]
+        if "FROM machine_research_cards" in query:
+            if card is not None:
+                return [{"roster_index": scene_number, "card": json.dumps(card)}]
+            return []
         if "FROM assets" in query:
             return []
         return []
@@ -743,3 +753,128 @@ async def test_scene_beyond_roster_length_falls_back_to_name_resolution(monkeypa
     # The reference hunt never ran — same fail-closed proof as the main
     # never-built test.
     assert env["cache_lookups"] == []
+
+
+# ---------------------------------------------------------------------------
+# 7. G27 (2026-08-04): the `blueprint_override` operator metadata field.
+#
+# Live scenario: video d2e37cd6 scene 9 narrates the CVA-01 cancellation
+# story, but its POSITIONAL roster slot is "Audacious class / Malta class"
+# (`_CVA01_PREDECESSORS`) — correctly VETOED from never-built detection
+# above, since one hull of that class (HMS Eagle, R05) actually was
+# completed. A photograph of the real Eagle captioned as CVA-01 would be
+# dishonest, so the operator can mark THIS scene's own research card
+# (`machine_research_cards`, `roster_index == scene number`) with
+# `blueprint_override: true` to force the blueprint path exactly as if
+# never_built were true — without touching never-built DETECTION for any
+# other scene, the photo path, the roster gate, or the card referee.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_blueprint_override_engages_blueprint_for_vetoed_positional_entry(
+    monkeypatch,
+):
+    """(a) THE FEATURE: `blueprint_override: true` on the scene's own card
+    forces the blueprint path for a scene whose positional roster entry is
+    photo-bearing/vetoed (never_built resolves False without the
+    override).
+
+    Stash-proof (verified via a patch-file revert of the static_docu.py
+    hunk, not `git stash`): before the fix, `_one_scene` never reads
+    `blueprint_override` at all, so `never_built` stays False for this
+    scene and it falls into `_blueprint_env`'s tripwired photo-hunt path —
+    the tripwire's AssertionError is caught by `_one_scene`'s own per-scene
+    exception isolation and surfaces as `result["status"] == "failed"`
+    instead of "completed"."""
+    roster = [_CVA01_PREDECESSORS, _CVA01_CLASS, _UNICORN]
+    env = _blueprint_env(
+        monkeypatch,
+        roster=roster,
+        scene_number=1,  # roster_entries[0] == Audacious/Malta, never_built=False
+        machine="Audacious class / Malta class",
+        card={"unit": "CVA-01", "blueprint_override": True},
+        gen_urls=[
+            "https://kie.example/side-profile-blueprint.png",
+            "https://kie.example/top-planform-blueprint.png",
+        ],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert result["views_generated"] == 2
+    rows = _rows_by_role(env)
+    assert set(rows.keys()) == {"side_profile", "top_planform"}
+    for row in rows.values():
+        assert row["status"] == "done"
+        assert row["image_url"] is not None
+        cap = json.loads(row["caption"])
+        assert cap["design_study"] is True
+        assert cap["sub"].startswith("Design study — never built")
+
+    # The reference hunt never ran — proves the override forced the
+    # blueprint path rather than the ordinary photo hunt for this
+    # (otherwise photo-bearing/vetoed) roster slot.
+    assert env["cache_lookups"] == []
+
+
+@pytest.mark.asyncio
+async def test_blueprint_override_absent_field_falls_through_to_photo_path(
+    monkeypatch,
+):
+    """(b) The SAME vetoed positional entry as (a), but this scene's card
+    has no `blueprint_override` key at all — must be a complete no-op,
+    falling through to the ordinary photo-hunt path exactly as if this
+    feature didn't exist."""
+    roster = [_CVA01_PREDECESSORS, _CVA01_CLASS, _UNICORN]
+    env = _blueprint_env(
+        monkeypatch,
+        roster=roster,
+        scene_number=1,
+        machine="Audacious class / Malta class",
+        card={"unit": "CVA-01"},  # no blueprint_override key
+        gen_urls=[],
+        hunt_finds_nothing=True,
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    assert env["gen_calls"] == []
+    assert len(env["hunt_calls"]) == 1, "the ordinary photo hunt DID run"
+    blocked = [row for row in env["assets"].values()
+              if row.get("status") == "blocked_no_reference"]
+    assert len(blocked) == 1
+    assert blocked[0]["image_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_blueprint_override_stringy_true_never_engages(monkeypatch):
+    """(c) `blueprint_override` must be a strict Python `True`, checked
+    with `is True` — a stringy "true" (the JSON/DB value a careless
+    operator edit could easily produce) is truthy but must never
+    accidentally engage the override. This is operator metadata, not a
+    fact claim: a mis-typed value must silently do nothing, never
+    surprise-flip a scene onto the blueprint path."""
+    roster = [_CVA01_PREDECESSORS, _CVA01_CLASS, _UNICORN]
+    env = _blueprint_env(
+        monkeypatch,
+        roster=roster,
+        scene_number=1,
+        machine="Audacious class / Malta class",
+        card={"unit": "CVA-01", "blueprint_override": "true"},
+        gen_urls=[],
+        hunt_finds_nothing=True,
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    assert env["gen_calls"] == []
+    assert len(env["hunt_calls"]) == 1, "the ordinary photo hunt DID run"
+    blocked = [row for row in env["assets"].values()
+              if row.get("status") == "blocked_no_reference"]
+    assert len(blocked) == 1

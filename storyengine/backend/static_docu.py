@@ -2358,14 +2358,18 @@ def _machine_facts_for_planner(entry: Optional[dict], card: Optional[dict]) -> s
     return " ; ".join(parts)[:_CARD_FACTS_MAX_CHARS]
 
 
-async def _research_card_facts_by_scene(
+async def _machine_research_cards_by_scene(
     tenant_id: str, video_id: str, scenes: list[dict], roster_entries: list[dict],
-) -> dict[int, str]:
-    """Scene number -> "<machine name> — <sourced facts>" for every scene
-    whose positional roster entry (`roster_entries[scene - 1]`) has usable
-    facts (see the module comment above `_machine_facts_for_planner`).
-    Empty dict when there is no locked machine roster — the ordinary
-    non-machine static-docu path is completely unaffected."""
+) -> dict[int, dict]:
+    """Scene number -> that scene's own raw `machine_research_cards` row
+    (`roster_index == scene`, the same positional resolution
+    `_research_card_facts_by_scene` below uses — see its docstring). The
+    ONE query against this table for the whole scene set; every other
+    reader of a scene's research card (the planner's fact-text builder
+    below, and `_one_scene`'s `blueprint_override` check — G27,
+    2026-08-04) goes through this function's result rather than opening a
+    second query path. Empty dict when there is no locked machine roster
+    or no scene numbers fall inside it."""
     if not roster_entries:
         return {}
     indices = sorted({
@@ -2389,6 +2393,35 @@ async def _research_card_facts_by_scene(
                 card = None
         if isinstance(card, dict):
             cards_by_index[row.get("roster_index")] = card
+    return cards_by_index
+
+
+async def _research_card_facts_by_scene(
+    tenant_id: str, video_id: str, scenes: list[dict], roster_entries: list[dict],
+    cards_by_scene: Optional[dict[int, dict]] = None,
+) -> dict[int, str]:
+    """Scene number -> "<machine name> — <sourced facts>" for every scene
+    whose positional roster entry (`roster_entries[scene - 1]`) has usable
+    facts (see the module comment above `_machine_facts_for_planner`).
+    Empty dict when there is no locked machine roster — the ordinary
+    non-machine static-docu path is completely unaffected.
+
+    ``cards_by_scene``, when supplied, is used as-is instead of issuing a
+    fresh query — the caller already fetched it once via
+    `_machine_research_cards_by_scene` for this same video/scene set."""
+    if not roster_entries:
+        return {}
+    indices = sorted({
+        sc for s in scenes
+        if isinstance((sc := s.get("scene")), int) and 1 <= sc <= len(roster_entries)
+    })
+    if not indices:
+        return {}
+    cards_by_index = (
+        cards_by_scene if cards_by_scene is not None
+        else await _machine_research_cards_by_scene(
+            tenant_id, video_id, scenes, roster_entries)
+    )
 
     out: dict[int, str] = {}
     for sc in indices:
@@ -2457,6 +2490,7 @@ async def _scene_subjects_chunk(client: Any, model: Optional[str], facts: str,
 async def _scene_subjects(
     tenant_id: str, scenes: list[dict], research_payload: Optional[dict],
     video_id: Optional[str] = None, roster_entries: Optional[list[dict]] = None,
+    cards_by_scene: Optional[dict[int, dict]] = None,
 ) -> tuple[dict[int, dict], list[int]]:
     """Grounded subject, title-card, and detail metadata for every scene,
     planned in chunks of _SUBJECTS_CHUNK_SIZE scenes per Claude call (see the
@@ -2468,7 +2502,11 @@ async def _scene_subjects(
     documentary roster path, they let each chunk carry that segment's own
     sourced research-card facts (see the G25 module comment above
     `_machine_facts_for_planner`) — without them this degrades to the
-    original fact_sheet/dossier/headline-only behavior.
+    original fact_sheet/dossier/headline-only behavior. ``cards_by_scene``
+    is additive too: when the caller already fetched raw research cards via
+    `_machine_research_cards_by_scene` (e.g. to also check `_one_scene`'s
+    `blueprint_override`, G27), pass them here so this function's own card
+    lookup reuses that fetch instead of re-querying.
 
     Returns (subjects, unparseable_scenes). unparseable_scenes lists the
     scene numbers whose chunk never produced a parseable reply even after
@@ -2486,7 +2524,8 @@ async def _scene_subjects(
     card_facts_by_scene: dict[int, str] = {}
     if video_id and roster_entries:
         card_facts_by_scene = await _research_card_facts_by_scene(
-            tenant_id, video_id, scenes, roster_entries)
+            tenant_id, video_id, scenes, roster_entries,
+            cards_by_scene=cards_by_scene)
     client = await get_text_client_for_tenant(tenant_id)
     model = claude_model_for_direct_client(client)
 
@@ -2585,9 +2624,17 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     from pipeline_executor import _machine_documentary_hold_roster_entries
     roster_entries = _machine_documentary_hold_roster_entries(v)
 
+    # Fetched once, shared by the planner's card-facts grounding (G25) and
+    # `_one_scene`'s `blueprint_override` operator-metadata check (G27,
+    # 2026-08-04) — see `_machine_research_cards_by_scene`'s docstring for
+    # why no other call site may open a second query against this table.
+    cards_by_scene = await _machine_research_cards_by_scene(
+        tenant_id, video_id, scenes, roster_entries)
+
     _p("Identifying each segment's machine…")
     subjects, unparseable_scenes = await _scene_subjects(
-        tenant_id, scenes, rp, video_id=video_id, roster_entries=roster_entries)
+        tenant_id, scenes, rp, video_id=video_id, roster_entries=roster_entries,
+        cards_by_scene=cards_by_scene)
     unparseable_scene_set = set(unparseable_scenes)
 
     try:
@@ -2668,6 +2715,34 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             else roster_entry
         )
         never_built = bool(never_built_entry and never_built_entry.get("never_built"))
+
+        # Operator override (G27, 2026-08-04, Ryan's call on video d2e37cd6
+        # scene 9): the CVA-01 cancellation story sits on the "Audacious
+        # class / Malta class" roster slot, which is correctly VETOED from
+        # never-built detection above (Eagle R05 was completed for that
+        # class — see the docstring on pipeline_executor.
+        # _roster_entry_never_built). A photo of the real Eagle under a
+        # CVA-01 caption would be dishonest, so an operator can mark THIS
+        # scene's research card (`machine_research_cards`, `roster_index ==
+        # sc` — the SAME positional resolution as everything else on this
+        # page, sourced from `cards_by_scene`/`_machine_research_cards_by_
+        # scene` computed once above, never a second query) with
+        # `blueprint_override: true` to force the blueprint path exactly as
+        # if `never_built` were true. Grounding is unaffected by this flag:
+        # the card's own facts already flow into `caption_specs` via the
+        # G25 planner-grounding path above, and `_generate_blueprint_view`
+        # below still reads `never_built_entry` (the positional roster
+        # entry) for its role/years/status/built_count block, so a blueprint
+        # view is grounded in card facts + positional entry either way.
+        # Strict `is True` — a stringy "true" or any other truthy JSON value
+        # must never engage this — because this is operator metadata, not a
+        # fact claim: it must never alter never-built DETECTION for any
+        # other scene, and it never touches the photo path, the roster
+        # gate, or the card referee, all of which are untouched above/below.
+        scene_card = (cards_by_scene or {}).get(sc)
+        blueprint_override = bool(scene_card) and scene_card.get("blueprint_override") is True
+        never_built = never_built or blueprint_override
+
         view_plans_for_scene = NEVER_BUILT_VIEW_PLANS if never_built else STATIC_VIEW_PLANS
 
         # Skip-if-done / FILL resumability (2026-08-03, extended same day): a
