@@ -41,7 +41,17 @@ export interface StaticDocuReadiness<T extends StaticDocuAssetLike> {
   allReady: boolean;
 }
 
-const BLOCKED_VIEW_STATUSES = new Set(["blocked_no_reference", "qa_rejected"]);
+const BLOCKED_VIEW_STATUSES = new Set([
+  "blocked_no_reference",
+  "qa_rejected",
+  // The subject planner's metadata gate bounced this scene before any real
+  // view was attempted (no sourced spec / unparseable planning reply) —
+  // see static_docu.py's _one_scene metadata gate (G26). Without this the
+  // scene had zero asset rows and rendered as "not_started" (indistinguishable
+  // from never having been touched); the placeholder row it now inserts
+  // carries this status so the unit reads "blocked" instead.
+  "blocked_missing_metadata",
+]);
 
 /** Caption is JSONB in Postgres but arrives from /assets as caption::text. */
 export function parseStaticDocuCaption(

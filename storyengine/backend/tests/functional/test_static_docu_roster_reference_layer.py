@@ -419,13 +419,24 @@ async def test_roster_photo_used_as_reference_no_web_hunt(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_roster_entry_matched_but_never_built_still_blocks(monkeypatch):
-    """(b) A roster entry resolves unambiguously (no collision here — a
-    single CVA-01 entry with no lookalike sibling in this roster) but has NO
-    cached photo at all, because prefetch_roster_references never attempts
-    a never-built machine. The roster layer must do nothing in that case —
-    falling through to the (also empty, here) web hunt — and the scene must
-    still land blocked_no_reference, exactly as before this fix."""
+async def test_roster_entry_matched_never_built_routes_to_blueprint_not_blocked(
+    monkeypatch,
+):
+    """(b) UPDATED (2026-08-04, Ryan's decision): a roster entry resolves
+    unambiguously (no collision here — a single CVA-01 entry with no
+    lookalike sibling in this roster) and is classified never_built
+    (pipeline_executor._roster_entry_never_built) — this used to mean the
+    scene stayed permanently blocked_no_reference, because
+    prefetch_roster_references never even attempts a photo lookup for a
+    never-built machine and the ordinary web hunt (Wikipedia/Commons) can
+    never find one either. Ryan's call: route it to the blueprint path
+    instead of blocking it — the ENTIRE reference hunt (LAYER 0/0b/1/2 and
+    the web hunt) is skipped outright, never even attempted, and the scene
+    proceeds straight to blueprint generation. This test proves the skip:
+    the web-hunt fakes are wired to raise if ever called
+    (fail_on_web_hunt=True), and generation stops cleanly at the same
+    budget-cap stub every other test in this file uses to observe the
+    reference-resolution outcome without needing to mock image generation."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
     roster = [_CVA01_CLASS, {"name": "Boeing XB-15"}, {"name": "Northrop XB-35"}]
@@ -440,18 +451,25 @@ async def test_roster_entry_matched_but_never_built_still_blocks(monkeypatch):
         ),
         machine="CVA-01",
         cache_rows={},  # nothing cached anywhere — never built, never prefetched
-        fail_on_web_hunt=False,  # web hunt is allowed to run; it just finds nothing
+        fail_on_web_hunt=True,  # the web hunt must never even run for this scene
     )
 
     result = await static_docu.generate_static_images_for_video(video_id, tenant_id)
 
     assert calls["host_reference"] == []  # nothing ever hosted
-    assert calls["vision_confirms"] == []  # nothing ever reached vision (no candidates)
+    assert calls["vision_confirms"] == []  # nothing ever reached vision — no reference hunt at all
+    assert calls["cache_lookups"] == [], (
+        "a never-built scene must skip static_reference_cache lookups "
+        "entirely, not just miss them")
+    # The run only stops at the SAME budget-cap stub every other test here
+    # uses — reference resolution is not the reason it stopped.
     assert result["status"] == "failed"
-    row = next(iter(db_rows["assets"].values()))
-    assert row["status"] == "blocked_no_reference"
-    assert row["image_url"] is None
-    assert row["drive_image_url"] is None
+    assert db_rows["assets"], "expected asset rows for both blueprint views"
+    for row in db_rows["assets"].values():
+        assert row["status"] == "budget_capped"
+        assert row["status"] != "blocked_no_reference"
+        assert row["drive_image_url"] is None, (
+            "a blueprint view has no reference/anchor image to record")
 
 
 @pytest.mark.asyncio

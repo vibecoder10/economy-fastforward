@@ -163,9 +163,18 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     async def fake_execute(query, *args):
         env["queries"].append(query)
         if "INSERT INTO assets" in query:
+            # args[13]/args[14] (status/image_prompt) are new (G26, the
+            # blocked_missing_metadata placeholder fix) — _insert_placeholder
+            # always passes both positionally now, defaulting to "generating"
+            # / None for every pre-existing caller, so this stays
+            # byte-identical to the old hardcoded values for every test that
+            # doesn't opt into the new params. Defensive length check only in
+            # case a future caller ever passes fewer args.
             env["assets"][args[0]] = {
-                "status": "generating", "image_url": None,
-                "drive_image_url": args[12], "image_prompt": None,
+                "status": args[13] if len(args) > 13 else "generating",
+                "image_url": None,
+                "drive_image_url": args[12],
+                "image_prompt": args[14] if len(args) > 14 else None,
                 "image_index": args[4], "shot_type": args[6],
                 "caption": args[11],
             }
