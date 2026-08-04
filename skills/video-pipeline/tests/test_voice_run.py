@@ -19,7 +19,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestrator.pipeline_constants import ScriptFields, Statuses  # noqa: E402
-from voice.run import run  # noqa: E402
+from voice.run import run, mp3_duration_seconds  # noqa: E402
+
+
+def _fixture_mp3(num_frames: int = 40) -> bytes:
+    """A tiny but fully valid MPEG-1 Layer III file: N identical 128kbps/
+    44.1kHz/stereo frames back to back, no ID3/Xing header. mutagen parses
+    real frame headers to get the length — this is not a hardcoded/mocked
+    duration, it is computed from the bytes exactly like a real ElevenLabs
+    MP3 would be. Frame size 417 bytes = floor(144*128000/44100) (verified
+    against mutagen directly: 40 frames -> 1.04s, matching 40*1152/44100)."""
+    header = bytes([0xFF, 0xFB, 0x90, 0x00])
+    frame_size = 417
+    frame = header + b"\x00" * (frame_size - len(header))
+    return frame * num_frames
 
 
 class FakeElevenLabs:
@@ -28,10 +41,19 @@ class FakeElevenLabs:
     fail_info_out — mirrors the real ElevenLabsClient.generate_and_wait
     contract added by this fix)."""
 
-    def __init__(self, outcomes: dict, fail_message: str = "Kie TTS task failed: Internal Error, Please try again later."):
+    def __init__(
+        self,
+        outcomes: dict,
+        fail_message: str = "Kie TTS task failed: Internal Error, Please try again later.",
+        audio_bytes: bytes = b"fake-audio-bytes",
+    ):
         self.outcomes = outcomes
         self.fail_message = fail_message
         self.calls = []
+        # Deliberately NOT a valid MP3 by default — mirrors the pre-fix world
+        # and proves duration parsing failure never blocks the URL write.
+        # A test that wants a real computed duration passes real MP3 bytes.
+        self.audio_bytes = audio_bytes
 
     async def generate_and_wait(self, text, voice_id=None, task_id_callback=None, fail_info_out=None):
         # scene number is threaded through via the calling test's scene_text->scene map
@@ -49,7 +71,7 @@ class FakeElevenLabs:
         return int(text.split()[0])
 
     async def download_audio(self, audio_path):
-        return b"fake-audio-bytes"
+        return self.audio_bytes
 
 
 class FakeGoogle:
@@ -76,8 +98,8 @@ class FakeAirtable:
     def get_scripts_by_title(self, title):
         return self._scripts
 
-    def mark_script_finished(self, script_id, url):
-        self.finished.append((script_id, url))
+    def mark_script_finished(self, script_id, url, voice_duration_seconds=None):
+        self.finished.append((script_id, url, voice_duration_seconds))
         for s in self._scripts:
             if s["id"] == script_id:
                 s[ScriptFields.SCRIPT_STATUS] = ScriptFields.STATUS_FINISHED
@@ -198,10 +220,77 @@ def test_targeted_run_failure_is_reported_not_silent():
     print("test_targeted_run_failure_is_reported_not_silent OK")
 
 
+# ── voice_duration_seconds (this fix) ──────────────────────────────────────
+#
+# storyengine/schema.sql's scripts.voice_duration_seconds existed but was
+# always NULL: run.py downloaded the narration MP3 bytes, uploaded them to
+# Drive, and called mark_script_finished(id, url) — never computing or
+# passing a duration. render_static.py and channel_identity_context.py both
+# read this column downstream (falling back to ffprobe / silently excluding
+# the video from duration totals when it's NULL). These tests prove the real
+# MP3 bytes already in memory get turned into a duration and written in the
+# SAME mark_script_finished call that stores voice_over_url.
+
+def test_mp3_duration_seconds_computes_real_length():
+    """Direct unit test of the helper: a real (synthetic but valid) MPEG
+    frame stream must parse to a real, rounded, positive duration."""
+    duration = mp3_duration_seconds(_fixture_mp3(num_frames=40))
+    assert duration is not None
+    # 40 frames * 1152 samples/frame / 44100 Hz ≈ 1.045s; mutagen's own
+    # frame-header reader (verified directly, not re-derived here) reports
+    # 1.04s for this exact fixture.
+    assert duration == 1.04, f"expected 1.04, got {duration}"
+    print("test_mp3_duration_seconds_computes_real_length OK")
+
+
+def test_mp3_duration_seconds_returns_none_for_unparseable_bytes():
+    """Bytes that aren't a real MP3 must not raise — they return None so the
+    scene can still be persisted with voice_over_url set."""
+    assert mp3_duration_seconds(b"fake-audio-bytes") is None
+    assert mp3_duration_seconds(b"") is None
+    print("test_mp3_duration_seconds_returns_none_for_unparseable_bytes OK")
+
+
+def test_voice_duration_written_alongside_url_from_real_mp3_bytes():
+    """End-to-end through run(): when the downloaded audio is a real MP3,
+    mark_script_finished is called with BOTH the Drive URL and the real
+    computed duration, in the same call."""
+    scripts = _scripts(1)
+    pipeline = FakePipeline(scripts, outcomes={1: True})
+    pipeline.elevenlabs = FakeElevenLabs(outcomes={1: True}, audio_bytes=_fixture_mp3(num_frames=40))
+    result = asyncio.run(run(pipeline))
+    assert result.get("error") is None, result
+    assert len(pipeline.airtable.finished) == 1
+    script_id, url, duration = pipeline.airtable.finished[0]
+    assert script_id == "script-1"
+    assert url == "https://drive.google.com/uc?id=drive-Scene 1.mp3&export=download"
+    assert duration == 1.04, f"expected real duration 1.04, got {duration}"
+    print("test_voice_duration_written_alongside_url_from_real_mp3_bytes OK")
+
+
+def test_voice_duration_none_never_blocks_url_write():
+    """When the audio bytes can't be parsed (default FakeElevenLabs behavior
+    — mirrors a real provider hiccup or unusual encoding), the scene must
+    still be marked finished with its voice_over_url; duration is None."""
+    scripts = _scripts(1)
+    pipeline = FakePipeline(scripts, outcomes={1: True})  # default audio_bytes = unparseable
+    result = asyncio.run(run(pipeline))
+    assert result.get("error") is None, result
+    assert len(pipeline.airtable.finished) == 1
+    script_id, url, duration = pipeline.airtable.finished[0]
+    assert url, "voice_over_url must still be written even when duration parsing fails"
+    assert duration is None
+    print("test_voice_duration_none_never_blocks_url_write OK")
+
+
 if __name__ == "__main__":
     test_all_scenes_succeed_advances_status()
     test_all_scenes_fail_does_not_advance_and_surfaces_error()
     test_partial_failure_does_not_advance_status()
     test_resume_after_fix_only_retries_failed_scene()
     test_targeted_run_failure_is_reported_not_silent()
+    test_mp3_duration_seconds_computes_real_length()
+    test_mp3_duration_seconds_returns_none_for_unparseable_bytes()
+    test_voice_duration_written_alongside_url_from_real_mp3_bytes()
+    test_voice_duration_none_never_blocks_url_write()
     print("\nAll voice/run.py failure-handling tests passed.")

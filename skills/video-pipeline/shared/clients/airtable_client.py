@@ -1359,8 +1359,16 @@ class AirtableClient:
         self,
         record_id: str,
         voice_over_url: Optional[str] = None,
+        voice_duration_seconds: Optional[float] = None,
     ) -> dict:
-        """Mark a script record as finished."""
+        """Mark a script record as finished.
+
+        voice_duration_seconds is accepted for signature parity with
+        SupabaseAdapter.mark_script_finished (voice/run.py calls both the
+        same way) but there is no Airtable Scripts field for it — the real
+        Airtable base was never given a duration column, so it's a no-op
+        here, same as it silently was before this parameter existed.
+        """
         updates = {
             ScriptFields.SCRIPT_STATUS: ScriptFields.STATUS_FINISHED,
             ScriptFields.VOICE_STATUS: ImageFields.STATUS_DONE,

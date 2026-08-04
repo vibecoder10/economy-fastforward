@@ -655,13 +655,23 @@ class SupabaseAdapter:
             )
         return {"id": record_id}
 
-    def mark_script_finished(self, record_id: str, voice_over_url: Optional[str] = None) -> dict:
-        """Mark script as finished with optional voice URL."""
+    def mark_script_finished(
+        self,
+        record_id: str,
+        voice_over_url: Optional[str] = None,
+        voice_duration_seconds: Optional[float] = None,
+    ) -> dict:
+        """Mark script as finished with optional voice URL + real audio
+        duration, written in the SAME update (never a separate write) so the
+        two columns can't drift out of sync. voice_duration_seconds may be
+        None (the caller couldn't parse the MP3) — that's written as NULL,
+        same as before this column was populated at all; it never blocks the
+        voice_over_url write."""
         if voice_over_url:
             _execute(
                 """UPDATE scripts SET script_status = 'Finished', voice_status = 'Done',
-                   voice_over_url = %s WHERE id = %s""",
-                (voice_over_url, record_id),
+                   voice_over_url = %s, voice_duration_seconds = %s WHERE id = %s""",
+                (voice_over_url, voice_duration_seconds, record_id),
             )
         else:
             _execute(
