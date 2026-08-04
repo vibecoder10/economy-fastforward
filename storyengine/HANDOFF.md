@@ -1,169 +1,45 @@
-# HANDOFF - 2026-08-03 - script stage complete (23/23), polish + gates hardened; VOICE is next
+# HANDOFF - 2026-08-04 - carrier video: voice + pictures + thumbnail DONE, render blocked on one bug fix
 
 ## State
-- Prod: da9841bb deployed (se health verified, 23:18Z - 6th deploy today), backend + worker + frontend healthy.
-- Branch: main pushed clean through a96d8d6b (docs). Session worktree claude/dazzling-euclid-adafcc fully folded back.
-  Pre-existing dirt in the shared checkout, untouched and unrelated: storyengine/frontend/next-env.d.ts,
-  storyengine/tasks/loop-handoff.md (stale July content), stray storyengine/tasks/HANDOFF-D6-boardlaws.md (cleanup candidate).
-- What shipped this session:
-  - G20c/G20d: polish hedge law + per-sentence salvage. Polish proven live at scale: 15+ applied, 3 safe discards, 0 crashes.
-  - G21a/G21b/G22: script gate honors tier-floor-as-advisory (G14 ruling); roster name-collision fix (Attacker/Ruler + latent
-    CVA-01 pair); designation check accepts real name words instead of demanding the filler word "class".
-  - G23a: hand-edit door - POST /api/pipeline/machine-script-submit/{video_id} {"machine","paragraph"} - free, verbatim,
-    same referee. Used to land the final 5 cards at $0. G23b volume gate DROPPED per Ryan (measurement refuted the
-    thin-folder theory; see tasks/decisions.md 2026-08-03 at repo root).
-  - G24a/G24b: writer violation-memory across presses + auto-escalation to a stronger writer model after 2 rejections.
-  - Carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e (tenant 561b872d-7b73-45e3-9c44-7f30c3566eda): 1/23 -> 23/23
-    production scenes, status ready_for_voice. $20 max_spend set. ~$5-6 spent today (script calls do NOT ledger - backlog).
+- Prod: 992cb3f0 deployed (se health verified: backend+frontend active, api healthy, no lock). 6 deploys this session.
+- Branch: main pushed clean through 4b4e81b7. Worktree claude/sad-shamir-e31572 fully folded to main.
+  Pre-existing dirt (untouched, not ours): storyengine/frontend/next-env.d.ts, stale tasks/loop-handoff.md.
+- What shipped this session (carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e, tenant 561b872d):
+  - VOICE 23/23 ($2.97): scenes 1-8 ElevenLabs v3, 9-23 v2 (Ryan kept them; redo cancelled cleanly mid-run).
+    Tenant elevenlabs_model_id now eleven_v3 for ALL future videos. Voice durations now stamp at generation.
+  - PICTURES 23/23, 67 frames, 0 parked ($5.35 incl. iteration): rotated views (quarter/side/top) enforced by a
+    role-conformance vision judge; Ryan's anchor-chain architecture (first clean render feeds other angles);
+    fill mode (rerun only generates missing views); roster-photo reuse; research-card facts ground title cards;
+    CVA-01 gets honest Jane's-style BLUEPRINTS (never-built path + per-scene operator blueprint_override).
+  - THUMBNAIL done ($0.10): "EVERY CLASS" red/black over the Argus render (first try wrote broken "EVERY BUILT").
+  - Total ledgered $8.42 of the $20 cap. Status: ready_for_thumbnail (advance when render unblocks).
 
 ## Next action (start here cold)
-Voice stage on d2e37cd6. Per-scene resumable/skip-if-done (skills/video-pipeline/voice/run.py:86-96), so safe to retry.
-VOICE STAGE COMPLETE (2026-08-03 ~23:55Z, this session): Ryan approved the $2.17 quote in-session; the MCP voice verb ran it.
-All 23 scenes voice_status=Done, video auto-advanced to ready_for_image_prompts. Ledger: ONE clean row, elevenlabs,
-21,736 chars x $0.0001 = $2.17 actual (voice DOES ledger, unlike script - the no-ledger backlog is script-stage only).
-Verified: get_script 23/23 Done; UI walk (worktree frontend + copied .env.local) shows VOICE green "All 23 segment(s)
-voiced", cost chip Est $0.00 -> Actual $2.17, CTA now "Build to pictures"; asset-level proof = pulled one Drive voice file
-via rclone (gdrive: copyid), real MP3 128kbps/44.1kHz mono, 63.7s, sample sent to Ryan. Narrator voice used:
-1SM7GgM6IMuvQlz2BwM3 (workspace-configured, NOT the Rachel fallback).
-New small findings: (a) scripts.voice_duration_seconds left NULL by the voice stage for all 23 (duration comes from
-ffprobe fine; render/audio-sync computes later - backlog note, not a blocker); (b) voice_over_url is a raw
-drive.google.com/uc link that anonymous fetch answers with a Google sign-in page - fine for the OAuth'd app + Ryan's own
-browser, but any future in-app audio player for non-owner viewers will need proxying; (c) the "2/23 single-machine script
-tests passed" copy nit seen live again (already on backlog).
-V3 SWITCH (2026-08-04 ~00:30Z, Ryan's call mid-session): tenant elevenlabs_model_id set to eleven_v3 via the app door
-(POST /api/settings/keys/elevenlabs_model_id, minted tenant token) - ALL FUTURE voice runs are v3. Carrier video final
-audio state per Ryan ("as long as we have them for now and switched it for future"): scenes 1-8 = v3, scenes 9-23 = v2
-(redo cancelled mid-run at his word; same narrator voice throughout so the seam is subtle). Voice spend total $2.97
-ledgered ($2.17 v2 full + $0.11 scene-1 v3 + $0.69 scenes 2-8 v3); $17.03 cap headroom.
-Re-voice mechanics learned (for the next voice redo): the skip guard keys on scripts.script_status='Finished' - to
-re-voice, flip target scenes to 'Create' (VPS script over asyncpg; se db is read-only). Drive uploads can UPDATE IN PLACE
-(same file id, new bytes - scene 4 proved it), so a file id is NOT proof of audio freshness; compare bytes/duration.
-MCP voice quote shows the whole-video estimate even scene-scoped; actual ledger meters synthesized chars only (quoter nit).
-Cancel endpoint POST /api/pipeline/cancel/{video_id} works cleanly (kept 7 tracks, ledgered exactly what was synthesized).
-NEW BUG (backlog): scripts.voice_id stamps a stale/hardcoded id (1SM7GgM6...) while the runtime provably used the vault
-voice (Wq15xSaY3gWvazBRaGEU) - the column lies about which narrator spoke.
-FIXES BUILT THIS SESSION (worktree branch claude/sad-shamir-e31572, NOT deployed - deploy window parked with Ryan):
-- cd221993 roster counter: header now "23/23 production scenes scripted. Script complete." (was "2/23 tests passed");
-  verified live in the UI by the orchestrator.
-- f33c29df voice duration stamping: mutagen parse of the MP3 bytes, written in the SAME update as voice_over_url;
-  stash-proven tests, 0 new failures (28 pre-existing custom_film_remotion asset failures identical before/after).
-  Backfill recipe for the 23 NULL-duration rows: routes/videos.py::_drive_file_id ->
-  routes/media.py::_download_via_drive_api -> voice/run.py::mp3_duration_seconds -> UPDATE (raw GET on Drive links
-  returns HTML interstitials - do not backfill that way).
-PICTURES ATTEMPT #1 FAILED, $0 SPENT (2026-08-04 01:53Z, Ryan had approved the $3.45 quote): task died in 31s, all 23
-scenes, zero images attempted, zero asset rows. ROOT CAUSE (code-read confirmed): static_docu.py::_scene_subjects plans
-ALL scenes' title-card metadata in ONE model call capped at max_tokens=1800; a 23-machine roster needs ~2x that, the JSON
-array truncates, the local STRICT _parse_json_array (no salvage - NOT shared/json_utils) returns None, subjects={}, and
-every scene bounces on the caption_sub "•" metadata gate (reason missing_title_metadata) before any spend. Past 5-scene
-live tests fit under the cap - size-dependent bug. Misleading error surfaced ("no segment reached 2 verified views") AND
-bot_activity showed the customer only "Something went wrong. Please try again." (failure-visibility backlog bug bitten by
-a real spend attempt). Fix in flight: Sonnet worker chunking the planner (batches + retry + truthful error), tests, on
-branch claude/sad-shamir-e31572.
-RESOLVED (2026-08-04 ~02:40Z): planner fix landed (4313e3ba, chunks of 6 + retry + truthful error, live bug reproduced
-in a failing test first, 0 new failures) plus a NEW carousel UI Ryan requested mid-session (cf0dd225, arrows + N/3
-indicator in each Aircraft Views card, click-cycle verified live on a 3-view machine). DEPLOYED 710d2a17 (backend +
-frontend, zero-activity window, Ryan pre-authorized "deploy whenever you think it's safe"). Then the ONE-MACHINE PROOF
-(Ryan's rule, now in tasks/lessons.md: first post-fix run = smallest billable unit): images scene 1 only = $0.15 quoted
-(scene-scoped quoter now honest) and $0.15 ledgered (3 x $0.05). Output visually verified by the orchestrator: HMS Argus,
-flush deck, no island, real 1918 dazzle scheme from the verified Wikimedia ref, white studio bg, no text; title-card
-metadata grounded ("Royal Navy • 1918", flush-deck spec chip) - the planner fix works end to end. Carousel verified
-live with the real images (1/3 three-quarter -> 2/3 top-oblique -> 3/3 engineering detail). Two accepted nits sent to
-Ryan with the images: deck tone varies slightly between views; the "detail" view is a third full-ship angle, not a tight
-crop. Video total ledgered $3.12 of $20.
-ROTATION SAGA (2026-08-04 03:00-04:30Z, Ryan rejected round 1 - "3 of the same image"): root cause was the VIEW CONTRACT
-itself (all three directions literally said "three-quarter"; side profiles forbidden). Fix rounds, all on branch then
-main: cbd65d5c rotated contract (three_quarter / side_profile / top_planform) + role-conformance vision QA + skip-if-done;
-dc848cba bow-quarter spec relaxed (slightly-elevated press photo, not eye-level) + FILL MODE (rerun generates only missing
-views, never re-bills done ones - also the only door a parked view has); 9bcbe131 reject visibility (rejected frames
-re-hosted on drive_image_url + judge reason markers in image_prompt; POST /api/pipeline/static-qa-approve/{asset_id}
-promotes a parked frame by hand). Deploys: c8cc9cb9, bf0b19e9 (+9bcbe131 pending deploy with the chain change).
-LIVE RESULT on Argus (scene 1): side_profile + top_planform PASS and are genuinely rotated (Ryan has the images);
-three_quarter role-REJECTED 6x total across rounds (~$0.30 burned) - the raw side-on historical reference photo's angle
-bleeds into every generation and beats the wording.
-THE REAL FIX (Ryan's architecture, dispatched as the view-chain worker): anchor chaining - first clean render (from the
-raw photo) becomes the image INPUT for every other angle; rotating a clean studio render works where fighting the photo
-does not. Identity QA still judges against the ORIGINAL photo so the chain cannot drift. Fill mode makes it self-healing
-(Argus's done side_profile = her anchor for the missing quarter view). Plumbing: anchors must go through the media proxy,
-NOT raw drive.google.com links (Kie's fetcher hits Drive sign-in walls).
-LESSON (in tasks/lessons.md + durable memory): repeated angle/style failures = question the INPUT ANCHOR before the
-wording; the char-sheet anchoring rule was already house law and should have transferred to machines.
-CHAIN PROVEN (04:10-04:18Z): 0171078f anchor chaining deployed (209a050a) - the chained quarter attempt produced a CLEAN
-elevated quarter view (geometry solved), rejected only for bow-vs-stern orientation by the judge (reject reasons now
-visible in image_prompt markers, rejected frame preserved on drive_image_url - evidence sent to Ryan). Evidence-backed
-tune 82df4c9c (three_quarter accepts EITHER end; side-on/top-down still rejected) deployed 61a77dae.
-RYAN'S GO EXECUTED (04:25-05:15Z): Argus quarter frame promoted via static-qa-approve ($0, scene 1 now 3/3). BATCH RAN:
-13/23 machines fully ready (37 done views), $1.90 of the $3.45 approved quote (blocked machines spend nothing). Sample
-verification by orchestrator eyes: Illustrious + QE trios are correct ships, correct rotated angles (bow-quarters come
-out fine with fresh per-machine anchors - Argus's stern-bias was reference-specific). 2 parked third-views (scene 2
-Furious identity-reject, scene 3 Hermes top-not-steep-enough - both machines still >= 2 views, retryable via fill for
-$0.05 each). 9 rows blocked_no_reference: scenes 9+13 are CVA-01 (never built, correctly blocked FOREVER) and scenes
-4,5,16,17,21,22,23 (Eagle, Courageous, MAC ship, Activity, Ruler x2, Unicorn) are a WIRING GAP - the roster stage
-verified photos for these machines but static_docu's reference hunt never consults the video's own roster photos
-(roster-ref-reuse worker building the fix: roster photo as a reference layer after the tenant cache).
-PICTURES STAGE MAX-COMPLETE (05:40Z): roster-ref fix deployed e03efca2; two stragglers (scene 17 "HMS Activity (D94)"
-key-suffix mismatch, scene 22 "Ruler-class Escort Carrier" two-entry ambiguity fail-close) fixed by SEEDING
-static_reference_cache alias keys pointing at the same roster-verified photos ($0, durable, script pattern in session
-scratchpad); matcher hardening filed as task chip task_92cb9dd0. FINAL: 21/23 scenes ready, 59 done frames, only
-CVA-01 scenes 9+13 remain (impossible by design, RYAN'S PARKED DECISION - options: design drawings with honest caption /
-title-card-only / cut scenes; this gates thumbnail+render, the picture gate blocks until resolved). 4 machines sit at
-2/3 views (parked third views, retryable via fill for ~$0.05 each - not blockers). Independent 59-frame visual review
-worker dispatched (frame-review). Ledgered $7.22 of $20 ($2.97 voice + $4.25 images).
-FRAME REVIEW + REDOS (05:50-06:40Z): independent 59-frame review found 51 clean + 3 problem machines, each a different
-root cause, all fixed and re-verified by orchestrator eyes: Unicorn (reference photo contained TWO ships - engine's own
-re-hunt after cache clear via POST /api/pipeline/roster-seed-reference/{video_id} {machine,url} with the single-ship
-Wikipedia lead; now one ship), Melbourne (reference lacked visible angled deck vs caption promise - seeded the Pearl
-Harbor 1958 aerial; angled deck now clearly rendered, gibberish hull text gone on re-roll), Invincible (re-roll restored
-the subtle bow ramp). RYAN'S CVA-01 DECISION: blueprint images - IMPLEMENTED (96eec608): never-built machines generate
-2 monochrome Jane's-style technical drawings (side elevation + deck plan), grounded only in roster facts, caption stamped
-"Design study - never built" + design_study:true, adapted identity QA (no photo to compare), role QA reused. NOT yet
-deployed. SCENE 19 FOUND INVISIBLE (Nairana/Vindex): its narration has zero numeric specs, planner gets no research
-facts for this format (fact_sheet/character_dossier keys absent - the real facts live in the machine research cards,
-never passed), metadata gate bounces BEFORE creating any asset row so the scene vanished from every count. planner-facts
-worker building: (1) feed machine-card facts to the planning chunks, (2) metadata bounces insert a visible
-blocked_missing_metadata row. Ledgered $7.87 of $20.
-PICTURES STAGE COMPLETE 23/23 (2026-08-04 18:30Z): planner-facts landed (6576ec03 - machine_research_cards table is the
-card truth, positional scene->roster mapping, metadata bounces now insert visible blocked_missing_metadata rows);
-positional never-built detection (a7ae480a) fixed CVA-01 scene 13 (blueprints LIVE and beautiful - Jane's-style side
-elevation + deck plan with period jet silhouettes); scene 9 (slot = Audacious/Malta, narration = CVA-01 predecessors
-per its own research card, never-built veto correct because Eagle R05 completed) resolved via NEW operator
-blueprint_override (8bbdebca: card JSONB field, strict is-True) - flag set on the real card, blueprints generated and
-eyes-verified. Scene 19 (Nairana) 3/3 after the facts wiring. Deploys this arc: d074e057, d4411594, 992cb3f0.
-FINAL: 67 done frames, 0 parked, 23/23 machines ready, every frame passed identity+role judges, 59 reviewed
-frame-by-frame by an independent worker + all fix/new frames eyes-verified by the orchestrator. Ledgered $8.32 of $20
-($2.97 voice + $5.35 images including all iteration).
-THUMBNAIL DONE (Ryan pressed it, 19:0xZ): attempt 1 composed well but text read "EVERY BUILT" (broken English -
-orchestrator eyes caught it); redo with explicit change-text guidance produced "EVERY CLASS" (red/black, arrow to the
-Argus render) - approved by orchestrator eyes, sent to Ryan. $0.10 total (2 x $0.05; thumbnails also Drive-update
-IN PLACE, same file id - re-download, never trust the id for freshness). Video status still ready_for_thumbnail
-(thumbnail verb doesn't auto-advance; advance when render is possible).
-NEXT: (1) render BLOCKED by the render verb's format-blindness (demands animated clips; static_docu skips clips by
-design) - task chip task_baa632d0 filed with full repro; after that fix deploys, advance the status and render
-(compute-only, no external billing); (2) upload (skip-if-done guard exists, force=false default). Ledgered $8.42 of
-$20. Guide nit (next_step says "characters" for a format whose plan excludes it) - cosmetic, not filed. Matcher
-hardening still running in its own session (task_92cb9dd0) - expect a static_docu.py merge later. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
-Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
-1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
-   "Rachel"). This is a creative call, get it before spending.
-2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.
-3. Trigger the engine's own voice stage (find the verb in storyengine/backend/routes/pipeline.py; the MCP `voice` tool
-   also exists). Auth for direct REST: se devtoken CANNOT bind this tenant (both Ryan accounts resolve to an older
-   ee93e6d1 owner membership) - mint with:
-   ssh storyengine-vps '~/projects/economy-fastforward/storyengine/backend/venv/bin/python3 /tmp/mint_tenant_token.py ryan.ayler@gmail.com 561b872d-7b73-45e3-9c44-7f30c3566eda'
-4. Verify per-scene audio via get_script (voice status per scene) + a UI walk of the Script/Voice tab.
+The ONLY blocker is the render verb refusing static_docu videos ("nothing's been animated yet" - it demands clips
+from a format that skips clips by design). Ryan already started fix chip task_baa632d0 in its own session.
+1. Check that fix landed on main: cd ~/economy-fastforward/storyengine && git log --oneline -5 (look for the
+   render-verb fix; also check the matcher-hardening session task_92cb9dd0 for a static_docu.py merge).
+2. If landed: deploy via ssh storyengine-vps 'bash ~/projects/economy-fastforward/storyengine/scripts/vps-deploy.sh <name>'
+   (check ~/deploy.lock + running background_tasks first - zero-activity window).
+3. Then: MCP advance verb on d2e37cd6 (to ready_to_render), MCP render verb (compute-only, no external billing),
+   watch via background_tasks, then eyes on the rendered video before any upload talk. Upload has skip-if-done.
 
 ## Open threads
-- G24 live proof deferred by design: on the next video with a hard card, watch backend logs for
-  `[script] machine=... escalated_model=... reason=two_rejections` and confirm the third draft stops repeating rejections.
-- Backlog: Run All Script Cards has no skip guard (rerolls saved cards - G21c candidate in tasks/loop-checklist.md);
-  script-stage calls write no generation_ledger rows; UI copy nits (roster header counts preview tests "2/23" not real
-  scenes; roster gate line self-contradicts); bot_activity scrubs referee detail to "Something went wrong";
-  older parked items (G4/G6/G7/G10/G11/G15/G19, C13, GAP3, Stripe chip) unchanged in tasks/loop-checklist.md.
+- Render-verb format-blindness fix - task_baa632d0 RUNNING in separate session; render+upload blocked until it lands.
+- Matcher hardening (scene-name -> roster entry tolerance) - task_92cb9dd0 running separately; expect static_docu.py merge.
+- 4 machines have 2/3 views (parked thirds, honest judge rejects) - $0.05 each via fill runs, cosmetic, not blockers.
+- Backlog unchanged: script-stage calls don't ledger; production-guide next_step says "characters" for static_docu
+  (cosmetic); scripts.voice_id column stamps wrong id (runtime provably used vault voice); older parked items in
+  tasks/loop-checklist.md.
 
 ## Gotchas learned this session
-- Hand-submitted machine cards (G23a house rules, full list in loop-checklist G23a entry): no semicolons; no only/never
-  unless verbatim in slot evidence; each beat sentence may cite ONLY its own plan-slot evidence (memorable_fact facts are
-  unusable cross-slot); final sentence may not introduce new named entities; hedge any number-bearing sentence; digits
-  matching evidence tokens beat spelled-out number words.
-- Worktree UI driving: the worktree's own launch.json starts the WORKTREE frontend - copy storyengine/frontend/.env.local
-  (prod API URL + dev token) into the worktree's frontend first, or auth silently breaks against a stray localhost:8001.
-- Batch-press scripts must log the FULL blocking-warnings list per item; summary lines lie (tasks/lessons.md 2026-08-03).
+- Google Drive uploads via the engine UPDATE IN PLACE: same file id, new bytes. A file id is NEVER proof of
+  freshness - re-download and compare bytes/duration (bit us on voice and thumbnail both).
+- se db is read-only; prod writes go via scp'd asyncpg script with DATABASE_URL from ~/projects/.../storyengine/.env
+  on the VPS (grep the var, don't source the file - it breaks). Token mint: /tmp/mint_tenant_token.py (se devtoken
+  cannot bind tenant 561b872d).
+- Scene-scoped pipeline runs (voice/images scene=N) do NOT advance video status - use the MCP advance verb after.
+- Re-voicing needs scripts.script_status flipped back to 'Create' (skip guard keys on it); cancel endpoint
+  POST /api/pipeline/cancel/{video_id} stops cleanly between scenes and ledgers only what was synthesized.
+- Repeated angle/style generation failures = wrong input anchor, not wrong prompt wording (now in lessons.md + memory).
+- First post-fix run is ONE billable unit, never the batch (Ryan's rule, now in lessons.md).
