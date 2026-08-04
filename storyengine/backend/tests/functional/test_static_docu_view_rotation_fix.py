@@ -95,11 +95,56 @@ def test_three_quarter_direction_uses_slightly_elevated_vantage_not_eye_level():
     assert "slightly elevated" in direction
     assert "not eye-level" in direction, (
         "eye-level should be explicitly excluded, not just silently dropped")
-    assert "bow-quarter" in direction or "bow quarter" in direction
-    # Identity geometry unchanged: both bow/front and one side still
-    # required, and overall shape/length still has to read cleanly.
-    assert "bow/front" in direction or "nose/front" in direction
+    assert "bow-quarter" in direction or "bow quarter" in direction, (
+        "bow-quarter stays as the PREFERRED framing, still named first")
+    # Identity geometry unchanged: one full side still required, and overall
+    # shape/length still has to read cleanly.
     assert "one full side" in direction
+    # Side-on and top-down are still explicitly excluded — only the
+    # bow-vs-stern question changed, not the underlying angle requirement.
+    assert "not a flat side-on profile" in direction
+    assert "not a" in direction and "top-down angle" in direction
+
+
+def test_three_quarter_direction_accepts_either_end_not_just_bow():
+    """2026-08-03 second same-day follow-up: the role judge rejected clean,
+    correctly-elevated quarter views on video d2e37cd6 scene 1 twice more,
+    both times over WHICH END faced the camera ("stern-quarter, not
+    bow-quarter") — while the preserved rejected frame was itself a
+    textbook identification quarter view. The requirement was never
+    bow-specific: one end (bow OR stern) + one full side, slightly
+    elevated, is the actual standard. Bow-quarter stays the PREFERRED
+    framing (named first, still steered toward), but bow-vs-stern must no
+    longer be decisive."""
+    direction = _PLANS["three_quarter"]["direction"].lower()
+    assert "stern" in direction, (
+        "stern-quarter must be named as equally acceptable, not just "
+        "silently allowed by omission")
+    assert "one end" in direction, (
+        "the requirement is ONE END (bow or stern) + one side, not a "
+        "bow-only mandate")
+    assert "equally acceptable" in direction or "either end" in direction
+
+
+def test_three_quarter_judge_requirement_accepts_either_end_not_just_bow():
+    """Same either-end standard, consistent wording, on the judge side
+    (`_ROLE_GEOMETRY_REQUIREMENTS`) that actually gates acceptance —
+    otherwise the contract's `direction` prompt could ask for either end
+    while the judge that grades the result still silently insists on bow
+    only, reproducing the exact live rejection this fix addresses."""
+    requirement = static_docu._ROLE_GEOMETRY_REQUIREMENTS["three_quarter"].lower()
+    assert "bow-quarter" in requirement or "bow quarter" in requirement, (
+        "bow-quarter stays as the PREFERRED framing in the judge's own "
+        "description of the role")
+    assert "stern" in requirement, (
+        "the judge must accept stern-quarter as equally valid, not just "
+        "the contract's direction text")
+    assert "one end" in requirement
+    assert "either" in requirement
+    # The judge must still reject flat side-on profiles and top-down
+    # angles for this role — only bow-vs-stern became non-decisive.
+    assert "flat side-on profile" in requirement
+    assert "top-down angle" in requirement
 
 
 def test_side_profile_direction_has_no_three_quarter_language():
