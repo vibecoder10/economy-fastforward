@@ -104,6 +104,46 @@ _CVA01_CLASS = {
     "built_count": "0 ships built, cancelled February 1966 before construction",
 }
 _UNICORN = {"name": "Unicorn", "designation": "HMS Unicorn (I72)"}
+_ARK_ROYAL_1937 = {
+    "name": "Ark Royal (1937)",
+    "designation": "HMS Ark Royal (91)",
+    "role": "First modern British fleet carrier with armored hangar and two-hangar design",
+    "years": "Laid down 1935, commissioned November 1938",
+    "status": "production",
+    "built_count": "1 ship",
+}
+_INVINCIBLE = {
+    "name": "Invincible class",
+    "designation": "Invincible, Illustrious, Ark Royal (R07)",
+    "role": "Through-deck cruisers/light STOVL carriers for Sea Harrier and helicopters",
+    "years": "Invincible commissioned July 1980, Illustrious June 1982, Ark Royal November 1985",
+    "status": "production",
+    "built_count": "3 ships",
+}
+_HERMES_1924 = {
+    "name": "Hermes",
+    "designation": "HMS Hermes (95)",
+    "role": "World's first purpose-designed aircraft carrier laid down as such",
+    "years": "Laid down January 1918, commissioned February 1924",
+    "status": "production",
+    "built_count": "1 ship",
+}
+_CENTAUR = {
+    "name": "Centaur class",
+    "designation": "Centaur, Albion, Bulwark, Hermes (R12)",
+    "role": "Intermediate fleet carriers, evolved from light fleet design with stronger structure",
+    "years": "Centaur commissioned September 1953, Albion May 1954, Bulwark November 1954, Hermes November 1959",
+    "status": "production",
+    "built_count": "4 ships",
+}
+_ACTIVITY = {
+    "name": "Activity class",
+    "designation": "HMS Activity (D94)",
+    "role": "Converted refrigerated cargo ship, used for training and ferry duties",
+    "years": "Converted 1942, commissioned September 1942",
+    "status": "converted",
+    "built_count": "1 ship converted",
+}
 
 
 def _video_row(video_id: str, roster: list) -> dict:
@@ -156,6 +196,102 @@ def test_resolves_attacker_scene_to_attacker_entry_not_ruler():
     match = static_docu._roster_entry_for_scene_machine(entries, "HMS Attacker", [])
     assert match is not None
     assert match["name"] == pe._unit_display_name(_ATTACKER)
+
+
+def test_scene17_activity_with_escort_carrier_alias_resolves():
+    """G24b live repro (video d2e37cd6, scene 17, 2026-08-04): the scene
+    guessed 'HMS Activity (D94)' — the roster's own designation, verbatim —
+    yet _roster_entry_for_scene_machine returned None and the scene landed
+    blocked, even though a roster-verified photo sat in
+    static_reference_cache under 'hmsactivityd94activityclass' the whole
+    time (the session worked around it by hand-seeding an alias cache key).
+
+    Mechanism (established by running the REAL functions against the REAL
+    23-entry live roster): the guess alone resolves fine; the kill shot is
+    any scene ALIAS carrying 'escort carrier' — natural for an escort
+    carrier — whose word 'escort' also word-overlaps BOTH 'Lend-Lease
+    escort carriers …' entries, inflating one true hit to three and
+    tripping the exactly-one rule. Shared bookkeeping words must not be
+    allowed to spoil a guess that names one entry uniquely ('activity',
+    'd94' each match the Activity entry and it alone)."""
+    entries = _roster_entries([_ACTIVITY, _ATTACKER, _RULER, _UNICORN])
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "HMS Activity (D94)",
+        ["HMS Activity", "Activity class escort carrier"])
+    assert match is not None
+    assert match["name"] == pe._unit_display_name(_ACTIVITY)
+
+
+def test_scene22_ruler_class_escort_carrier_guess_resolves_to_ruler():
+    """G24b live repro (video d2e37cd6, scene 22, 2026-08-04): the scene
+    guessed 'Ruler-class Escort Carrier' — no aliases needed to break it.
+    'ruler' matches only the Ruler entry, but 'escort' word-overlaps both
+    Lend-Lease entries, so the old exactly-one rule saw two hits and
+    fail-closed to None despite a verified cache row under the Ruler
+    entry's compound key. 'ruler' is unique to one entry across the whole
+    roster — that discriminating evidence must win over the shared
+    bookkeeping word that can't tell the siblings apart."""
+    entries = _roster_entries([_ACTIVITY, _ATTACKER, _RULER, _UNICORN])
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "Ruler-class Escort Carrier", [])
+    assert match is not None
+    assert match["name"] == pe._unit_display_name(_RULER)
+
+
+def test_generic_lend_lease_guess_stays_ambiguous():
+    """The G21b collision guard the fix must NOT weaken: a guess made of
+    ONLY the words the two Lend-Lease siblings share ('Lend-Lease escort
+    carrier') carries no evidence unique to either entry — it must stay
+    fail-closed None, never silently pick Attacker or Ruler."""
+    entries = _roster_entries([_ACTIVITY, _ATTACKER, _RULER, _UNICORN])
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "Lend-Lease escort carrier", [])
+    assert match is None
+
+
+def test_guess_naming_both_siblings_stays_ambiguous():
+    """A guess whose words discriminate for TWO different entries at once
+    ('Attacker and Ruler escort groups') is genuinely ambiguous — two
+    unique-evidence winners is still not one, and must return None."""
+    entries = _roster_entries([_ACTIVITY, _ATTACKER, _RULER, _UNICORN])
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "Attacker and Ruler escort groups", [])
+    assert match is None
+
+
+def test_pennant_guess_resolves_when_words_and_token_both_fail():
+    """The other 'HMS <name> (<pennant>)' shape from the same live roster:
+    'HMS Ark Royal (91)' has NO word/token evidence at all — '91' is under
+    _designation_token_in_title's 3-char floor (C36's own guard), 'royal'
+    is a generic word, 'ark' is under the 4-char word floor. Only machine-
+    key containment can identify it: 'hmsarkroyal91' sits inside exactly
+    one entry key ('hmsarkroyal91arkroyal1937') across the whole roster —
+    the Invincible-class sibling that ALSO carries an Ark Royal (R07) never
+    contains the pennant-bearing prefix."""
+    entries = _roster_entries([_ARK_ROYAL_1937, _INVINCIBLE, _UNICORN])
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "HMS Ark Royal (91)", [])
+    assert match is not None
+    assert match["name"] == pe._unit_display_name(_ARK_ROYAL_1937)
+
+
+def test_bare_shared_ship_name_stays_ambiguous():
+    """Containment must NOT let a bare shared name pick a winner: the
+    roster genuinely holds two HMS Hermes (the 1924 carrier, and Hermes
+    R12 inside the Centaur class) and two Ark Royals (1937, and R07 inside
+    the Invincible class). Without a pennant the guess is genuinely
+    ambiguous and must stay None — only the digit-bearing form may resolve
+    ('HMS Hermes (95)' names the 1924 ship alone)."""
+    entries = _roster_entries(
+        [_HERMES_1924, _CENTAUR, _ARK_ROYAL_1937, _INVINCIBLE, _UNICORN])
+    assert static_docu._roster_entry_for_scene_machine(
+        entries, "HMS Hermes", []) is None
+    assert static_docu._roster_entry_for_scene_machine(
+        entries, "HMS Ark Royal", []) is None
+    match = static_docu._roster_entry_for_scene_machine(
+        entries, "HMS Hermes (95)", [])
+    assert match is not None
+    assert match["name"] == pe._unit_display_name(_HERMES_1924)
 
 
 def test_resolves_short_guess_to_compound_roster_display_name():
@@ -415,6 +551,56 @@ async def test_roster_photo_used_as_reference_no_web_hunt(monkeypatch):
     for row in db_rows["assets"].values():
         assert row["status"] == "budget_capped"
         assert row["status"] != "blocked_no_reference"
+        assert row["drive_image_url"] == "https://storage.example/roster_ruler.jpg"
+
+
+@pytest.mark.asyncio
+async def test_scene22_shape_reuses_roster_photo_end_to_end(monkeypatch):
+    """G24b end-to-end: the exact scene-22 live shape ('Ruler-class Escort
+    Carrier', shared word 'escort' overlapping both Lend-Lease siblings)
+    must now flow through LAYER 0b — resolve to the Ruler entry alone, reuse
+    its cached verified photo, pass it through _vision_confirms, and never
+    touch the web hunt. Before this fix the resolver returned None here and
+    the scene fell through to a web hunt it didn't need (live: to
+    blocked_no_reference, dodged only by hand-seeding alias cache keys)."""
+    video_id = str(uuid.uuid4())
+    tenant_id = str(uuid.uuid4())
+    roster = [_ACTIVITY, _ATTACKER, _RULER, _UNICORN]
+    video_row = _video_row(video_id, roster)
+    ruler_mkey = _cache_key_for(_RULER)
+    scene_mkey = static_docu._machine_key("Ruler-class Escort Carrier")
+    assert ruler_mkey != scene_mkey
+
+    cache_rows = {
+        ruler_mkey: {
+            "hosted_url": "https://storage.example/roster_ruler.jpg",
+            "source_url": "https://en.wikipedia.org/wiki/Ruler-class_escort_carrier",
+        },
+    }
+
+    db_rows, calls = _install_common_fakes(
+        monkeypatch, video_row,
+        scene_text=(
+            "The Ruler class was the largest single group of escort "
+            "carriers in Royal Navy service, twenty-three Casablanca-type "
+            "hulls transferred under Lend-Lease."
+        ),
+        machine="Ruler-class Escort Carrier",
+        cache_rows=cache_rows,
+        fail_on_web_hunt=True,
+    )
+
+    result = await static_docu.generate_static_images_for_video(video_id, tenant_id)
+
+    assert calls["cache_lookups"] == [scene_mkey, ruler_mkey]
+    assert calls["host_reference"] == []
+    assert len(calls["vision_confirms"]) == 1
+    vc = calls["vision_confirms"][0]
+    assert vc["image_url"] == "https://storage.example/roster_ruler.jpg"
+    assert vc["trusted_source"] is True
+    assert result["status"] == "failed"  # budget-cap stub, well past the reference gate
+    for row in db_rows["assets"].values():
+        assert row["status"] == "budget_capped"
         assert row["drive_image_url"] == "https://storage.example/roster_ruler.jpg"
 
 

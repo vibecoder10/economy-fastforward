@@ -4,6 +4,39 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ✓ DONE — 2026-08-04 — G24b: scene→roster reference matching hardened (no more manual alias seeding)
+
+**Branch:** `claude/vibrant-einstein-0375bf`. Two files:
+`storyengine/backend/static_docu.py` (`_roster_entry_for_scene_machine` +
+hoisted `_GENERIC_MACHINE_WORDS`), tests in
+`tests/functional/test_static_docu_roster_reference_layer.py`.
+
+The 2026-08-04 pictures run on video d2e37cd6 had two scenes miss LAYER 0b
+despite verified cache rows: scene 17 ("HMS Activity (D94)") and scene 22
+("Ruler-class Escort Carrier"). Root cause, reproduced through the REAL
+functions with the REAL live 23-entry roster before any fix: G24's
+exactly-one-hit rule let a shared bookkeeping word ("escort", which lives in
+BOTH Lend-Lease entries' compound display names) inflate one true hit to
+two-plus, fail-closing to None. The session's hand-seeded alias cache keys
+(hmsactivityd94, rulerclassescortcarrier) were the workaround; they're now
+unnecessary (harmless to leave in place).
+
+Fix: when exactly-one fails, resolve on DISCRIMINATIVE evidence only — a
+designation token, significant word (punctuation-split, so "Ruler-class"
+offers "ruler"), or digit-bearing machine-key containment ("hmsarkroyal91"
+inside exactly one entry key) counts only when it matches ONE entry across
+the whole roster; exactly one backed entry wins, else still None. Collision
+safety intact and test-pinned: bare "CVA-01" (names both the never-built
+class and its predecessors), "Lend-Lease escort carrier" (names both
+siblings), and bare shared ship names ("HMS Hermes" — the roster really has
+two) all stay fail-closed None. Resolved photos still pass _vision_confirms
+before use — never a blind reuse.
+
+Proof: 16/16 in the roster-reference test file (5 new tests, all written
+red-first against the live shapes); full backend suite 4324 passed with
+exactly the known 28-failure test_custom_film_remotion.py baseline — zero
+new failures. Not yet merged to main or deployed.
+
 ## ✓ DONE — 2026-07-30 — Three suspect bomber reference photos verified correct (no reseed needed)
 
 The 2026-07-30 handoff flagged three static_reference_cache rows (tenant
