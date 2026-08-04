@@ -35,7 +35,10 @@ except ImportError:
     # actually needs `fetch_all` to be present (and real callers/tests that
     # exercise it monkeypatch this module attribute directly).
     fetch_all = None
-from status_map import is_at_or_past_stage, render_path_plays_sfx, render_path_sfx_block_reason
+from status_map import (
+    is_at_or_past_stage, render_path_needs_clips, render_path_plays_sfx,
+    render_path_sfx_block_reason,
+)
 from static_docu_contract import STATIC_VIEWS_TARGET
 
 # shared.channel_profile lives in the pipeline package, not the SaaS backend
@@ -308,7 +311,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
         "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, render_mode, "
-        "total_cost, max_spend, custom_film_plan_id, dialogue_audio, dialogue_mode, "
+        "total_cost, max_spend, custom_film_plan_id, dialogue_audio, dialogue_mode, pipeline_stages, "
         "characters_approved_at, environments_approved_at "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -396,6 +399,14 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         # dialogue_mode branches themselves.
         "plays_sfx": render_path_plays_sfx(v),
         "sfx_blocked_reason": render_path_sfx_block_reason(v),
+        # Whether THIS video's render consumes animated clips at all
+        # (status_map.render_path_needs_clips — False for static_docu, whose
+        # stage plan drops the video stage and renders held images over
+        # narration). Computed here, once, from the raw video row so
+        # blocked_reason() below gates the render verb on the format's real
+        # prerequisites instead of refusing a render-ready static
+        # documentary with "nothing's been animated yet".
+        "render_needs_clips": render_path_needs_clips(v),
     }
 
 
@@ -479,8 +490,36 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
         return NEEDS_REASON["scenes"]
     if needs == "pictures" and summary["pics"] == 0:
         return NEEDS_REASON["pictures"]
-    if needs == "clips" and summary["clips"] == 0:
-        return NEEDS_REASON["clips"]
+    if needs == "clips":
+        # Format-aware (live repro: a static-documentary video with every
+        # scene voiced and its still views verified was refused with
+        # "nothing's been animated yet" — a format that never animates).
+        # `.get(..., True)` fails OPEN like plays_sfx below: a hand-rolled
+        # summary without the key keeps the historical clip-count gate.
+        if summary.get("render_needs_clips", True):
+            if summary["clips"] == 0:
+                return NEEDS_REASON["clips"]
+        else:
+            # Clip-free render (static_docu — see status_map.
+            # render_path_needs_clips): gate on the format's REAL
+            # prerequisites instead, mirroring static_stage_plan's
+            # render prereq (images+voice) and the same readiness
+            # production_guide reads — all scenes voiced, pictures drawn.
+            # render_static.py stays the authoritative per-scene check
+            # ("Scene(s) N have no image yet"); this outer gate only
+            # catches the clearly-not-ready cases with a plain reason.
+            scenes = int(summary.get("scenes") or 0)
+            voiced = int(summary.get("voiced") or 0)
+            if scenes == 0:
+                return NEEDS_REASON["scenes"]
+            if voiced < scenes:
+                return (
+                    f"the narration isn't finished — {voiced} of {scenes} "
+                    "scene(s) are voiced (a static documentary renders held "
+                    "images over the voiceover) — I'd finish the voice first"
+                )
+            if int(summary.get("pics") or 0) == 0:
+                return NEEDS_REASON["pictures"]
     if needs == "cast" and summary.get("cast", 0) == 0:
         return NEEDS_REASON["cast"]
     if needs == "rendered" and not is_at_or_past_stage(summary["status"], "rendered"):

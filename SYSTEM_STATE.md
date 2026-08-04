@@ -1,5 +1,35 @@
 # System State — Economy FastForward
 
+## Render verb is format-aware for static documentaries (2026-08-04)
+
+- Live repro: a render-ready static documentary (render_mode='static_docu',
+  23/23 scenes voiced, every scene with verified still views) was refused by
+  the MCP/chat/agent render verb with "nothing's been animated yet" — the
+  shared gate `actions.blocked_reason()` keyed the render verb on clip count,
+  but a static documentary never animates (static_stage_plan drops the
+  'video' stage; render_static.py holds images over narration). The REST
+  endpoint `POST /render/{video_id}` was already format-aware; only the verb
+  layer was not.
+- New `status_map.render_path_needs_clips(video)` — False for static_docu
+  and for any stored stage plan whose render excludes 'video'. Threaded
+  through `actions.video_summary()` (SELECT gains `pipeline_stages`; summary
+  gains `render_needs_clips`) into `blocked_reason()`'s clips gate, which for
+  a clip-free render now gates on the format's real prerequisites: all
+  scenes voiced + pictures drawn (production_guide's voice/images readiness).
+  Missing-key summaries fail OPEN into the historical clip-count gate, same
+  philosophy as `plays_sfx`.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_render_verb_static_docu_gate.py` | 5 tests: the live-repro refusal (fails pre-fix), animated-video regression lock, static prerequisites gate, `render_path_needs_clips` matrix, `video_summary` wiring |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/status_map.py` | New `render_path_needs_clips()` beside the SFX render-path guard |
+| `storyengine/backend/actions.py` | `video_summary` SELECT + `render_needs_clips` key; `blocked_reason` clips gate is format-aware |
+
 ## Storyboard-driven Custom Film director loop (M8 local foundation, 2026-07-26)
 
 - `storyengine/backend/custom_film_director.py` now plans and compiles a complete

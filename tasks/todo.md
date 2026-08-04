@@ -4,6 +4,30 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ✓ DONE — 2026-08-04 — Render verb no longer refuses render-ready static documentaries
+
+Live repro (video d2e37cd6-521a-43aa-a14d-ce096a783c1e, tenant 561b872d,
+render_mode='static_docu', 23/23 scenes voiced, >= 2 verified views per
+scene): the MCP/chat/agent render verb refused with "nothing's been animated
+yet". Root cause: the shared gate `actions.blocked_reason()` keyed render on
+clip count for every format; a static documentary never animates (its stage
+plan drops the video stage; render_static.py holds images over narration).
+The REST `POST /render/{id}` endpoint was already format-aware — only the
+verb layer wasn't.
+
+Fix: `status_map.render_path_needs_clips()` (False for static_docu / any
+stage plan whose render excludes 'video'), threaded through
+`actions.video_summary()` as `render_needs_clips`, consulted by the clips
+gate — clip-free renders gate on all-scenes-voiced + pictures-drawn instead
+(production_guide's readiness; fails open to the old gate on missing key,
+same as plays_sfx). Tests:
+`tests/functional/test_render_verb_static_docu_gate.py` (5 tests; stash-
+verified 4 fail pre-fix). Full suite: 28 failed / 4355 passed — the 28 are
+all the known `test_custom_film_remotion.py` baseline, zero new failures.
+
+NOT deployed — operator handles the deploy (per task brief). After deploy,
+the live video above should quote a render from the verb layer.
+
 ## ✓ DONE — 2026-07-30 — Three suspect bomber reference photos verified correct (no reseed needed)
 
 The 2026-07-30 handoff flagged three static_reference_cache rows (tenant

@@ -474,6 +474,32 @@ def render_path_sfx_block_reason(video: dict) -> Optional[str]:
     return _render_path_sfx_reason(video) or None
 
 
+def render_path_needs_clips(video: Optional[dict]) -> bool:
+    """Whether this video's render consumes animated clips at all.
+
+    False for a static-documentary video (render_mode='static_docu'): its
+    render holds verified still views over the narration (render_static.py),
+    and static_stage_plan() drops the 'video' stage entirely, rewiring
+    render's prerequisite to images+voice. Also False for any stored stage
+    plan that includes 'render' while excluding 'video' — today only
+    static_stage_plan produces one (normalize_stage_plan's prerequisite
+    model always pulls 'video' in with 'render'), so this second check is
+    the format-generic rule the render_mode check is one instance of.
+
+    Used by actions.blocked_reason() to gate the render verb on the format's
+    REAL prerequisites (narration + pictures) instead of clip count — the
+    clip-count gate refused perfectly render-ready static documentaries
+    ("nothing's been animated yet" on a format that never animates).
+    """
+    video = video or {}
+    if (video.get("render_mode") or "") == "static_docu":
+        return False
+    plan = parse_stage_plan(video.get("pipeline_stages"))
+    if plan and "render" in plan and "video" not in plan:
+        return False
+    return True
+
+
 def stages_excluding_blocked_sound(stages: Optional[list], video: Optional[dict]) -> Optional[list]:
     """Given a stage list (or None = "every stage"), drop "sound" when this
     video's render path can never play it (render_path_plays_sfx above).
