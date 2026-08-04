@@ -1694,30 +1694,57 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
     return said_match and not is_empty
 
 
-async def _scene_subjects(tenant_id: str, scenes: list[dict],
-                          research_payload: Optional[dict]) -> dict[int, dict]:
-    """One Claude call -> grounded subject, title-card, and detail metadata."""
-    from kie_unified import get_text_client_for_tenant
+# --- subject planning batching -------------------------------------------
+#
+# Root cause (live, 2026-08-03): _scene_subjects used to plan the WHOLE
+# roster in ONE Claude call at a flat max_tokens=1800. Each scene's JSON
+# item runs roughly 150-200 tokens, so a 23-scene roster needs ~3,500-4,500
+# output tokens — the reply truncated mid-array. _parse_json_array is
+# deliberately strict (one `re.search(r"\[.*\]")` then `json.loads`, no
+# salvage of a truncated array), so the truncated reply parsed to None,
+# _scene_subjects returned {} for EVERY scene, and every scene then bounced
+# on the metadata gate in _one_scene below. The pipeline reported the
+# misleading aggregate "no segment reached N verified views" even though
+# zero images were ever attempted. A 5-scene video fit comfortably under
+# 1800 tokens, which is why past live tests of this stage passed.
+#
+# Fix: plan in chunks small enough that a worst-case chunk reply comfortably
+# fits its own max_tokens budget, and merge the per-chunk dicts. A chunk
+# whose reply still fails to parse gets ONE retry; scenes still unparseable
+# after the retry are returned by scene number so the caller can report a
+# truthful planning-failure error instead of blaming "verified views".
+_SUBJECTS_CHUNK_SIZE = 6
+_SUBJECTS_TOKENS_PER_SCENE = 300
+_SUBJECTS_TOKENS_FLOOR = 900
 
-    facts = ""
-    if isinstance(research_payload, dict):
-        facts = "\n".join(
-            f"[{k}] {str(research_payload.get(k) or '')[:1200]}"
-            for k in ("fact_sheet", "character_dossier", "headline")
-            if research_payload.get(k))
+
+def _subjects_chunk_max_tokens(chunk_len: int) -> int:
+    """Output budget for one planning call covering ``chunk_len`` scenes."""
+    return max(_SUBJECTS_TOKENS_FLOOR, chunk_len * _SUBJECTS_TOKENS_PER_SCENE)
+
+
+async def _scene_subjects_chunk(client: Any, model: Optional[str], facts: str,
+                                chunk: list[dict]) -> Optional[dict[int, dict]]:
+    """One planning call for a chunk of scenes.
+
+    Returns None when the reply could not be parsed as a JSON array at all
+    (the truncation failure mode) — the caller retries once, then gives up
+    on just this chunk rather than the whole roster.
+    """
     listing = "\n\n".join(
-        f"[{s['scene']}] {(s['scene_text'] or '')[:800]}" for s in scenes)
-    client = await get_text_client_for_tenant(tenant_id)
+        f"[{s['scene']}] {(s['scene_text'] or '')[:800]}" for s in chunk)
     kwargs: dict[str, Any] = {
         "prompt": _SUBJECT_HEADER.format(facts=facts or "(none)", segments=listing),
-        "max_tokens": 1800,
+        "max_tokens": _subjects_chunk_max_tokens(len(chunk)),
     }
-    model = claude_model_for_direct_client(client)
     if model:
         kwargs["model"] = model
     raw = await client.generate(**kwargs)
+    items = _parse_json_array(raw or "")
+    if items is None:
+        return None
     out: dict[int, dict] = {}
-    for item in _parse_json_array(raw or "") or []:
+    for item in items:
         try:
             out[int(item["scene"])] = {
                 "machine": str(item.get("machine") or "").strip(),
@@ -1738,6 +1765,46 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
         except (KeyError, TypeError, ValueError):
             continue
     return out
+
+
+async def _scene_subjects(
+    tenant_id: str, scenes: list[dict], research_payload: Optional[dict],
+) -> tuple[dict[int, dict], list[int]]:
+    """Grounded subject, title-card, and detail metadata for every scene,
+    planned in chunks of _SUBJECTS_CHUNK_SIZE scenes per Claude call (see the
+    module comment above for why one call per whole roster used to truncate
+    on large videos).
+
+    Returns (subjects, unparseable_scenes). unparseable_scenes lists the
+    scene numbers whose chunk never produced a parseable reply even after
+    one retry — a genuine planning failure, distinct from the ordinary
+    per-scene case where the model replied but didn't supply a sourced spec.
+    """
+    from kie_unified import get_text_client_for_tenant
+
+    facts = ""
+    if isinstance(research_payload, dict):
+        facts = "\n".join(
+            f"[{k}] {str(research_payload.get(k) or '')[:1200]}"
+            for k in ("fact_sheet", "character_dossier", "headline")
+            if research_payload.get(k))
+    client = await get_text_client_for_tenant(tenant_id)
+    model = claude_model_for_direct_client(client)
+
+    out: dict[int, dict] = {}
+    unparseable: list[int] = []
+    for i in range(0, len(scenes), _SUBJECTS_CHUNK_SIZE):
+        chunk = scenes[i:i + _SUBJECTS_CHUNK_SIZE]
+        result = None
+        for _attempt in range(2):  # one retry on an unparseable/truncated reply
+            result = await _scene_subjects_chunk(client, model, facts, chunk)
+            if result is not None:
+                break
+        if result is None:
+            unparseable.extend(s["scene"] for s in chunk)
+            continue
+        out.update(result)
+    return out, unparseable
 
 
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
@@ -1807,7 +1874,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             rp = None
 
     _p("Identifying each segment's machine…")
-    subjects = await _scene_subjects(tenant_id, scenes, rp)
+    subjects, unparseable_scenes = await _scene_subjects(tenant_id, scenes, rp)
+    unparseable_scene_set = set(unparseable_scenes)
 
     try:
         kie_key = await get_required_tenant_secret(
@@ -1839,6 +1907,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # before the paid image door if the grounded metadata planner could
         # not supply those fields; never fill a title card with invented facts.
         if not caption_sub or "•" not in caption_sub or not caption_specs:
+            if sc in unparseable_scene_set:
+                _p(
+                    f"Segment {sc}: subject planning failed for this scene "
+                    "(the model's reply for its batch could not be parsed as "
+                    "JSON, even after a retry) — no images generated."
+                )
+                return {"scene": sc, "done": 0, "reason": "subject_planning_unparseable"}
             _p(
                 f"Segment {sc}: title-card metadata is incomplete for {machine} "
                 "(operator/service years and at least one sourced spec required) "
@@ -2171,13 +2246,30 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             ),
         }
     if not ready:
-        return {
-            "status": "failed",
-            "error": (
+        # Tell planning failures apart from genuine QA/verified-view
+        # failures — a scene that never got title-card metadata (chunk
+        # unparseable even after retry) never reached image generation at
+        # all, so "no segment reached N verified views" is misleading for it.
+        planning_failed = [
+            str((o or {}).get("scene"))
+            for o in outcomes
+            if (o or {}).get("reason") == "subject_planning_unparseable"
+        ]
+        if planning_failed:
+            error = (
+                "subject planning produced no title-card metadata for "
+                f"scenes {', '.join(planning_failed)} — model reply "
+                "unparseable/truncated, even after a retry."
+            )
+            other_failed = [s for s in failed if s not in planning_failed]
+            if other_failed:
+                error += f" Also failed for other reasons: {', '.join(other_failed)}."
+        else:
+            error = (
                 f"no segment reached {STATIC_VIEWS_MINIMUM} verified views "
                 f"(scenes failed: {', '.join(failed)})"
-            ),
-        }
+            )
+        return {"status": "failed", "error": error}
     msg = (
         f"Generated {view_count} verified views across "
         f"{len(ready)}/{len(scenes)} segments"
