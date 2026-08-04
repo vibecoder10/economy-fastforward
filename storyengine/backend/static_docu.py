@@ -1181,6 +1181,20 @@ def _has_keyword(text: str, keywords: tuple) -> bool:
     return any(re.search(r"\b" + re.escape(k) + r"\b", text) for k in keywords)
 
 
+def _qa_reason_text(txt: str, limit: int = 200) -> str:
+    """Extract the reason clause from a QA judge's 'YES/NO, <reason>' reply
+    (the shape `_view_role_confirms` and `_render_matches_reference` both
+    use). Observability fix (2026-08-03): a rejected render used to have its
+    verdict text thrown away along with the pixels — nobody could tell
+    whether the GENERATOR or the JUDGE was wrong on a repeat reject. Strips
+    the leading yes/no token so the park-row marker reads as a reason, not a
+    repeat of the verdict; falls back to the raw reply if stripping leaves
+    nothing. Truncated — this only feeds a human-readable park-row note,
+    never a decision."""
+    reason = re.sub(r"^\s*\W*\b(yes|no)\b[\s,:;.\-]*", "", txt, flags=re.I).strip()
+    return (reason or txt).strip()[:limit]
+
+
 async def _download_image_b64(image_url: str) -> Optional[tuple]:
     """Fetch `image_url` ourselves and return (media_type, base64_data), or
     None on any download/oversize failure — treated by the caller as a
@@ -1472,7 +1486,8 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
 
 
 async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: str,
-                                    machine: str, aliases: Optional[list] = None) -> bool:
+                                    machine: str, aliases: Optional[list] = None, *,
+                                    reason_out: Optional[list] = None) -> bool:
     """C2h post-generation render-QA: does OUR OWN studio render still show
     the SAME machine as the verified reference photo it was image-to-image'd
     from? This is a DIFFERENT question from `_vision_confirms` (which judges
@@ -1500,7 +1515,14 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
     retry, then treated as REJECTED (not verified) — never silently promoted
     to "matches" on a network/API failure. Keyless carve-out unchanged (no
     provider key configured on the tenant is a config gap, not a transport
-    symptom, so it fails OPEN like `_vision_confirms` does)."""
+    symptom, so it fails OPEN like `_vision_confirms` does).
+
+    `reason_out` (2026-08-03 observability fix, keyword-only so every
+    existing positional caller is untouched): when given a list, this
+    function appends exactly one entry — the judge's reason text (or a
+    placeholder describing a transport failure / config gap) — regardless of
+    verdict. Lets a caller that's about to park a rejected render also record
+    WHY, without changing this function's bool return contract."""
     from vault import get_secret
 
     alias_txt = ""
@@ -1596,17 +1618,24 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
         # empty reply — loop again for the one allowed retry
 
     if no_key:
+        if reason_out is not None:
+            reason_out.append("(no provider key configured — QA skipped)")
         return True  # config gap, not a transport failure — unchanged behavior
     if not txt:
         # Every attempt raised, failed to download, or came back empty —
         # FAIL CLOSED: this render is treated as unverified/rejected (the
         # caller's own retry-with-a-stricter-prompt loop in _one_scene picks
         # up from there), never silently promoted to "matches".
+        if reason_out is not None:
+            reason_out.append("(no response from QA judge — transport failure)")
         return False
 
     is_empty = _has_keyword(txt, _RENDER_EMPTY_KEYWORDS)
     said_yes = bool(re.match(r"^\W*yes\b", txt))
-    return said_yes and not is_empty
+    verdict = said_yes and not is_empty
+    if reason_out is not None:
+        reason_out.append(_qa_reason_text(txt))
+    return verdict
 
 
 async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str,
@@ -1768,7 +1797,8 @@ _ROLE_GEOMETRY_REQUIREMENTS = {
 
 
 async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
-                              view_plan: dict) -> bool:
+                              view_plan: dict, *,
+                              reason_out: Optional[list] = None) -> bool:
     """Role-conformance QA (2026-08-03 fix): does this generated image
     actually deliver the camera GEOMETRY its view role promises, not just
     the right machine? `_render_matches_reference` only judges identity
@@ -1794,9 +1824,19 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
     per-view judges — unreachable in practice since a keyless tenant never
     got this far. FAILS CLOSED on a transport failure (one retry, then
     rejected) — the caller's own one-bounded-retry loop treats a rejection
-    here exactly like a geometry mismatch, never a silent pass."""
+    here exactly like a geometry mismatch, never a silent pass.
+
+    `reason_out` (2026-08-03 observability fix, keyword-only so every
+    existing positional caller — including every direct-call unit test —
+    is untouched): when given a list, this function appends exactly one
+    entry — the judge's reason text (or a placeholder describing a
+    transport failure / config gap) — regardless of verdict. Lets a caller
+    that's about to park a rejected view also record WHY, without changing
+    this function's bool return contract."""
     requirement = _ROLE_GEOMETRY_REQUIREMENTS.get(view_plan.get("role"))
     if not requirement:
+        if reason_out is not None:
+            reason_out.append("(no geometry requirement defined for this role)")
         return True
 
     from vault import get_secret
@@ -1868,11 +1908,18 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
         # empty reply — loop again for the one allowed retry
 
     if no_key:
+        if reason_out is not None:
+            reason_out.append("(no provider key configured — QA skipped)")
         return True  # config gap, not a transport failure — unchanged behavior
     if not txt:
+        if reason_out is not None:
+            reason_out.append("(no response from QA judge — transport failure)")
         return False  # FAIL CLOSED — see docstring
 
-    return bool(re.match(r"^\W*yes\b", txt))
+    verdict = bool(re.match(r"^\W*yes\b", txt))
+    if reason_out is not None:
+        reason_out.append(_qa_reason_text(txt))
+    return verdict
 
 
 # --- subject planning batching -------------------------------------------
@@ -2350,14 +2397,26 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 return False
 
-            async def _park(candidate_url: str, prompt_used: str) -> None:
+            async def _park(candidate_url: str, prompt_used: str, *,
+                            qa_events: Optional[list] = None) -> None:
                 """Park a paid-for render for per-view human review instead
                 of deleting it — the 2026-07-22 QA-park fix's rule, shared
                 by BOTH reject paths below (double identity-QA reject, and
                 the new double role-conformance reject): a wrong-machine or
                 wrong-angle render is still a paid render, never destroyed
                 on a QA judge's word alone. Does not count toward the
-                minimum-views render gate while parked."""
+                minimum-views render gate while parked.
+
+                `qa_events` (2026-08-03 observability fix): an ordered list
+                of (kind, reason_text) pairs — 'identity' or 'role' — one
+                per failing judge call that led to this park. Rendered into
+                image_prompt as '[<kind>-qa-reject attempt N] <reason>'
+                markers (N counts per kind) so an operator can see WHAT the
+                judge objected to without re-spending to regenerate and
+                re-inspect it (live cost: HMS Argus video d2e37cd6 scene 1,
+                4 role rejects across 2 runs with the verdict text thrown
+                away every time). Best-effort observability only — never
+                changes whether or how a row parks."""
                 parked_url = candidate_url
                 try:
                     async with httpx.AsyncClient(timeout=120.0) as c:
@@ -2372,8 +2431,30 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         ),
                         "image/png", tenant_id,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    # Best-effort re-hosting only: losing durability beats
+                    # losing the render (and the row) entirely, so this must
+                    # never crash or change the park outcome below — but it
+                    # must not fail SILENTLY either, or an operator staring
+                    # at an expired provider-URL thumbnail has no idea why.
+                    _logger.warning(
+                        "static_docu._park: failed to re-host rejected render "
+                        "for scene %s view %s (%s) — parking with the "
+                        "ephemeral provider URL instead", sc, view_index, exc,
+                    )
+                reason_block = ""
+                if qa_events:
+                    attempt_counts: dict = {}
+                    marker_parts = []
+                    for kind, reason in qa_events:
+                        if not reason:
+                            continue
+                        attempt_counts[kind] = attempt_counts.get(kind, 0) + 1
+                        marker_parts.append(
+                            f"[{kind}-qa-reject attempt {attempt_counts[kind]}] "
+                            f"{reason}"
+                        )
+                    reason_block = " ".join(marker_parts)[:400]
                 await execute(
                     "UPDATE assets SET status='qa_rejected', image_url=NULL, "
                     "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
@@ -2381,6 +2462,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     (
                         (f"[ref: {ref_src}] " if ref_src else "")
                         + prompt_used[:900]
+                        + (f" {reason_block}" if reason_block else "")
                     ),
                 )
 
@@ -2403,9 +2485,20 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
 
             qa_note = ""
+            # Reason capture for observability (2026-08-03 fix): collected
+            # from every identity-QA call that actually runs below and
+            # handed to _park if this view ends up parked, so the marker
+            # only ever reflects checks that ran against THIS view's own
+            # attempts — never a stale reason from an earlier, since-
+            # overruled reject.
+            identity_qa_events: list = []
+            first_identity_reason: list = []
             if not await _render_matches_reference(
-                tenant_id, url, ref_url, machine, sub.get("aliases")
+                tenant_id, url, ref_url, machine, sub.get("aliases"),
+                reason_out=first_identity_reason,
             ):
+                if first_identity_reason:
+                    identity_qa_events.append(("identity", first_identity_reason[0]))
                 _p(
                     f"Segment {sc}, view {view_index}: render does not match "
                     f"the {machine} — one retry…"
@@ -2435,11 +2528,16 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                             model="gpt-image-2", units=1, unit_cost=quote,
                             actual_cost=quote,
                         )
+                second_identity_reason: list = []
                 if url2 and await _render_matches_reference(
-                    tenant_id, url2, ref_url, machine, sub.get("aliases")
+                    tenant_id, url2, ref_url, machine, sub.get("aliases"),
+                    reason_out=second_identity_reason,
                 ):
                     url = url2
                 else:
+                    if url2 and second_identity_reason:
+                        identity_qa_events.append(
+                            ("identity", second_identity_reason[0]))
                     candidate = url2 or url
                     if await _arbiter_confirms_render(
                         tenant_id, candidate, ref_url, machine, sub.get("aliases")
@@ -2454,7 +2552,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         # The render is paid for, so park it for per-view human
                         # approval instead of deleting it. It does not count
                         # toward the minimum-two render gate while parked.
-                        await _park(candidate, retry_prompt if url2 else prompt)
+                        await _park(candidate, retry_prompt if url2 else prompt,
+                                    qa_events=identity_qa_events)
                         return False
 
             # Role-conformance QA (2026-08-03 fix): identity QA above only
@@ -2467,7 +2566,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             # role-conformance after the retry does not count toward
             # `approved` — parked exactly like a double identity-QA reject,
             # never deleted (it's still a paid render).
-            if not await _view_role_confirms(tenant_id, url, machine, view_plan):
+            role_qa_events: list = []
+            first_role_reason: list = []
+            if not await _view_role_confirms(
+                tenant_id, url, machine, view_plan, reason_out=first_role_reason
+            ):
+                if first_role_reason:
+                    role_qa_events.append(("role", first_role_reason[0]))
                 _p(
                     f"Segment {sc}, view {view_index}: view does not match "
                     f"its {view_plan['label']} role — one retry with "
@@ -2494,13 +2599,28 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                             model="gpt-image-2", units=1, unit_cost=quote,
                             actual_cost=quote,
                         )
-                if (
-                    role_retry_url
-                    and await _view_role_confirms(
-                        tenant_id, role_retry_url, machine, view_plan)
-                    and await _render_matches_reference(
-                        tenant_id, role_retry_url, ref_url, machine, sub.get("aliases"))
-                ):
+                # Rewritten from the original chained-`and` expression to
+                # capture each check's reason without changing which calls
+                # actually run — role QA only fires when role_retry_url
+                # exists, and identity QA only re-fires when the role retry
+                # itself passed, exactly like the short-circuited `and` did.
+                second_role_reason: list = []
+                role_retry_ok = False
+                if role_retry_url:
+                    role_retry_ok = await _view_role_confirms(
+                        tenant_id, role_retry_url, machine, view_plan,
+                        reason_out=second_role_reason,
+                    )
+                    if not role_retry_ok and second_role_reason:
+                        role_qa_events.append(("role", second_role_reason[0]))
+                identity_retry_reason: list = []
+                identity_retry_ok = role_retry_ok and await _render_matches_reference(
+                    tenant_id, role_retry_url, ref_url, machine, sub.get("aliases"),
+                    reason_out=identity_retry_reason,
+                )
+                if role_retry_ok and not identity_retry_ok and identity_retry_reason:
+                    role_qa_events.append(("identity", identity_retry_reason[0]))
+                if role_retry_url and role_retry_ok and identity_retry_ok:
                     # The retry's OWN prompt actually produced the shipped
                     # pixels, so it — not the original — is what the final
                     # image_prompt record below should reflect.
@@ -2511,6 +2631,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     await _park(
                         role_retry_url or url,
                         geometry_prompt if role_retry_url else prompt,
+                        qa_events=role_qa_events,
                     )
                     return False
 

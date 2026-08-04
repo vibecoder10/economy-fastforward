@@ -36,6 +36,7 @@ Run:
     cd storyengine/backend && ./venv/bin/python -m pytest \
         tests/functional/test_static_docu_qa_park.py -q
 """
+import json
 import os
 import sys
 import uuid
@@ -88,7 +89,9 @@ class _FakeDownloadResp:
 
 def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
                   arbiter_verdicts=(), role_verdicts=(), isolate_single_view=True,
-                  docu_module=None, image_client_module=None):
+                  docu_module=None, image_client_module=None,
+                  identity_reasons=(), role_reasons_text=(),
+                  existing_asset_rows=None):
     """Fake DB + provider world for generate_static_images_for_video, modeled
     on test_static_docu_reference_fail_closed. One scene, a CACHED verified
     reference (so no Wikimedia lookup layers run), a scripted sequence of
@@ -99,7 +102,22 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     `role_verdicts` scripts `_view_role_confirms` (the 2026-08-03
     role-conformance QA fix) — exhausted -> True, so every test that doesn't
     pass this keyword keeps the pre-fix behavior of role QA always passing
-    (no extra generation calls, no change to any existing assertion)."""
+    (no extra generation calls, no change to any existing assertion).
+
+    `identity_reasons` / `role_reasons_text` (2026-08-03 observability fix)
+    script the `reason_out` side-channel `_render_matches_reference` /
+    `_view_role_confirms` now support: each list is consumed in call order,
+    falling back to a generic yes/no-shaped reason once exhausted so every
+    existing test (which never scripts these) still gets SOME reason text —
+    real code always appends one, so a fake that appended nothing would
+    silently diverge from the real function's contract.
+
+    `existing_asset_rows` (2026-08-03) feeds the pre-existing-row query
+    `_one_scene` runs before generating ("SELECT id, status, image_url,
+    caption FROM assets WHERE ...") — lets a test simulate a PRIOR run's
+    parked qa_rejected row still sitting in the DB, to prove it's never
+    mistaken for a done/approved view (status='done' is the only thing that
+    counts, never drive_image_url or the row merely existing)."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
     docu_module = docu_module or static_docu
@@ -138,6 +156,8 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
             return [{"scene": 1,
                      "scene_text": "The Boeing XB-15 was the largest bomber "
                                    "of its day."}]
+        if "FROM assets" in query:
+            return list(existing_asset_rows) if existing_asset_rows else []
         return []
 
     async def fake_execute(query, *args):
@@ -191,10 +211,22 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
         return {"url": u} if u else {}
 
     remaining_verdicts = list(verdicts)
+    remaining_identity_reasons = list(identity_reasons)
 
-    async def fake_render_matches(tid, render_url, ref_url, machine, aliases=None):
+    async def fake_render_matches(tid, render_url, ref_url, machine, aliases=None,
+                                  *, reason_out=None):
         env["qa_calls"].append((render_url, ref_url))
-        return remaining_verdicts.pop(0) if remaining_verdicts else False
+        verdict = remaining_verdicts.pop(0) if remaining_verdicts else False
+        if reason_out is not None:
+            # The real function always appends exactly one reason, pass or
+            # fail — mirror that so a test that doesn't care about reasons
+            # still exercises the same call shape production code uses.
+            reason_out.append(
+                remaining_identity_reasons.pop(0) if remaining_identity_reasons
+                else ("yes, same aircraft type" if verdict
+                      else "no, wrong aircraft type/configuration")
+            )
+        return verdict
 
     remaining_arbiter = list(arbiter_verdicts)
 
@@ -203,10 +235,19 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
         return remaining_arbiter.pop(0) if remaining_arbiter else False
 
     remaining_role_verdicts = list(role_verdicts)
+    remaining_role_reasons = list(role_reasons_text)
 
-    async def fake_view_role_confirms(tid, image_url, machine, view_plan):
+    async def fake_view_role_confirms(tid, image_url, machine, view_plan,
+                                      *, reason_out=None):
         env["role_qa_calls"].append((image_url, view_plan.get("role")))
-        return remaining_role_verdicts.pop(0) if remaining_role_verdicts else True
+        verdict = remaining_role_verdicts.pop(0) if remaining_role_verdicts else True
+        if reason_out is not None:
+            reason_out.append(
+                remaining_role_reasons.pop(0) if remaining_role_reasons
+                else ("yes, correct camera angle" if verdict
+                      else "no, wrong camera angle for this role")
+            )
+        return verdict
 
     class _FakeHttp:
         async def get(self, url, **kwargs):
@@ -481,6 +522,154 @@ async def test_role_conformance_failed_retry_generation_parks_first_render(monke
     assert len(env["role_qa_calls"]) == 1, (
         "no second role-QA call when the retry generation produced nothing")
     assert "CAMERA ANGLE CORRECTION" not in row["image_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# 1c. Observability fix (2026-08-03): the pixels alone don't answer "why did
+#     this get rejected" — the judge's verdict text used to be thrown away
+#     right along with a NON-rejected path never even offered it. Live cost
+#     proof: HMS Argus (video d2e37cd6) scene 1, the three_quarter view
+#     role-rejected 4 times across 2 runs ($0.20) with zero visibility into
+#     whether the GENERATOR or the JUDGE was wrong. `_park` now takes
+#     `qa_events` (ordered (kind, reason) pairs) and renders them into
+#     image_prompt as '[<kind>-qa-reject attempt N] <reason>' markers.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_role_conformance_reject_persists_judge_reason_on_parked_row(monkeypatch):
+    """(a) A role-rejected view still writes BOTH the rejected-image URL
+    (drive_image_url, unchanged from the 2026-08-03 rotated-views fix) AND
+    the judge's reason text for every failing attempt, in order, tagged with
+    an attempt number per kind."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True], gen_urls=[RENDER_1, RENDER_2],
+        role_verdicts=[False, False],
+        role_reasons_text=[
+            "no, this is a three-quarter angle, not a true side profile",
+            "no, still shows the nose at an angle instead of directly from the side",
+        ],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    row = _the_row(env)
+    assert row["status"] == "qa_rejected"
+    assert row["image_url"] is None
+    # The rejected render itself is still visible (pre-existing behavior,
+    # unchanged by this fix) — the operator can SEE it, not just read about it.
+    assert row["drive_image_url"] == DURABLE
+    assert (
+        "[role-qa-reject attempt 1] no, this is a three-quarter angle"
+        in row["image_prompt"]
+    )
+    assert (
+        "[role-qa-reject attempt 2] no, still shows the nose at an angle"
+        in row["image_prompt"]
+    )
+    # The original prompt-audit trail (pre-existing) is still there too —
+    # this fix APPENDS observability, it doesn't replace what was there.
+    assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
+    assert "CAMERA ANGLE CORRECTION" in row["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_identity_qa_reject_persists_judge_reason_on_parked_row(monkeypatch):
+    """The identity-QA reject path (the OTHER half of the observability gap
+    — 'identity QA or role-conformance QA' in the bug report) gets the same
+    treatment, tagged '[identity-qa-reject attempt N]'."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[False, False], gen_urls=[RENDER_1, RENDER_2],
+        identity_reasons=[
+            "no, this shows a twin-engine aircraft, the reference is four-engine",
+            "no, still the wrong engine count and wing form",
+        ],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    row = _the_row(env)
+    assert row["status"] == "qa_rejected"
+    assert row["drive_image_url"] == DURABLE
+    assert (
+        "[identity-qa-reject attempt 1] no, this shows a twin-engine aircraft"
+        in row["image_prompt"]
+    )
+    assert (
+        "[identity-qa-reject attempt 2] no, still the wrong engine count"
+        in row["image_prompt"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_role_conformance_reject_parks_cleanly_when_hosting_upload_fails(monkeypatch):
+    """(c) Re-hosting the rejected image is best-effort (durable storage
+    might be down) — this must NEVER crash the park path, and the row must
+    still park with the reason marker, falling back to the ephemeral
+    provider URL for the image itself exactly like the pre-existing
+    hosting-failure behavior (test_park_survives_hosting_failure_with_
+    provider_url) already proves for the identity-QA path."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True], gen_urls=[RENDER_1, RENDER_2],
+        role_verdicts=[False, False], upload_raises=True,
+        role_reasons_text=["no, wrong angle", "no, still wrong angle"],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    row = _the_row(env)
+    assert row["status"] == "qa_rejected"
+    assert row["image_url"] is None
+    assert row["drive_image_url"] == RENDER_2, (
+        "hosting failed — must fall back to the ephemeral provider URL, "
+        "never crash or leave the row unparked")
+    assert "[role-qa-reject attempt 1] no, wrong angle" in row["image_prompt"]
+    assert "[role-qa-reject attempt 2] no, still wrong angle" in row["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_parked_role_rejected_row_never_counts_as_done_or_skips_regeneration(
+    monkeypatch,
+):
+    """(b) A parked qa_rejected row now carries a REAL image at
+    drive_image_url (the 2026-07-22 park fix) — proving that alone must
+    NEVER be enough to count it as a ready/approved view. `_one_scene`'s
+    skip-if-done / minimum-views gate keys off `status == 'done' and
+    row.get('image_url')` only (static_docu.py, the existing_rows scan
+    right before generation starts) — never drive_image_url, and never the
+    mere existence of a row for that role. Simulates exactly the live bug
+    report's shape: a PRIOR run already left a qa_rejected row for this
+    view's role sitting in the DB when this run starts."""
+    parked_role = static_docu.STATIC_VIEW_PLANS[0]["role"]
+    existing_rows = [{
+        "id": "prior-parked-row-from-an-earlier-run",
+        "status": "qa_rejected",
+        "image_url": None,
+        "caption": json.dumps({"view_role": parked_role}),
+    }]
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True], gen_urls=[RENDER_1],
+        existing_asset_rows=existing_rows,
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    # The prior parked row did NOT satisfy the minimum-views gate — the scene
+    # still spent on a fresh generation instead of skipping ("no regeneration,
+    # no spend"), which only fires once done_role_ids >= STATIC_VIEWS_MINIMUM.
+    assert len(env["gen_prompts"]) == 1, (
+        "a qa_rejected row (even with a real drive_image_url) must never be "
+        "mistaken for a done view and skip regeneration")
+    assert result["status"] == "completed"
+    row = _the_row(env)
+    assert row["status"] == "done"
+    assert row["image_url"] == DURABLE
 
 
 # ---------------------------------------------------------------------------
