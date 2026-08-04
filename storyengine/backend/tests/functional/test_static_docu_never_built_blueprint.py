@@ -73,7 +73,12 @@ from test_static_docu_c2f_vision_gate_fixes import (  # noqa: E402
     _install_vision_fakes,
 )
 from test_static_docu_qa_park import _ClientCM, _FakeDownloadResp  # noqa: E402
-from test_static_docu_roster_reference_layer import _CVA01_CLASS, _video_row  # noqa: E402
+from test_static_docu_roster_reference_layer import (  # noqa: E402
+    _CVA01_CLASS,
+    _CVA01_PREDECESSORS,
+    _UNICORN,
+    _video_row,
+)
 
 CVA01_SCENE_TEXT = (
     "CVA-01 would have been the Royal Navy's first purpose-built "
@@ -94,10 +99,30 @@ CVA01_SCENE_TEXT = (
 
 def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=(),
                    style_reasons=(), role_reasons=(), scene_text=CVA01_SCENE_TEXT,
-                   machine="CVA-01"):
+                   machine="CVA-01", roster=None, scene_number=1,
+                   scene_aliases=None, hunt_finds_nothing=False):
+    """`roster`/`scene_number`/`scene_aliases`/`hunt_finds_nothing` (G26,
+    2026-08-04) let a test drive the POSITIONAL never-built resolution path
+    directly, on top of the original single-scene/single-roster shape every
+    earlier test in this file still uses via the defaults:
+      - `roster`: defaults to the original 3-entry CVA-01 roster. A test can
+        pass the REAL "CVA-01 class" vs "Audacious class / Malta class"
+        collision pair (imported from test_static_docu_roster_reference_layer)
+        to exercise a scene whose name-guess is ambiguous.
+      - `scene_number`: which roster POSITION (1-indexed) this scene's script
+        row claims to be — `roster_entries[scene_number - 1]` is the
+        positional entry _one_scene must now prefer.
+      - `hunt_finds_nothing=True`: for a scene that must fall through to the
+        ordinary photo-hunt path (never_built resolves False) rather than
+        never running it at all — replaces the original tripwire-everything
+        behavior with `_gather_reference_candidates` returning [] (so the
+        scene ends up correctly `blocked_no_reference`, never a blueprint,
+        without needing to fake the whole Wikipedia/Commons chain)."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
-    roster = [_CVA01_CLASS, {"name": "Boeing XB-15"}, {"name": "Northrop XB-35"}]
+    roster = roster if roster is not None else (
+        [_CVA01_CLASS, {"name": "Boeing XB-15"}, {"name": "Northrop XB-35"}]
+    )
     video_row = _video_row(video_id, roster)
 
     env = {
@@ -123,7 +148,7 @@ def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=()
 
     async def fake_fetch_all(query, *args):
         if "FROM scripts" in query:
-            return [{"scene": 1, "scene_text": scene_text}]
+            return [{"scene": scene_number, "scene_text": scene_text}]
         if "FROM assets" in query:
             return []
         return []
@@ -167,8 +192,10 @@ def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=()
 
     class _FakeTextClient:
         async def generate(self, **kwargs):
+            aliases_json = json.dumps(list(scene_aliases or []))
             return (
-                f'[{{"scene": 1, "machine": "{machine}", "aliases": [], '
+                f'[{{"scene": {scene_number}, "machine": "{machine}", '
+                f'"aliases": {aliases_json}, '
                 '"caption_title": "CVA-01 class", '
                 '"caption_sub": "Royal Navy • Designed 1963-1966, cancelled 1966", '
                 '"caption_specs": ["Angled flight deck", "Island set well aft"], '
@@ -236,17 +263,40 @@ def _blueprint_env(monkeypatch, *, gen_urls, style_verdicts=(), role_verdicts=()
 
     # Web-hunt / reference-hunt functions must NEVER be called for a
     # never-built scene — wired to raise if they are, the same tripwire
-    # test_static_docu_roster_reference_layer.py uses.
+    # test_static_docu_roster_reference_layer.py uses. `_host_reference` and
+    # `_vision_confirms` (the per-candidate steps) are unreachable in EITHER
+    # mode below (never-built: no hunt at all; hunt_finds_nothing: the
+    # candidate list is empty, so the per-candidate loop body never runs) —
+    # tripwired unconditionally so a future change that reaches them here
+    # fails loudly instead of silently.
     async def _unexpected(*a, **k):
         raise AssertionError(
             "reference-hunt function must not be called for a never-built scene")
 
-    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", _unexpected)
-    monkeypatch.setattr(static_docu, "find_article_images", _unexpected)
-    monkeypatch.setattr(static_docu, "find_commons_photos", _unexpected)
     monkeypatch.setattr(static_docu, "_host_reference", _unexpected)
     monkeypatch.setattr(static_docu, "_vision_confirms", _unexpected)
     monkeypatch.setattr(static_docu, "_render_matches_reference", _unexpected)
+
+    if hunt_finds_nothing:
+        # G26 (2026-08-04): a scene whose POSITIONAL roster entry is
+        # photo-bearing (never_built resolves False) but whose name-guess is
+        # ambiguous must still be ALLOWED to run the ordinary photo hunt —
+        # unlike the never-built tests above, it must not tripwire. Faking
+        # the top-level candidate gatherer to return none is enough to drive
+        # the scene to the correctly fail-closed `blocked_no_reference`
+        # outcome without hand-rolling the whole Wikipedia/Commons chain.
+        env["hunt_calls"] = []
+
+        async def fake_gather_candidates(machine_arg, aliases_arg, search_query):
+            env["hunt_calls"].append((machine_arg, aliases_arg, search_query))
+            return []
+
+        monkeypatch.setattr(
+            static_docu, "_gather_reference_candidates", fake_gather_candidates)
+    else:
+        monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", _unexpected)
+        monkeypatch.setattr(static_docu, "find_article_images", _unexpected)
+        monkeypatch.setattr(static_docu, "find_commons_photos", _unexpected)
 
     import vault
     monkeypatch.setattr(vault, "get_secret", fake_get_secret)
@@ -537,3 +587,159 @@ async def test_photo_bearing_scene_unaffected_regression(monkeypatch):
         assert "design_study" not in cap
         assert not cap["sub"].startswith("Design study")
         assert cap["target_views"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 6. G26 (2026-08-04, live bug): POSITIONAL never-built resolution.
+#
+# Root cause proven live on video d2e37cd6 scenes 9/13: `_one_scene`
+# resolved never-built ONLY via `_roster_entry_for_scene_machine`'s
+# alias-aware NAME match, which fails closed (returns None) on any
+# collision across two roster entries — exactly the real "CVA-01 class" vs
+# "Audacious class / Malta class" collision this suite's own docstring (and
+# test_static_docu_roster_reference_layer.py) already document. Both scenes
+# stayed permanently `blocked_no_reference` because the ambiguous guess
+# left `never_built` False.
+#
+# Fix: `_research_card_facts_by_scene`'s own module comment already
+# established that this render mode's scene numbering is POSITIONAL, not
+# name-guessed — scene N's machine IS `roster_entries[N - 1]`. That
+# positional entry is now the PRIMARY never-built signal (and the source of
+# the blueprint's grounding facts); name-resolution is only the fallback,
+# for when the positional entry isn't available at all.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ambiguous_guess_positional_never_built_engages_blueprint(monkeypatch):
+    """(a) THE LIVE BUG, reproduced and proven fixed: the scene's guessed
+    machine label "CVA-01" is ambiguous against a roster containing BOTH
+    "CVA-01 class" (never built) and "Audacious class / Malta class" (its
+    photo-bearing predecessor, same designation prefix) —
+    `_roster_entry_for_scene_machine` correctly returns None for this exact
+    collision (see test_cva01_scenes_stay_ambiguous_never_built_and_
+    predecessor_collide in test_static_docu_roster_reference_layer.py).
+    Before the fix, that None left `never_built` False and the scene fell
+    into the ordinary photo hunt forever — `blocked_no_reference`, since no
+    photograph of a never-built machine can ever exist. This scene is
+    number 2 of the 3-entry roster below, so its POSITIONAL entry
+    (`roster_entries[1]`) is unambiguously the CVA-01 class entry — the fix
+    must use that as the primary never-built signal so this scene takes the
+    blueprint path instead of blocking forever.
+
+    Stash-proof (verified via a patch-file revert of the static_docu.py
+    hunk, not `git stash`): reverting to the bare name-resolved
+    `never_built = bool(roster_entry and roster_entry.get("never_built"))`
+    makes this test fail — the scene falls into `_blueprint_env`'s
+    tripwired photo-hunt path, whose AssertionError is caught by
+    `_one_scene`'s own per-scene exception isolation (`_bounded`) and
+    surfaces as `result["status"] == "failed"` instead of "completed"."""
+    roster = [_CVA01_PREDECESSORS, _CVA01_CLASS, _UNICORN]
+    env = _blueprint_env(
+        monkeypatch,
+        roster=roster,
+        scene_number=2,  # roster_entries[1] == CVA-01 class (never_built=True)
+        machine="CVA-01",  # ambiguous name-guess: matches BOTH roster entries
+        gen_urls=[
+            "https://kie.example/side-profile-blueprint.png",
+            "https://kie.example/top-planform-blueprint.png",
+        ],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert result["views_generated"] == 2
+    rows = _rows_by_role(env)
+    assert set(rows.keys()) == {"side_profile", "top_planform"}
+    for row in rows.values():
+        assert row["status"] == "done"
+        assert row["image_url"] is not None
+        cap = json.loads(row["caption"])
+        assert cap["design_study"] is True
+        assert cap["sub"].startswith("Design study — never built")
+
+    # The reference hunt never ran at all — proves the blueprint path
+    # engaged rather than the scene falling through to the photo hunt.
+    assert env["cache_lookups"] == []
+
+    # The blueprint's grounding facts came from the POSITIONAL entry (CVA-01
+    # class's own role/years/status/built_count), not an empty/absent set —
+    # confirms facts flowed through, not just the boolean.
+    style_facts = [f for _, facts in env["style_qa_calls"] for f in facts]
+    assert any("cancelled" in f.lower() or "0 ships built" in f.lower()
+              for f in style_facts), style_facts
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_guess_positional_photo_bearing_falls_through(monkeypatch):
+    """(b) The collision-safety mirror of (a): SAME ambiguous "CVA-01"
+    name-guess, SAME collision roster, but this scene is number 1 — its
+    POSITIONAL entry (`roster_entries[0]`, "Audacious class / Malta class")
+    is photo-bearing (one hull WAS completed as HMS Eagle), not never-built.
+    Positional resolution must never manufacture a false never-built verdict
+    for a real machine just because it shares a designation prefix with a
+    cancelled one elsewhere in the same roster — this scene must fall
+    through to the ordinary photo-hunt path. The hunt here is faked to find
+    nothing, so the scene correctly blocks — proving it took the hunt path
+    at all (a never-built misclassification would have skipped the hunt
+    entirely and produced a blueprint instead)."""
+    roster = [_CVA01_PREDECESSORS, _CVA01_CLASS, _UNICORN]
+    env = _blueprint_env(
+        monkeypatch,
+        roster=roster,
+        scene_number=1,  # roster_entries[0] == Audacious/Malta (never_built=False)
+        machine="CVA-01",  # same ambiguous name-guess as test (a)
+        gen_urls=[],
+        hunt_finds_nothing=True,
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    # No blueprint (or any) view was ever generated for this scene.
+    assert env["gen_calls"] == []
+    # The ordinary photo hunt DID run (not the never-built tripwired path).
+    assert len(env["hunt_calls"]) == 1
+    blocked = [row for row in env["assets"].values()
+              if row.get("status") == "blocked_no_reference"]
+    assert len(blocked) == 1
+    assert blocked[0]["image_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_scene_beyond_roster_length_falls_back_to_name_resolution(monkeypatch):
+    """(c) Bounds: a scene number past the end of the roster has no
+    positional entry at all (`1 <= sc <= len(roster_entries)` is False) —
+    never-built detection falls back to name-resolution exactly as it did
+    before this fix. Reuses the same default roster/machine as the main
+    end-to-end test above (where "CVA-01" name-resolves UNAMBIGUOUSLY to the
+    never-built CVA-01 class entry, since the roster's other two entries
+    share no aliases with it) but numbers the scene 5 — past the 3-entry
+    roster's end — to prove the fallback engages and reaches the identical
+    blueprint outcome as before this fix."""
+    env = _blueprint_env(
+        monkeypatch,
+        scene_number=5,  # out of bounds for the default 3-entry roster
+        gen_urls=[
+            "https://kie.example/side-profile-blueprint.png",
+            "https://kie.example/top-planform-blueprint.png",
+        ],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert result["views_generated"] == 2
+    rows = _rows_by_role(env)
+    assert set(rows.keys()) == {"side_profile", "top_planform"}
+    for row in rows.values():
+        assert row["status"] == "done"
+        cap = json.loads(row["caption"])
+        assert cap["design_study"] is True
+        assert cap["sub"].startswith("Design study — never built")
+    # The reference hunt never ran — same fail-closed proof as the main
+    # never-built test.
+    assert env["cache_lookups"] == []

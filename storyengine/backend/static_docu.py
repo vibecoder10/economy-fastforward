@@ -2621,11 +2621,53 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # reference/anchor image) below instead of the photo-grounded
         # reference hunt, which would otherwise correctly — but
         # permanently and unhelpfully — block it forever.
+        #
+        # G26 (2026-08-04, live bug on video d2e37cd6 scenes 9/13): this
+        # name-resolution is alias-aware but fails CLOSED (returns None) on
+        # any designation collision across two roster entries — exactly the
+        # live "CVA-01" collision the docstring above already documents
+        # (both "CVA-01 class" and "Audacious class / Malta class" normalize
+        # to the same token). When the collision's never-built entry is the
+        # one that actually IS this scene's machine, name-resolution alone
+        # leaves `roster_entry` None, `never_built` False, and the scene
+        # falls into the ordinary photo-hunt path forever — a permanent
+        # `blocked_no_reference` for a machine that can never have a photo.
+        # `_research_card_facts_by_scene`'s own module comment (above)
+        # already established the fix for this exact render mode: scene
+        # numbering for a locked machine-documentary roster is POSITIONAL,
+        # not name-guessed — `pipeline_executor._run_static_script_hold`
+        # writes `scene = roster.index(machine) + 1`, so scene sc's machine
+        # IS `roster_entries[sc - 1]`, unambiguously, with no alias matching
+        # or collision risk at all. That positional entry is the PRIMARY
+        # source for never-built detection and the blueprint's grounding
+        # facts; name-resolution (`roster_entry`) is only the fallback, for
+        # when the positional entry isn't available (no locked roster, or a
+        # roster shorter than this scene number — non-machine-documentary
+        # static-docu formats, which never populate `roster_entries`, hit
+        # this fallback and see no behavior change at all).
+        #
+        # LAYER 0b's reference-photo lookup below is deliberately UNTOUCHED
+        # — it keeps using the name-resolved `roster_entry`, because a
+        # false-positive positional match there would risk reusing the
+        # WRONG machine's cached photo for this scene. Never-built detection
+        # has no such risk (a never-built entry never has a cached photo to
+        # misapply), so the positional entry is safe to trust as primary
+        # there.
         roster_entry = (
             _roster_entry_for_scene_machine(roster_entries, machine, sub.get("aliases"))
             if roster_entries else None
         )
-        never_built = bool(roster_entry and roster_entry.get("never_built"))
+        positional_roster_entry = (
+            roster_entries[sc - 1]
+            if roster_entries and 1 <= sc <= len(roster_entries)
+            else None
+        )
+        never_built_entry = (
+            positional_roster_entry
+            if positional_roster_entry is not None
+            else roster_entry
+        )
+        never_built = bool(never_built_entry and never_built_entry.get("never_built"))
         view_plans_for_scene = NEVER_BUILT_VIEW_PLANS if never_built else STATIC_VIEW_PLANS
 
         # Skip-if-done / FILL resumability (2026-08-03, extended same day): a
@@ -3089,7 +3131,12 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             stays exactly as it was before this feature."""
             grounding_facts = list(caption_specs)
             for key in ("role", "years", "status", "built_count"):
-                value = (roster_entry or {}).get("facts", {}).get(key)
+                # `never_built_entry` (positional-first, see the comment at
+                # this scene's never-built detection above) — the same
+                # entry that decided this scene takes the blueprint path in
+                # the first place, so its facts are the ones that actually
+                # describe this scene's machine.
+                value = (never_built_entry or {}).get("facts", {}).get(key)
                 if value:
                     grounding_facts.append(f"{key.replace('_', ' ')}: {value}")
 
