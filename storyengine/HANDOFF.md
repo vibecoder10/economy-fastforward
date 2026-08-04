@@ -87,9 +87,13 @@ does not. Identity QA still judges against the ORIGINAL photo so the chain canno
 NOT raw drive.google.com links (Kie's fetcher hits Drive sign-in walls).
 LESSON (in tasks/lessons.md + durable memory): repeated angle/style failures = question the INPUT ANCHOR before the
 wording; the char-sheet anchoring rule was already house law and should have transferred to machines.
-NEXT: chain worker lands -> deploy -> fill Argus's quarter view (~$0.05-0.10, generated FROM the side anchor) -> Ryan
-sees the completed trio -> his go -> 22-machine batch (expect ~$3.30-4.50 incl. bounded retries). Ledgered so far $3.47
-of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+CHAIN PROVEN (04:10-04:18Z): 0171078f anchor chaining deployed (209a050a) - the chained quarter attempt produced a CLEAN
+elevated quarter view (geometry solved), rejected only for bow-vs-stern orientation by the judge (reject reasons now
+visible in image_prompt markers, rejected frame preserved on drive_image_url - evidence sent to Ryan). Evidence-backed
+tune 82df4c9c (three_quarter accepts EITHER end; side-on/top-down still rejected) deployed 61a77dae.
+AWAITING RYAN'S ONE-WORD GO for: (1) promote the preserved Argus quarter frame via POST /api/pipeline/static-qa-approve/
+{asset_id} (asset = scene 1 image_index 1, $0); (2) 22-machine batch (~$3.30-4.00, quote via MCP images whole-video
+first; Argus fills/skips via fill mode). Ledgered $3.57 of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
