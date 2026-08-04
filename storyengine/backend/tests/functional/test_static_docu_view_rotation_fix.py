@@ -78,10 +78,28 @@ def test_exactly_three_rotated_roles_replace_the_old_contract():
     assert "engineering_detail" not in _PLANS
 
 
-def test_three_quarter_direction_is_the_identification_angle():
+def test_three_quarter_direction_uses_slightly_elevated_vantage_not_eye_level():
+    """2026-08-03 same-day follow-up: live output on HMS Argus (170m
+    warship) showed three_quarter generated twice and role-rejected twice
+    while side_profile/top_planform passed first try — "at natural
+    eye-level height" combined with "BOTH the nose/front and one full side
+    visible" is near-geometrically contradictory for a subject that long
+    (eye-level foreshortens everything), so the model kept splitting the
+    difference. Fixed direction asks for the classic bow-quarter press/
+    aerial photo (a SLIGHTLY elevated vantage) instead, and explicitly rules
+    eye-level back OUT so the model doesn't default to it."""
     direction = _PLANS["three_quarter"]["direction"].lower()
     assert "three-quarter" in direction
-    assert "eye-level" in direction or "eye level" in direction
+    assert "natural eye-level height" not in direction, (
+        "the old eye-level REQUIREMENT must be gone")
+    assert "slightly elevated" in direction
+    assert "not eye-level" in direction, (
+        "eye-level should be explicitly excluded, not just silently dropped")
+    assert "bow-quarter" in direction or "bow quarter" in direction
+    # Identity geometry unchanged: both bow/front and one side still
+    # required, and overall shape/length still has to read cleanly.
+    assert "bow/front" in direction or "nose/front" in direction
+    assert "one full side" in direction
 
 
 def test_side_profile_direction_has_no_three_quarter_language():
@@ -224,24 +242,44 @@ def test_role_with_no_geometry_requirement_trivially_passes():
 
 
 # ---------------------------------------------------------------------------
-# 3. Skip-if-done resumability — a whole-video images run must not re-bill
-#    an already-approved scene, but a superseded contract's rows must not
-#    satisfy the skip.
+# 3. Skip-if-done / FILL resumability — a whole-video images run must not
+#    re-bill an already-approved scene, a superseded contract's rows must
+#    not satisfy the skip, and (2026-08-03 same-day extension) a scene
+#    sitting at >= STATIC_VIEWS_MINIMUM done current-role views plus one
+#    parked/missing role must FILL only the missing role rather than being
+#    permanently stuck (the live HMS Argus state: side_profile +
+#    top_planform done, three_quarter parked qa_rejected, no force flag or
+#    redraw endpoint could ever regenerate it before this fix).
 # ---------------------------------------------------------------------------
 
 _CURRENT_ROLES = ["three_quarter", "side_profile", "top_planform"]
 _OLD_ARGUS_ROLES = ["three_quarter", "top_oblique", "engineering_detail"]
 
 
-def _seed_existing_assets_fetch_all(roles, scene_text=(
+def _seed_existing_assets_fetch_all(done_roles=(), parked_roles=(), scene_text=(
         "The Boeing XB-15 was the largest bomber of its day.")):
     """Builds a fake `fetch_all` that answers the scene-roster query the
-    same way `_pipeline_env` already does, PLUS the new skip-if-done
-    `SELECT caption FROM assets ...` query with `roles` worth of pre-existing
-    'done' rows."""
+    same way `_pipeline_env` already does, PLUS the skip-if-done/FILL
+    `SELECT id, status, image_url, caption FROM assets ...` query with
+    `done_roles` worth of pre-existing 'done' rows and `parked_roles` worth
+    of pre-existing 'qa_rejected' rows. Row ids are deterministic
+    (`done-<role>` / `parked-<role>`) so tests can assert on exactly which
+    row got touched (or didn't)."""
     async def fake_fetch_all(query, *args):
         if "FROM assets" in query:
-            return [{"caption": json.dumps({"view_role": role})} for role in roles]
+            rows = [
+                {"id": f"done-{role}", "status": "done",
+                 "image_url": "https://storage.example/existing.png",
+                 "caption": json.dumps({"view_role": role})}
+                for role in done_roles
+            ]
+            rows += [
+                {"id": f"parked-{role}", "status": "qa_rejected",
+                 "image_url": None,
+                 "caption": json.dumps({"view_role": role})}
+                for role in parked_roles
+            ]
+            return rows
         if "FROM scripts" in query:
             return [{"scene": 1, "scene_text": scene_text}]
         return []
@@ -250,10 +288,10 @@ def _seed_existing_assets_fetch_all(roles, scene_text=(
 
 @pytest.mark.asyncio
 async def test_skip_if_done_spends_nothing_when_current_contract_already_approved(monkeypatch):
-    """A scene that already has >= STATIC_VIEWS_MINIMUM 'done' views whose
-    caption.view_role matches the CURRENT contract's roles must be returned
-    as done WITHOUT any new generation call and WITHOUT deleting the
-    existing rows."""
+    """(b) A scene that already has ALL target current-contract roles 'done'
+    must be returned as done WITHOUT any new generation call and WITHOUT
+    touching the existing rows at all — the original instant-skip, still
+    intact as the no-missing-roles case of FILL mode."""
     import shared.clients.image_client as image_client_module
 
     env = _pipeline_env(
@@ -262,7 +300,7 @@ async def test_skip_if_done_spends_nothing_when_current_contract_already_approve
     )
     monkeypatch.setattr(
         static_docu, "fetch_all",
-        _seed_existing_assets_fetch_all(_CURRENT_ROLES),
+        _seed_existing_assets_fetch_all(done_roles=_CURRENT_ROLES),
     )
 
     result = await static_docu.generate_static_images_for_video(
@@ -272,12 +310,12 @@ async def test_skip_if_done_spends_nothing_when_current_contract_already_approve
     assert result["views_generated"] == 3
     assert result["segments_ready"] == result["segments_total"] == 1
     assert env["gen_prompts"] == [], (
-        "skip-if-done must not spend on any new generation")
+        "all target roles done must not spend on any new generation")
     assert not any("assets" in q.lower() for q in env["queries"]), (
-        "skip-if-done must not touch the assets table at all — no delete, "
-        "no placeholder insert (the schema-bootstrap CREATE TABLE calls for "
-        "static_reference_cache/static_reference_misses are the only "
-        "queries expected here)"
+        "all target roles done must not touch the assets table at all — no "
+        "delete, no placeholder insert (the schema-bootstrap CREATE TABLE "
+        "calls for static_reference_cache/static_reference_misses are the "
+        "only queries expected here)"
     )
     assert env["assets"] == {}
 
@@ -285,7 +323,8 @@ async def test_skip_if_done_spends_nothing_when_current_contract_already_approve
 @pytest.mark.asyncio
 async def test_skip_if_done_ignores_a_partial_current_contract_match(monkeypatch):
     """Only ONE current-contract role present (below STATIC_VIEWS_MINIMUM,
-    which is 2) — the skip must not fire, and normal generation proceeds."""
+    which is 2) — FILL mode must not trigger either, and the unchanged
+    full-regenerate path runs (delete everything, generate all 3 fresh)."""
     import shared.clients.image_client as image_client_module
 
     env = _pipeline_env(
@@ -301,14 +340,14 @@ async def test_skip_if_done_ignores_a_partial_current_contract_match(monkeypatch
     )
     monkeypatch.setattr(
         static_docu, "fetch_all",
-        _seed_existing_assets_fetch_all(["three_quarter"]),
+        _seed_existing_assets_fetch_all(done_roles=["three_quarter"]),
     )
 
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
     assert result["status"] == "completed"
-    assert len(env["gen_prompts"]) == 3, "one matching role is not enough to skip"
+    assert len(env["gen_prompts"]) == 3, "one matching role is not enough to skip or fill"
 
 
 @pytest.mark.asyncio
@@ -316,8 +355,8 @@ async def test_skip_if_done_regenerates_the_pre_fix_argus_roster(monkeypatch):
     """The exact scenario Ryan reported: a scene already carries the
     PRE-FIX roster (three_quarter/top_oblique/engineering_detail). Only
     `three_quarter` survives as a role NAME in the new contract, so only 1
-    of 3 rows matches — below STATIC_VIEWS_MINIMUM (2) — so the skip must
-    NOT fire and the scene regenerates under the new (genuinely rotated)
+    of 3 rows matches — below STATIC_VIEWS_MINIMUM (2) — so neither skip nor
+    fill fires and the scene regenerates under the new (genuinely rotated)
     contract, wiping the stale rows first."""
     import shared.clients.image_client as image_client_module
 
@@ -334,7 +373,7 @@ async def test_skip_if_done_regenerates_the_pre_fix_argus_roster(monkeypatch):
     )
     monkeypatch.setattr(
         static_docu, "fetch_all",
-        _seed_existing_assets_fetch_all(_OLD_ARGUS_ROLES),
+        _seed_existing_assets_fetch_all(done_roles=_OLD_ARGUS_ROLES),
     )
 
     result = await static_docu.generate_static_images_for_video(
@@ -349,3 +388,98 @@ async def test_skip_if_done_regenerates_the_pre_fix_argus_roster(monkeypatch):
     rows = sorted(env["assets"].values(), key=lambda row: row["image_index"])
     captions = [json.loads(row["caption"]) for row in rows]
     assert [cap["view_role"] for cap in captions] == ["three_quarter", "side_profile"]
+
+
+@pytest.mark.asyncio
+async def test_fill_mode_generates_only_the_missing_role_and_leaves_done_rows_untouched(
+    monkeypatch,
+):
+    """(a) The live HMS Argus state: side_profile + top_planform 'done',
+    three_quarter parked 'qa_rejected'. FILL mode must generate EXACTLY the
+    missing role (one generation call, not three), leave the two done rows
+    completely untouched (no delete, no update targeting them), and delete
+    the stale parked row only as its replacement attempt starts.
+
+    Stash-proof: revert the fill-mode fix and this scene has 2 'done' rows
+    matching the current contract (>= STATIC_VIEWS_MINIMUM) — the OLD
+    skip-if-done hard-skips on that count alone with ZERO generation calls,
+    so `len(env["gen_prompts"]) == 1` fails against the old code (it would
+    be 0) and only passes against the fill-mode fix."""
+    import shared.clients.image_client as image_client_module
+
+    env = _pipeline_env(
+        monkeypatch,
+        verdicts=[True],
+        gen_urls=["https://kie.example/three-quarter-fill.png"],
+        isolate_single_view=False,
+        docu_module=static_docu, image_client_module=image_client_module,
+    )
+    monkeypatch.setattr(
+        static_docu, "fetch_all",
+        _seed_existing_assets_fetch_all(
+            done_roles=["side_profile", "top_planform"],
+            parked_roles=["three_quarter"],
+        ),
+    )
+
+    orig_execute = static_docu.execute
+    delete_ids = []
+
+    async def wrapped_execute(query, *args):
+        if query == "DELETE FROM assets WHERE id=$1":
+            delete_ids.append(args[0])
+        return await orig_execute(query, *args)
+
+    monkeypatch.setattr(static_docu, "execute", wrapped_execute)
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert len(env["gen_prompts"]) == 1, (
+        "only the missing three_quarter role should generate — the two "
+        "already-done roles must not regenerate"
+    )
+    assert [role for (_, role) in env["role_qa_calls"]] == ["three_quarter"]
+    assert result["views_generated"] == 3, (
+        "2 untouched done roles + 1 newly filled role == 3 total"
+    )
+    assert delete_ids == ["parked-three_quarter"], (
+        "the stale parked row for the role being retried must be deleted "
+        "exactly once its replacement attempt starts, and the done rows' "
+        "ids must never be passed to a delete"
+    )
+    assert not any(
+        "DELETE FROM assets WHERE video_id=" in q for q in env["queries"]
+    ), "fill mode must never run the whole-scene wipe"
+
+
+@pytest.mark.asyncio
+async def test_fill_mode_skips_entirely_when_all_target_roles_already_done(monkeypatch):
+    """(b, restated for FILL mode explicitly) All three current-contract
+    roles already 'done': `missing_plans` is empty, so this is exactly the
+    original instant-skip path — zero generation calls, zero writes beyond
+    the SELECT."""
+    import shared.clients.image_client as image_client_module
+
+    env = _pipeline_env(
+        monkeypatch, verdicts=[], gen_urls=[], isolate_single_view=False,
+        docu_module=static_docu, image_client_module=image_client_module,
+    )
+    monkeypatch.setattr(
+        static_docu, "fetch_all",
+        _seed_existing_assets_fetch_all(
+            done_roles=["three_quarter", "side_profile", "top_planform"],
+        ),
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert result["views_generated"] == 3
+    assert env["gen_prompts"] == []
+    assert not any("assets" in q.lower() for q in env["queries"]), (
+        "all target roles done must keep the original instant-skip: no "
+        "delete, no placeholder insert, no update — just the SELECT"
+    )

@@ -1744,10 +1744,12 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
 # fallback.
 _ROLE_GEOMETRY_REQUIREMENTS = {
     "three_quarter": (
-        "a front three-quarter view: the camera at natural eye level, with "
-        "BOTH the nose/front and one full side of the machine visible "
-        "together in the same frame (not a flat side-on profile, and not a "
-        "steep top-down angle)"
+        "a front three-quarter view: the camera from a slightly elevated "
+        "vantage point (the classic bow-quarter press/aerial photo, not "
+        "eye-level and not a steep overhead angle), with BOTH the "
+        "bow/front and one full side of the machine visible together in "
+        "the same frame and the overall shape and length clearly readable "
+        "(not a flat side-on profile, and not a steep top-down angle)"
     ),
     "side_profile": (
         "a TRUE side-on profile view: the camera positioned directly to "
@@ -2073,41 +2075,86 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     async def _one_scene(s):
         sc = s["scene"]
 
-        # Skip-if-done (resumability fix, 2026-08-03): a whole-video images
-        # run must not re-bill scenes whose views were already generated and
-        # approved under the CURRENT view contract — before this fix, the
-        # unconditional DELETE below wiped and re-spent every scene on every
-        # re-run. A scene counts as done when it already has at least
-        # STATIC_VIEWS_MINIMUM 'done' rows (image_url set) whose stored
-        # caption.view_role is one of THIS contract's current roles. Rows
+        # Skip-if-done / FILL resumability (2026-08-03, extended same day): a
+        # whole-video images run must not re-bill scenes whose views were
+        # already generated and approved under the CURRENT view contract —
+        # the unconditional DELETE further down used to wipe and re-spend
+        # every scene on every re-run. A role counts as done when it has a
+        # 'done' row (image_url set) whose stored caption.view_role is one
+        # of THIS contract's current roles; a role counts as PARKED when its
+        # row is 'qa_rejected' instead (a paid render that failed QA and is
+        # waiting on either a human approval or a fresh attempt here). Rows
         # from a superseded contract (e.g. the pre-fix three_quarter/
         # top_oblique/engineering_detail roster) do NOT match the current
-        # role set and so do NOT satisfy the skip — those scenes regenerate
-        # under the new contract, on purpose (the whole point of this fix).
+        # role set and so land in neither bucket.
+        #
+        # Below STATIC_VIEWS_MINIMUM done roles: unchanged full-regenerate
+        # behavior (delete everything for this scene, generate all roles
+        # fresh) — see the DELETE further down.
+        #
+        # At or above STATIC_VIEWS_MINIMUM done roles: FILL mode. Before this
+        # fix a scene sitting at 2/3 done + 1 parked (HMS Argus's actual
+        # live state) could NEVER regenerate its missing role through any
+        # door — no force flag or redraw endpoint bypasses this skip. FILL
+        # mode keeps the done rows completely untouched (no delete, no
+        # regeneration) and attempts generation ONLY for roles that still
+        # lack a 'done' row. A stale parked row for a role being retried
+        # here is deleted only once its replacement attempt actually starts
+        # (right when the new placeholder row for that role is created
+        # below) — never up front — so a fresh failure re-parks under a new
+        # row instead of losing the trail if this run never gets that far.
+        # A scene with ALL target roles already done has an empty
+        # `missing_plans` and keeps the original instant-skip behavior (no
+        # queries beyond this SELECT).
         current_roles = {plan["role"] for plan in STATIC_VIEW_PLANS}
-        existing_done = await fetch_all(
-            "SELECT caption FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-            "AND scene=$3 AND generation_method=$4 AND status='done' "
-            "AND image_url IS NOT NULL",
+        role_view_index = {
+            plan["role"]: idx for idx, plan in enumerate(STATIC_VIEW_PLANS, start=1)
+        }
+        existing_rows = await fetch_all(
+            "SELECT id, status, image_url, caption FROM assets WHERE "
+            "video_id=$1 AND tenant_id=$2 AND scene=$3 AND generation_method=$4",
             video_id, tenant_id, sc, STATIC_RENDER_MODE,
         )
-        matching_views = 0
-        for row in existing_done or []:
+        done_role_ids: dict = {}
+        parked_role_ids: dict = {}
+        for row in existing_rows or []:
             cap = row.get("caption")
             if isinstance(cap, str):
                 try:
                     cap = json.loads(cap)
                 except (ValueError, TypeError):
                     cap = None
-            if isinstance(cap, dict) and cap.get("view_role") in current_roles:
-                matching_views += 1
-        if matching_views >= STATIC_VIEWS_MINIMUM:
+            if not isinstance(cap, dict):
+                continue
+            role = cap.get("view_role")
+            if role not in current_roles:
+                continue
+            status = row.get("status")
+            if status == "done" and row.get("image_url"):
+                done_role_ids[role] = row.get("id")
+            elif status == "qa_rejected":
+                parked_role_ids[role] = row.get("id")
+
+        missing_plans: Optional[list] = None  # None == full regenerate, below
+        if len(done_role_ids) >= STATIC_VIEWS_MINIMUM:
+            missing_plans = [
+                plan for plan in STATIC_VIEW_PLANS
+                if plan["role"] not in done_role_ids
+            ]
+            if not missing_plans:
+                _p(
+                    f"Segment {sc}: {len(done_role_ids)} approved views "
+                    "already match the current view contract — skipping "
+                    "(no regeneration, no spend)."
+                )
+                return {"scene": sc, "done": len(done_role_ids), "reason": None}
             _p(
-                f"Segment {sc}: {matching_views} approved views already "
-                "match the current view contract — skipping (no "
-                "regeneration, no spend)."
+                f"Segment {sc}: {len(done_role_ids)} approved views already "
+                "match the current view contract — filling "
+                f"{len(missing_plans)} missing view(s) "
+                f"({', '.join(p['role'] for p in missing_plans)}); existing "
+                "views left untouched."
             )
-            return {"scene": sc, "done": matching_views, "reason": None}
 
         sub = subjects.get(sc) or {}
         machine = sub.get("machine") or (s["scene_text"] or "")[:80]
@@ -2167,10 +2214,29 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # in allowlisted DB columns, and the self-hosted reference must be
         # proxy-fetchable during generation. image_url stays NULL until the
         # real image exists, so a concurrent render can't pick up the raw ref.
-        await execute(
-            "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
-            "AND generation_method=$4", video_id, tenant_id, sc, STATIC_RENDER_MODE)
-        row_id = await _insert_placeholder(1, STATIC_VIEW_PLANS[0])
+        #
+        # FILL mode (missing_plans set above) must NOT run this blanket
+        # DELETE — it would destroy the done rows just decided to keep
+        # untouched. Full-regenerate mode (missing_plans is None, below
+        # STATIC_VIEWS_MINIMUM done roles) keeps the original wipe-everything
+        # behavior and generates all roles fresh.
+        if missing_plans is None:
+            await execute(
+                "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+                "AND generation_method=$4", video_id, tenant_id, sc, STATIC_RENDER_MODE)
+            plans_to_generate = list(STATIC_VIEW_PLANS)
+        else:
+            plans_to_generate = missing_plans
+
+        first_plan = plans_to_generate[0]
+        row_id = await _insert_placeholder(role_view_index[first_plan["role"]], first_plan)
+        stale_parked_id = parked_role_ids.get(first_plan["role"])
+        if stale_parked_id:
+            # This role's replacement attempt just started (the new
+            # placeholder row above) — drop the old parked row now so a
+            # fresh failure re-parks under the NEW row instead of leaving
+            # two rows behind for the same role.
+            await execute("DELETE FROM assets WHERE id=$1", stale_parked_id)
 
         # 1) Find a REAL photo, SELF-HOST it (Wikimedia 403s Kie's fetcher),
         #    and vision-check it actually shows this machine (designation
@@ -2236,15 +2302,21 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 "image_url=NULL, drive_image_url=NULL WHERE id=$1", row_id)
             return {"scene": sc, "done": 0, "reason": "blocked_no_reference"}
 
-        # 2) Generate the three deliberate views sequentially for this scene.
-        # Scene concurrency remains six, but a single aircraft never opens
-        # three provider calls at once. Every view keeps the same verified
-        # reference/variant lock and passes the same two-judge QA path.
+        # 2) Generate the remaining planned views sequentially for this
+        # scene (all three roles in full-regenerate mode, only the missing
+        # roles in FILL mode). Scene concurrency remains six, but a single
+        # aircraft never opens more than one provider call at once. Every
+        # view keeps the same verified reference/variant lock and passes the
+        # same two-judge QA path.
         row_ids = [row_id]
-        for view_index, view_plan in enumerate(STATIC_VIEW_PLANS[1:], start=2):
-            row_ids.append(
-                await _insert_placeholder(view_index, view_plan, reference_url=ref_url)
+        for view_plan in plans_to_generate[1:]:
+            new_row_id = await _insert_placeholder(
+                role_view_index[view_plan["role"]], view_plan, reference_url=ref_url
             )
+            stale_parked_id = parked_role_ids.get(view_plan["role"])
+            if stale_parked_id:
+                await execute("DELETE FROM assets WHERE id=$1", stale_parked_id)
+            row_ids.append(new_row_id)
 
         async def _generate_view(view_index: int, view_plan: dict,
                                  view_row_id: str) -> bool:
@@ -2463,21 +2535,25 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             return True
 
         approved = 0
-        for view_index, (view_plan, view_row_id) in enumerate(
-            zip(STATIC_VIEW_PLANS, row_ids), start=1
-        ):
+        for view_plan, view_row_id in zip(plans_to_generate, row_ids):
+            view_index = role_view_index[view_plan["role"]]
             if await _generate_view(view_index, view_plan, view_row_id):
                 approved += 1
 
-        if approved < STATIC_VIEWS_MINIMUM:
+        # FILL mode's total includes the untouched done roles kept above;
+        # full-regenerate mode has none surviving (they were wiped), so
+        # `approved` alone is the total there.
+        total_done = approved if missing_plans is None else len(done_role_ids) + approved
+
+        if total_done < STATIC_VIEWS_MINIMUM:
             _p(
-                f"Segment {sc}: only {approved}/{STATIC_VIEWS_TARGET} verified "
+                f"Segment {sc}: only {total_done}/{STATIC_VIEWS_TARGET} verified "
                 f"views — needs at least {STATIC_VIEWS_MINIMUM}."
             )
         return {
             "scene": sc,
-            "done": approved,
-            "reason": None if approved >= STATIC_VIEWS_MINIMUM else "insufficient_views",
+            "done": total_done,
+            "reason": None if total_done >= STATIC_VIEWS_MINIMUM else "insufficient_views",
         }
 
     async def _bounded(s):
