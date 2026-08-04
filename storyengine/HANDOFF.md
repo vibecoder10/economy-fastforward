@@ -50,9 +50,20 @@ FIXES BUILT THIS SESSION (worktree branch claude/sad-shamir-e31572, NOT deployed
   Backfill recipe for the 23 NULL-duration rows: routes/videos.py::_drive_file_id ->
   routes/media.py::_download_via_drive_api -> voice/run.py::mp3_duration_seconds -> UPDATE (raw GET on Drive links
   returns HTML interstitials - do not backfill that way).
-NEXT: pictures stage - "Build to pictures" / aircraft views (0/23 ready, 3 views per aircraft targeted). PAID - quote
-first, get Ryan's go. Also parked: deploy window for the two fixes above. Remember ~$5-6 unledgered script spend already
-happened today. G24 escalated_model log watch still deferred (no new script cards this session).
+PICTURES ATTEMPT #1 FAILED, $0 SPENT (2026-08-04 01:53Z, Ryan had approved the $3.45 quote): task died in 31s, all 23
+scenes, zero images attempted, zero asset rows. ROOT CAUSE (code-read confirmed): static_docu.py::_scene_subjects plans
+ALL scenes' title-card metadata in ONE model call capped at max_tokens=1800; a 23-machine roster needs ~2x that, the JSON
+array truncates, the local STRICT _parse_json_array (no salvage - NOT shared/json_utils) returns None, subjects={}, and
+every scene bounces on the caption_sub "•" metadata gate (reason missing_title_metadata) before any spend. Past 5-scene
+live tests fit under the cap - size-dependent bug. Misleading error surfaced ("no segment reached 2 verified views") AND
+bot_activity showed the customer only "Something went wrong. Please try again." (failure-visibility backlog bug bitten by
+a real spend attempt). Fix in flight: Sonnet worker chunking the planner (batches + retry + truthful error), tests, on
+branch claude/sad-shamir-e31572.
+NEXT: (1) land the planner fix; (2) ASK RYAN FOR A DEPLOY WINDOW - the branch will then carry 3 deploy-ready commits
+(counter cd221993, voice durations f33c29df, planner fix) and pictures CANNOT succeed on this video until the planner
+fix deploys; (3) fold worktree branch to main, deploy via the vps-deploy.sh protocol (check ~/deploy.lock first);
+(4) re-quote + re-run pictures ($3.45, needs Ryan's re-confirm), verify actual images visually per the Visual Output
+Verification rule. Remember ~$5-6 unledgered script spend today. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
 2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.
