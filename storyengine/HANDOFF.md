@@ -121,9 +121,22 @@ facts for this format (fact_sheet/character_dossier keys absent - the real facts
 never passed), metadata gate bounces BEFORE creating any asset row so the scene vanished from every count. planner-facts
 worker building: (1) feed machine-card facts to the planning chunks, (2) metadata bounces insert a visible
 blocked_missing_metadata row. Ledgered $7.87 of $20.
-NEXT: planner-facts lands -> deploy (blueprint + facts together) -> run scene 19 + CVA-01 scenes 9/13 (~$0.35-0.50) ->
-eyes on new frames -> 23/23 COMPLETE -> thumbnail + render quotes. Matcher hardening runs in a SEPARATE session
-(task_92cb9dd0) - expect a merge on static_docu.py later; this branch's changes are all committed. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+PICTURES STAGE COMPLETE 23/23 (2026-08-04 18:30Z): planner-facts landed (6576ec03 - machine_research_cards table is the
+card truth, positional scene->roster mapping, metadata bounces now insert visible blocked_missing_metadata rows);
+positional never-built detection (a7ae480a) fixed CVA-01 scene 13 (blueprints LIVE and beautiful - Jane's-style side
+elevation + deck plan with period jet silhouettes); scene 9 (slot = Audacious/Malta, narration = CVA-01 predecessors
+per its own research card, never-built veto correct because Eagle R05 completed) resolved via NEW operator
+blueprint_override (8bbdebca: card JSONB field, strict is-True) - flag set on the real card, blueprints generated and
+eyes-verified. Scene 19 (Nairana) 3/3 after the facts wiring. Deploys this arc: d074e057, d4411594, 992cb3f0.
+FINAL: 67 done frames, 0 parked, 23/23 machines ready, every frame passed identity+role judges, 59 reviewed
+frame-by-frame by an independent worker + all fix/new frames eyes-verified by the orchestrator. Ledgered $8.32 of $20
+($2.97 voice + $5.35 images including all iteration).
+NEXT (pending Ryan): (1) thumbnail - quoted $0.05, NOT pressed; (2) render BLOCKED by a format-blindness bug in the
+render verb (demands animated clips; static_docu skips clips by design) - task chip task_baa632d0 filed with full
+repro; after that fix deploys, render is compute-only (no external billing); (3) upload. Status advanced to
+ready_for_thumbnail via the advance verb. Guide nit noticed (next_step says "characters" for a format whose plan
+excludes it) - cosmetic, not filed. Matcher hardening still running in its own session (task_92cb9dd0) - expect a
+static_docu.py merge later. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
