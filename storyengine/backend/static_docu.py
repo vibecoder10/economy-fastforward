@@ -1112,6 +1112,67 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     return False
 
 
+def _roster_entry_for_scene_machine(entries: list, machine: str,
+                                    aliases: Optional[list]) -> Optional[dict]:
+    """Resolve a SCENE's own LLM-derived machine label (+ its own LLM-
+    derived aliases, from ``_scene_subjects``) to exactly one entry of the
+    video's LOCKED machine roster (``pipeline_executor.
+    _machine_documentary_hold_roster_entries`` shape: {"name", "aliases",
+    "never_built", "facts"}), or None when no entry — or more than one —
+    matches.
+
+    G24 (2026-08-03): a roster machine can already have a verified photo in
+    static_reference_cache (written at roster-lock time by
+    prefetch_roster_references, keyed on `_machine_key(entry["name"])`), yet
+    a scene about that exact same machine still misses LAYER 0's direct
+    cache lookup above — because `_scene_subjects` derives its "machine"
+    label independently from the scene's narration text (it never sees the
+    roster), so a short natural guess ("HMS Eagle") essentially never
+    equals a roster entry's compound bookkeeping display name ("HMS Eagle
+    (1918) Eagle"), let alone a ship-class entry's genuinely unsearchable
+    glued string ("Lend-Lease escort carriers Ruler class (US-built)" — see
+    _unit_roster_aliases's own docstring for why that shape exists at all).
+    This is that second, alias-aware lookup: does THIS scene's machine
+    label plausibly name one specific roster entry?
+
+    Deliberately reuses `_page_matches` — the SAME word-overlap/designation-
+    token check the reference hunt already trusts to decide whether a
+    Wikipedia article or Commons file title belongs to a machine — applied
+    against each roster entry's own name+aliases blob instead of a web
+    page's title. No new normalizer: matching a scene guess to a roster
+    entry is the same kind of "does this loose text name that machine"
+    question _page_matches already answers, just with the roster entry
+    playing the "page" role instead of a search-engine hit.
+
+    G21b/G22-safety: two DISTINCT roster entries can legitimately share
+    generic bookkeeping words (the live collision: "Lend-Lease escort
+    carriers Attacker class (US-built)" and "...Ruler class (US-built)" —
+    same designation prefix, different class name) or even the same
+    _normalized_unit_code (the live "CVA-01 class" vs "Audacious class /
+    Malta class" collision, both normalizing to CVA01). A match is only
+    ACCEPTED when it resolves to EXACTLY ONE roster entry — zero or
+    multiple hits return None, the same fail-closed rule
+    _locked_roster_item_for_machine/_roster_index_for_identity already use
+    for this exact collision shape (pipeline_executor.py). This is what
+    keeps the CVA-01 scenes (never built — no photo can exist) correctly
+    unresolved rather than guessing between two candidate entries: neither
+    "CVA-01" alone matches only one of them unambiguously.
+
+    Never a final answer by itself — the caller still runs the resolved
+    entry's cached photo through `_vision_confirms` before ever accepting
+    it as this scene's reference, exactly like every other candidate the
+    reference hunt considers."""
+    hits = []
+    for entry in entries or []:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not name:
+            continue
+        haystack = " | ".join([name] + list(entry.get("aliases") or []))
+        if _page_matches(machine, aliases, haystack):
+            hits.append(entry)
+    return hits[0] if len(hits) == 1 else None
+
+
 def _designation_token(machine: str) -> str:
     """The machine's designation as a matchable token: the first word with a
     digit, alphanumerics only, lowercased (e.g. 'MBT-70' -> 'mbt70',
@@ -2112,7 +2173,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
     v = await fetch_one(
         "SELECT id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "research_payload FROM videos "
+        "render_mode, research_payload FROM videos "
         "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
@@ -2131,6 +2192,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             rp = json.loads(rp)
         except (ValueError, TypeError):
             rp = None
+
+    # Roster reference layer (G24): the video's own LOCKED machine roster,
+    # with each entry's name/aliases/facts — see _roster_entry_for_scene_
+    # machine below for why this is needed even though every roster machine
+    # with a verified photo already sits in static_reference_cache (the
+    # SAME table LAYER 0 above already checks). Lazy import: static_docu <->
+    # pipeline_executor is a two-way relationship (pipeline_executor already
+    # imports static_docu lazily), so importing at module top would risk a
+    # circular import — same reasoning as prefetch_roster_references/
+    # seed_reference_from_url's own lazy imports of this function.
+    from pipeline_executor import _machine_documentary_hold_roster_entries
+    roster_entries = _machine_documentary_hold_roster_entries(v)
 
     _p("Identifying each segment's machine…")
     subjects, unparseable_scenes = await _scene_subjects(tenant_id, scenes, rp)
@@ -2349,6 +2422,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         #    LAYER 0: the tenant's own verified-reference cache — series reuse
         #    the same machines across videos, so each machine costs ONE
         #    Wikimedia conversation ever (and rate limits stop mattering).
+        #    LAYER 0b: THIS VIDEO's own locked roster reference photo,
+        #    resolved by matching this scene's guessed machine label against
+        #    the roster's own name/aliases (_roster_entry_for_scene_machine)
+        #    — catches a roster machine the tenant cache already verified
+        #    weeks ago under its own compound display name (G24).
         #    LAYER 1: the machine's Wikipedia article lead image — curated,
         #    unambiguous, and API-issued. LAYER 1.5: every other real photo
         #    embedded in that SAME article (find_article_images) — the lead
@@ -2366,6 +2444,62 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             await execute(
                 "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, ref_url)
             _p(f"Segment {sc}: using the cached verified photo of the {machine}")
+
+        # LAYER 0b (G24): the video's OWN verified roster reference photo.
+        # LAYER 0 above misses whenever this scene's own guessed "machine"
+        # label doesn't normalize to the SAME cache key as the roster
+        # entry's compound display name (see _roster_entry_for_scene_machine
+        # for why that's the common case, not the exception, for ship-class
+        # roster entries) — even though the roster already holds a verified
+        # photo for the exact machine this scene is about, written by
+        # prefetch_roster_references weeks before script/voice money was
+        # ever spent. Only tried when LAYER 0 missed, and only ACCEPTED
+        # after the resolved candidate passes the SAME _vision_confirms
+        # identity check every other candidate must clear — the alias
+        # resolution is a lead, never a blind reuse. trusted_source=True is
+        # honest here: nothing reaches static_reference_cache without
+        # already having cleared _vision_confirms once, at roster-prefetch
+        # or manual-seed time (_prefetch_one_machine / seed_reference_from_
+        # url both gate their INSERT on that same call), so this candidate
+        # carries the same "already vision-confirmed once" provenance a
+        # Wikipedia lead image carries — never an unverified guess.
+        if not ref_url and roster_entries:
+            matched_entry = _roster_entry_for_scene_machine(
+                roster_entries, machine, sub.get("aliases"))
+            if matched_entry:
+                roster_mkey = _machine_key(matched_entry["name"])
+                roster_cached = await fetch_one(
+                    "SELECT hosted_url, source_url FROM static_reference_cache "
+                    "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, roster_mkey)
+                if roster_cached:
+                    roster_hosted = roster_cached["hosted_url"]
+                    await execute(
+                        "UPDATE assets SET drive_image_url=$2 WHERE id=$1",
+                        row_id, roster_hosted)
+                    if await _vision_confirms(
+                        tenant_id, roster_hosted, machine, sub.get("aliases"),
+                        trusted_source=True, facts=matched_entry.get("facts"),
+                        source_label=matched_entry["name"],
+                    ):
+                        ref_url, ref_src = roster_hosted, roster_cached["source_url"]
+                        await execute(
+                            """INSERT INTO static_reference_cache
+                                   (tenant_id, machine_key, machine, hosted_url, source_url)
+                               VALUES ($1,$2,$3,$4,$5)
+                               ON CONFLICT (tenant_id, machine_key)
+                               DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
+                                             verified_at=now()""",
+                            tenant_id, mkey, machine[:200], roster_hosted,
+                            roster_cached["source_url"])
+                        _p(f"Segment {sc}: using the video's own verified "
+                           f"roster photo for the {machine} (roster entry: "
+                           f"{matched_entry['name']})")
+                    else:
+                        _p(f"Segment {sc}: the roster's photo for "
+                           f"{matched_entry['name']} didn't pass identity "
+                           f"check for the {machine} — falling back to a "
+                           f"fresh search")
+
         if not ref_url:
             _p(f"Segment {sc}: finding a real photo of the {machine}…")
             candidates = await _gather_reference_candidates(
