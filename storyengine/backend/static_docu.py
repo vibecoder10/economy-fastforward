@@ -1171,6 +1171,21 @@ async def _clear_reference_miss(tenant_id: str, video_id: str, machine: str) -> 
             "video=%s machine=%r", video_id, machine, exc_info=True)
 
 
+# Words too generic to tie loose text to ONE machine — shared by
+# _page_matches and _roster_entry_for_scene_machine's discriminative
+# tie-break (hoisted from _page_matches for G24b so the two can't drift,
+# the same reasoning that put _designation_token_in_title in one place
+# after C36 found its logic forked in two).
+_GENERIC_MACHINE_WORDS = {
+    "tank", "tanks", "aircraft", "airplane", "plane", "ship",
+    "boat", "submarine", "helicopter", "carrier", "battleship",
+    "destroyer", "cruiser", "frigate", "bomber", "fighter",
+    "class", "type", "mark", "light", "heavy", "medium", "main",
+    "battle", "vehicle", "gun", "self", "propelled", "united",
+    "states", "british", "soviet", "german", "american", "army",
+    "navy", "royal"}
+
+
 def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     """Does the Wikipedia article title actually name this machine?
 
@@ -1190,13 +1205,6 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     substring test has no length floor and no boundary. Now routed through
     _designation_token_in_title, shared with find_wikipedia_lead_images so
     the two checks can't drift apart again."""
-    _GENERIC = {"tank", "tanks", "aircraft", "airplane", "plane", "ship",
-                "boat", "submarine", "helicopter", "carrier", "battleship",
-                "destroyer", "cruiser", "frigate", "bomber", "fighter",
-                "class", "type", "mark", "light", "heavy", "medium", "main",
-                "battle", "vehicle", "gun", "self", "propelled", "united",
-                "states", "british", "soviet", "german", "american", "army",
-                "navy", "royal"}
     norm_page = re.sub(r"[^a-z0-9 ]", "", (page or "").lower())
     if not norm_page:
         return False
@@ -1206,7 +1214,7 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
         if _designation_token_in_title(tok, page):
             return True
         for word in re.sub(r"[^a-z0-9 ]", "", (name or "").lower()).split():
-            if len(word) >= 4 and word not in _GENERIC and word in page_words:
+            if len(word) >= 4 and word not in _GENERIC_MACHINE_WORDS and word in page_words:
                 return True
     return False
 
@@ -1257,19 +1265,96 @@ def _roster_entry_for_scene_machine(entries: list, machine: str,
     unresolved rather than guessing between two candidate entries: neither
     "CVA-01" alone matches only one of them unambiguously.
 
+    G24b (2026-08-04): the exactly-one rule alone over-blocked — verified
+    live on video d2e37cd6 the day after G24 shipped. Scene 22 guessed
+    "Ruler-class Escort Carrier": 'ruler' names ONE entry, but 'escort'
+    also word-overlaps the Attacker sibling (both display names embed the
+    shared designation "Lend-Lease escort carriers"), so two hits →
+    None → the scene web-hunted and blocked despite the Ruler entry's own
+    verified cache row. Scene 17 ("HMS Activity (D94)", the roster's own
+    designation verbatim) died the same way through an alias: 'Activity
+    class escort carrier' dragged both Lend-Lease entries in via 'escort'.
+    So when the exactly-one rule fails (zero or multiple hits), resolution
+    now falls to DISCRIMINATIVE evidence — three families, each item
+    counting for an entry only when it matches that entry and NO other
+    entry in the whole roster:
+      1. designation tokens (same _designation_token_in_title check, same
+         C36 floors, _page_matches itself uses);
+      2. significant words (>=4 chars, same _GENERIC_MACHINE_WORDS set —
+         but split on punctuation, so the live 'Ruler-class' can offer
+         'ruler' instead of the unmatchable glued 'rulerclass');
+      3. machine-key containment: _machine_key(guess) sitting inside
+         exactly one entry's _machine_key(name) — the 'HMS Ark Royal (91)'
+         shape, where the pennant ('91') is under the token floor and every
+         name word is generic/short, yet the guess IS the entry key's own
+         prefix (the compound display name just glued ' Ark Royal (1937)'
+         after it). Guarded: the guess key must be >=6 chars AND carry a
+         digit — a bare shared ship name ('HMS Hermes': this roster really
+         holds TWO, 1924 and R12) must stay ambiguous, and it is word
+         evidence's fail-closed support count that handles those.
+    Exactly one entry backed by unique evidence → that entry; zero (the
+    CVA-01 pair — 'cva01' names both) or two-plus (a guess naming both
+    siblings) → still None. Shared bookkeeping words can never pick a
+    winner, and everything the old rule blocked as a GENUINE collision is
+    still blocked — the tie-break only rescues guesses that were unique
+    all along.
+
     Never a final answer by itself — the caller still runs the resolved
     entry's cached photo through `_vision_confirms` before ever accepting
     it as this scene's reference, exactly like every other candidate the
     reference hunt considers."""
-    hits = []
-    for entry in entries or []:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        if not name:
-            continue
-        haystack = " | ".join([name] + list(entry.get("aliases") or []))
-        if _page_matches(machine, aliases, haystack):
-            hits.append(entry)
-    return hits[0] if len(hits) == 1 else None
+    valid = [e for e in entries or []
+             if isinstance(e, dict) and e.get("name")]
+    haystacks = [" | ".join([e["name"]] + list(e.get("aliases") or []))
+                 for e in valid]
+    hits = [i for i, hay in enumerate(haystacks)
+            if _page_matches(machine, aliases, hay)]
+    if len(hits) == 1:
+        return valid[hits[0]]
+
+    # G24b tie-break: which evidence items does the scene guess offer?
+    # Punctuation splits words here (unlike _page_matches' delete-and-glue
+    # normalization) — the live scene-22 guess was "Ruler-class", and glued
+    # to "rulerclass" it can never meet the haystack's "Ruler class", so the
+    # one word that discriminates would be lost to a hyphen. Designations
+    # are NOT lost by this split: they're carried by the token path
+    # (_designation_token keeps "B-52" whole as "b52"), words carry names.
+    tokens: set = set()
+    words: set = set()
+    for name in [machine] + list(aliases or []):
+        tok = _designation_token(name)
+        if tok:
+            tokens.add(tok)
+        for word in re.split(r"[^a-z0-9]+", (name or "").lower()):
+            if len(word) >= 4 and word not in _GENERIC_MACHINE_WORDS:
+                words.add(word)
+
+    # An evidence item discriminates only when it matches EXACTLY ONE entry
+    # across the ENTIRE roster (not just among the hits — a word shared
+    # with any sibling proves nothing about identity).
+    hay_words = [
+        {w for w in re.split(r"[^a-z0-9]+", hay.lower()) if w}
+        for hay in haystacks]
+    winners: set = set()
+    for tok in tokens:
+        support = [i for i, hay in enumerate(haystacks)
+                   if _designation_token_in_title(tok, hay)]
+        if len(support) == 1:
+            winners.add(support[0])
+    for word in words:
+        support = [i for i, ws in enumerate(hay_words) if word in ws]
+        if len(support) == 1:
+            winners.add(support[0])
+    entry_keys = [_machine_key(e["name"]) for e in valid]
+    for name in [machine] + list(aliases or []):
+        gkey = _machine_key(name)
+        if len(gkey) >= 6 and any(ch.isdigit() for ch in gkey):
+            support = [i for i, ekey in enumerate(entry_keys) if gkey in ekey]
+            if len(support) == 1:
+                winners.add(support[0])
+    if len(winners) == 1:
+        return valid[winners.pop()]
+    return None
 
 
 def _designation_token(machine: str) -> str:
