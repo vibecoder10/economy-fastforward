@@ -91,9 +91,20 @@ CHAIN PROVEN (04:10-04:18Z): 0171078f anchor chaining deployed (209a050a) - the 
 elevated quarter view (geometry solved), rejected only for bow-vs-stern orientation by the judge (reject reasons now
 visible in image_prompt markers, rejected frame preserved on drive_image_url - evidence sent to Ryan). Evidence-backed
 tune 82df4c9c (three_quarter accepts EITHER end; side-on/top-down still rejected) deployed 61a77dae.
-AWAITING RYAN'S ONE-WORD GO for: (1) promote the preserved Argus quarter frame via POST /api/pipeline/static-qa-approve/
-{asset_id} (asset = scene 1 image_index 1, $0); (2) 22-machine batch (~$3.30-4.00, quote via MCP images whole-video
-first; Argus fills/skips via fill mode). Ledgered $3.57 of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+RYAN'S GO EXECUTED (04:25-05:15Z): Argus quarter frame promoted via static-qa-approve ($0, scene 1 now 3/3). BATCH RAN:
+13/23 machines fully ready (37 done views), $1.90 of the $3.45 approved quote (blocked machines spend nothing). Sample
+verification by orchestrator eyes: Illustrious + QE trios are correct ships, correct rotated angles (bow-quarters come
+out fine with fresh per-machine anchors - Argus's stern-bias was reference-specific). 2 parked third-views (scene 2
+Furious identity-reject, scene 3 Hermes top-not-steep-enough - both machines still >= 2 views, retryable via fill for
+$0.05 each). 9 rows blocked_no_reference: scenes 9+13 are CVA-01 (never built, correctly blocked FOREVER) and scenes
+4,5,16,17,21,22,23 (Eagle, Courageous, MAC ship, Activity, Ruler x2, Unicorn) are a WIRING GAP - the roster stage
+verified photos for these machines but static_docu's reference hunt never consults the video's own roster photos
+(roster-ref-reuse worker building the fix: roster photo as a reference layer after the tenant cache).
+NEXT: (1) roster-ref fix lands -> deploy -> whole-video images fill run (completes the approved batch, ~$1.05-1.50 more,
+still inside the $3.45 quote); (2) full 60+ frame eyes-on review before render; (3) PARKED DECISION FOR RYAN - CVA-01
+scenes 9+13 can never have a real photo and the render gate will block on them: options are (a) official design drawings
+with an honest "design study - never built" caption (needs a deliberate exception to the verified_reference law),
+(b) render those scenes title-card-only, (c) cut the scenes. Ledgered $5.47 of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
