@@ -709,5 +709,10 @@ sacred. Silent grinding against a bad rule is the most expensive form of diligen
 - A "RUN COMPLETE ok=22" line is not success - count per-card outcomes (4 of those "ok" were 0-second no-ops). Sum lines lie; per-item lines don't.
 - Log-line claims from a previous session are hypotheses, not diagnoses: "polish dropped roughly" was wrong twice over - the real causes were a sentence-scoped hedge flag and a last-word designation fallback. Reproduce offline through the REAL function before building a fix.
 
+### When generation fails an angle/view, question the INPUT before the wording (2026-08-04)
+- The static-docu bow-quarter view failed vision QA 4x across 2 tuning rounds ($0.20). Both rounds tuned prompt wording and judge strictness. The actual cause was architecture: every view was generated directly from the raw historical reference photo, whose own camera angle bleeds into the output. Ryan saw it immediately; the orchestrator did not.
+- THE RULE: when an image/video generation repeatedly misses a viewpoint, style, or framing target, diagnose the DATA FLOW first - what image is the model anchored to, and does that anchor fight the instruction? Only tune wording after the inputs are right.
+- Sharper form: the fix (generate one clean canonical render, derive all other views FROM it) was already house law for characters ("char sheets first, pass as image_input to every keyframe"). Asset types differ; the anchoring pattern transfers. Check the existing playbook for the same problem solved in another domain before inventing.
+
 ### First post-fix run is ONE unit, never the batch (2026-08-04)
 - After the pictures-stage planner bug was fixed, the orchestrator proposed re-running the full $3.45 batch as the proof. Ryan's correction: run ONE machine (~$0.15) and look at it first. This is the standing Scene Lab habit (under-$1 iterative proofs) applied to every stage: the first run after ANY fix or config change is the smallest billable unit, verified with eyes, before the batch. The batch quote comes second, not first.

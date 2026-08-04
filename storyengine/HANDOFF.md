@@ -70,10 +70,27 @@ metadata grounded ("Royal Navy • 1918", flush-deck spec chip) - the planner fi
 live with the real images (1/3 three-quarter -> 2/3 top-oblique -> 3/3 engineering detail). Two accepted nits sent to
 Ryan with the images: deck tone varies slightly between views; the "detail" view is a third full-ship angle, not a tight
 crop. Video total ledgered $3.12 of $20.
-NEXT: PARKED for Ryan's approval of the Argus images -> then run the remaining 22 machines (~$3.30, quote first via the
-MCP images verb whole-video; scene 1 skips as already done). Then thumbnail + render quotes. Browser-pane note: the
-localhost:3001 pane screenshot capture desyncs from scroll in this session; DOM reads (read_page / find / js) are the
-reliable verification channel. Remember ~$5-6 unledgered script spend today. G24 escalated_model log watch still deferred.
+ROTATION SAGA (2026-08-04 03:00-04:30Z, Ryan rejected round 1 - "3 of the same image"): root cause was the VIEW CONTRACT
+itself (all three directions literally said "three-quarter"; side profiles forbidden). Fix rounds, all on branch then
+main: cbd65d5c rotated contract (three_quarter / side_profile / top_planform) + role-conformance vision QA + skip-if-done;
+dc848cba bow-quarter spec relaxed (slightly-elevated press photo, not eye-level) + FILL MODE (rerun generates only missing
+views, never re-bills done ones - also the only door a parked view has); 9bcbe131 reject visibility (rejected frames
+re-hosted on drive_image_url + judge reason markers in image_prompt; POST /api/pipeline/static-qa-approve/{asset_id}
+promotes a parked frame by hand). Deploys: c8cc9cb9, bf0b19e9 (+9bcbe131 pending deploy with the chain change).
+LIVE RESULT on Argus (scene 1): side_profile + top_planform PASS and are genuinely rotated (Ryan has the images);
+three_quarter role-REJECTED 6x total across rounds (~$0.30 burned) - the raw side-on historical reference photo's angle
+bleeds into every generation and beats the wording.
+THE REAL FIX (Ryan's architecture, dispatched as the view-chain worker): anchor chaining - first clean render (from the
+raw photo) becomes the image INPUT for every other angle; rotating a clean studio render works where fighting the photo
+does not. Identity QA still judges against the ORIGINAL photo so the chain cannot drift. Fill mode makes it self-healing
+(Argus's done side_profile = her anchor for the missing quarter view). Plumbing: anchors must go through the media proxy,
+NOT raw drive.google.com links (Kie's fetcher hits Drive sign-in walls).
+LESSON (in tasks/lessons.md + durable memory): repeated angle/style failures = question the INPUT ANCHOR before the
+wording; the char-sheet anchoring rule was already house law and should have transferred to machines.
+NEXT: chain worker lands -> deploy -> fill Argus's quarter view (~$0.05-0.10, generated FROM the side anchor) -> Ryan
+sees the completed trio -> his go -> 22-machine batch (expect ~$3.30-4.50 incl. bounded retries). Ledgered so far $3.47
+of $20. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
 2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.
