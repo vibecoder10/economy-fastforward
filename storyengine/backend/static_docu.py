@@ -155,16 +155,29 @@ SEGMENTS:
 # three near-identical three-quarter crops). The prompt now says outright
 # that the camera angle should differ from the reference photo whenever the
 # requested view role demands it.
+# Chained-view generation (2026-08-xx fix): a scene's FIRST view is still
+# generated from the raw historical reference photo, but every SUBSEQUENT
+# view chains off the scene's own first verified render (the "anchor")
+# instead — the reference photo's own camera angle otherwise bleeds into
+# every generation regardless of the requested view role (live: HMS Argus
+# side_profile winning against three_quarter across 6 role-rejected
+# attempts, video d2e37cd6 scene 1). `_studio_prompt`'s `from_anchor` flag
+# swaps this one noun phrase everywhere it appears — identity-fidelity
+# language and the camera-geometry-first structure are otherwise identical
+# for both inputs.
+_REFERENCE_INPUT_LABEL = "verified reference photo"
+_ANCHOR_INPUT_LABEL = "verified clean studio render of the SAME machine"
+
 _STUDIO_PROMPT = (
     "{view_direction} "
-    "Studio product photograph of the {machine}. Use the verified reference "
-    "photo ONLY to lock its identity — real proportions, variant, "
+    "Studio product photograph of the {machine}. Use the {input_label} "
+    "ONLY to lock its identity — real proportions, variant, "
     "configuration, component count, markings, and distinctive details, with "
     "museum-catalogue accuracy for WHAT the machine is. The camera VIEWPOINT "
-    "above is independent of the reference photo's own angle: match the "
+    "above is independent of the {input_label}'s own angle: match the "
     "camera position instructed above even when it differs from how the "
-    "reference photo happens to be framed — do not default back to the "
-    "reference photo's own angle. "
+    "{input_label} happens to be framed — do not default back to the "
+    "{input_label}'s own angle. "
     "{detail_direction}"
     "Restored museum condition on a seamless PURE WHITE studio background "
     "(clean bright white, never gray, never off-white), soft even lighting, "
@@ -176,20 +189,30 @@ _STUDIO_PROMPT = (
 
 
 def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
-                   emphasize_geometry: bool = False) -> str:
+                   emphasize_geometry: bool = False,
+                   from_anchor: bool = False) -> str:
     """Build one historically locked prompt for a deliberate view role.
 
     `emphasize_geometry` is the role-conformance QA retry's stronger wording
     (`_generate_view` below): the first attempt already leads with the
     camera instruction (see `_STUDIO_PROMPT`'s ordering), but a generation
-    that still drifted back toward the reference photo's own angle gets an
+    that still drifted back toward the input image's own angle gets an
     explicit correction that repeats and amplifies the camera instruction
     instead of quietly relying on the same wording twice.
+
+    `from_anchor` (chained-view fix): True when the supplied image input is
+    a previously-verified render from THIS scene (see `_one_scene`'s anchor
+    selection) rather than the raw historical reference photo — swaps
+    `_REFERENCE_INPUT_LABEL` for `_ANCHOR_INPUT_LABEL` everywhere the prompt
+    describes the input image, so the model is told accurately what kind of
+    picture it's looking at. Identity-fidelity language and the camera-
+    geometry-first structure are unchanged either way.
 
     `engineering_detail` is no longer one of `STATIC_VIEW_PLANS`'s roles
     (see the contract comment in static_docu_contract.py), so this branch is
     currently dead in production — left in place because `detail_focus`
     still flows from subject planning and a future 4th view could reuse it."""
+    input_label = _ANCHOR_INPUT_LABEL if from_anchor else _REFERENCE_INPUT_LABEL
     detail_direction = ""
     if view_plan.get("role") == "engineering_detail":
         focus = (detail_focus or "overall machine geometry").strip()
@@ -200,12 +223,13 @@ def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
             "CAMERA ANGLE CORRECTION — the previous attempt did not deliver "
             "the required camera geometry. " + view_direction + " This "
             "camera position is not optional and must be used even if it "
-            "differs sharply from the reference photo's own angle."
+            f"differs sharply from the {input_label}'s own angle."
         )
     return _STUDIO_PROMPT.format(
         machine=machine,
         view_direction=view_direction,
         detail_direction=detail_direction,
+        input_label=input_label,
     )
 
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
@@ -2163,6 +2187,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             video_id, tenant_id, sc, STATIC_RENDER_MODE,
         )
         done_role_ids: dict = {}
+        done_role_urls: dict = {}
         parked_role_ids: dict = {}
         for row in existing_rows or []:
             cap = row.get("caption")
@@ -2179,8 +2204,25 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             status = row.get("status")
             if status == "done" and row.get("image_url"):
                 done_role_ids[role] = row.get("id")
+                done_role_urls[role] = row.get("image_url")
             elif status == "qa_rejected":
                 parked_role_ids[role] = row.get("id")
+
+        # Anchor selection (chained-view fix): the scene's later views chain
+        # off its OWN first verified render rather than the raw historical
+        # reference photo (see `_studio_prompt`'s `from_anchor` docstring for
+        # why). `anchor_url`/`anchor_role` start unset — FILL mode below is
+        # the only branch that can seed them from a PRE-EXISTING done row;
+        # full-regenerate mode (below STATIC_VIEWS_MINIMUM done roles) starts
+        # every scene from scratch, so its first generated view still has no
+        # anchor and uses the reference photo, exactly like today. Preferring
+        # STATIC_VIEW_PLANS order (not row/creation order) makes the choice
+        # deterministic when more than one role is already done — this is
+        # the live Argus case: side_profile + top_planform both done,
+        # three_quarter missing, side_profile wins because it is earlier in
+        # STATIC_VIEW_PLANS.
+        anchor_url: Optional[str] = None
+        anchor_role: Optional[str] = None
 
         missing_plans: Optional[list] = None  # None == full regenerate, below
         if len(done_role_ids) >= STATIC_VIEWS_MINIMUM:
@@ -2195,12 +2237,21 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     "(no regeneration, no spend)."
                 )
                 return {"scene": sc, "done": len(done_role_ids), "reason": None}
+            for plan in STATIC_VIEW_PLANS:
+                url = done_role_urls.get(plan["role"])
+                if url:
+                    anchor_url, anchor_role = url, plan["role"]
+                    break
             _p(
                 f"Segment {sc}: {len(done_role_ids)} approved views already "
                 "match the current view contract — filling "
                 f"{len(missing_plans)} missing view(s) "
                 f"({', '.join(p['role'] for p in missing_plans)}); existing "
-                "views left untouched."
+                "views left untouched"
+                + (
+                    f", chained off the existing {anchor_role} render."
+                    if anchor_role else "."
+                )
             )
 
         sub = subjects.get(sc) or {}
@@ -2367,14 +2418,35 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
         async def _generate_view(view_index: int, view_plan: dict,
                                  view_row_id: str) -> bool:
+            nonlocal anchor_url, anchor_role
+
+            # Chained generation: once this scene has ANY verified render
+            # (from a prior run via FILL mode, or from an earlier view in
+            # THIS run — set at the bottom of this function), every
+            # subsequent view is generated from THAT render instead of the
+            # raw historical reference photo. Fixed once set — later views
+            # never re-chain off each other, only off the scene's first
+            # verified render — so the choice stays deterministic and
+            # traceable to one image. No anchor yet (fresh scene, first
+            # view, or every prior view this run parked) falls back to the
+            # reference photo exactly like before this fix.
+            use_anchor = anchor_url is not None
+            gen_input_url = anchor_url if use_anchor else ref_url
+            input_marker = (
+                f"[input: anchor {anchor_role}] " if use_anchor
+                else "[input: reference] "
+            )
+
             await execute(
                 "UPDATE assets SET drive_image_url=$2 WHERE id=$1",
-                view_row_id, ref_url,
+                view_row_id, gen_input_url,
             )
-            prompt = _studio_prompt(machine, view_plan, detail_focus)
+            prompt = _studio_prompt(
+                machine, view_plan, detail_focus, from_anchor=use_anchor)
             _p(
                 f"Segment {sc}/{len(scenes)}, view {view_index}/"
-                f"{STATIC_VIEWS_TARGET}: {view_plan['label']}…"
+                f"{STATIC_VIEWS_TARGET}: {view_plan['label']}"
+                f"{' (chained off ' + anchor_role + ')' if use_anchor else ''}…"
             )
 
             # Money-safety fix: this stage spent real GPT Image 2 calls (2-3
@@ -2461,15 +2533,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     view_row_id, parked_url,
                     (
                         (f"[ref: {ref_src}] " if ref_src else "")
+                        + input_marker
                         + prompt_used[:900]
                         + (f" {reason_block}" if reason_block else "")
                     ),
                 )
 
-            # GPT Image 2 only, reference required, 1K. No fallback model can
-            # silently trade historical accuracy for completion.
+            # GPT Image 2 only, image input required, 1K. No fallback model
+            # can silently trade historical accuracy for completion.
+            # `gen_input_url` is the anchor when this view is chained, the
+            # raw reference photo otherwise (see `use_anchor` above).
             res = await ic.generate_scene_image_gpt(
-                prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
+                prompt, gen_input_url, aspect_ratio=v["aspect"], allow_fallback=False,
                 resolution="1K",
             )
             url = (res or {}).get("url")
@@ -2503,12 +2578,15 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     f"Segment {sc}, view {view_index}: render does not match "
                     f"the {machine} — one retry…"
                 )
+                identity_reproduce_desc = (
+                    "supplied studio render" if use_anchor else "verified reference"
+                )
                 retry_prompt = (
-                    "Reproduce the machine in the verified reference EXACTLY: "
-                    "same airframe or hull form, component count and placement, "
-                    "proportions, variant, and distinctive engineering features. "
-                    "Change only the requested camera viewpoint. "
-                    + prompt
+                    f"Reproduce the machine in the {identity_reproduce_desc} "
+                    "EXACTLY: same airframe or hull form, component count and "
+                    "placement, proportions, variant, and distinctive "
+                    "engineering features. Change only the requested camera "
+                    "viewpoint. " + prompt
                 )
                 retry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's QA retry")
@@ -2518,7 +2596,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     url2 = None
                 else:
                     res = await ic.generate_scene_image_gpt(
-                        retry_prompt, ref_url, aspect_ratio=v["aspect"],
+                        retry_prompt, gen_input_url, aspect_ratio=v["aspect"],
                         allow_fallback=False, resolution="1K",
                     )
                     url2 = (res or {}).get("url")
@@ -2580,6 +2658,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 geometry_prompt = _studio_prompt(
                     machine, view_plan, detail_focus, emphasize_geometry=True,
+                    from_anchor=use_anchor,
                 )
                 geometry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's role-conformance retry")
@@ -2589,7 +2668,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                        "keeping the first render unretried.")
                 else:
                     res = await ic.generate_scene_image_gpt(
-                        geometry_prompt, ref_url, aspect_ratio=v["aspect"],
+                        geometry_prompt, gen_input_url, aspect_ratio=v["aspect"],
                         allow_fallback=False, resolution="1K",
                     )
                     role_retry_url = (res or {}).get("url")
@@ -2650,9 +2729,17 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 view_row_id, durable,
                 (
                     (f"[ref: {ref_src}] " if ref_src else "")
+                    + input_marker
                     + qa_note + prompt[:900]
                 ),
             )
+            # This is now the scene's anchor for every SUBSEQUENT view this
+            # run generates, unless one was already set (a prior run's FILL-
+            # mode anchor, or an earlier view in this same run) — the anchor
+            # is fixed to the FIRST verified render, never a rolling chain
+            # off each new view.
+            if anchor_url is None:
+                anchor_url, anchor_role = durable, view_plan["role"]
             return True
 
         approved = 0
