@@ -131,12 +131,16 @@ eyes-verified. Scene 19 (Nairana) 3/3 after the facts wiring. Deploys this arc: 
 FINAL: 67 done frames, 0 parked, 23/23 machines ready, every frame passed identity+role judges, 59 reviewed
 frame-by-frame by an independent worker + all fix/new frames eyes-verified by the orchestrator. Ledgered $8.32 of $20
 ($2.97 voice + $5.35 images including all iteration).
-NEXT (pending Ryan): (1) thumbnail - quoted $0.05, NOT pressed; (2) render BLOCKED by a format-blindness bug in the
-render verb (demands animated clips; static_docu skips clips by design) - task chip task_baa632d0 filed with full
-repro; after that fix deploys, render is compute-only (no external billing); (3) upload. Status advanced to
-ready_for_thumbnail via the advance verb. Guide nit noticed (next_step says "characters" for a format whose plan
-excludes it) - cosmetic, not filed. Matcher hardening still running in its own session (task_92cb9dd0) - expect a
-static_docu.py merge later. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
+THUMBNAIL DONE (Ryan pressed it, 19:0xZ): attempt 1 composed well but text read "EVERY BUILT" (broken English -
+orchestrator eyes caught it); redo with explicit change-text guidance produced "EVERY CLASS" (red/black, arrow to the
+Argus render) - approved by orchestrator eyes, sent to Ryan. $0.10 total (2 x $0.05; thumbnails also Drive-update
+IN PLACE, same file id - re-download, never trust the id for freshness). Video status still ready_for_thumbnail
+(thumbnail verb doesn't auto-advance; advance when render is possible).
+NEXT: (1) render BLOCKED by the render verb's format-blindness (demands animated clips; static_docu skips clips by
+design) - task chip task_baa632d0 filed with full repro; after that fix deploys, advance the status and render
+(compute-only, no external billing); (2) upload (skip-if-done guard exists, force=false default). Ledgered $8.42 of
+$20. Guide nit (next_step says "characters" for a format whose plan excludes it) - cosmetic, not filed. Matcher
+hardening still running in its own session (task_92cb9dd0) - expect a static_docu.py merge later. Browser-pane note: localhost:3001 screenshot capture desyncs from scroll; DOM reads are the reliable channel.
 Remember ~$5-6 unledgered script spend. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
