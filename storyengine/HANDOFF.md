@@ -59,11 +59,21 @@ live tests fit under the cap - size-dependent bug. Misleading error surfaced ("n
 bot_activity showed the customer only "Something went wrong. Please try again." (failure-visibility backlog bug bitten by
 a real spend attempt). Fix in flight: Sonnet worker chunking the planner (batches + retry + truthful error), tests, on
 branch claude/sad-shamir-e31572.
-NEXT: (1) land the planner fix; (2) ASK RYAN FOR A DEPLOY WINDOW - the branch will then carry 3 deploy-ready commits
-(counter cd221993, voice durations f33c29df, planner fix) and pictures CANNOT succeed on this video until the planner
-fix deploys; (3) fold worktree branch to main, deploy via the vps-deploy.sh protocol (check ~/deploy.lock first);
-(4) re-quote + re-run pictures ($3.45, needs Ryan's re-confirm), verify actual images visually per the Visual Output
-Verification rule. Remember ~$5-6 unledgered script spend today. G24 escalated_model log watch still deferred.
+RESOLVED (2026-08-04 ~02:40Z): planner fix landed (4313e3ba, chunks of 6 + retry + truthful error, live bug reproduced
+in a failing test first, 0 new failures) plus a NEW carousel UI Ryan requested mid-session (cf0dd225, arrows + N/3
+indicator in each Aircraft Views card, click-cycle verified live on a 3-view machine). DEPLOYED 710d2a17 (backend +
+frontend, zero-activity window, Ryan pre-authorized "deploy whenever you think it's safe"). Then the ONE-MACHINE PROOF
+(Ryan's rule, now in tasks/lessons.md: first post-fix run = smallest billable unit): images scene 1 only = $0.15 quoted
+(scene-scoped quoter now honest) and $0.15 ledgered (3 x $0.05). Output visually verified by the orchestrator: HMS Argus,
+flush deck, no island, real 1918 dazzle scheme from the verified Wikimedia ref, white studio bg, no text; title-card
+metadata grounded ("Royal Navy • 1918", flush-deck spec chip) - the planner fix works end to end. Carousel verified
+live with the real images (1/3 three-quarter -> 2/3 top-oblique -> 3/3 engineering detail). Two accepted nits sent to
+Ryan with the images: deck tone varies slightly between views; the "detail" view is a third full-ship angle, not a tight
+crop. Video total ledgered $3.12 of $20.
+NEXT: PARKED for Ryan's approval of the Argus images -> then run the remaining 22 machines (~$3.30, quote first via the
+MCP images verb whole-video; scene 1 skips as already done). Then thumbnail + render quotes. Browser-pane note: the
+localhost:3001 pane screenshot capture desyncs from scroll in this session; DOM reads (read_page / find / js) are the
+reliable verification channel. Remember ~$5-6 unledgered script spend today. G24 escalated_model log watch still deferred.
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
 2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.

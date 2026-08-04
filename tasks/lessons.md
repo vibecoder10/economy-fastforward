@@ -708,3 +708,6 @@ sacred. Silent grinding against a bad rule is the most expensive form of diligen
 - The 22-card and repair-run scripts logged only pass/fail summaries; diagnosing the residue cost 5 extra paid presses to recapture warnings the responses already contained. Any batch runner must log the complete blocking-warnings list per item.
 - A "RUN COMPLETE ok=22" line is not success - count per-card outcomes (4 of those "ok" were 0-second no-ops). Sum lines lie; per-item lines don't.
 - Log-line claims from a previous session are hypotheses, not diagnoses: "polish dropped roughly" was wrong twice over - the real causes were a sentence-scoped hedge flag and a last-word designation fallback. Reproduce offline through the REAL function before building a fix.
+
+### First post-fix run is ONE unit, never the batch (2026-08-04)
+- After the pictures-stage planner bug was fixed, the orchestrator proposed re-running the full $3.45 batch as the proof. Ryan's correction: run ONE machine (~$0.15) and look at it first. This is the standing Scene Lab habit (under-$1 iterative proofs) applied to every stage: the first run after ANY fix or config change is the smallest billable unit, verified with eyes, before the batch. The batch quote comes second, not first.
