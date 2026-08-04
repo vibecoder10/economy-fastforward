@@ -87,14 +87,19 @@ class _FakeDownloadResp:
 
 
 def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
-                  arbiter_verdicts=(), isolate_single_view=True,
+                  arbiter_verdicts=(), role_verdicts=(), isolate_single_view=True,
                   docu_module=None, image_client_module=None):
     """Fake DB + provider world for generate_static_images_for_video, modeled
     on test_static_docu_reference_fail_closed. One scene, a CACHED verified
     reference (so no Wikimedia lookup layers run), a scripted sequence of
     generation URLs, QA verdicts, and arbiter verdicts (exhausted -> False,
     matching the arbiter's own fail-closed contract). No network, no real DB
-    anywhere."""
+    anywhere.
+
+    `role_verdicts` scripts `_view_role_confirms` (the 2026-08-03
+    role-conformance QA fix) — exhausted -> True, so every test that doesn't
+    pass this keyword keeps the pre-fix behavior of role QA always passing
+    (no extra generation calls, no change to any existing assertion)."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
     docu_module = docu_module or static_docu
@@ -116,6 +121,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
         "downloads": [],     # URLs fetched via httpx
         "qa_calls": [],      # (render_url, ref_url) per _render_matches_reference
         "arbiter_calls": [],  # (render_url, ref_url) per _arbiter_confirms_render
+        "role_qa_calls": [],  # (image_url, role) per _view_role_confirms
         "gen_prompts": [],   # prompt per generate_scene_image_gpt call
     }
 
@@ -196,6 +202,12 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
         env["arbiter_calls"].append((render_url, ref_url))
         return remaining_arbiter.pop(0) if remaining_arbiter else False
 
+    remaining_role_verdicts = list(role_verdicts)
+
+    async def fake_view_role_confirms(tid, image_url, machine, view_plan):
+        env["role_qa_calls"].append((image_url, view_plan.get("role")))
+        return remaining_role_verdicts.pop(0) if remaining_role_verdicts else True
+
     class _FakeHttp:
         async def get(self, url, **kwargs):
             env["downloads"].append(url)
@@ -215,6 +227,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     monkeypatch.setattr(docu_module, "execute", fake_execute)
     monkeypatch.setattr(docu_module, "_render_matches_reference", fake_render_matches)
     monkeypatch.setattr(docu_module, "_arbiter_confirms_render", fake_arbiter)
+    monkeypatch.setattr(docu_module, "_view_role_confirms", fake_view_role_confirms)
     monkeypatch.setattr(docu_module, "upload_bytes", fake_upload_bytes)
     monkeypatch.setattr(docu_module.httpx, "AsyncClient", _http_factory)
 
@@ -374,6 +387,100 @@ async def test_qa_pass_still_ships_done(monkeypatch):
     assert env["arbiter_calls"] == []
     assert "[qa:" not in row["image_prompt"], (
         "a first-try pass must not carry the arbiter audit stamp")
+
+
+# ---------------------------------------------------------------------------
+# 1b. Role-conformance QA (2026-08-03 rotated-views fix). Identity QA above
+#     only confirms the right MACHINE — nothing about camera angle, which is
+#     how three near-identical three-quarter crops shipped live as "three
+#     complementary views" (HMS Argus, video d2e37cd6). `_view_role_confirms`
+#     checks the render's ACTUAL camera geometry against its role, once
+#     identity QA has already passed. ONE bounded retry with stronger
+#     geometry wording; a view that still fails after the retry parks
+#     (never deletes — it's still a paid render) exactly like a double
+#     identity-QA reject, and does not count toward `approved`.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_role_conformance_retry_ships_when_retry_passes(monkeypatch):
+    """First render passes identity QA but fails role-conformance; the
+    geometry-emphasized retry passes BOTH role-conformance and identity QA
+    (re-checked, since the retry is a brand-new generation) -> ships."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True, True], gen_urls=[RENDER_1, RENDER_2],
+        role_verdicts=[False, True],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    row = _the_row(env)
+    assert row["status"] == "done"
+    assert row["image_url"] == DURABLE
+    assert env["downloads"][-1] == RENDER_2
+    assert len(env["gen_prompts"]) == 2, "first attempt + role-conformance retry"
+    assert len(env["role_qa_calls"]) == 2
+    assert len(env["qa_calls"]) == 2, (
+        "the retry is a NEW generation, so identity QA re-checks it too")
+    assert "[qa: role-conformance retry]" in row["image_prompt"]
+    assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
+
+
+@pytest.mark.asyncio
+async def test_role_conformance_double_reject_parks_render_instead_of_deleting(monkeypatch):
+    """Role-conformance fails on both the first render AND the geometry
+    retry -> parked as qa_rejected, never deleted, and doesn't count toward
+    `approved` (single-view isolation here means the scene then fails the
+    minimum-views gate)."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True], gen_urls=[RENDER_1, RENDER_2],
+        role_verdicts=[False, False],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    assert not any("DELETE FROM assets WHERE id=" in q for q in env["queries"]), (
+        "a wrong-angle render is still a paid render — never delete it")
+    row = _the_row(env)
+    assert row["status"] == "qa_rejected"
+    assert row["image_url"] is None
+    assert row["drive_image_url"] == DURABLE
+    assert env["downloads"][-1] == RENDER_2
+    assert env["uploads"] == [f"{env['video_id']}/static/S01_01_qa_rejected.png"]
+    assert len(env["gen_prompts"]) == 2
+    assert len(env["role_qa_calls"]) == 2
+    # Identity QA is only re-checked when role-conformance itself passed on
+    # the retry (short-circuited `and`) — here it fails on the retry too, so
+    # identity QA never runs a second time.
+    assert len(env["qa_calls"]) == 1
+    assert "CAMERA ANGLE CORRECTION" in row["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_role_conformance_failed_retry_generation_parks_first_render(monkeypatch):
+    """Role-conformance rejects the first render; the retry GENERATION
+    itself comes back empty (provider hiccup) — the first render is the
+    only paid artifact, so that's what gets parked, with its OWN (non
+    geometry-emphasized) prompt."""
+    env = _pipeline_env(
+        monkeypatch, verdicts=[True], gen_urls=[RENDER_1, None],
+        role_verdicts=[False],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "failed"
+    row = _the_row(env)
+    assert row["status"] == "qa_rejected"
+    assert row["drive_image_url"] == DURABLE
+    assert env["downloads"][-1] == RENDER_1
+    assert len(env["role_qa_calls"]) == 1, (
+        "no second role-QA call when the retry generation produced nothing")
+    assert "CAMERA ANGLE CORRECTION" not in row["image_prompt"]
 
 
 # ---------------------------------------------------------------------------

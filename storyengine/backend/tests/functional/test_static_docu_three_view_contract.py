@@ -26,7 +26,7 @@ async def test_three_view_plan_is_ready_when_two_verified_views_survive(monkeypa
         verdicts=[True, True],
         gen_urls=[
             "https://kie.example/three-quarter.png",
-            "https://kie.example/top-oblique.png",
+            "https://kie.example/side-profile.png",
             None,
         ],
         isolate_single_view=False,
@@ -44,17 +44,20 @@ async def test_three_view_plan_is_ready_when_two_verified_views_survive(monkeypa
     assert len(env["gen_prompts"]) == STATIC_VIEWS_TARGET == 3
 
     prompts = "\n".join(env["gen_prompts"]).lower()
+    # 2026-08-03 fix: genuinely ROTATED camera geometry per view, not three
+    # near-identical three-quarter crops (the live HMS Argus defect).
     assert "front three-quarter" in prompts
-    assert "top-oblique" in prompts
-    assert "engineering-detail" in prompts
-    assert "pure side-on profile" in prompts  # explicit negative constraint
+    assert "true side-on profile" in prompts
+    assert "this view is meant to be a pure side-on profile" in prompts
+    assert "top-down planform" in prompts
+    assert "high above the machine" in prompts
 
     rows = sorted(env["assets"].values(), key=lambda row: row["image_index"])
     assert [row["image_index"] for row in rows] == [1, 2]
     captions = [json.loads(row["caption"]) for row in rows]
     assert [cap["view_role"] for cap in captions] == [
         "three_quarter",
-        "top_oblique",
+        "side_profile",
     ]
     assert all(cap["target_views"] == 3 for cap in captions)
     assert all(cap["minimum_views"] == 2 for cap in captions)
