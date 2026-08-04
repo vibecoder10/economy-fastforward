@@ -30,8 +30,28 @@ ffprobe fine; render/audio-sync computes later - backlog note, not a blocker); (
 drive.google.com/uc link that anonymous fetch answers with a Google sign-in page - fine for the OAuth'd app + Ryan's own
 browser, but any future in-app audio player for non-owner viewers will need proxying; (c) the "2/23 single-machine script
 tests passed" copy nit seen live again (already on backlog).
+V3 SWITCH (2026-08-04 ~00:30Z, Ryan's call mid-session): tenant elevenlabs_model_id set to eleven_v3 via the app door
+(POST /api/settings/keys/elevenlabs_model_id, minted tenant token) - ALL FUTURE voice runs are v3. Carrier video final
+audio state per Ryan ("as long as we have them for now and switched it for future"): scenes 1-8 = v3, scenes 9-23 = v2
+(redo cancelled mid-run at his word; same narrator voice throughout so the seam is subtle). Voice spend total $2.97
+ledgered ($2.17 v2 full + $0.11 scene-1 v3 + $0.69 scenes 2-8 v3); $17.03 cap headroom.
+Re-voice mechanics learned (for the next voice redo): the skip guard keys on scripts.script_status='Finished' - to
+re-voice, flip target scenes to 'Create' (VPS script over asyncpg; se db is read-only). Drive uploads can UPDATE IN PLACE
+(same file id, new bytes - scene 4 proved it), so a file id is NOT proof of audio freshness; compare bytes/duration.
+MCP voice quote shows the whole-video estimate even scene-scoped; actual ledger meters synthesized chars only (quoter nit).
+Cancel endpoint POST /api/pipeline/cancel/{video_id} works cleanly (kept 7 tracks, ledgered exactly what was synthesized).
+NEW BUG (backlog): scripts.voice_id stamps a stale/hardcoded id (1SM7GgM6...) while the runtime provably used the vault
+voice (Wq15xSaY3gWvazBRaGEU) - the column lies about which narrator spoke.
+FIXES BUILT THIS SESSION (worktree branch claude/sad-shamir-e31572, NOT deployed - deploy window parked with Ryan):
+- cd221993 roster counter: header now "23/23 production scenes scripted. Script complete." (was "2/23 tests passed");
+  verified live in the UI by the orchestrator.
+- f33c29df voice duration stamping: mutagen parse of the MP3 bytes, written in the SAME update as voice_over_url;
+  stash-proven tests, 0 new failures (28 pre-existing custom_film_remotion asset failures identical before/after).
+  Backfill recipe for the 23 NULL-duration rows: routes/videos.py::_drive_file_id ->
+  routes/media.py::_download_via_drive_api -> voice/run.py::mp3_duration_seconds -> UPDATE (raw GET on Drive links
+  returns HTML interstitials - do not backfill that way).
 NEXT: pictures stage - "Build to pictures" / aircraft views (0/23 ready, 3 views per aircraft targeted). PAID - quote
-first, get Ryan's go. ~$17.80 of the $20 cap remains ledgered-free, but remember ~$5-6 unledgered script spend already
+first, get Ryan's go. Also parked: deploy window for the two fixes above. Remember ~$5-6 unledgered script spend already
 happened today. G24 escalated_model log watch still deferred (no new script cards this session).
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
