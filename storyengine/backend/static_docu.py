@@ -1796,13 +1796,20 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
 # is treated as having no geometry contract to check — see the function's
 # fallback.
 _ROLE_GEOMETRY_REQUIREMENTS = {
+    # bow-vs-stern is NOT decisive here (2026-08-03 fix): the judge rejected
+    # correctly-elevated quarter views twice on video d2e37cd6 scene 1 over
+    # which end faced the camera, while the preserved rejected frame was a
+    # textbook identification quarter view. Either end + one full side,
+    # slightly elevated, satisfies the role — see static_docu_contract.py's
+    # STATIC_VIEW_PLANS comment for the full rationale.
     "three_quarter": (
         "a front three-quarter view: the camera from a slightly elevated "
-        "vantage point (the classic bow-quarter press/aerial photo, not "
-        "eye-level and not a steep overhead angle), with BOTH the "
-        "bow/front and one full side of the machine visible together in "
-        "the same frame and the overall shape and length clearly readable "
-        "(not a flat side-on profile, and not a steep top-down angle)"
+        "vantage point (the classic bow-quarter or stern-quarter "
+        "press/aerial photo — either end is acceptable, not eye-level and "
+        "not a steep overhead angle), with BOTH one end of the machine "
+        "(bow or stern) and one full side visible together in the same "
+        "frame and the overall shape and length clearly readable (not a "
+        "flat side-on profile, and not a steep top-down angle)"
     ),
     "side_profile": (
         "a TRUE side-on profile view: the camera positioned directly to "

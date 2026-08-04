@@ -44,6 +44,21 @@ STATIC_VIEWS_MINIMUM = 2
 # vehicles are actually taken. Bow/front and one side both stay clearly
 # visible and overall shape/length must read cleanly — identity accuracy is
 # untouched, only the eye-level constraint is dropped.
+#
+# bow-vs-stern made non-decisive (2026-08-03, second same-day follow-up):
+# with the elevation fix above in place, three_quarter started generating
+# clean, correctly-elevated quarter views via anchor chaining — but the
+# role judge kept rejecting them anyway over WHICH END faces the camera.
+# Video d2e37cd6 scene 1 was rejected twice more with the judge reason
+# "stern-quarter, not bow-quarter" while the preserved rejected frame
+# itself was a textbook identification quarter view: one end + one full
+# side, slightly elevated, shape and length both readable. The actual
+# requirement was never bow-specific — a stern-quarter shot satisfies the
+# same identification purpose as a bow-quarter shot. Fixed direction keeps
+# bow-quarter as the PREFERRED framing (still named first, still steering
+# the model toward it) but stops treating bow-vs-stern as decisive: either
+# end of the machine, paired with one full side, at a slightly elevated
+# vantage, satisfies the role.
 STATIC_VIEW_PLANS = (
     {
         "role": "three_quarter",
@@ -52,13 +67,15 @@ STATIC_VIEW_PLANS = (
         "composition": "wide",
         "direction": (
             "CAMERA: a front three-quarter view from a slightly elevated "
-            "vantage point — the classic bow-quarter press or aerial "
-            "identification photo, not eye-level and not a steep overhead "
-            "angle. Positioned so BOTH the bow/front and one full side of "
-            "the machine are visible together in the same frame, with the "
-            "overall shape and length clearly readable. This is the "
-            "standard identification angle — not a flat side-on profile and "
-            "not a top-down angle."
+            "vantage point — ideally the classic bow-quarter press or "
+            "aerial identification photo, though a stern-quarter angle "
+            "from the same elevation is equally acceptable — not "
+            "eye-level and not a steep overhead angle. Positioned so BOTH "
+            "one end of the machine (bow or stern) and one full side are "
+            "visible together in the same frame, with the overall shape "
+            "and length clearly readable. This is the standard "
+            "identification angle — not a flat side-on profile and not a "
+            "top-down angle."
         ),
     },
     {
