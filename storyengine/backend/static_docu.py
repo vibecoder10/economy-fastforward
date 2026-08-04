@@ -7,9 +7,10 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
 
   * skip the animate stages entirely (their stage plan drops video+sound);
   * source THREE realistic complementary images per scene instead of the
-    ~36-frame coverage flow — a three-quarter identification view, an elevated
-    top-oblique view, and a narration-relevant engineering detail, with two
-    verified views as the minimum renderable set;
+    ~36-frame coverage flow — genuinely ROTATED camera angles: a front
+    three-quarter identification view, a true side profile, and a high
+    top-down planform view, with two verified views as the minimum
+    renderable set;
   * render via render_static.render_static_video (Remotion Ken Burns).
 """
 
@@ -91,10 +92,12 @@ async def static_mode_for_tenant(tenant_id: str) -> bool:
 # --- image sourcing -----------------------------------------------------------
 #
 # The channel's real look (see @DesignedUsed): a clean, crisp STUDIO render of
-# the exact machine — restored condition, led by a three-quarter profile and
-# supported by an elevated view plus a narration-relevant detail view on a
-# seamless white/light-gray background, soft even lighting, with an elegant
-# title card (name + operator/service years + grounded specs). To keep the machine
+# the exact machine — restored condition, led by a three-quarter identification
+# profile and supported by a true side-profile view plus a high top-down
+# planform view, genuinely rotated camera angles (not three near-identical
+# three-quarter crops), on a seamless white/light-gray background, soft even
+# lighting, with an elegant title card (name + operator/service years +
+# grounded specs). To keep the machine
 # ACCURATE we first find a REAL, VERIFIED photograph of it (Wikipedia lead
 # image / article body / Wikimedia Commons) and run GPT Image 2 image-to-
 # image from that reference. FAIL CLOSED: reference-free text-to-image
@@ -140,11 +143,28 @@ SEGMENTS:
 # Title text is NOT baked into the image — it renders as one fixed Remotion
 # overlay per aircraft (assets.caption), so the Ken Burns move cannot crop it
 # and the model cannot invent stencils/markings-as-text.
+#
+# View-geometry-first ordering (2026-08-03 fix): the camera instruction now
+# leads the prompt and reads as the PRIMARY instruction, with reference
+# fidelity phrased as IDENTITY fidelity only (what the machine is), never
+# viewpoint fidelity (what angle it's shot from). The old ordering opened
+# with "THE EXACT SAME machine as in the verified reference photo" before
+# the view direction ever appeared — strong enough that the reference
+# photo's own angle dominated every generation regardless of which of the
+# three view roles was requested (live proof: HMS Argus, video d2e37cd6,
+# three near-identical three-quarter crops). The prompt now says outright
+# that the camera angle should differ from the reference photo whenever the
+# requested view role demands it.
 _STUDIO_PROMPT = (
-    "Studio product photograph of the {machine}, THE EXACT SAME machine as in "
-    "the verified reference photo. Preserve its real proportions, variant, "
-    "configuration, component count, markings, and distinctive details with "
-    "museum-catalogue accuracy. {view_direction} "
+    "{view_direction} "
+    "Studio product photograph of the {machine}. Use the verified reference "
+    "photo ONLY to lock its identity — real proportions, variant, "
+    "configuration, component count, markings, and distinctive details, with "
+    "museum-catalogue accuracy for WHAT the machine is. The camera VIEWPOINT "
+    "above is independent of the reference photo's own angle: match the "
+    "camera position instructed above even when it differs from how the "
+    "reference photo happens to be framed — do not default back to the "
+    "reference photo's own angle. "
     "{detail_direction}"
     "Restored museum condition on a seamless PURE WHITE studio background "
     "(clean bright white, never gray, never off-white), soft even lighting, "
@@ -155,15 +175,36 @@ _STUDIO_PROMPT = (
 )
 
 
-def _studio_prompt(machine: str, view_plan: dict, detail_focus: str) -> str:
-    """Build one historically locked prompt for a deliberate view role."""
+def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
+                   emphasize_geometry: bool = False) -> str:
+    """Build one historically locked prompt for a deliberate view role.
+
+    `emphasize_geometry` is the role-conformance QA retry's stronger wording
+    (`_generate_view` below): the first attempt already leads with the
+    camera instruction (see `_STUDIO_PROMPT`'s ordering), but a generation
+    that still drifted back toward the reference photo's own angle gets an
+    explicit correction that repeats and amplifies the camera instruction
+    instead of quietly relying on the same wording twice.
+
+    `engineering_detail` is no longer one of `STATIC_VIEW_PLANS`'s roles
+    (see the contract comment in static_docu_contract.py), so this branch is
+    currently dead in production — left in place because `detail_focus`
+    still flows from subject planning and a future 4th view could reuse it."""
     detail_direction = ""
     if view_plan.get("role") == "engineering_detail":
         focus = (detail_focus or "overall machine geometry").strip()
         detail_direction = f"VERIFIED DETAIL FOCUS: {focus}. "
+    view_direction = view_plan["direction"]
+    if emphasize_geometry:
+        view_direction = (
+            "CAMERA ANGLE CORRECTION — the previous attempt did not deliver "
+            "the required camera geometry. " + view_direction + " This "
+            "camera position is not optional and must be used even if it "
+            "differs sharply from the reference photo's own angle."
+        )
     return _STUDIO_PROMPT.format(
         machine=machine,
-        view_direction=view_plan["direction"],
+        view_direction=view_direction,
         detail_direction=detail_direction,
     )
 
@@ -1694,6 +1735,144 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
     return said_match and not is_empty
 
 
+# View-role geometry requirement, one line per STATIC_VIEW_PLANS role — used
+# ONLY by `_view_role_confirms` below to ask whether a generated image
+# actually delivers its role's camera geometry, not whether it's the right
+# machine (that's `_render_matches_reference`'s job, untouched by this fix).
+# A role with no entry here (e.g. a future reintroduced `engineering_detail`)
+# is treated as having no geometry contract to check — see the function's
+# fallback.
+_ROLE_GEOMETRY_REQUIREMENTS = {
+    "three_quarter": (
+        "a front three-quarter view: the camera at natural eye level, with "
+        "BOTH the nose/front and one full side of the machine visible "
+        "together in the same frame (not a flat side-on profile, and not a "
+        "steep top-down angle)"
+    ),
+    "side_profile": (
+        "a TRUE side-on profile view: the camera positioned directly to "
+        "the side, at roughly a 90-degree angle from the machine's "
+        "longitudinal axis, so the full silhouette reads as a flat side "
+        "elevation with little to no front-on or top-down surface visible "
+        "(not a three-quarter angle)"
+    ),
+    "top_planform": (
+        "a genuinely HIGH top-down planform view: the camera positioned "
+        "well above the machine looking steeply down, so the upper "
+        "surfaces/planform dominate the frame (not a modestly elevated "
+        "three-quarter angle, and not a side-on profile)"
+    ),
+}
+
+
+async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
+                              view_plan: dict) -> bool:
+    """Role-conformance QA (2026-08-03 fix): does this generated image
+    actually deliver the camera GEOMETRY its view role promises, not just
+    the right machine? `_render_matches_reference` only judges identity
+    (same aircraft type/configuration) — it happily passes three
+    near-identical three-quarter crops as long as each one is recognizably
+    the right machine, which is exactly the live defect (HMS Argus, video
+    d2e37cd6: three near-identical left-side three-quarter compositions).
+    This is a SEPARATE, single-image question asked in addition to identity
+    QA, never a replacement for it.
+
+    Single-image judge (only the render, no reference photo needed — the
+    question is about the render's own camera angle, not about matching
+    anything). Modeled on `_vision_confirms`'s YES/NO shape and
+    `_download_image_b64`'s self-fetch pattern for the same reasons those
+    functions use them (a URL-source image block 400's through the Kie
+    gateway; self-fetching avoids that entirely).
+
+    Roles with no entry in `_ROLE_GEOMETRY_REQUIREMENTS` (nothing today —
+    reserved for a role added later with no geometry contract yet) always
+    pass: nothing to check.
+
+    FAILS OPEN on a config gap (no provider key at all) like the other
+    per-view judges — unreachable in practice since a keyless tenant never
+    got this far. FAILS CLOSED on a transport failure (one retry, then
+    rejected) — the caller's own one-bounded-retry loop treats a rejection
+    here exactly like a geometry mismatch, never a silent pass."""
+    requirement = _ROLE_GEOMETRY_REQUIREMENTS.get(view_plan.get("role"))
+    if not requirement:
+        return True
+
+    from vault import get_secret
+
+    prompt_text = (
+        f"This image is supposed to show the {machine} shot from "
+        f"{requirement}. Answer on one line: first word YES or NO, then one "
+        "short reason naming the actual camera angle you see. YES only if "
+        "the camera viewpoint genuinely matches that description."
+    )
+
+    async def _ask_once() -> Optional[str]:
+        img = await _download_image_b64(image_url)
+        if img is None:
+            return ""  # download failure this attempt — caller retries
+        media_type, b64_data = img
+        content = [
+            {"type": "text", "text": prompt_text},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": media_type, "data": b64_data}},
+        ]
+
+        akey = await get_secret("anthropic_api_key", tenant_id)
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            if akey:
+                r = await c.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": akey,
+                             "anthropic-version": "2023-06-01",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+            else:
+                key = await get_secret("kie_ai_api_key", tenant_id)
+                if not key:
+                    return None
+                kie_claude_url = os.getenv(
+                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
+                ).rstrip("/") + "/v1/messages"
+                r = await c.post(
+                    kie_claude_url,
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+        if r.status_code != 200:
+            _logger.warning("_view_role_confirms: model API HTTP %s", r.status_code)
+            return ""
+        body = r.json()
+        return " ".join(b.get("text", "") for b in body.get("content", [])
+                        if b.get("type") == "text").strip().lower()
+
+    txt: Optional[str] = None
+    no_key = False
+    for attempt in range(2):
+        try:
+            result = await _ask_once()
+        except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
+            result = ""
+        if result is None:
+            no_key = True
+            txt = None
+            break
+        txt = result
+        if txt:
+            break
+        # empty reply — loop again for the one allowed retry
+
+    if no_key:
+        return True  # config gap, not a transport failure — unchanged behavior
+    if not txt:
+        return False  # FAIL CLOSED — see docstring
+
+    return bool(re.match(r"^\W*yes\b", txt))
+
+
 # --- subject planning batching -------------------------------------------
 #
 # Root cause (live, 2026-08-03): _scene_subjects used to plan the WHOLE
@@ -1893,6 +2072,43 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
     async def _one_scene(s):
         sc = s["scene"]
+
+        # Skip-if-done (resumability fix, 2026-08-03): a whole-video images
+        # run must not re-bill scenes whose views were already generated and
+        # approved under the CURRENT view contract — before this fix, the
+        # unconditional DELETE below wiped and re-spent every scene on every
+        # re-run. A scene counts as done when it already has at least
+        # STATIC_VIEWS_MINIMUM 'done' rows (image_url set) whose stored
+        # caption.view_role is one of THIS contract's current roles. Rows
+        # from a superseded contract (e.g. the pre-fix three_quarter/
+        # top_oblique/engineering_detail roster) do NOT match the current
+        # role set and so do NOT satisfy the skip — those scenes regenerate
+        # under the new contract, on purpose (the whole point of this fix).
+        current_roles = {plan["role"] for plan in STATIC_VIEW_PLANS}
+        existing_done = await fetch_all(
+            "SELECT caption FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+            "AND scene=$3 AND generation_method=$4 AND status='done' "
+            "AND image_url IS NOT NULL",
+            video_id, tenant_id, sc, STATIC_RENDER_MODE,
+        )
+        matching_views = 0
+        for row in existing_done or []:
+            cap = row.get("caption")
+            if isinstance(cap, str):
+                try:
+                    cap = json.loads(cap)
+                except (ValueError, TypeError):
+                    cap = None
+            if isinstance(cap, dict) and cap.get("view_role") in current_roles:
+                matching_views += 1
+        if matching_views >= STATIC_VIEWS_MINIMUM:
+            _p(
+                f"Segment {sc}: {matching_views} approved views already "
+                "match the current view contract — skipping (no "
+                "regeneration, no spend)."
+            )
+            return {"scene": sc, "done": matching_views, "reason": None}
+
         sub = subjects.get(sc) or {}
         machine = sub.get("machine") or (s["scene_text"] or "")[:80]
         caption_title = sub.get("caption_title") or machine
@@ -2062,6 +2278,40 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 return False
 
+            async def _park(candidate_url: str, prompt_used: str) -> None:
+                """Park a paid-for render for per-view human review instead
+                of deleting it — the 2026-07-22 QA-park fix's rule, shared
+                by BOTH reject paths below (double identity-QA reject, and
+                the new double role-conformance reject): a wrong-machine or
+                wrong-angle render is still a paid render, never destroyed
+                on a QA judge's word alone. Does not count toward the
+                minimum-views render gate while parked."""
+                parked_url = candidate_url
+                try:
+                    async with httpx.AsyncClient(timeout=120.0) as c:
+                        r = await c.get(parked_url, follow_redirects=True)
+                        r.raise_for_status()
+                        data = r.content
+                    parked_url = await upload_bytes(
+                        data,
+                        (
+                            f"{video_id}/static/S{sc:02d}_"
+                            f"{view_index:02d}_qa_rejected.png"
+                        ),
+                        "image/png", tenant_id,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                await execute(
+                    "UPDATE assets SET status='qa_rejected', image_url=NULL, "
+                    "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
+                    view_row_id, parked_url,
+                    (
+                        (f"[ref: {ref_src}] " if ref_src else "")
+                        + prompt_used[:900]
+                    ),
+                )
+
             # GPT Image 2 only, reference required, 1K. No fallback model can
             # silently trade historical accuracy for completion.
             res = await ic.generate_scene_image_gpt(
@@ -2132,33 +2382,65 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         # The render is paid for, so park it for per-view human
                         # approval instead of deleting it. It does not count
                         # toward the minimum-two render gate while parked.
-                        parked_url = candidate
-                        parked_prompt = retry_prompt if url2 else prompt
-                        try:
-                            async with httpx.AsyncClient(timeout=120.0) as c:
-                                r = await c.get(parked_url, follow_redirects=True)
-                                r.raise_for_status()
-                                data = r.content
-                            parked_url = await upload_bytes(
-                                data,
-                                (
-                                    f"{video_id}/static/S{sc:02d}_"
-                                    f"{view_index:02d}_qa_rejected.png"
-                                ),
-                                "image/png", tenant_id,
-                            )
-                        except Exception:  # noqa: BLE001
-                            pass
-                        await execute(
-                            "UPDATE assets SET status='qa_rejected', image_url=NULL, "
-                            "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
-                            view_row_id, parked_url,
-                            (
-                                (f"[ref: {ref_src}] " if ref_src else "")
-                                + parked_prompt[:900]
-                            ),
-                        )
+                        await _park(candidate, retry_prompt if url2 else prompt)
                         return False
+
+            # Role-conformance QA (2026-08-03 fix): identity QA above only
+            # confirms this is the right MACHINE — it says nothing about
+            # camera angle, which is exactly how three near-identical
+            # three-quarter crops shipped as "three complementary views"
+            # live (HMS Argus, video d2e37cd6). Checked only once identity
+            # QA has already passed. ONE bounded retry with stronger
+            # camera-geometry wording on mismatch; a view that still fails
+            # role-conformance after the retry does not count toward
+            # `approved` — parked exactly like a double identity-QA reject,
+            # never deleted (it's still a paid render).
+            if not await _view_role_confirms(tenant_id, url, machine, view_plan):
+                _p(
+                    f"Segment {sc}, view {view_index}: view does not match "
+                    f"its {view_plan['label']} role — one retry with "
+                    "stronger camera-geometry wording…"
+                )
+                geometry_prompt = _studio_prompt(
+                    machine, view_plan, detail_focus, emphasize_geometry=True,
+                )
+                geometry_refusal = await budget_refusal(
+                    tenant_id, video_id, quote, "this view's role-conformance retry")
+                role_retry_url = None
+                if geometry_refusal:
+                    _p(f"Segment {sc}, view {view_index}: {geometry_refusal} — "
+                       "keeping the first render unretried.")
+                else:
+                    res = await ic.generate_scene_image_gpt(
+                        geometry_prompt, ref_url, aspect_ratio=v["aspect"],
+                        allow_fallback=False, resolution="1K",
+                    )
+                    role_retry_url = (res or {}).get("url")
+                    if role_retry_url:
+                        await record_ledger_entry(
+                            tenant_id=tenant_id, video_id=video_id, stage="image",
+                            model="gpt-image-2", units=1, unit_cost=quote,
+                            actual_cost=quote,
+                        )
+                if (
+                    role_retry_url
+                    and await _view_role_confirms(
+                        tenant_id, role_retry_url, machine, view_plan)
+                    and await _render_matches_reference(
+                        tenant_id, role_retry_url, ref_url, machine, sub.get("aliases"))
+                ):
+                    # The retry's OWN prompt actually produced the shipped
+                    # pixels, so it — not the original — is what the final
+                    # image_prompt record below should reflect.
+                    url = role_retry_url
+                    prompt = geometry_prompt
+                    qa_note += "[qa: role-conformance retry] "
+                else:
+                    await _park(
+                        role_retry_url or url,
+                        geometry_prompt if role_retry_url else prompt,
+                    )
+                    return False
 
             async with httpx.AsyncClient(timeout=120.0) as c:
                 r = await c.get(url, follow_redirects=True)

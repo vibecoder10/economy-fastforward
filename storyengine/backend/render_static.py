@@ -66,9 +66,14 @@ _REMOTION_SEM = asyncio.Semaphore(int(os.getenv("STATIC_RENDER_CONCURRENCY", "1"
 DRAW_CAPTIONS = os.getenv("STATIC_DRAW_CAPTIONS", "1") != "0"
 
 _VIEW_COMPOSITIONS = {
+    # Keyed by static_docu_contract.STATIC_VIEW_PLANS role (2026-08-03 fix:
+    # genuinely rotated camera angles replaced the old three_quarter/
+    # top_oblique/engineering_detail roster). Unmapped/legacy roles fall back
+    # to "wide" below — harmless, since get_composition_direction_map() maps
+    # both "wide" and "overhead" to the same slow_zoom_in Ken Burns motion.
     "three_quarter": "wide",
-    "top_oblique": "overhead",
-    "engineering_detail": "medium",
+    "side_profile": "wide",
+    "top_planform": "overhead",
 }
 
 
