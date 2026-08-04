@@ -18,6 +18,21 @@
 
 ## Next action (start here cold)
 Voice stage on d2e37cd6. Per-scene resumable/skip-if-done (skills/video-pipeline/voice/run.py:86-96), so safe to retry.
+VOICE STAGE COMPLETE (2026-08-03 ~23:55Z, this session): Ryan approved the $2.17 quote in-session; the MCP voice verb ran it.
+All 23 scenes voice_status=Done, video auto-advanced to ready_for_image_prompts. Ledger: ONE clean row, elevenlabs,
+21,736 chars x $0.0001 = $2.17 actual (voice DOES ledger, unlike script - the no-ledger backlog is script-stage only).
+Verified: get_script 23/23 Done; UI walk (worktree frontend + copied .env.local) shows VOICE green "All 23 segment(s)
+voiced", cost chip Est $0.00 -> Actual $2.17, CTA now "Build to pictures"; asset-level proof = pulled one Drive voice file
+via rclone (gdrive: copyid), real MP3 128kbps/44.1kHz mono, 63.7s, sample sent to Ryan. Narrator voice used:
+1SM7GgM6IMuvQlz2BwM3 (workspace-configured, NOT the Rachel fallback).
+New small findings: (a) scripts.voice_duration_seconds left NULL by the voice stage for all 23 (duration comes from
+ffprobe fine; render/audio-sync computes later - backlog note, not a blocker); (b) voice_over_url is a raw
+drive.google.com/uc link that anonymous fetch answers with a Google sign-in page - fine for the OAuth'd app + Ryan's own
+browser, but any future in-app audio player for non-owner viewers will need proxying; (c) the "2/23 single-machine script
+tests passed" copy nit seen live again (already on backlog).
+NEXT: pictures stage - "Build to pictures" / aircraft views (0/23 ready, 3 views per aircraft targeted). PAID - quote
+first, get Ryan's go. ~$17.80 of the $20 cap remains ledgered-free, but remember ~$5-6 unledgered script spend already
+happened today. G24 escalated_model log watch still deferred (no new script cards this session).
 1. Ask Ryan which narrator voice: tenant 561b872d may have no elevenlabs_voice_id in the vault (engine default = stock
    "Rachel"). This is a creative call, get it before spending.
 2. Quote the cost: 23 scenes x ~140 words each is ~20k chars, about $2 at ElevenLabs $0.10/1k chars. Get Ryan's explicit go.
