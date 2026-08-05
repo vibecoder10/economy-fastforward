@@ -51,6 +51,15 @@ from storyboard.shot_archetypes import (  # noqa: E402
     format_archetype_menu,
     get_archetype,
 )
+# D15-5: the ONE canonical material/environment-locks precedence builder —
+# this module (the FRAME path) and coverage_to_app.py (the SHEET path) used
+# to hand-maintain two copies of this precedence logic; both now delegate to
+# shot_context (see its module docstring for the full reconciliation).
+# Imported as a module (not `from ... import ...`) so canonical_material_
+# line/canonical_environment_locks_line/_env_locks_text below can keep their
+# own same names as thin wrappers without shadowing the shared functions
+# they delegate to.
+import storyboard.shot_context as shot_context  # noqa: E402
 from shared.channel_profile import load_profile  # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 
@@ -834,119 +843,34 @@ def _norm_env_name(s: str) -> str:
 
 def canonical_material_line(canonical_envs: list | None, location_sets: dict,
                             matched_env: dict | None) -> str:
-    """D6-1c (L20 — MATERIAL MAP, PICTURES path): the SAME canonical-wins-
-    over-prose precedence coverage_to_app._canonical_material_line already
-    gives the $0.05 sheet PREVIEW, mirrored here so run_coverage's REAL
-    per-shot draw prompts read video_environments.material_map (migration
-    142) too — never only the planner LLM's own [MATERIAL | ...] line.
-
-    Returns "" (never invents) when no canonical material_map exists
-    anywhere relevant, so run_coverage's existing parse_material_map(...)
-    fallback fires unchanged. NULL-safe by construction: every
-    video_environments row in production today has material_map NULL
-    (confirmed live, 38 rows / 0 populated), so this returns "" for all of
-    them and behavior is byte-identical to before this function existed.
-
-    Multi-location scene (location_sets non-empty): one verbatim clause per
-    LOCSET name with a matching approved environment carrying a
-    material_map — same KNOWN GAP as the preview's twin (a location with no
-    canonical entry is simply omitted, never mixed with an LLM clause for
-    the same block).
-
-    D6-6e fix (mirrors coverage_to_app._canonical_material_line's identical
-    fix — kept in sync so the two never diverge): _find used to require
-    EXACT normalized equality between a LOCSET key and an approved
-    environment's name, so a key phrased with a leading article or extra
-    prose ("The Elite Viewing Hall") silently failed to match "Elite
-    Viewing Hall" and that location's material dropped out while a
-    plainer-named sibling ("Pod") matched and appeared alone. Now matches
-    the same way _match_scene_env-adjacent header matching does elsewhere:
-    the approved name must appear as a whole, space-bounded phrase WITHIN
-    the LOCSET key's normalized text, not be identical to it.
-
-    Single-location scene: matched_env's material_map, or "" if none."""
-    def _find(name: str) -> str:
-        padded = f" {_norm_env_name(name)} "
-        for e in (canonical_envs or []):
-            n = _norm_env_name(e.get("name") or "")
-            if n and f" {n} " in padded:
-                return (e.get("material_map") or "").strip()
-        return ""
-
-    if location_sets:
-        parts = []
-        for loc in location_sets:
-            mm = _find(loc)
-            if mm:
-                parts.append(f"{loc.upper()}: {mm}")
-        return " ".join(parts)
-    if matched_env:
-        return (matched_env.get("material_map") or "").strip()
-    return ""
+    """D6-1c (L20 — MATERIAL MAP, PICTURES path): thin delegate to the
+    shared, single-source-of-truth precedence builder (D15-5, storyboard.
+    shot_context.canonical_material_line) — kept as a same-named wrapper
+    purely so this module's own tests (test_board_laws.py) and every call
+    site below keep working unchanged. See shot_context's module docstring
+    for the full precedence contract (D6-1c/D6-6e) this delegates to
+    verbatim; mode="frame" matches this file's per-shot-tail usage
+    (run_coverage stamps the result onto every shot's description)."""
+    return shot_context.canonical_material_line(canonical_envs, location_sets, matched_env,
+                                                 mode="frame")
 
 
 def _env_locks_text(row: dict) -> str:
-    """D9-3b (migration 152, PICTURES path): join an environment row's
-    architecture_lock + lighting_time_weather_lock + palette_lock into ONE
-    verbatim clause, skipping whichever is empty/NULL. Mirrors
-    coverage_to_app._env_locks_text's join-skip-empty pattern exactly, kept
-    in sync by hand rather than imported — this module is the one
-    coverage_to_app.py imports FROM (see its own `from storyboard.coverage
-    import (...)`), never the reverse, the same boundary
-    canonical_material_line already respects for material_map above.
-    "" when none of the three are populated."""
-    return "; ".join(p for p in (
-        (row.get("architecture_lock") or "").strip(),
-        (row.get("lighting_time_weather_lock") or "").strip(),
-        (row.get("palette_lock") or "").strip(),
-    ) if p)
+    """D9-3b (migration 152, PICTURES path): thin delegate to the shared
+    join-skip-empty builder (D15-5, storyboard.shot_context.env_locks_text)
+    — kept as a same-named wrapper for test/call-site compatibility."""
+    return shot_context.env_locks_text(row)
 
 
 def canonical_environment_locks_line(canonical_envs: list | None, location_sets: dict,
                                      matched_env: dict | None) -> str:
     """D9-3b (Custom Film EnvironmentLock harvest, migration 152 — PICTURES
-    path): the SAME canonical-wins precedence canonical_material_line gives
-    material_map, one clause over, for architecture_lock/lighting_time_
-    weather_lock/palette_lock. Mirrors coverage_to_app._canonical_
-    environment_locks_line's exact shape (same multi-location loop/single-
-    location fallback, same whole-word _find matcher) so run_coverage's
-    REAL per-shot draw prompts read video_environments' three lock columns
-    too — the same data canonical_envs/matched_env already carry today for
-    material_map (coverage_to_app._approved_envs' SELECT was extended to
-    fetch all three lock columns in D9-3, migration 152 — no new plumbing
-    needed here, only this reader).
-
-    Returns "" (never invents) when no canonical lock text exists anywhere
-    relevant. Unlike material_map there is no planner-LLM equivalent line
-    to fall back to (no [LOCKS | ...] directive tag exists in the coverage
-    grammar) — "" simply omits the ENVIRONMENT LOCKS block entirely below,
-    byte-identical to every video before migration 152 and every video
-    whose environments haven't been re-approved since (locks NULL).
-
-    Multi-location scene (location_sets non-empty): one verbatim clause per
-    LOCSET name with a matching approved environment carrying locks — same
-    KNOWN GAP canonical_material_line documents (a location with no
-    canonical locks is simply omitted from this string).
-
-    Single-location scene: matched_env's joined locks, or "" if none."""
-    def _find(name: str) -> str:
-        padded = f" {_norm_env_name(name)} "
-        for e in (canonical_envs or []):
-            n = _norm_env_name(e.get("name") or "")
-            if n and f" {n} " in padded:
-                return _env_locks_text(e)
-        return ""
-
-    if location_sets:
-        parts = []
-        for loc in location_sets:
-            lx = _find(loc)
-            if lx:
-                parts.append(f"{loc.upper()}: {lx}")
-        return " ".join(parts)
-    if matched_env:
-        return _env_locks_text(matched_env)
-    return ""
+    path): thin delegate to the shared precedence builder (D15-5,
+    storyboard.shot_context.canonical_environment_locks_line) — kept as a
+    same-named wrapper for test/call-site compatibility. mode="frame"
+    matches this file's per-shot-tail usage."""
+    return shot_context.canonical_environment_locks_line(canonical_envs, location_sets,
+                                                          matched_env, mode="frame")
 
 
 def _split_moment_location(raw_summary: str) -> tuple:
