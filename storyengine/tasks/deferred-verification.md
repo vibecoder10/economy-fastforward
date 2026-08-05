@@ -4475,3 +4475,70 @@ on a captured patch, never `git stash`) sorted FAILED+ERROR sets are
 byte-identical in both suites, before and after. Someone should look at the
 Custom Film Remotion suite separately — 28 failures in one file is a lot to
 be carrying as "pre-existing."
+
+---
+
+## D15-4: route the arbiter's own board repair through the judged executor
+(worktree `.claude/worktrees/d15-4-callers`, branch `d15-4-callers`,
+commit `c1a433db`)
+
+**Build-only chunk per the brief — no deploy, no push, no prod writes.**
+`arbiter_repair.py`'s `_default_board_reroll` now calls
+`PipelineExecutor(tenant_id).run_storyboard_sheet(...)` instead of
+`scripts.coverage_to_app.generate_storyboard_sheet_for_scene` directly —
+the last caller left after D15-1/D15-3 routed every other draw entry
+point through the executor. Loop-guard proven directly (new
+`tests/functional/test_d15_4_arbiter_repair_routing.py`, 6 tests): a
+beat-scoped repair reroll, driven through the real (non-injected) default
+path with the D5/A6 arbiter flag scoped IN for the exact (video, scene),
+never re-fires `frame_arbiter_hook.run_after_storyboard_sheet` — plus a
+control test proving the identical scope WOULD fire the hook for a plain
+(beat=None) call, so the negative isn't a scope-mismatch false pass.
+
+**NOT routed (documented exception, not a gap):**
+`custom_film_production_runner.py`'s `_pictures()` coverage draw still
+calls `generate_coverage_for_video` directly. It passes `section_contract`
+(validated contract that flips `visual_profile_override`,
+`camera_mode_override`, and `allow_auto_cast_generation=False` — see
+`scripts/coverage_to_app.py`'s `generate_coverage_for_video`, the
+`if section_contract is not None:` block) and `only_scenes`.
+`PipelineExecutor.run_coverage_images`'s signature is
+`(video_id, scene=None, progress=None)` only — no `**kwargs`, no
+`section_contract` param — so the wrapper cannot express this argument.
+Left direct per the chunk brief's explicit instruction (STOP and report
+rather than silently drop the contract or unilaterally extend
+`pipeline_executor.py`, which was read-only for this chunk). Whoever owns
+`pipeline_executor.py` next should decide whether `run_coverage_images`
+gains a `section_contract`/`only_scenes` param (mirroring what
+`generate_coverage_for_video` already accepts) so this last caller can
+converge too.
+
+**IMPORTANT CORRECTION to the D15-5/shot_context entry directly above
+this one (and possibly others carrying the same note forward):** the "28
+pre-existing failures in `test_custom_film_remotion.py`" reported there as
+unrelated pre-existing carry-over is **not a real failure on `main`** — it's
+a fresh-`git worktree` scaffolding gap. `remotion-video/node_modules` and
+`remotion-video/public` are gitignored (npm-installed / build-generated,
+never committed), so a brand-new worktree has `remotion-video/src` and
+config files but no `node_modules` or `public`. `renderer_bundle_hash()`
+(`custom_film_remotion.py`) reads
+`node_modules/@fontsource/noto-sans/files/*.woff2` and
+`public/motion-audio/*.wav` as content-hash anchors and raises
+`CustomFilmContractError("... local font assets are missing")` when they're
+absent — that's ALL 28 failures, same root cause, not 28 independent bugs.
+Confirmed by symlinking both dirs from the main checkout
+(`ln -s <main>/remotion-video/node_modules|public
+.claude/worktrees/<name>/remotion-video/`, removed again before
+committing, same disposable-scaffolding convention this file already
+documents for `backend/venv`): `test_custom_film_remotion.py` goes from
+28 failed to 81/81 passed, and the full backend suite goes from
+"28 failed, 4392 passed" to a clean "4420 passed, 4 skipped" with **zero**
+failures. Reverted-vs-applied for THIS chunk's own change was then run
+with that scaffolding in place (patch-file revert of `arbiter_repair.py`
+via `git apply -R`/`git apply`, new test file moved out and back — never
+`git stash`): both runs' sorted FAILED-line sets are empty and identical;
+the only delta is the 6 new tests this chunk adds. Any worker who sees
+this same 28-failure block in a fresh worktree should scaffold
+`remotion-video/node_modules` + `remotion-video/public` (same as
+`backend/venv`) before concluding it's a real regression or a genuine
+pre-existing `main` issue — it is neither.
