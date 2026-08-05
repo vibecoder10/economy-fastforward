@@ -5050,12 +5050,16 @@ per tasks/lessons.md's confirmed local-Mac-cannot-reach-Supabase-pooler note):
 
 **1. The real incident video itself.** Recipe: `se db "SELECT id, location FROM scripts WHERE video_id =
 'd39892b2-0c85-4752-85d7-b61ca209342a' ORDER BY scene"` to confirm all 7 scenes (including the one whose
-location is "the kitchen at home") still carry their structured `location` value. Then, if this video's
-`video_environments` is still short the kitchen row, call the new MCP tool
-`add_environment {"video_id": "d39892b2-0c85-4752-85d7-b61ca209342a", "name": "the kitchen at home"}`
-(free) followed by `redo_environment` (paid, ~$0.03-0.05, quote first) to generate its reference image.
-Expected: a new draft row appears via `get_environment_images`, then gets a `reference_url` after
-redo_environment completes.
+location is "the kitchen at home") still carry their structured `location` value. Then `se db "SELECT
+name, reference_url FROM video_environments WHERE video_id = 'd39892b2-0c85-4752-85d7-b61ca209342a'
+ORDER BY sort"` to snapshot the existing (pre-fix) environment rows — expect 6, the kitchen missing.
+Record their ids/reference_urls before touching anything. Call the new MCP tool `add_environment
+{"video_id": "d39892b2-0c85-4752-85d7-b61ca209342a", "name": "the kitchen at home"}` (free) — confirm
+via `get_environment_images` that this adds a 7th draft row and the 6 pre-existing rows are byte-for-
+byte unchanged (same ids, same reference_urls, same status). Then call `redo_environment` on ONLY the
+new kitchen row's env_id (paid, ~$0.03-0.05, quote first) to generate its reference image — re-check
+`get_environment_images` afterward: the kitchen row now has a `reference_url`, and the other 6 rows'
+ids/reference_urls are STILL byte-for-byte unchanged (redo_environment must never touch a sibling row).
 
 **2. A fresh video through submit_script with ALL scenes tagged.** Recipe: submit a script via
 `submit_script` where every scene has a `location`, including one location mentioned in NO scene's
