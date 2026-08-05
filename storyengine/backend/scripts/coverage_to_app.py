@@ -3476,25 +3476,40 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
             manifest = render_prop_manifest(env.get("props"))
             if manifest:
                 env_note += f" {manifest}"
-            # D6-1 (L20 — MATERIAL MAP) REPAIR LEG: same fresh-re-derivation
-            # pattern as the prop manifest just above — reads video_
-            # environments.material_map at REDRAW time rather than trusting
-            # anything baked into the stored image_prompt, so a corrected
-            # canonical material map heals an old shot's next redraw instead
-            # of the redraw quietly reverting to whatever the planner LLM
-            # invented for THAT scene's [MATERIAL|...] line when it was
-            # first drawn.
-            material_map = (env.get("material_map") or "").strip()
+            # D6-1 (L20 — MATERIAL MAP) REPAIR LEG, now via the shared
+            # builder (D15-6): fresh-re-derivation at REDRAW time — reads
+            # video_environments.material_map through storyboard.shot_
+            # context.canonical_material_line (the SAME shared function
+            # assemblers A/B use, D15-5) instead of a third hand-inlined
+            # `(env.get("material_map") or "").strip()`, so a corrected
+            # canonical material map still heals an old shot's next redraw
+            # instead of the redraw quietly reverting to whatever the
+            # planner LLM invented for THAT scene's [MATERIAL|...] line when
+            # it was first drawn. redraw_asset_image matches exactly ONE
+            # environment per shot (`env`, via _match_scene_env above) and
+            # never parses location_sets, so location_sets=None here always
+            # — the single-location branch (`if matched_env: return field_
+            # getter(matched_env)`) makes this call byte-identical to the
+            # inline read it replaces. mode="frame" self-documents this as a
+            # per-shot draw prompt (mirrors assembler B's own mode="frame"
+            # usage) — inert on the return value today, see shot_context's
+            # module docstring.
+            material_map = _shared_canonical_material_line(envs, None, env, mode="frame")
             if material_map:
                 env_note += f" Material map, fixed for this whole set: {material_map}."
             # D9-3 (Custom Film EnvironmentLock harvest, migration 152)
-            # REPAIR LEG: same fresh-re-derivation pattern as the material
-            # map just above — reads video_environments.architecture_lock /
-            # lighting_time_weather_lock / palette_lock at REDRAW time, so a
-            # later-corrected canonical lock heals an old shot's next redraw
-            # instead of the redraw reverting to whatever the scene's own
-            # text implied when it was first drawn.
-            env_locks = _env_locks_text(env)
+            # REPAIR LEG, now via the SAME shared builder (D15-6) — same
+            # fresh-re-derivation reasoning as the material-map call just
+            # above. This call site previously read video_environments.
+            # architecture_lock/lighting_time_weather_lock/palette_lock
+            # through _env_locks_text (itself already a D15-5 thin alias
+            # onto shot_context.env_locks_text — the join-three-fields
+            # step); canonical_environment_locks_line adds the single-vs-
+            # multi-location PRECEDENCE dispatch on top of that join, even
+            # though this call site — single env, location_sets=None —
+            # only ever exercises the single-location branch, byte-
+            # identical to the _env_locks_text(env) call it replaces.
+            env_locks = _shared_canonical_environment_locks_line(envs, None, env, mode="frame")
             if env_locks:
                 env_note += f" Environment locks, fixed for this whole set: {env_locks}."
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this

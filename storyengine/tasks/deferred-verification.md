@@ -4542,3 +4542,97 @@ this same 28-failure block in a fresh worktree should scaffold
 `remotion-video/node_modules` + `remotion-video/public` (same as
 `backend/venv`) before concluding it's a real regression or a genuine
 pre-existing `main` issue — it is neither.
+
+## D15-6 (fold assembler C's redraw composer onto the shared canonical builder, 2026-08-05)
+
+**What changed:** `scripts/coverage_to_app.py::redraw_asset_image` (assembler
+C, the per-shot REDRAW path) previously carried its own third hand-inlined
+copy of the material-map / environment-locks composition —
+`(env.get("material_map") or "").strip()` plus `_env_locks_text(env)` fed
+straight into the two `env_note` clauses — separate from the D15-5 shared
+`storyboard.shot_context` builder assemblers A (`coverage_to_app`'s SHEET
+path) and B (`storyboard.coverage`'s FRAME path) already delegate to. Now
+calls `_shared_canonical_material_line(envs, None, env, mode="frame")` /
+`_shared_canonical_environment_locks_line(envs, None, env, mode="frame")`
+directly (both already imported at this file's top from D15-5) instead of
+the local `_canonical_material_line`/`_canonical_environment_locks_line`
+wrappers, since those wrappers hardcode `mode="sheet"` and this call site is
+per-shot (frame-like), matching assembler B's own `mode="frame"` usage.
+`location_sets` is always `None` here — `redraw_asset_image` matches exactly
+ONE environment per shot via `_match_scene_env` and never parses LOCSETs —
+so the shared builder's single-location branch
+(`if matched_env: return field_getter(matched_env)`) is exactly the inline
+read it replaces; confirmed byte-identical, not just equivalent-looking.
+
+**Cast/identity composition — NOT touched, per chunk scope (material/locks
+only):** `redraw_asset_image`'s CHARACTER block (~coverage_to_app.py:3441-
+3448, the `cast_identity_note` built from `_character_tag` +
+`_identity_tag_or_locks` per `video_characters` row, carrying D9-2 locks and
+D9-4 `forbidden_drift` NEVER-clauses) is semantically similar in SHAPE to
+`_character_identity_line`'s family (used by assembler A's sheet CHARACTER
+block) but is NOT a byte-identical duplicate — assembler A's version composes
+ONE joined line for the whole scene/bible from `story_bible.characters`
+rows filtered by scene presence, while C's builds a per-redraw list scoped
+to `video_characters` rows carrying `reference_url IS NOT NULL` (a different
+row-filter and a different source table shape — bible-derived vs. live-table-
+derived). D15-5 already confirmed cast composition was NOT duplicated
+between A and B (each has its own, non-identical cast logic for their own
+context). Whether C's cast/identity block is close enough to A's to extract
+a FOURTH shared function is a real question but explicitly OUT OF SCOPE for
+this chunk (material/locks only, per the chunk brief) — flagging as a
+candidate for a future chunk, not extracting here. `_resolve_style` (style
+resolution) is also untouched, deferred to D15-7 per the chunk brief.
+
+**Golden byte-identical proof:** new file
+`storyengine/backend/tests/functional/test_d15_6_redraw_shared_builder.py`
+captures `redraw_asset_image`'s FULL composed prompt (via the same DB/
+ImageClient mocking harness `test_redraw_style_parity.py` already uses)
+across a 5-case fixture matrix — populated material+locks, NULL material+
+locks, material-only, locks-only, and a multi-environment `envs` list where
+the matched environment is the SECOND entry (proving the full `envs` list
+still flows through even though only the single-location branch fires).
+Golden strings were captured from the UNMODIFIED pre-refactor body (a
+scratch script, not committed, run before the production edit landed) and
+asserted byte-for-byte identical after. A dedicated wiring-proof test
+(`test_material_and_locks_composition_actually_calls_the_shared_builder`)
+spies on `scripts.coverage_to_app._shared_canonical_material_line` /
+`_shared_canonical_environment_locks_line` and asserts they were called
+exactly once each with `(envs, None, env, mode="frame")` — proving the
+delegation is actually WIRED, not a coincidental string match; this spy test
+correctly FAILED before the production edit (0 calls captured) and passes
+after, confirmed by running the file both pre- and post-change.
+
+**Stash-proof (real AssertionErrors, never ImportError-as-proof):** in-place
+guard-neuter — `material_map = _shared_canonical_material_line(...)` and
+`env_locks = _shared_canonical_environment_locks_line(...)` were temporarily
+replaced with `material_map = ""` / `env_locks = ""` (forced-empty, a real
+behavioral divergence, not a broken import) and the new test file re-run:
+8 of 10 tests failed with genuine `AssertionError`s (golden-string mismatches
+and the wiring-proof's `0 == 1` call-count assertion), proving the tests
+actually catch a regression rather than trivially passing. Reverted via
+`git checkout -- scripts/coverage_to_app.py` then `git apply` of a saved
+patch file of this chunk's own diff (never `git stash` on the shared tree —
+this worktree's own tree, patch-file discipline anyway) — confirmed clean
+(`grep -c NEUTER-TEST-D15-6` → 0) and the full new-test-file suite green
+again (10/10) before proceeding.
+
+**Full backend suite, reverted vs. applied (scaffolded per the D15-4/D15-5
+note above — `backend/venv`, `remotion-video/node_modules`,
+`remotion-video/public` symlinked from the main checkout for the run, then
+removed before committing):**
+- Reverted (`git apply -R` of this chunk's patch): `4515 passed, 4 skipped,
+  0 failed`.
+- Applied: `4525 passed, 4 skipped, 0 failed` — the +10 delta is exactly this
+  chunk's own new test file; no other test count moved.
+- Sorted FAILED-line sets: both empty, byte-identical (0/0), confirming zero
+  collateral regressions anywhere else in the suite.
+
+**Unverified / left for a later pass:** the cast/identity-block extraction
+candidate noted above (a possible FOURTH shared function alongside material/
+locks) was identified but deliberately not built — scope was material/locks
+only per the chunk brief. `_resolve_style` (style resolution) is D15-7's
+chunk, untouched here. No live/VPS verification was performed or needed —
+this chunk is a pure prompt-composition refactor behind a golden byte-
+identical bar, proven at the unit level; the existing $0 CI-style test suite
+is the correct verification surface for this kind of change (mirrors D15-5's
+own verification shape for the same reason).
