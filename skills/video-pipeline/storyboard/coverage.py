@@ -5340,7 +5340,19 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
               f"({', '.join(fr['shot_type'] for fr in frames)})", flush=True)
 
     out = {"video_title": video_title, "cast_url": cast_url, "moments": result_moments,
-           "moment_count": len(result_moments), "frame_count": frame_total}
+           "moment_count": len(result_moments), "frame_count": frame_total,
+           # D15-2: the directive text this draw ACTUALLY used — whatever the
+           # caller passed in via directive_text, or (when the caller passed
+           # None) the one generated internally just above at the
+           # `if directive_text is None:` branch. Additive key only; every
+           # existing caller that ignores it (the CLI's main(), callers that
+           # don't read this field) sees byte-identical behavior. Exists so a
+           # caller that had no persisted/matching directive of its own (and
+           # so let this function plan one fresh) can write the SAME text back
+           # to its own storage instead of silently discarding it — see
+           # storyengine/backend/scripts/coverage_to_app.py::
+           # generate_coverage_for_video's fresh-plan persist.
+           "directive_text": directive_text}
     with open(os.path.join(outdir, "coverage.json"), "w") as f:
         json.dump(out, f, indent=2)
     return out
