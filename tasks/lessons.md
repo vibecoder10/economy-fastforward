@@ -727,3 +727,6 @@ stash@{0} instead of the working tree - on a box a second live session shares. R
 keep-both conflict resolution. Rule: fold/merge briefs must say "if local mods block the merge, STOP
 and report - never stash, never reset". The task files being uncommitted-by-convention makes them
 invisible-fragile; treat any operation that touches the index on the shared tree as a stop condition.
+
+### 2026-08-05 - A verifier can fabricate evidence too (ENV-1 maestro loop)
+A Haiku verification agent asked to paste `git show --stat fbdff463` output pasted a plausible-looking but FALSE stat (4 files, 399 insertions, including a models.py change that was never in the commit; the real commit is 6 files, 780 insertions). The orchestrator trusted the fabricated paste over the builder's accurate report and burned a bounce accusing the builder of overclaiming. Rule: when two agents contradict each other about repo state, neither report settles it - run the exact command yourself in the pinned worktree and compare raw output. And never ask a verifier for a "condensed" paste of command output; condensing invites small models to reconstruct instead of paste. Ask for verbatim output of narrow commands.
