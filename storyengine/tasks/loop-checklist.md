@@ -2513,7 +2513,16 @@ and get folded into lanes opportunistically.
   excluded by design). FLAGGED: actions.py's FOLLOWUP_STAGES["images"] chat follow-up path still
   routes through the legacy env-based VISUAL_PROFILE mechanism untouched (out of this chunk's
   MAY-touch list) - a smaller, differently-shaped gap for a future chunk.
-- [ ] D15-8 (S) [B][V] Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
+- [x] D15-8 (S) [B][V] DONE 2026-08-05 (branch d15-8-purpose, commit d810bc5d): spec REFINED against
+  reality - worker proved (test_d9_1_shot_purpose.py, rule 23) that purpose text deliberately never
+  reaches ANY draw prompt, so no prompt-level divergence existed; the real gap was the D9-1 WARN gate
+  check_shot_purpose_present running only in B. Now threaded into A (sheet preview, after
+  _rhythm_notes_for_scene, same moments) and C (redraw - SELECT gained shot_type/purpose_kind/
+  shot_purpose, synthetic single-shot moment), exact B wording, print-only diagnostics. Planted-marker
+  tests pin the never-leaks invariant on all three assemblers. Purpose-absent output byte-identical
+  (wired vs stubbed). Backend 4556/4/0 (+9 new), custom_film_remotion 81/81, pipeline FAILED+ERROR
+  set byte-identical vs shared tree. FLAGGED future candidate: the WARN is log-only, not surfaced in
+  any UI/API response. Original: Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
 - [ ] D15-9 (S) [B][V] One _get_or_plan_directive helper replacing the duplicated hash-gate blocks;
   staleness + judging see one plan object from all nine doors.
 
