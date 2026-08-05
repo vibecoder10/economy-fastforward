@@ -53,7 +53,7 @@ ENV = {"name": "Home kitchen", "description": "vintage kitchen, yellow fridge",
        "reference_url": "https://fake/env.png"}
 
 
-def _run(style=STYLE, envs=None):
+def _run(style=STYLE, envs=None, visual_style=None, style_preset_id=None):
     calls = []
 
     async def fake_fetch_one(query, *args):
@@ -61,7 +61,8 @@ def _run(style=STYLE, envs=None):
             return {"id": ASSET, "scene": 1, "image_index": 122, "image_prompt": STORED_PROMPT,
                     "hero_shot": True, "generation_method": "coverage",
                     "aspect": "16:9", "image_model_override": None,
-                    "image_style_override": style, "visual_style": None}
+                    "image_style_override": style, "visual_style": visual_style,
+                    "style_preset_id": style_preset_id}
         if "coverage_directive, scene_text FROM scripts" in query:
             return {"coverage_directive": "vintage kitchen plan", "scene_text": "kitchen scene"}
         raise AssertionError(f"unexpected fetch_one: {query}")
@@ -122,3 +123,34 @@ def test_no_style_no_env_still_draws_with_style_lock():
     assert call["prompt"].startswith(STORED_PROMPT)
     assert _STYLE_LOCK in call["prompt"]                    # no stated style -> classic ref-matching lock
     assert call["refs"] == ["https://fake/cast-a.png"]
+
+
+# =============================================================================
+# D15-7 / D6-1d closure: a preset-only asset (style_preset_id set, no
+# image_style_override/visual_style) must ALSO get a real ART STYLE line on
+# redraw — not the neutral no-style-set default from the tests above. This is
+# assembler C's half of the "preview and real draw must agree" proof; the
+# sheet (A) and coverage (B) halves are wiring-spy-tested in
+# test_d15_7_style_resolution_wiring.py against the SAME _resolve_style
+# function, so all three converge by construction.
+# =============================================================================
+
+def test_preset_only_asset_gets_a_real_art_style_line_on_redraw():
+    call = _run(style=None, visual_style=None, style_preset_id="cinematic_illustration", envs=[])
+    assert call["prompt"].startswith("ART STYLE"), call["prompt"]
+    assert "illustration" in call["prompt"][:400].lower() or "ink outlines" in call["prompt"][:400].lower()
+
+
+def test_preset_neutral_v1_stays_the_no_style_set_default_on_redraw():
+    """Regression lock for the ONE real production video today
+    (style_preset_id='neutral_v1', no freeform fields)."""
+    call = _run(style=None, visual_style=None, style_preset_id="neutral_v1", envs=[])
+    assert not call["prompt"].startswith("ART STYLE")
+    assert call["prompt"].startswith(STORED_PROMPT)
+
+
+def test_freeform_still_wins_over_preset_on_redraw():
+    call = _run(style="Claymation, stop-motion texture", style_preset_id="cinematic_illustration", envs=[])
+    assert call["prompt"].startswith("ART STYLE")
+    assert "clay" in call["prompt"][:400].lower()
+    assert "illustration" not in call["prompt"][:400].lower()

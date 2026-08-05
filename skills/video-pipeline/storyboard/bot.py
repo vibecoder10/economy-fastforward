@@ -1353,6 +1353,7 @@ def build_image_prompt_from_keyframe(
     keyframe: dict,
     profile=None,
     image_style_override: str = "",
+    apply_style_wrapping: bool = True,
 ) -> str:
     """Build a styled image prompt from a storyboard keyframe.
 
@@ -1362,20 +1363,40 @@ def build_image_prompt_from_keyframe(
 
     Target: ~60-80 words (within image model sweet spot).
 
-    Note: profile param is the ChannelProfile (from storyboard bot), not
-    VisualProfile (from prompt_builder). We use hardcoded prefix/suffix
-    matching the cinematic illustration style.
+    Note: `profile` (a ChannelProfile from storyboard bot, not a VisualProfile
+    from prompt_builder) is currently UNUSED here — kept only for call-site
+    signature stability. Style resolution below reads shared.profiles.visual's
+    5-engine loader (env var VISUAL_PROFILE, process-global) instead, which is
+    correct for THIS function's own legacy callers (run_storyboard_prompts /
+    run_storyboard_images — see below) but was a real, provable bug for
+    storyboard.coverage.generate_coverage_frames (D15-7 / D6-1d): that caller
+    ALREADY states the canonically-resolved style via
+    storyboard.coverage._stated_style_prefix(profile) — the SAME `profile`
+    passed here, correctly resolved by coverage_to_app._resolve_style,
+    unaffected by env-var leakage across requests — immediately before this
+    function's return value, so a SECOND, independently-resolved (and
+    possibly stale, since VISUAL_PROFILE is process-global and not reset for
+    the coverage path) style prefix here either duplicates or contradicts it
+    (the exact L29 "two style claims in one prompt" defect). `apply_style_
+    wrapping=False` retires this function's OWN style injection for that
+    caller, falling through to the neutral technical wrapper (_KF_PREFIX/
+    _KF_SUFFIX) since style is already said, once, upstream. Defaults to True
+    — every OTHER existing caller (storyboard.bot.run_storyboard_prompts,
+    which has no upstream ART-STYLE line of its own and relies on this as its
+    only style-injection point) is byte-identical to before this parameter
+    existed.
     """
     # Try to use VisualProfile if available (has style_system)
     prefix, suffix = _KF_PREFIX, _KF_SUFFIX
-    try:
-        from image_prompts.engine.prompt_builder import get_style_wrapping
-        from shared.profiles.visual import load_profile as load_visual_profile
-        visual_profile = load_visual_profile()
-        if visual_profile and hasattr(visual_profile, "style_system"):
-            prefix, suffix = get_style_wrapping(visual_profile, "", image_style_override)
-    except Exception:
-        pass  # Fall back to hardcoded prefix/suffix
+    if apply_style_wrapping:
+        try:
+            from image_prompts.engine.prompt_builder import get_style_wrapping
+            from shared.profiles.visual import load_profile as load_visual_profile
+            visual_profile = load_visual_profile()
+            if visual_profile and hasattr(visual_profile, "style_system"):
+                prefix, suffix = get_style_wrapping(visual_profile, "", image_style_override)
+        except Exception:
+            pass  # Fall back to hardcoded prefix/suffix
 
     # Combine composition and action as the core description
     parts = []

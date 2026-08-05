@@ -4636,3 +4636,197 @@ this chunk is a pure prompt-composition refactor behind a golden byte-
 identical bar, proven at the unit level; the existing $0 CI-style test suite
 is the correct verification surface for this kind of change (mirrors D15-5's
 own verification shape for the same reason).
+
+---
+
+## D15-7 — ONE style-resolution entry point (closes D6-1d's family for good)
+
+**Map (every style-resolution call site found, D15-1's follow-up):**
+- `coverage_to_app._resolve_style(image_style_override, visual_style)` — the
+  D6-1 precedence contract (image_style_override > visual_style > None),
+  called by all THREE named assemblers: `generate_storyboard_sheet_for_scene`
+  (sheet, L2676), `generate_coverage_for_video` (coverage entry, L4816-4820,
+  with Custom Film's `visual_profile_override` as a separate, higher-
+  precedence override that pre-existed this chunk untouched), and
+  `redraw_asset_image` (redraw, L3400) — plus the standalone CLI `main()`
+  (L5102/5163, dev-only, updated too for consistency).
+- `pipeline_executor._resolve_visual_profile_id(idea)` — sets the
+  `VISUAL_PROFILE` env var (style_preset_id > visual_style > "neutral_v1"
+  default; note it never reads `production_style_id` despite the older
+  `_resolve_style` docstring implying otherwise — a precision correction
+  made in this chunk's rewritten docstring). Feeds `shared.profiles.visual`'s
+  5-engine loader for the LEGACY grid pipeline (`run_prompts`/`run_images`/
+  `run_storyboard_prompts`/`run_storyboard_images`), which the coverage/sheet
+  path supersedes but which is still reachable via `actions.py`'s
+  `FOLLOWUP_STAGES["images"]` (`apply_followup_edit`) — untouched, out of
+  this chunk's MAY-touch list (actions.py), flagged here for a future chunk.
+- `storyboard.bot.build_image_prompt_from_keyframe`'s OWN internal call into
+  `shared.profiles.visual.load_profile()` (env `VISUAL_PROFILE`, no args) +
+  `get_style_wrapping` — a SECOND, independent style resolution living
+  INSIDE one of the three named assemblers (coverage frames), silently
+  ignoring the `profile` argument it was handed (confirmed dead — the
+  parameter was referenced only in the docstring, never in the body). This
+  was the real, provable bug beneath D6-1d's documented symptom: not just
+  "the preset case resolves to nothing," but "the coverage path can state a
+  stale or duplicate style regardless of preset, because it depends on
+  process-global `os.environ` state no coverage-path caller ever sets."
+- A THIRD env seam, `VISUAL_STYLE_DESCRIPTION` (read by `image_prompts.
+  engine.prompt_builder._channel_style_injection`, set by `pipeline_executor.
+  _export_visual_style` / `_load_idea`), feeds the SAME legacy grid pipeline
+  — also untouched, also out of scope (not one of the three named
+  assemblers' style resolvers).
+
+**THE FIX:**
+1. `_resolve_style` gained a third precedence tier: `style_preset_id`,
+   resolved via new helper `_preset_style_directive()` into freeform text via
+   `shared.profiles.visual.load_profile(style_preset_id).description` — a
+   complete, standalone aesthetic sentence (not `style_system.style_prefix`/
+   `style_suffix`, which are prompt-assembly FRAGMENTS designed to wrap
+   scene content, not stand alone as an ART STYLE line). `"neutral_v1"` is
+   deliberately excluded (treated as "no style," matching
+   `_resolve_visual_profile_id`'s own "no real choice made" sentinel and
+   `neutral_v1.py`'s own docstring: it declares no medium of its own).
+   Precedence: `image_style_override > visual_style > style_preset_id > None`
+   — style_preset_id is the LOWEST tier, below both freeform fields
+   (deliberately differs from `_resolve_visual_profile_id`'s internal order,
+   which checks style_preset_id before visual_style; the two orders only
+   diverge when a video has BOTH set, which is 0 videos in production as of
+   2026-08-05 and outside D6-1d's stated scope — documented in
+   `_resolve_style`'s rewritten docstring).
+2. All three assembler call sites now SELECT `style_preset_id` and pass it
+   into `_resolve_style` — proven by dedicated wiring-spy tests, not just by
+   `_resolve_style`'s own correctness in isolation.
+3. `build_image_prompt_from_keyframe` gained `apply_style_wrapping: bool =
+   True` (default — every pre-existing caller, including the legacy
+   `run_storyboard_prompts`/`run_storyboard_images` grid path which has no
+   upstream ART-STYLE line of its own and relies on this as its ONLY style
+   injection, is byte-identical). `generate_coverage_frames`'s two call
+   sites (master + angle frames) pass `apply_style_wrapping=False`, since
+   `_stated_style_prefix(profile)` — fed by the SAME correctly-resolved
+   `profile` — already states the ART STYLE line once, upstream. This
+   retires the redundant/leak-prone second resolution for the coverage path
+   specifically, proven leak-immune against a deliberately-polluted
+   `VISUAL_PROFILE` env var in tests (see below).
+
+**Preset-only preview/draw deltas (the ONLY intended behavior changes;
+verified against the ONE real production video carrying `style_preset_id`
+today — `d2e37cd6-521a-43aa-a14d-ce096a783c1e`, value `"neutral_v1"`, which
+this chunk proves stays BYTE-IDENTICAL since neutral_v1 is excluded by
+design):**
+- Before: a video with `style_preset_id` set to a NON-neutral preset (e.g.
+  `cinematic_illustration`) and neither freeform field set resolved to
+  `style_dir=None` on the sheet (A), the coverage `_stated_style_prefix`
+  line (B), and the redraw ART STYLE line (C) alike — all three "agreed" at
+  the neutral default, silently discarding the creator's preset choice.
+  Separately, assembler B's per-frame prompt could ALSO pick up a stray
+  style from `build_image_prompt_from_keyframe`'s env-based lookup whenever
+  `VISUAL_PROFILE` happened to be non-default (leaked from an unrelated
+  legacy-grid-pipeline call in the same process) — completely independent of
+  what the creator actually picked.
+- After: all three state `VisualProfile("cinematic_illustration").
+  description` (post brand-neutralize / stylized-media enforcement) as a
+  real ART STYLE line, and assembler B never depends on `VISUAL_PROFILE` for
+  the coverage path at all.
+- Prod impact today: **zero** for the sheet/coverage/redraw text — the one
+  preset-carrying video uses `"neutral_v1"`, which this chunk's precedence
+  contract explicitly excludes from tier 3, so its resolved style stays
+  `None` exactly as before. The double-injection/env-leak fix (item 3 above)
+  has no observable prod effect either, since no test or production evidence
+  shows `VISUAL_PROFILE` set to a non-default value during a coverage-path
+  request — but it closes a real, demonstrated bug (proven live in this
+  chunk's own tests: a deliberately-polluted env var visibly leaked
+  `"ceramic"`/`"holographic"` vocabulary into an unrelated video's frame
+  prompt pre-fix).
+
+**Golden / wiring / value-based tests (all new or extended this chunk):**
+- `storyengine/backend/tests/functional/test_d6_1_canonical_inputs.py` —
+  extended with 12 new tests: `_resolve_style`'s full 3-tier precedence
+  matrix (freeform-wins-over-preset both directions, neutral_v1 exclusion,
+  unknown/blank preset fail-soft, byte-identical 2-arg backward compat, one
+  parametrized case per real preset id) plus `_preset_style_directive` in
+  isolation. 40/40 pass.
+- `storyengine/backend/tests/functional/test_d15_7_style_resolution_wiring.py`
+  (new) — wiring-spy tests for assemblers A and B: patches `_resolve_style`
+  with a spy that delegates to the real implementation, proving each call
+  site's SELECT + argument-threading actually reaches it with the real
+  `style_preset_id` (not just that `_resolve_style` handles one correctly in
+  isolation), plus a `neutral_v1` regression lock for assembler B. 4/4 pass.
+- `storyengine/backend/tests/functional/test_redraw_style_parity.py` —
+  extended with 3 new cases (preset-only real ART STYLE line, neutral_v1
+  regression lock, freeform-still-wins) against the EXISTING full DB-mocked
+  harness that captures the actual rendered prompt text. 6/6 pass.
+- `skills/video-pipeline/tests/test_d15_7_coverage_style_dedup.py` (new) — 6
+  tests proving: a styled frame states ART STYLE exactly once; a
+  deliberately-polluted `VISUAL_PROFILE` env var does NOT leak into either
+  the master or angle frame prompt (this is the test that caught the real
+  bug live — see stash-proof below); the no-style-set case is byte-identical
+  to before; `apply_style_wrapping=False`/`True` behave as documented. 6/6
+  pass.
+
+**Stash-proofs (real AssertionErrors/TypeErrors from delegating spies and
+in-place guard-neuter, never ImportError-as-proof):**
+- `_resolve_style`'s 3-tier logic: patch-file revert of `coverage_to_app.py`
+  alone (tests untouched) → the wiring-spy tests fail with `TypeError:
+  _resolve_style() takes 2 positional arguments but 3 were given` (the spy
+  delegates through the REAL function, so a signature revert breaks it
+  loudly) and `test_d6_1_canonical_inputs.py` fails to COLLECT (imports
+  `_preset_style_directive`, which doesn't exist pre-change) — both real,
+  both loud. For a STRONGER assertion-level proof (per this file's own past
+  lesson that ImportError-at-collection alone is weak evidence): an in-place
+  guard-neuter kept the new 3-arg signature but no-opped the preset branch
+  (`if not rec: pass  # GUARD-NEUTER`) — 8 tests failed with genuine
+  `AssertionError`s (wrong resolved style text, wrong `profile.
+  visual_style_directive` reaching `run_coverage`'s `profile=` kwarg), not
+  errors. Reverted via `git apply` of a saved patch; 47/47 green again.
+- `apply_style_wrapping` / the double-injection fix: patch-file revert of
+  `coverage.py` + `bot.py` alone → 4 of 6 new dedup tests fail, TWO of them
+  with a REAL, damning `AssertionError` showing the actual leaked text
+  (`'ceramic' is contained here: ...matte ceramic surfaces...'` and
+  `'holographic' is contained here: ...holographic intelligence display...'`)
+  — direct evidence the pre-fix code really does leak an unrelated preset's
+  vocabulary into a styled video's frame prompt under env pollution, not a
+  hypothetical. Reverted via `git apply`; 6/6 green again.
+- `test_redraw_style_parity.py`'s new preset-only case: patch-file revert of
+  `coverage_to_app.py` alone → `test_preset_only_asset_gets_a_real_art_style_
+  line_on_redraw` fails with the EXACT pre-fix prompt text (classic
+  ref-matching `STYLE LOCK`, no `ART STYLE` line) as the assertion failure
+  body — the precise shape of the D6-1d defect, reproduced and pinned.
+
+**Full suite, reverted vs. applied (scaffolded per the established D15-x
+pattern — `backend/venv`, `remotion-video/node_modules`, `remotion-video/
+public` symlinked from the main checkout for the run, removed before
+committing):**
+- Backend (`storyengine/backend`, excluding this chunk's 3 touched/new test
+  files from BOTH runs for a clean apples-to-apples comparison): reverted
+  `4497 passed, 4 skipped, 0 failed`; applied `4497 passed, 4 skipped, 0
+  failed`. Sorted FAILED-line sets: both empty, byte-identical (0/0).
+  Including this chunk's own test files: applied `4547 passed, 4 skipped,
+  0 failed`, 0 unexpected regressions.
+- Pipeline (`skills/video-pipeline`, excluding the 1 wholly-new test file
+  AND two collection errors confirmed PRE-EXISTING on the untouched main
+  checkout — `test_sound_curation.py` (`ModuleNotFoundError: sound_prompt_
+  bot`) and `test_ctr_12h_tracking.py` (`ModuleNotFoundError: performance_
+  tracker`), both a bare-import-path issue unrelated to this chunk):
+  reverted and applied FAILED/ERROR line sets are BYTE-IDENTICAL — 30 lines
+  each, `diff` exit 0. All 30 are pre-existing environment/dependency gaps
+  (missing `numpy`, missing `mutagen`-equivalent for mp3 duration, etc.),
+  confirmed by reproducing the same 27 failures + 3 collection errors on the
+  untouched main checkout directly (not just this worktree).
+
+**Unverified / left for a later pass:**
+- `actions.py`'s `FOLLOWUP_STAGES["images"]` still routes through the
+  LEGACY `run_prompts`/`run_images` grid pipeline
+  (`_resolve_visual_profile_id`/`VISUAL_PROFILE`), untouched by this chunk —
+  `actions.py` is not in the MAY-touch list. A video whose creator uses the
+  chat "tweak the images" follow-up path (not the "Generate the pictures"
+  button) still resolves style through the old mechanism, which this chunk's
+  precedence contract does not reach. Real, but a materially smaller and
+  differently-shaped gap than D6-1d's documented one (that pipeline predates
+  the coverage path and was always going to need its own retirement chunk).
+- No live/VPS verification performed — zero prod behavior change proven (the
+  one real preset-carrying video is `"neutral_v1"`, explicitly excluded),
+  so the existing $0 test suite is the correct and sufficient verification
+  surface, matching D15-5/D15-6's own reasoning for the same shape of change.
+- `_stated_style_prefix`'s own docstring in `coverage.py` was left unchanged
+  (still accurate) rather than cross-referenced to D15-7 — a documentation
+  nicety, not a correctness gap.
