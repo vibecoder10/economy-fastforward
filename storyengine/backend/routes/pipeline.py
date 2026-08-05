@@ -1694,12 +1694,20 @@ async def run_storyboard_images(
 
     async def _run():
         try:
-            # Storyboard = ONE GPT Image 2 image (the whole sheet) — a cheap, fast preview of the
-            # story direction. The real per-shot images come later (generate_coverage_for_video).
-            from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
-            result = await generate_storyboard_sheet_for_scene(
-                video_id, tenant_id, scene=scene, beat=beat, plan_only=plan_only,
-                progress=progress_callback
+            # D15-3 (closes D15-1's "one road" gap): route through the executor
+            # instead of calling generate_storyboard_sheet_for_scene directly, so
+            # a button-initiated draw gets every cross-cutting law the executor
+            # wrapper enforces (pipeline_executor.py::run_storyboard_sheet —
+            # today that's the flag-gated Frame Arbiter judging pass, D5/A6) the
+            # same way chat's "storyboards" verb / MCP `storyboards` tool /
+            # ClaudeOrchestrator's dispatch already do. Storyboard = ONE GPT
+            # Image 2 image (the whole sheet) — a cheap, fast preview of the
+            # story direction. The real per-shot images come later
+            # (generate_coverage_for_video, see run_coverage_images below).
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_storyboard_sheet(
+                video_id, scene=scene, beat=beat, plan_only=plan_only,
+                progress=progress_callback,
             )
             _set_task_status(
                 video_id,
@@ -1758,10 +1766,19 @@ async def run_coverage_images(
 
     async def _run():
         try:
-            # The real per-shot coverage frames (master + matched angles), stored as scene assets.
-            from scripts.coverage_to_app import generate_coverage_for_video
-            result = await generate_coverage_for_video(
-                video_id, tenant_id, scene=scene, progress=progress_callback
+            # D15-3 (closes D15-1's "one road" gap): route through the executor
+            # instead of calling generate_coverage_for_video directly, so a
+            # button-initiated draw gets the same cross-cutting checks the
+            # executor wrapper enforces (pipeline_executor.py::run_coverage_
+            # images) that chat's "images" verb / MCP `images` tool /
+            # ClaudeOrchestrator's dispatch already get — most notably the
+            # voicefix money gate (_check_voice_exists), which this button's
+            # OLD direct call never had, and the static_docu redirect. The
+            # real per-shot coverage frames (master + matched angles), stored
+            # as scene assets.
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_coverage_images(
+                video_id, scene=scene, progress=progress_callback,
             )
             _set_task_status(
                 video_id,
