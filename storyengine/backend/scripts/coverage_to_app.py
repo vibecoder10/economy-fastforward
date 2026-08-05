@@ -115,6 +115,18 @@ from storyboard.coverage import (  # noqa: E402
     # build time.
     _setup_id, _setup_base_id, parse_reverse_setup_pairs,
 )
+# D15-5: the ONE canonical material/environment-locks precedence builder —
+# this file (the SHEET path) and storyboard/coverage.py (the FRAME path)
+# used to hand-maintain two copies of this precedence logic; both now
+# delegate to shot_context (see its module docstring for the full
+# reconciliation). Imported directly (not proxied through storyboard.
+# coverage) since it has no coverage.py-specific knowledge — same reasoning
+# storyboard.bot/storyboard.shot_archetypes are imported directly above.
+from storyboard.shot_context import (  # noqa: E402
+    canonical_material_line as _shared_canonical_material_line,
+    canonical_environment_locks_line as _shared_canonical_environment_locks_line,
+    env_locks_text as _shared_env_locks_text,
+)
 
 
 async def _require_tenant_kie_key(tenant_id: str) -> str:
@@ -425,123 +437,35 @@ def _norm_env_text(s: str) -> str:
 
 def _canonical_material_line(envs: list[dict], location_sets: dict,
                              matched_env: Optional[dict]) -> str:
-    """D6-1 (L20 — MATERIAL MAP): the CODE-RENDERED, canonical material map,
-    sourced from video_environments.material_map (migration 142) — this
-    WINS over the planner LLM's own [MATERIAL | ...] line (storyboard.
-    coverage.parse_material_map) whenever a canonical entry exists, never a
-    paraphrase of it. Returns "" (never invents) when no canonical entry
-    exists anywhere relevant, so the caller's existing parse_material_map
-    fallback is unchanged for any video/environment that hasn't authored
-    one yet — byte-compatible with every video before this migration.
-
-    Multi-location scene (location_sets non-empty): one verbatim clause per
-    LOCSET name that has a matching approved environment with a
-    material_map. A location with no canonical entry is simply omitted from
-    this string — KNOWN GAP, stated honestly rather than silently: a
-    multi-location scene where only SOME locations have an authored
-    material_map gets a canonical clause for those and nothing for the rest
-    (not a fallback to the LLM line per missing location — mixing a
-    canonical clause and an LLM clause for two locations in the SAME block
-    would itself violate 'once, from one source of truth'). Closing that
-    gap needs per-location fallback plumbing through _plan_sheet_prompts'
-    single material_block slot; out of scope for this chunk.
-
-    D6-6e fix: _find's per-LOCSET-name lookup used to require EXACT
-    normalized equality against an approved environment's name — a LOCSET
-    key the planner phrased with a leading article or extra prose (e.g.
-    "The Elite Viewing Hall", the SAME stylistic drift D6-6b already found
-    in this video's [SET|] header, but here inside a [LOCSET|] key on a
-    genuinely multi-location scene) silently failed to match "Elite Viewing
-    Hall", so that location's real material clause dropped out of the
-    combined string entirely while a plainer-named sibling location (e.g.
-    "Pod") matched exactly and appeared alone — reproducing the reported
-    "pulled in the wrong location's material" symptom even with the correct
-    approved environment on file. Fixed by matching the SAME way
-    _env_named_in_header_opening (above) already resolves a declared
-    location: the approved name must appear as a whole, space-bounded
-    phrase WITHIN the LOCSET key's normalized text, not require the two to
-    be identical — "elite viewing hall" now matches inside "the elite
-    viewing hall". A LOCSET key that names a location with NO approved
-    environment at all (whole word, not a substring hit) still correctly
-    finds nothing, unchanged.
-
-    Single-location scene (location_sets empty): the scene's ONE matched
-    environment's material_map, or "" if it has none or nothing matched."""
-    def _find(name: str) -> str:
-        padded = f" {_norm_env_text(name)} "
-        for e in envs:
-            n = _norm_env_text(e.get("name") or "")
-            if n and f" {n} " in padded:
-                return (e.get("material_map") or "").strip()
-        return ""
-
-    if location_sets:
-        parts = []
-        for loc in location_sets:
-            mm = _find(loc)
-            if mm:
-                parts.append(f"{loc.upper()}: {mm}")
-        return " ".join(parts)
-    if matched_env:
-        return (matched_env.get("material_map") or "").strip()
-    return ""
+    """D6-1 (L20 — MATERIAL MAP), SHEET path: thin delegate to the shared,
+    single-source-of-truth precedence builder (D15-5, storyboard.
+    shot_context.canonical_material_line) — kept as a same-named wrapper
+    purely so this module's own tests (test_d6_1_canonical_inputs.py) and
+    every call site below keep working unchanged. See shot_context's module
+    docstring for the full precedence contract (D6-1/D6-6e) this delegates
+    to verbatim; mode="sheet" matches this file's once-per-block usage
+    (_sheet_kwargs -> _plan_sheet_prompts)."""
+    return _shared_canonical_material_line(envs, location_sets, matched_env, mode="sheet")
 
 
 def _env_locks_text(row: dict) -> str:
-    """D9-3 (migration 152): join an environment row's architecture_lock +
-    lighting_time_weather_lock + palette_lock into ONE verbatim clause,
-    skipping whichever is empty/NULL (a partial extraction — only some of
-    the three parsed — still contributes what it has, never blocked on the
-    others being present). "" when none are populated. Mirrors
+    """D9-3 (migration 152), SHEET path: thin delegate to the shared
+    join-skip-empty builder (D15-5, storyboard.shot_context.env_locks_text)
+    — kept as a same-named wrapper for test/call-site compatibility. Mirrors
     _locks_text's join-skip-empty pattern for the character-side locks
-    (migration 151)."""
-    return "; ".join(p for p in (
-        (row.get("architecture_lock") or "").strip(),
-        (row.get("lighting_time_weather_lock") or "").strip(),
-        (row.get("palette_lock") or "").strip(),
-    ) if p)
+    (migration 151, unrelated to this D15-5 refactor — _locks_text has no
+    duplicate copy and stays as-is)."""
+    return _shared_env_locks_text(row)
 
 
 def _canonical_environment_locks_line(envs: list[dict], location_sets: dict,
                                       matched_env: Optional[dict]) -> str:
-    """D9-3 (Custom Film EnvironmentLock harvest, migration 152): the
-    CODE-RENDERED, canonical environment-locks clause, sourced from
-    video_environments.architecture_lock / lighting_time_weather_lock /
-    palette_lock — mirrors _canonical_material_line's exact shape one
-    clause up (same multi-location loop / single-location fallback, same
-    _find matcher, same "never invents" contract). Returns "" when no
-    canonical lock text exists anywhere relevant, so every consumer's
-    existing no-lock fallback (description's free prose) is unchanged for
-    any video/environment that hasn't authored one yet — byte-compatible
-    with every video before migration 152.
-
-    Multi-location scene (location_sets non-empty): one verbatim clause per
-    LOCSET name that has a matching approved environment with locks
-    populated. A location with no canonical locks is simply omitted from
-    this string, same KNOWN GAP _canonical_material_line documents for
-    material_map.
-
-    Single-location scene (location_sets empty): the scene's ONE matched
-    environment's joined locks (_env_locks_text), or "" if it has none or
-    nothing matched."""
-    def _find(name: str) -> str:
-        padded = f" {_norm_env_text(name)} "
-        for e in envs:
-            n = _norm_env_text(e.get("name") or "")
-            if n and f" {n} " in padded:
-                return _env_locks_text(e)
-        return ""
-
-    if location_sets:
-        parts = []
-        for loc in location_sets:
-            lx = _find(loc)
-            if lx:
-                parts.append(f"{loc.upper()}: {lx}")
-        return " ".join(parts)
-    if matched_env:
-        return _env_locks_text(matched_env)
-    return ""
+    """D9-3 (Custom Film EnvironmentLock harvest, migration 152), SHEET
+    path: thin delegate to the shared precedence builder (D15-5, storyboard.
+    shot_context.canonical_environment_locks_line) — kept as a same-named
+    wrapper for test/call-site compatibility. mode="sheet" matches this
+    file's once-per-block usage."""
+    return _shared_canonical_environment_locks_line(envs, location_sets, matched_env, mode="sheet")
 
 
 # The planner's own [SET | LocationName: description...] header names this

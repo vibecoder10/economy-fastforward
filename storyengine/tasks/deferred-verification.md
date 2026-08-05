@@ -4358,3 +4358,48 @@ state that was previously (incorrectly) permitted.
   mega-test through all three layers would duplicate that file's own
   extensive DB/vision-mocking harness for no new signal.
 
+
+---
+
+## D15-5 (ONE canonical shot-context builder, worktree `d15-5-shared-builder`)
+
+**Build-only chunk per the brief — no deploy, no push, no prod writes.**
+New module `skills/video-pipeline/storyboard/shot_context.py`; both prior
+hand-maintained copies (`coverage_to_app.py`'s `_canonical_material_line`/
+`_env_locks_text`/`_canonical_environment_locks_line` and `coverage.py`'s
+`canonical_material_line`/`_env_locks_text`/`canonical_environment_locks_line`)
+are now thin delegating aliases (kept, same names, for existing test/call-
+site compatibility — never dead copies). Full reconciliation record lives
+in `shot_context.py`'s own module docstring.
+
+**What's missing (deferred, build-only per the brief):**
+- No live/prod verification — proven only via a golden fixture matrix run
+  through both assemblers' Python functions (`test_d15_5_shot_context_
+  goldens.py`, 95 tests) plus the pre-existing D6-1/D9-3/board-laws suites
+  re-run unmodified. No real Supabase environment row, no real board-sheet
+  draw, no real coverage-frame draw was exercised. Whoever deploys this
+  should generate a storyboard sheet AND a real coverage frame on a video
+  that has an approved environment with a populated `material_map` (or the
+  three D9-3 lock columns) at least once, per the CLAUDE.md "run it like a
+  user" rule (skipped here only because this chunk was scoped build-only,
+  and — more fundamentally — production has 0 environments with any of
+  those four columns populated as of this chunk, per D9-3b's own docstring
+  ("confirmed live, 38 rows / 0 populated"), so even a live walk today
+  would only exercise the unchanged "" fallback path, not the canonical-
+  wins branch this refactor actually touches).
+
+**Found, NOT introduced by this chunk (informational, out of scope):** the
+full `storyengine/backend/tests/` suite has 28 pre-existing failures, all in
+`tests/functional/test_custom_film_remotion.py` (Remotion renderer-bundle
+hash binding — unrelated to material/environment-locks), and the full
+`skills/video-pipeline/tests/` suite has 25 pre-existing failures/errors in
+`test_music_selector.py` / `test_pipeline_integration.py` / `test_voice_run.py`
+/ `test_airtable_curiosity.py`, plus 2 pre-existing collection ERRORs
+(`test_ctr_12h_tracking.py`, `test_sound_curation.py` — `ModuleNotFoundError`
+for `performance_tracker`/`sound_prompt_bot`, a sys.path gap reproduced
+identically on the unmodified `main` checkout, not this worktree). Confirmed
+NOT caused by this chunk: reverted-vs-applied (via `git apply -R`/`git apply`
+on a captured patch, never `git stash`) sorted FAILED+ERROR sets are
+byte-identical in both suites, before and after. Someone should look at the
+Custom Film Remotion suite separately — 28 failures in one file is a lot to
+be carrying as "pre-existing."
