@@ -4830,3 +4830,46 @@ committing):**
 - `_stated_style_prefix`'s own docstring in `coverage.py` was left unchanged
   (still accurate) rather than cross-referenced to D15-7 — a documentation
   nicety, not a correctness gap.
+
+**Confirmation follow-up (2026-08-05 — independent re-verification of the
+above, which the interrupted session flagged "VERIFY BEFORE FOLDING" before
+it was cut off mid-run; commit `aa9cb291` already carried the full diff
+above, this is the missing skeptical check on top of it):**
+- Re-ran the exact stash-proof independently (patch-revert of the 3 impl
+  files only, tests untouched): wiring-spy tests fail with the real
+  `TypeError: _resolve_style() takes 2 positional arguments but 3 were
+  given`; `test_d6_1_canonical_inputs.py` fails to collect
+  (`_preset_style_directive` doesn't exist pre-change);
+  `test_preset_only_asset_gets_a_real_art_style_line_on_redraw` fails with
+  the exact pre-fix `STYLE LOCK`-not-`ART STYLE` prompt text; the pipeline
+  dedup file's leak-immunity tests fail with the real `ceramic`/
+  `holographic`-leaked-into-the-frame assertion bodies. Reapplied — all
+  green again (50/50 backend-side D15-7 tests, 6/6 pipeline dedup tests).
+- Golden 2-arg matrix (image_style_override/visual_style combinations,
+  neither-set, blank/whitespace) captured against the reverted code and the
+  applied code independently — byte-identical for every entry that doesn't
+  touch the new tier (confirms zero behavior drift for every pre-D15-7 call
+  shape).
+- Full backend suite (`storyengine/backend`, venv pytest): **4547 passed, 4
+  skipped, 0 failed** — reproduced exactly, matching the number recorded
+  above. `test_custom_film_remotion.py` (the fresh-worktree phantom-failure
+  risk this checklist flags): 81/81 passed independently.
+- Full pipeline suite: this environment's system `python3` has no
+  `pytest-asyncio` installed, so a bare `--continue-on-collection-errors`
+  run now shows 84 failed/5 errors, not the 27+2 an earlier D15-x entry in
+  this same file recorded — an environment drift since that entry was
+  written, NOT something this chunk caused. Proven directly: the identical
+  84 failed/5 errors (89 sorted FAILED+ERROR lines) reproduce byte-for-byte
+  on the **untouched pristine checkout**
+  (`/Users/ryanayler/economy-fastforward/skills/video-pipeline`, zero D15-7
+  changes) — `diff` on the sorted line sets is empty. The worktree's only
+  difference from pristine is +6 passed (this chunk's own new
+  `test_d15_7_coverage_style_dedup.py` tests). Zero new regressions,
+  confirmed against a real unmodified tree rather than only a revert/apply
+  cycle within the same worktree.
+- Verdict: safe to fold. No existing behavior changes for any video today
+  (production's one `style_preset_id`-carrying video is `"neutral_v1"`,
+  excluded by design); the only doors that now behave differently are
+  hypothetical (a video with a non-neutral preset and no freeform style
+  field) and a previously-possible env-leak edge case, both fixed in the
+  intended direction.

@@ -2491,8 +2491,28 @@ and get folded into lanes opportunistically.
   flagged as future candidate); 5 golden proofs + wiring-spy test that fails pre-change; guard-neuter
   8 real AssertionErrors; suite 0/0 both ways, 218 sibling tests unmodified green. Fold dispatched.
   Original: Fold redraw_asset_image onto the shared builder.
-- [ ] D15-7 (S) [B][V] ONE style-resolution entry point behind style_dir/_stated_style_prefix/
-  _resolve_style (closes D6-1d's family for good).
+- [x] D15-7 (S) [B][V] DONE 2026-08-05 (branch d15-7-style, commit aa9cb291 + confirmation follow-up):
+  reality check found 2 implementations feeding 3 assemblers, not 3 literal duplicate resolvers -
+  coverage_to_app._resolve_style (correct, D6-1's contract) and a second, leak-prone env-based lookup
+  living INSIDE storyboard.bot.build_image_prompt_from_keyframe that assembler B's coverage frames
+  called despite already being handed the resolved profile. Fix: _resolve_style gained a 3rd
+  precedence tier (style_preset_id, via new _preset_style_directive helper, image_style_override >
+  visual_style > style_preset_id > None - closes D6-1d) and all 3 real assembler call sites
+  (generate_storyboard_sheet_for_scene, generate_coverage_for_video, redraw_asset_image, + the CLI
+  debug tool for consistency) now SELECT + thread style_preset_id into it, proven by wiring-spy tests
+  that fail if any call site stops delegating. build_image_prompt_from_keyframe gained
+  apply_style_wrapping (default True, byte-identical for its own legacy callers); coverage.py's two
+  frame call sites pass False since the ART STYLE line is already stated once upstream - retires the
+  duplicate-injection/env-leak defect proven live in tests (a polluted VISUAL_PROFILE env var visibly
+  leaked another preset's vocabulary into an unrelated frame prompt pre-fix). Golden 2-arg matrix
+  reproduced byte-for-byte; guard-neuter (revert impl only) turned real AssertionError/TypeError red,
+  not vacuous ImportError. Suites: backend 4547 passed/4 skipped/0 failed; pipeline FAILED+ERROR line
+  set byte-identical (89 lines) against the untouched main checkout - all pre-existing environment
+  gaps (missing pytest-asyncio, 2 files' sys.path), zero new regressions. custom_film_remotion 81/81.
+  Zero prod behavior change today (the one production video carrying style_preset_id is "neutral_v1",
+  excluded by design). FLAGGED: actions.py's FOLLOWUP_STAGES["images"] chat follow-up path still
+  routes through the legacy env-based VISUAL_PROFILE mechanism untouched (out of this chunk's
+  MAY-touch list) - a smaller, differently-shaped gap for a future chunk.
 - [ ] D15-8 (S) [B][V] Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
 - [ ] D15-9 (S) [B][V] One _get_or_plan_directive helper replacing the duplicated hash-gate blocks;
   staleness + judging see one plan object from all nine doors.
