@@ -127,8 +127,12 @@ def _run_sheet_plan(directive, check_patch=None):
         raise AssertionError(f"unexpected fetch_one: {query}")
 
     async def fetch_all(query, *args):
-        if "SELECT scene, scene_text FROM scripts" in query:
-            return [{"scene": 1, "scene_text": SCENE_TEXT}]
+        # S6-A added a "location" column to this SELECT's column list
+        # (scripts.location, migration 144) — match the shared WHERE
+        # clause tail so this fixture is robust to the exact column list.
+        if "FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene IS NOT NULL " \
+           "AND scene_text IS NOT NULL ORDER BY scene" in query:
+            return [{"scene": 1, "scene_text": SCENE_TEXT, "location": None}]
         if "FROM video_characters" in query:
             return []
         raise AssertionError(f"unexpected fetch_all: {query}")
