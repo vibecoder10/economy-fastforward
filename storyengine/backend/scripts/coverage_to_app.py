@@ -4939,7 +4939,7 @@ async def generate_coverage_for_video(
         board_urls: list = []
         board_panel_total = None
         saved = await fetch_one(
-            "SELECT coverage_directive, coverage_directive_hash, storyboard_prompts, "
+            "SELECT id, coverage_directive, coverage_directive_hash, storyboard_prompts, "
             "storyboard_1_url, storyboard_2_url, storyboard_3_url, "
             "storyboard_4_url, storyboard_5_url FROM scripts "
             "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
@@ -4990,6 +4990,17 @@ async def generate_coverage_for_video(
                 _p(f"Scene {sc}: drawing the storyboarded plan ({model_override or 'GPT Image 2'}){anchored}…")
             else:
                 _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
+        # D15-2: fixed HERE, before the fresh-plan branch below can assign a
+        # new value to `directive` — True only when the hash-match branch
+        # just above set `directive = saved["coverage_directive"]`. A scene
+        # whose script changed (or that had no saved directive at all) falls
+        # through with `directive` still None at this exact point, so this
+        # reads False for it regardless of what directive gets planned next
+        # (by the narrative-board branch just below, or inside run_coverage
+        # itself). Drives the fresh-plan persist after the draw call below —
+        # a REUSED directive is already correctly stored and must never be
+        # re-written (that would just re-stamp the same row for no reason).
+        directive_was_reused = directive is not None
         if directive is None:
             _p(f"Scene {sc}: planning + drawing coverage ({model_override or 'GPT Image 2'})…")
             # D10-3a: this scene has no saved plan to reuse (the sheet-preview step
@@ -5049,6 +5060,32 @@ async def generate_coverage_for_video(
         if out.get("error"):
             _p(f"Scene {sc}: skipped ({out['error']})")
             continue
+        # D15-2 (root cause of "different storyboard every time"): this scene
+        # had no persisted/matching directive going in (directive_was_reused
+        # is False — either no saved row, or the script changed since the
+        # last one), so run_coverage just planned ONE fresh, either from the
+        # narrative-board branch above or internally at its own
+        # `if directive_text is None:` leg. That freshly-planned text used to
+        # vanish the moment this function returned — the NEXT call for this
+        # exact same (unchanged) scene text would find no stored directive
+        # again and re-plan from scratch, landing on a different shot list
+        # every time. Persist it now, mirroring the sheet path's own persist
+        # (generate_storyboard_sheet_for_scene, same coverage_directive/
+        # coverage_directive_hash columns, same _scene_text_hash) so the
+        # C16b skip-if-done gate and the reuse branch above both engage on
+        # the next call. Advisory: a persist failure must not fail a draw
+        # that already succeeded and was already billed.
+        if not directive_was_reused:
+            try:
+                _directive_used = out.get("directive_text")
+                if _directive_used:
+                    await execute(
+                        "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
+                        "updated_at=now() WHERE id=$3",
+                        _directive_used, _scene_text_hash(s["scene_text"] or ""), saved["id"])
+            except Exception as _persist_exc:  # noqa: BLE001 — advisory only
+                _p(f"Scene {sc}: directive persist failed ({str(_persist_exc)[:120]}) — "
+                   "boards drew fine, but the next run may re-plan")
         for m in out["moments"]:
             for fr in m["frames"]:
                 fr["_path"] = os.path.join(outdir, fr.get("file", "")) if fr.get("file") else None

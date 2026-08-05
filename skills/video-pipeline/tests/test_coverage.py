@@ -175,6 +175,80 @@ def test_legacy_coverage_still_auto_resolves_cast(tmp_path):
     assert out["cast_url"] == "https://cast.png"
 
 
+def test_run_coverage_exposes_the_directive_it_was_given(tmp_path):
+    """D15-2 mechanism, half 1: when a caller passes directive_text, the returned
+    dict's directive_text is that EXACT text back — the additive return key a
+    caller (coverage_to_app.py::generate_coverage_for_video) can persist without
+    re-deriving or re-hashing anything of its own. Byte-identical passthrough,
+    not a re-plan."""
+    directive = (
+        "[MOMENT 1 | the relay fails]\n"
+        "- MASTER [WS]: Wide view of the dark relay room.\n"
+        "- ANGLE [INSERT]: Tight detail of the failed indicator.\n"
+    )
+    client = _FakeImageClientForFrames()
+    planner = AsyncMock(side_effect=AssertionError(
+        "a directive_text was supplied — the internal planner must not run"))
+
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage._download", lambda url, path: None), \
+         patch("storyboard.coverage.generate_coverage_directive", planner):
+        out = asyncio.run(run_coverage(
+            beat_text="The relay fails.",
+            image_client=client,
+            outdir=str(tmp_path),
+            cast_url=None,
+            directive_text=directive,
+            max_moments=1,
+            angles_max=1,
+            max_frames=2,
+            model_override="z-image",
+        ))
+
+    assert not out.get("error"), out
+    assert out["directive_text"] == directive
+    planner.assert_not_awaited()
+
+
+def test_run_coverage_exposes_the_directive_it_planned_internally(tmp_path):
+    """D15-2 mechanism, half 2 — this is the actual bug fix's foundation: when
+    a caller has no persisted/matching directive of its own (directive_text=
+    None, coverage_to_app.py's ~:4993 "directive stays None" case), run_coverage
+    plans ONE internally via generate_coverage_directive and now surfaces that
+    EXACT text on out["directive_text"] instead of only writing it to the local
+    directive.txt file. This is what makes a fresh-plan persist possible at the
+    caller layer. Also pins that the planner is called exactly ONCE per
+    run_coverage invocation — no matter how many moments/frames get drawn from
+    the directive it returns."""
+    directive = (
+        "[MOMENT 1 | the relay fails]\n"
+        "- MASTER [WS]: Wide view of the dark relay room.\n"
+        "- ANGLE [INSERT]: Tight detail of the failed indicator.\n"
+    )
+    client = _FakeImageClientForFrames()
+    planner = AsyncMock(return_value=directive)
+
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage._download", lambda url, path: None), \
+         patch("storyboard.coverage.generate_coverage_directive", planner):
+        out = asyncio.run(run_coverage(
+            beat_text="The relay fails.",
+            image_client=client,
+            outdir=str(tmp_path),
+            cast_url=None,
+            directive_text=None,
+            max_moments=1,
+            angles_max=1,
+            max_frames=2,
+            model_override="z-image",
+        ))
+
+    assert not out.get("error"), out
+    assert out["directive_text"] == directive
+    planner.assert_awaited_once()
+    assert out["frame_count"] == 2
+
+
 class _FakeImageClientForFrames:
     """Records every frame-draw call; only the z-image path is exercised (no GPT
     fallback expected when it succeeds every time)."""
