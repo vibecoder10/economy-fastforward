@@ -17003,12 +17003,27 @@ scenes."""
     # NOTE: the run_next_step status map above still routes the image STAGES to the
     # old grid handlers; swapping those to coverage needs status-advance handling +
     # a FINISH/autopilot test and is a follow-up (see HANDOFF-REPORT).
-    async def run_coverage_images(self, video_id: str, scene: int = None) -> dict:
+    async def run_coverage_images(self, video_id: str, scene: int = None,
+                                   progress: Optional[Any] = None) -> dict:
         """Draw the real per-shot, multi-angle pictures for a scene (or all scenes)
         via coverage — the live image path. Replaces the old grid run_prompts+run_images.
         STATIC-DOCU videos take a verified aircraft view set per segment instead, so route them
         to the static path (scene-scoped when a scene is given — lets a review-gate
-        re-roll fix ONE segment without re-rolling the others)."""
+        re-roll fix ONE segment without re-rolling the others).
+
+        D15-3: `progress` (a `msg: str -> None` callable, forwarded verbatim to
+        generate_coverage_for_video) is additive — every existing caller
+        (actions.py ACTIONS["images"], claude_orchestrator.py's skill_to_method,
+        the MCP `images` tool) omits it and gets the exact same None default as
+        before this param existed, so their behavior is byte-identical. It exists
+        so routes/pipeline.py's POST /coverage-images/{video_id} can route through
+        this wrapper (picking up the voicefix money gate + static_docu redirect
+        below, which the route's OLD direct call to generate_coverage_for_video
+        never got) without losing the per-scene live status text
+        (_set_task_status polling) the task poller depends on mid-run. NOT
+        forwarded into the static_docu branch's run_coverage_stage — that method
+        has never taken a progress callable and this chunk's edit is scoped to
+        request-parameter pass-through only, not a new capability there."""
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
@@ -17029,26 +17044,63 @@ scenes."""
                 label = f"scene {scene}" if scene is not None else f"{total - voiced}/{total} scenes"
                 msg = f"Voice generation must complete before image generation. Missing voice for {label}."
                 await self._log_activity("Image Bot", video_id, "failed", msg)
-                return {"status": "failed", "error": msg}
+                # D15-3 finding: this gate's error dict reaches a REAL user for
+                # the first time via THIS chunk — routes/pipeline.py's
+                # POST /coverage-images/{video_id} (the "Generate pictures"
+                # button) previously bypassed this method entirely, so this
+                # message never flowed through routes/pipeline.py's
+                # _set_task_status, which runs every failed-status error
+                # through error_utils.humanize_error at the write boundary.
+                # Without user_facing(), that funnel flattens this actionable,
+                # deliberately-worded message to the generic "Something went
+                # wrong. Please try again." fallback (found live via this
+                # chunk's own route-dispatch tests, not guessed) — the
+                # button would correctly BLOCK the spend but tell the user
+                # nothing about why. user_facing() is the established idiom
+                # this exact file already uses a dozen other places for
+                # exactly this "deliberate copy must survive the funnel"
+                # need (see e.g. the story-lock / cast-approval messages
+                # above). Chat's "images" verb never had this problem (it
+                # doesn't render through this funnel), so this only needed
+                # fixing here, at the button's entry point.
+                return {"status": "failed", "error": user_facing(msg)}
         if (video.get("render_mode") or "") == "static_docu":
             return await self.run_coverage_stage(
                 video_id, only_scenes={scene} if scene else None)
         from scripts.coverage_to_app import generate_coverage_for_video
-        return await generate_coverage_for_video(video_id, self.tenant_id, scene=scene)
+        return await generate_coverage_for_video(video_id, self.tenant_id, scene=scene, progress=progress)
 
-    async def run_storyboard_sheet(self, video_id: str, scene: int = None) -> dict:
+    async def run_storyboard_sheet(self, video_id: str, scene: int = None,
+                                    beat: int = None, plan_only: bool = False,
+                                    progress: Optional[Any] = None) -> dict:
         """Draw the cheap single-image storyboard SHEET preview for a scene via
         coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images.
         Static-documentary videos have no generic storyboard stage (their 2–3
         aircraft views use the format-specific path), so refuse cleanly instead of running the
-        wrong generic-coverage path."""
+        wrong generic-coverage path.
+
+        D15-3: `beat` (redraw ONLY that one board slot from the scene's saved
+        plan), `plan_only` (write the shot plan + placeholders, draw NOTHING),
+        and `progress` are additive params, forwarded verbatim to
+        generate_storyboard_sheet_for_scene (which already accepts all three —
+        see scripts/coverage_to_app.py). Every existing caller (actions.py
+        ACTIONS["storyboards"], claude_orchestrator.py) omits them and gets the
+        exact same (None, False, None) defaults as before these params existed,
+        so their behavior is byte-identical. They exist so routes/pipeline.py's
+        POST /storyboard-images/{video_id} — whose `beat`/`plan_only` query
+        params are live buttons (ScenesWorkspaceTab.tsx's "redraw one board" /
+        "plan only" actions), not dead params — can route through this wrapper
+        instead of calling generate_storyboard_sheet_for_scene directly."""
         video = await self._get_video(video_id)
         if video and (video.get("render_mode") or "") == "static_docu":
             return {"status": "skipped",
                     "message": "This static-documentary channel generates its own "
                                "verified aircraft view set, not generic storyboards."}
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
-        result = await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
+        result = await generate_storyboard_sheet_for_scene(
+            video_id, self.tenant_id, scene=scene, beat=beat, plan_only=plan_only,
+            progress=progress,
+        )
         # D5 chunk A6 (FRAME-ARBITER-PLAN.md): flag-gated Frame Arbiter pass,
         # scoped to exactly ONE (video_id, scene) via env config — see
         # frame_arbiter_hook.py's own module docstring for the flag/sub-flag
@@ -17059,7 +17111,21 @@ scenes."""
         # attempted when a scene was actually drawn (never on the bulk
         # scene=None path, and never when the sheet draw itself failed —
         # there is nothing fresh to judge).
-        if scene is not None and result.get("status") not in ("failed", "skipped"):
+        #
+        # D15-3: ALSO never attempted for `plan_only` (no pixels landed — there
+        # is nothing to judge, and judging a plan would be a wasted vision
+        # call at best) or a `beat`-scoped single-slot redraw (judging would
+        # re-fetch and re-judge EVERY drawn beat in the scene, not just the
+        # one that changed — run_after_storyboard_sheet has no beat filter —
+        # and if that judgment found a MODEL_DEFECT it could trigger the
+        # repair ladder's own reroll of a board the user didn't ask to touch,
+        # a redraw loop this hook was never scoped to run per-slot). Only the
+        # plain "generate/redo the whole scene's sheet(s)" call shape (beat is
+        # None, plan_only is False) — the ONLY shape any caller used before
+        # this chunk added beat/plan_only — reaches the hook, so this guard is
+        # additive, not a narrowing of prior behavior.
+        if (scene is not None and beat is None and not plan_only
+                and result.get("status") not in ("failed", "skipped")):
             from frame_arbiter_hook import run_after_storyboard_sheet
             try:
                 arbiter_result = await run_after_storyboard_sheet(self.tenant_id, video_id, scene)

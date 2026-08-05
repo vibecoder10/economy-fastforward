@@ -4267,3 +4267,94 @@ stand unchanged.
     `_apply_dvsu_language_polish`'s claim_map loop) if the live bundle's spans aren't
     whole-sentence like the d2e37cd6/Furious fixture used for G20's own tests.
 
+# Deferred verification — D15-3 (one road: storyboard-images/coverage-images routes now dispatch through PipelineExecutor)
+
+Closes the D15-1 sweep's finding: `POST /storyboard-images/{video_id}` and
+`POST /coverage-images/{video_id}` (backend/routes/pipeline.py) called
+`scripts.coverage_to_app`'s draw functions directly, bypassing
+`PipelineExecutor.run_storyboard_sheet`/`run_coverage_images` — the same
+wrappers chat's verbs / MCP tools / ClaudeOrchestrator already go through —
+so a button-initiated draw never picked up the flag-gated Frame Arbiter
+judging pass (D5/A6) or the voicefix money gate. Both routes now construct
+`PipelineExecutor(tenant_id)` inside their background task and call the
+wrapper methods with every parameter the route receives (`scene`, `beat`,
+`plan_only`, `progress`).
+
+**Real gap found mid-build, not assumed** (the D15-1 sweep's "just
+call-through + arbiter" premise was only half right): the wrapper methods
+had NO `beat`/`plan_only`/`progress` params at all before this chunk, while
+the route's `beat` (redraw one board slot) and `plan_only` (plan-without-
+drawing) query params are live buttons (`ScenesWorkspaceTab.tsx:847/861/875`),
+not dead ones. Flagged to the loop; scoped exception granted to extend
+`pipeline_executor.py`'s two wrapper signatures ONLY (add the three params,
+forward verbatim to the underlying `scripts.coverage_to_app` functions,
+which already accept them) — no other line in that file touched, and
+`coverage_to_app.py` itself (owned by the D15-2 worker) was never touched.
+The Frame Arbiter hook-trigger guard was additionally narrowed to
+`beat is None and not plan_only` (previously just `scene is not None`) so a
+plan-only call (no pixels drawn) or a beat-scoped single-slot redraw
+(judging would re-fetch/re-judge every board in the scene and could trigger
+the repair ladder's own reroll of a slot the user didn't touch) never reach
+the hook — the ONE call shape every caller used before this chunk (plain
+`scene`, no beat, no plan_only) is unaffected, proven against the new
+signature in `test_d15_3_wrapper_param_forwarding.py`.
+
+**Second real gap found via testing, fixed in the same file:** the
+voicefix money gate's error message (`"Voice generation must complete
+before image generation. Missing voice for {label}."`) reaches a real user
+for the FIRST time via this chunk (the button never went through this gate
+before). `routes/pipeline.py`'s `_set_task_status` runs every failed
+status's error through `error_utils.humanize_error` at the write boundary,
+which flattens any string not wrapped in `error_utils.user_facing()` to the
+generic "Something went wrong. Please try again." fallback — chat's
+"images" verb never hit this because it doesn't render through that funnel.
+Without the fix the button would correctly BLOCK the spend but tell the
+user nothing about why. Fixed by wrapping the message in `user_facing()`
+(the same idiom this exact file already uses a dozen other places for
+deliberate, actionable copy) — proven both at the executor level
+(`test_run_coverage_images_voicefix_gate_error_is_user_facing_marked`) and
+end-to-end through the route (`test_coverage_images_route_failure_result_
+shape_flows_through_unchanged`).
+
+**Behaviorally inert in prod today, on purpose:** the Frame Arbiter only
+fires when `FRAME_ARBITER_A6_ENABLED` is set (default off, unset in prod),
+so this whole change is a no-op for the arbiter path until that flag turns
+on — proven by `test_arbiter_hook_never_fires_for_a_plan_only_call_...`/
+`..._beat_scoped_redraw_...` plus the pre-existing `test_d5_a6_arbiter_
+hook.py` suite (52 pre-existing tests across that file + 
+`test_voicefix_image_money_gate.py`/`test_d3_59_plan_only_dry_run.py`/
+`test_c16b_coverage_skip_if_done.py` re-run unmodified, all still pass).
+
+**DELIBERATE, SHIP-VISIBLE behavior change (not the arbiter — read this
+even with the arbiter flag off):** `POST /coverage-images/{video_id}` (the
+"Generate pictures" / per-scene "regenerate" buttons) now enforces the
+voicefix money gate (`_check_voice_exists`) that chat's "images" verb / MCP
+`images` tool already enforced. A user who previously could draw pictures
+on a video with unvoiced scenes via the BUTTON (not chat) will now be
+told to run voice first, with an actionable message (per the fix above)
+instead of a silent bypass. This is the canonical production order being
+enforced (Research → Script → Voice → Characters → Environments →
+Storyboards → Pictures), not a regression — but it is worth a deploy-notes
+line since it changes what a specific button does for an edge-case video
+state that was previously (incorrectly) permitted.
+
+**What's missing (deferred, build-only chunk per the brief — no deploy):**
+- No live/prod verification — this chunk was BUILD ONLY in a worktree
+  (`storyengine/.claude/worktrees/d15-3-route`), no push, no deploy, no
+  `/se-smoke` walk. The 18 new tests (`test_d15_3_wrapper_param_forwarding.py`,
+  `test_d15_3_route_dispatch.py`) run against monkeypatched DB/network/paid
+  boundaries only — no real Supabase row, no real Kie draw, no real browser
+  click was exercised. Whoever deploys this should walk "Generate storyboards"
+  → "Plan only" → "Redo one board" → "Generate pictures" on a real video in
+  the Scenes workspace once, per the CLAUDE.md "run it like a user" rule
+  (skipped here only because the chunk brief scoped this to build-only).
+- No live proof of the arbiter actually firing against a REAL judge/vision
+  call end to end through the button (flags are off in prod anyway, so this
+  is low-priority) — covered instead by the composed proof: route→executor
+  param-fidelity (`test_d15_3_route_dispatch.py`) + executor+flag→hook-called
+  (`test_d15_3_wrapper_param_forwarding.py`), the same trust-boundary split
+  `test_d5_a6_arbiter_hook.py` already uses (it treats the hook's own
+  internals as proven separately from the call site). A single zero-mock
+  mega-test through all three layers would duplicate that file's own
+  extensive DB/vision-mocking harness for no new signal.
+
