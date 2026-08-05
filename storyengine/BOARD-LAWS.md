@@ -30,7 +30,7 @@ they extend rather than replace.
 
 - **The camera resolves in screen space** — L0, L5, L10, L19
 - **Space and geography hold across shots** — L1, L9, L13, L14, L15, L16
-- **The set is defined before it is shot** — L3, L7, L8, L11, L20
+- **The set is defined before it is shot** — L3, L7, L8, L11, L20, L30
 - **People are specified, not assumed** — L6, L12, L17, L22
 - **Inputs must be real** — L28, L29
 - **Action is legal** — L4
@@ -155,6 +155,17 @@ inside the established set rather than redefining the set.
 get contrast for a small dark object, and the correction then wrote as fully
 transparent. Both were half-right, because the material map had never been written
 down.*
+
+**L30 — THE BOARD NAMES THE SCRIPT'S DECLARED LOCATION (STORY-LAWS.md S6).** When the
+script states a scene's location, the board's location-declaring text — the FIXED SET
+or LOCSET header, the MATERIAL MAP, the ENVIRONMENT LOCKS — must name it. The script
+is the origin of truth; a board that never says "kitchen" for a scene the script
+places in a kitchen is not merely a bad picture, it is a faithful render of a plan
+that silently dropped the script's own stated fact.
+*Provenance: tenant PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a, scene 1 —
+the script's stated location was "the kitchen at home"; the 32,790-character assembled
+board prompt never contained the word "kitchen," and the board drew the bedroom
+instead.*
 
 ---
 
@@ -310,10 +321,11 @@ one thing a seam cannot survive is *almost* the same picture.
 ## Laws that belong to the script
 
 Boarding a script is the cheapest way to find script defects, but the board cannot
-fix them. Those laws live in `STORY-LAWS.md` (S1-S5): narrate every location
+fix them. Those laws live in `STORY-LAWS.md` (S1-S6): narrate every location
 change; a payoff must be paid for earlier; one scene is one location and one
 continuous beat; the script is the source of truth for cast; a scene states where
-it is.
+it is; the script is the origin of truth, and changing it invalidates what came
+before. L30 above is the board's own enforcement leg of S6, for location specifically.
 
 ---
 

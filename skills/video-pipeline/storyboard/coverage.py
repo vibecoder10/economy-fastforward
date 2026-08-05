@@ -496,6 +496,15 @@ deduplicate a description that repeats it anyway (no fuzzy matching), so a dupli
 reads TWICE: once as the compiler's clause, once in your own sentence. This rule changes nothing \
 about a shot you leave UNTAGGED (no ARCHETYPE, no DP row) — rule 11 stands complete and unchanged \
 for that shot: state all four camera facts in prose exactly as before this rule existed.
+30) NAME EVERY PHYSICAL PROP AND PHYSICAL ACTION A MOMENT'S DIALOGUE OR NARRATION CALLS FOR \
+(S6-A). Immediately under EVERY [MOMENT n | ...] header (right under its LINE: row when the \
+moment speaks, else right under the header itself), add its own row: `[PROPS | <comma-separated \
+list of the specific physical objects and/or physical actions this moment's dialogue or scene \
+text calls for>]` — pull the nouns and actions straight from the scene text, verbatim-ish, never \
+invented (e.g. a line that says "here, two tickets" and stage direction that a character salutes \
+the trash can becomes `[PROPS | two tickets, saluting the trash can]`). Omit the row entirely \
+when this moment names no specific prop or physical action — most silent establishing, transit or \
+reaction moments have none, and this is the common case, not an error.
 </rules>
 
 <output_format>
@@ -535,6 +544,9 @@ Then, for each moment:
 
 [MOMENT n | one-line description of what happens]
 LINE: <Speaker> | "<exact spoken words>"   (ONLY for a speaking moment; omit entirely if silent)
+[PROPS | <comma-separated named props and/or physical actions this moment's dialogue or scene \
+text calls for>] (rule 30 — its OWN row, right under the LINE row when present else right under \
+the MOMENT header; omit entirely when this moment names no specific prop or physical action)
 - MASTER [shot_type]: setup letter FIRST, then ONE flowing sentence in SCREEN coordinates, \
 COMPOSITION FIRST: where each visible character sits in the FRAME and which way they look \
 (frame-left, right-of-center, "soft shoulder in the frame-right foreground corner"), then ONE \
@@ -666,9 +678,22 @@ def format_boundary_blocks(incoming: dict | None = None, outgoing: dict | None =
 
 
 def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
-                          incoming: dict | None = None, outgoing: dict | None = None) -> str:
+                          incoming: dict | None = None, outgoing: dict | None = None,
+                          location: str | None = None) -> str:
     parts = [f'Plan cinematic COVERAGE for "{video_title or "this scene"}".',
              f"\nScene narration:\n{beat_text.strip()}"]
+    # S6-A (STORY-LAWS.md S6 — "the script is the origin of truth"): when the
+    # script has a canonical location for this scene (scripts.location,
+    # migration 144), state it as a FACT the planner must obey, not just
+    # something it might infer from the narration prose above. Found live:
+    # a scene whose script said "the kitchen at home" was boarded entirely
+    # inside a bedroom — the planner's [SET|...] header never named the
+    # script's own stated location because nothing ever told it to.
+    if (location or "").strip():
+        parts.append(
+            f"\n--- DECLARED LOCATION (canonical, from the script) ---\n"
+            f"This scene's location is: {location.strip()}. Your [SET | ...] header (or, for a "
+            "multi-location scene, at least one [LOCSET | ...] header) MUST name it.")
     bible = _format_story_bible_for_beat(story_bible, beat_scenes or [])
     if bible:
         parts.append(f"\n--- VISUAL BIBLE (binding) ---\n{bible}\n--- END VISUAL BIBLE ---")
@@ -700,6 +725,7 @@ async def generate_coverage_directive(
     beat_text, video_title, profile, story_bible, beat_scenes, image_prompts,
     max_moments=3, angles_min=2, angles_max=4, anthropic_client=None, model=None,
     incoming: dict | None = None, outgoing: dict | None = None, board_rules_text: str = "",
+    location: str | None = None,
 ) -> str:
     """Run Claude to produce the coverage plan text. Returns the raw directive.
     model: pass a valid model id for a DIRECT Anthropic client (its built-in default can be
@@ -713,13 +739,21 @@ async def generate_coverage_directive(
     quality-rule text (quality_rules.compose_rules_text over quality_rules.active_board_rules
     — a backend-layer DB read; this module stays DB-free and takes the already-fetched text
     as plain data, same pattern as `profile`/`story_bible`). "" (the default) omits the
-    <board_quality_rules> block entirely."""
+    <board_quality_rules> block entirely.
+
+    location (S6-A, STORY-LAWS.md S6 — "the script is the origin of truth"):
+    the scene's own scripts.location column, a CANONICAL fact already
+    extracted from the script's own text (backend/story_laws.py's S3/S5
+    gate) — passed straight through to _coverage_user_prompt as a stated
+    fact the planner's [SET|]/[LOCSET|] header(s) must name. None (the
+    default — the legacy cron caller in storyboard/bot.py never passes this)
+    omits the block entirely, byte-identical to before this chunk existed."""
     if anthropic_client is None:
         from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
     kwargs = dict(
         prompt=_coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
-                                     incoming=incoming, outgoing=outgoing),
+                                     incoming=incoming, outgoing=outgoing, location=location),
         system_prompt=_coverage_system_prompt(profile, max_moments, angles_min, angles_max,
                                               board_rules_text=board_rules_text),
         max_tokens=6000, temperature=0.7,
@@ -949,6 +983,59 @@ def check_prop_manifest_consistency(props: list | None, set_line: str | None) ->
     return warnings
 
 
+def check_prop_action_presence(moments: list[dict]) -> int:
+    """S6-A WARN-only drift ALARM — peer of check_prop_manifest_consistency
+    above, same warning-family conventions: NOT a gate, never blocks or
+    rewrites anything, just logs loudly and returns a count.
+
+    Each moment's own planner-extracted [PROPS | ...] line (moment["props"],
+    parse_coverage, rule 30) names the physical props/actions THAT moment's
+    dialogue or scene text calls for — did the assembled shot plan actually
+    draw any of them anywhere? Checked SCENE-WIDE, not moment-by-moment: a
+    prop a line of dialogue introduces (tickets handed over) may legitimately
+    land in a NEIGHBORING moment's master/angle description instead of its
+    own (an insert a beat later, a reaction shot holding the object) — this
+    only asks whether the plan drew it at all, anywhere in the scene, not
+    which exact moment drew it.
+
+    Returns the number of DISTINCT extracted props/actions (case-insensitive,
+    deduped) not found (substring, normalized — same _PROP_NAME_NORM_RE
+    normalizer check_prop_manifest_consistency uses) in ANY master/angle
+    description across every moment. 0 when no moment carries a props list,
+    or every extracted prop/action is drawn somewhere — 0 for every plan
+    before this chunk existed (props is always [] there)."""
+    seen: set[str] = set()
+    names: list[str] = []
+    for m in moments:
+        for p in (m.get("props") or []):
+            name = str(p).strip() if p else ""
+            if not name:
+                continue
+            norm_name = _PROP_NAME_NORM_RE.sub(" ", name.lower()).strip()
+            if norm_name and norm_name not in seen:
+                seen.add(norm_name)
+                names.append((name, norm_name))
+    if not names:
+        return 0
+    descs = []
+    for m in moments:
+        master = m.get("master") or {}
+        if master.get("description"):
+            descs.append(master["description"])
+        for a in (m.get("angles") or []):
+            if a.get("description"):
+                descs.append(a["description"])
+    norm_haystack = f" {_PROP_NAME_NORM_RE.sub(' ', ' '.join(descs).lower())} "
+    warnings = 0
+    for name, norm_name in names:
+        if f" {norm_name} " not in norm_haystack:
+            warnings += 1
+            print(f"  ⚠️ prop/action extraction drift check: '{name}' (from this scene's own "
+                  f"[PROPS | ...] extraction) is not mentioned in any planned shot description — "
+                  f"worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
 def check_material_map_consistency(canonical_material: str, directive_text: str) -> int:
     """D6-1c (L20) drift ALARM — same discipline as check_prop_manifest_
     consistency above: NOT a gate, never blocks or rewrites the draw, just
@@ -1057,6 +1144,13 @@ _SHOT_RE = re.compile(
 )
 # The line the planner assigned to a speaking moment: `LINE: Dad | "exact words"`.
 _LINE_RE = re.compile(r'(?im)^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+)"')
+
+# S6-A: the planner's own per-moment prop/physical-action extraction (rule
+# 30 above), e.g. "[PROPS | two tickets, saluting the trash can]" — same
+# bracket grammar as [SET|]/[AXIS|]/[SETUPS|]/[LOCSET|], scoped to ONE
+# moment's block (searched the same way _LINE_RE is, below) rather than a
+# scene-wide header line.
+_PROPS_RE = re.compile(r"\[PROPS\s*\|\s*([^\]]*)\]", re.IGNORECASE)
 
 # D9-1 (film-studio audit harvest): a per-shot "why this shot exists" tag,
 # mirroring backend/custom_film_director.py's ShotDraft fields — progression_kinds
@@ -1288,13 +1382,22 @@ def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
 
 def parse_coverage(directive_text: str) -> list[dict]:
     """Parse the coverage plan into moments. Each moment: {moment_number, summary,
-    location, master:{shot_type,description}, angles:[...], speaker, line}.
+    location, master:{shot_type,description}, angles:[...], speaker, line, props}.
     speaker/line are set only for a speaking moment (the planner assigns dialogue
     at draw time). location (L3, rule 8) is set only for a multi-location scene
     whose [MOMENT n | ...] header carries a "LOCATION: <name> | " prefix — None
     for every scene parsed before this law existed, and for any single-location
     scene going forward (byte-compatible: nothing about a legacy plan's parse
     output changes).
+
+    props (S6-A, rule 30): [] unless this moment's own "[PROPS | ...]" row is
+    present, in which case it's that row's comma-separated body split into
+    short, stripped, non-empty strings — the physical props/actions this
+    moment's dialogue or scene text calls for, straight from the planner's own
+    extraction. [] (not None) for every plan before this chunk existed, and
+    for any moment the planner judged to have no specific prop/action —
+    callers already treat "falsy" as "nothing to check" (see
+    check_prop_action_presence), so the empty-list default costs nothing.
 
     Each shot dict also carries purpose_kind/shot_purpose (D9-1), transition_kind/
     continuity_bridge (D9-6), caused_by (D9-7), shot_archetype (D11-1), and
@@ -1317,6 +1420,8 @@ def parse_coverage(directive_text: str) -> list[dict]:
         lm = _LINE_RE.search(block)
         speaker = lm.group(1).strip() if lm else None
         line = lm.group(2).strip() if lm else None
+        pm = _PROPS_RE.search(block)
+        props = [p.strip() for p in pm.group(1).split(",") if p.strip()] if pm else []
         for m in _SHOT_RE.finditer(block):
             # Planners often emit `---` separator lines between moments; the
             # shot regex captures to the next MOMENT header, so a trailing
@@ -1342,7 +1447,8 @@ def parse_coverage(directive_text: str) -> list[dict]:
             location, summary = _split_moment_location(h.group(2))
             moments.append({"moment_number": int(h.group(1)), "summary": summary,
                             "location": location,
-                            "master": master, "angles": angles, "speaker": speaker, "line": line})
+                            "master": master, "angles": angles, "speaker": speaker, "line": line,
+                            "props": props})
     return moments
 
 

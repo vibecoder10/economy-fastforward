@@ -354,3 +354,21 @@ gives an explicit `_flag_stale_cast_and_environments` call — an external/creat
 submitted script that changes the story does not currently re-trigger the GATE.
 Flagged here, not fixed in this chunk (D7-6 is PROMPT-only, and both call sites belong
 to routes/videos.py's staleness mechanism, out of scope for this pass).
+
+**S6-A (the LIVE storyboard planner consumes the script's per-scene location) — landed
+2026-08-05.** A separate, narrower application of S6's principle from D7-6 above (which
+covers cast/environment/scene STALENESS after an edit): this chunk makes the board
+actually READ `scripts.location` in the first place, rather than re-deriving a scene's
+location from prose alone. `storyengine/backend/scripts/coverage_to_app.py`'s
+`generate_storyboard_sheet_for_scene` now selects `scripts.location` and threads it
+three ways — into `_match_scene_env`'s environment-matching preference (a canonical
+match beats phrase-scoring free prose), into the planning prompt
+(`storyboard/coverage.py`'s `generate_coverage_directive`/`_coverage_user_prompt`, as a
+stated fact the planner's `[SET|]`/`[LOCSET|]` header(s) must name), and into the FIXED
+SET header itself (prepended when the planner's own line doesn't already name it). GATE:
+BOARD-LAWS.md's new L30 (`_assert_scene_location_declared`), a HARD gate — canonical
+`scripts.location` vs. composer-owned prompt text, not prose-vs-prose — peer of L29,
+same catch/blocked_scenes flow, NULL-location scenes exempt. Provenance: tenant
+PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a, scene 1 — script location "the
+kitchen at home", the assembled board prompt never said "kitchen," board drew the
+bedroom.

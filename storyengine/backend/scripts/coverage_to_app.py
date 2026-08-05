@@ -100,6 +100,11 @@ from storyboard.coverage import (  # noqa: E402
     # the IDENTICAL "worth a human glance" line for a shot with no stated
     # purpose_kind/shot_purpose, regardless of which door a creator used.
     check_shot_purpose_present,
+    # S6-A (STORY-LAWS.md S6): the SAME warn-not-hard-fail drift alarm for
+    # the planner's own per-moment [PROPS | ...] extraction (rule 30) — did
+    # the assembled shot plan actually draw every named prop/action anywhere
+    # in the scene? Peer of check_shot_purpose_present immediately above.
+    check_prop_action_presence,
     # BOARD LAWS (storyengine/BOARD-LAWS.md): multi-location/material-map
     # directive parsing (L3/L20) and the shared motion detector (L4) — the
     # SAME functions run_coverage's own repair-leg locks call, so the sheet
@@ -623,8 +628,16 @@ def _env_named_in_header_opening(text: str, envs: list[dict]) -> dict | None:
     return None
 
 
-def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
+def _match_scene_env(text: str, envs: list[dict], location: str | None = None) -> dict | None:
     """Pick the ONE approved environment this scene lives in.
+
+    location (S6-A, STORY-LAWS.md S6): the scene's CANONICAL scripts.location
+    column, when the caller has one — checked FIRST, before even the header
+    signal below, because it comes from the script itself (S3/S5's gate),
+    not from the planner's own prose. None (the default; every pre-existing
+    caller) skips this check entirely and falls straight to the header/
+    phrase-scoring chain below, byte-identical to before this parameter
+    existed.
 
     NAME-AS-PHRASE first: the coverage plan names its location verbatim from
     the bible ('Home kitchen — cram session. Ryan — ...' heads every shot), so
@@ -718,7 +731,32 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
         return None
     if len(envs) == 1:
         return envs[0]
-    # STRONGEST signal, checked first: the planner's own [SET | Name: ...]
+    # STRONGEST signal of all, checked before anything the PLANNER wrote:
+    # the SCRIPT's own canonical location (scripts.location, migration 144,
+    # S3/S5's gate) against the approved environments' own names. Exact
+    # normalized match wins outright; failing that, containment either way
+    # (the script says "the kitchen at home", the environment is named
+    # "Kitchen at home" — a leading-article difference, not a real
+    # disagreement) is still a confident structural match, and beats
+    # word-count phrase-scoring over free prose the planner may not even
+    # have written yet at this point in the call (this function runs before
+    # the directive-planning LLM call, on scene_text alone, in one caller).
+    # Found live: tenant PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a
+    # scene 1, script location "the kitchen at home" — the header/phrase
+    # chain below locked the wrong room because nothing before this checked
+    # the script's own stated fact first.
+    if location:
+        norm_loc = _norm_env_text(location)
+        if norm_loc:
+            for e in envs:
+                if _norm_env_text(e.get("name") or "") == norm_loc:
+                    return e
+            for e in envs:
+                norm_name = _norm_env_text(e.get("name") or "")
+                if norm_name and (norm_loc in norm_name or norm_name in norm_loc):
+                    return e
+    # STRONGEST signal among what the PLANNER wrote, checked first: the
+    # planner's own [SET | Name: ...]
     # header (see _SET_HEADER_ENV_RE above) states this scene's location
     # directly and unambiguously — trust it outright when it names an
     # approved environment exactly, before falling through to phrase-scoring
@@ -2396,6 +2434,56 @@ def _assert_no_unattached_claims(full_text: str, **attached: bool) -> None:
                 f"attached {key.replace('_', ' ')} but none is attached to this call.")
 
 
+def _assert_scene_location_declared(gate_text: str, location: str) -> None:
+    """L30 gate (S6-A — STORY-LAWS.md S6: THE SCRIPT IS THE ORIGIN OF TRUTH).
+
+    scripts.location is a CANONICAL fact — a DB column the S3/S5 gate
+    (backend/story_laws.py) already extracts from the script's own text —
+    not free prose the planner invented. When a scene declares one, the
+    assembled board prompt's own location-declaring text must name it. Per
+    the standing ruling (see check_material_map_consistency's docstring: a
+    canonical-field-vs-composer-text comparison MAY hard-block; only a
+    prose-vs-prose comparison must warn), this is a hard gate, same severity
+    class as L29 right above it — one side of this comparison (`location`)
+    is canonical, the other (`gate_text`) is composer-owned text this module
+    fully controls, not a second free-text guess.
+
+    `gate_text` is the SAME scoped text L29 checks (see _plan_sheet_prompts'
+    own `_style_gate_text` — header + CHARACTER + SET/LOCSET + MATERIAL MAP
+    + ENVIRONMENT LOCKS + CONSTRAINTS, deliberately excluding the free-prose
+    panel bodies to avoid false positives on a passing in-scene mention,
+    same reasoning as L29's own scope fix).
+
+    Tolerant of a leading article ("the"/"a"/"an") mismatch and of case/
+    punctuation (normalized via _norm_env_text, the same normalizer
+    _match_scene_env already uses) — a script that says "the kitchen at
+    home" and a header that says "kitchen at home" are the same place.
+
+    NULL/empty `location` (every legacy video, and any scene whose script
+    predates migration 144's backfill-free rollout) is exempt — this only
+    fires when scripts.location genuinely carries a fact for this scene.
+
+    *Provenance: tenant PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a,
+    scene 1 — the script's stated location was "the kitchen at home"; the
+    32,790-character assembled board prompt never contained the word
+    "kitchen", and the board drew the bedroom instead.*"""
+    loc = (location or "").strip()
+    if not loc:
+        return
+    norm_loc = _norm_env_text(loc)
+    if not norm_loc:
+        return
+    norm_loc_bare = re.sub(r"^(the|a|an) ", "", norm_loc)
+    norm_text = _norm_env_text(gate_text)
+    if norm_loc not in norm_text and norm_loc_bare not in norm_text:
+        raise SheetPromptContractViolation(
+            f"L30 (THE BOARD NAMES THE SCRIPT'S DECLARED LOCATION — STORY-LAWS S6): this "
+            f"scene's declared location ({location!r}) is not named anywhere in the "
+            "assembled board prompt's own location-declaring text (the FIXED SET/LOCSET, "
+            "MATERIAL MAP and ENVIRONMENT LOCKS blocks) — the script's own stated fact was "
+            "silently dropped from the plan.")
+
+
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
                         set_line: str = "", axis_line: str = "",
                         setups_line: str = "", header_variant: str = "primary",
@@ -2404,7 +2492,7 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                         incoming: Optional[dict] = None, outgoing: Optional[dict] = None,
                         has_cast_refs: bool = False,
                         canonical_envs: Optional[list] = None,
-                        env_locks_line: str = "") -> list[str]:
+                        env_locks_line: str = "", location: str = "") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     into BALANCED sheets of ≤panels_per_sheet via sheet_chunk_sizes (pass
@@ -2463,6 +2551,19 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         never passes it gets the D6-1 behavior unchanged (LOCSET-only
         matching), which is still correct for legacy callers that have no
         approved environments to check against.
+      location (L30, S6-A — STORY-LAWS.md S6): the scene's own CANONICAL
+        scripts.location text. Two effects, both gated on "single-location
+        scene" (location_sets empty) since a multi-location scene's own
+        LOCSET headers are expected to name it themselves: (1) when the
+        planner's own set_line doesn't already mention it (normalized), it
+        is PREPENDED onto set_line before the FIXED SET block is built, so
+        the assembled prompt always declares it even when the planner's own
+        prose forgot to; (2) _assert_scene_location_declared (below, L30)
+        then hard-raises if, even after that injection, the location still
+        never appears anywhere in the same scoped gate text L29 checks —
+        catches a multi-location scene whose LOCSET headers never name the
+        script's own declared location. "" (the default — every caller
+        before this chunk) skips both effects entirely.
 
     D6-1b (independent-verifier fix): the L3 gate no longer HARD-RAISES on
     a bare LOCSET-name mismatch, because both sides of that comparison
@@ -2575,6 +2676,19 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     # with bedroom furniture). Falls back to the single-location set_block
     # when location_sets is empty (every scene before this law, and every
     # single-location scene going forward) — byte-identical in that case.
+    # S6-A (L30, STORY-LAWS.md S6): scripts.location is a CANONICAL fact —
+    # for a single-location scene, when the planner's own set_line doesn't
+    # already name it (normalized), prepend it so the assembled FIXED SET
+    # block always declares the script's own stated location, never just
+    # whatever prose the planner happened to write. A multi-location
+    # scene's LOCSET blocks are left to name it themselves —
+    # _assert_scene_location_declared (below) catches the case where none
+    # of them do, rather than guessing which LOCSET to inject into.
+    if location and not location_sets:
+        _norm_loc = _norm_env_text(location)
+        if _norm_loc and _norm_loc not in _norm_env_text(set_line):
+            _loc_name = location.strip()
+            set_line = f"{_loc_name} — {set_line.strip()}" if (set_line or "").strip() else _loc_name
     if location_sets:
         loc_lines = []
         for name, text in location_sets.items():
@@ -2718,6 +2832,11 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         _style_gate_text = (header_text + character_block + set_block + material_block
                            + env_locks_block + constraints_text)
         _assert_single_style_declaration(_style_gate_text, style_line)
+        # L30 (S6-A, STORY-LAWS.md S6) — same scoped text L29 just checked;
+        # see _assert_scene_location_declared's own docstring for why this
+        # comparison is hard (canonical scripts.location vs. composer-owned
+        # text), not warn-only like a prose-vs-prose check would have to be.
+        _assert_scene_location_declared(_style_gate_text, location)
         _assert_no_unattached_claims(chunk_prompt, cast_refs=has_cast_refs)
         prompts.append(chunk_prompt)
     return prompts
@@ -2803,8 +2922,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     render_style = v["render_style"]
     video_model_id = v["video_model"]
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"], v.get("style_preset_id"))
+    # location (S6-A, STORY-LAWS.md S6): scripts.location, migration 144 —
+    # the script's own CANONICAL location for this scene (nullable, not
+    # backfilled; NULL for every scene written before that migration).
+    # Threaded below into _match_scene_env's env-matching preference, the
+    # planning prompt (generate_coverage_directive), the FIXED SET
+    # injection, and the L30 hard gate — see each call site's own comment.
     scenes = await fetch_all(
-        "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "SELECT scene, scene_text, location FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
     targets = [s for s in scenes if scene is None or s["scene"] == scene]
     if not targets:
@@ -3025,8 +3150,18 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # explicitly, never a bare "Storyboard ready for N scene(s)" that
     # quietly undercounts.
     blocked_scenes: list[tuple] = []
+    # S6-A: total WARN-only prop/action extraction drift count across every
+    # scene this call plans (check_prop_action_presence) — never blocks,
+    # just surfaced in the completion message below so a creator sees it
+    # without having to read the logs.
+    prop_warnings_total = 0
     for s in targets:
         sc = s["scene"]
+        # S6-A (STORY-LAWS.md S6): this scene's canonical scripts.location,
+        # "" when NULL (every legacy scene) — every location-aware call
+        # below treats "" identically to how it treated the absence of this
+        # parameter before this chunk existed.
+        scene_location = s.get("location") or ""
         # D15-9: ONE hash-gate read (_get_or_plan_directive) — see its own
         # docstring. beat=None never consults gate["directive"]/["is_reused"]
         # (documented exception, same function); srow is still needed for
@@ -3059,7 +3194,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 # then this call's own board-scoped quality rules — see
                 # _board_rules_text_with_narrative's docstring for why this is the
                 # one hook available without editing storyboard/coverage.py.
-                board_rules_text=_board_rules_text_with_narrative(board_rules_text, bible))
+                board_rules_text=_board_rules_text_with_narrative(board_rules_text, bible),
+                # S6-A (STORY-LAWS.md S6): the script's own canonical location
+                # for this scene, so the planner's [SET|]/[LOCSET|] header(s)
+                # are told to name it up front, not left to infer it from the
+                # narration prose alone. "" -> None (the parameter's own
+                # documented "omit the block" default).
+                location=scene_location or None)
         # C7 fix (a): parse -> budget -> floors -> variety, the SAME deterministic
         # pipeline (and order) run_coverage() runs on this exact directive_text at
         # picture-draw time — the sheet preview built below from `moments` and the
@@ -3088,13 +3229,25 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # check_* in coverage.py); return value unused, matching run_coverage's
         # own fire-and-forget call.
         check_shot_purpose_present(moments)
+        # S6-A: the SAME warn-not-hard-fail discipline, for the planner's own
+        # per-moment [PROPS | ...] extraction (rule 30) — did the assembled
+        # shot plan actually draw every named prop/action anywhere in the
+        # scene? Accumulated across every scene this call plans and surfaced
+        # once in the final completion message below (never per-scene, never
+        # blocking).
+        prop_warnings_total += check_prop_action_presence(moments)
 
         # D6-1: env matched HERE (moved up from just before the draw loop)
         # so the canonical per-location material map (L20) can be resolved
         # BEFORE _sheet_kwargs is built — env_block/sheet_refs below reuse
         # this SAME match rather than recomputing it.
         location_sets = parse_location_sets(directive or "")
-        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
+        # S6-A: scripts.location (scene_location) preferred FIRST inside
+        # _match_scene_env, before its existing header/phrase-scoring chain
+        # — see that function's own docstring for why the canonical script
+        # fact outranks the planner's free prose.
+        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs,
+                               location=scene_location)
         # D6-1 (L20): the canonical, code-rendered material map WINS over the
         # planner LLM's own [MATERIAL|...] line when one is authored
         # (video_environments.material_map, migration 142) — never a
@@ -3128,7 +3281,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # D6-1b (L3): the video's approved environments, so the location
             # gate can upgrade a LOCSET-name paraphrase into a canonical
             # match instead of blocking on prose-vs-prose disagreement.
-            canonical_envs=envs)
+            canonical_envs=envs,
+            # S6-A (L30, STORY-LAWS.md S6): this scene's canonical
+            # scripts.location — drives both the FIXED SET injection and the
+            # L30 hard gate inside _plan_sheet_prompts.
+            location=scene_location)
         # Computed ONCE here and reused below (never re-derived) so sheet
         # chunking (_plan_sheet_prompts, via _sheet_kwargs), the per-board
         # panel counts and the progress messages can never diverge. _sizes is
@@ -3342,7 +3499,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                             env_locks_line=_sweep_env_locks,
                             motion_scene=scene_has_motion(moments, _sweep_location_sets),
                             has_cast_refs=bool(cast_refs),
-                            canonical_envs=envs)
+                            canonical_envs=envs,
+                            # S6-A: scene_location is unchanged by an
+                            # escalation (only panel-brief wording is
+                            # reworded) — same reuse reasoning as env above.
+                            location=scene_location)
                         try:
                             prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
                             prompts_fallback = _plan_sheet_prompts(
@@ -3418,6 +3579,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # block above), so an unknown extra key here is inert until a future
     # caller chooses to read it — never forwarded anywhere today.
     _extra = {"rhythm_notes": rhythm_notes} if rhythm_notes else {}
+    # S6-A: WARN-only, never blocks — appended to every "completed" message
+    # below so a creator sees the count without reading the logs. "" when
+    # zero (every plan before this chunk existed, and any plan with nothing
+    # to flag), so a build with no prop/action drift reads byte-identical to
+    # before this chunk existed.
+    _prop_warn_suffix = (f"; {prop_warnings_total} prop/action warning(s) — see logs"
+                        if prop_warnings_total else "")
     # D6-1b: honest status/message when one or more scenes were blocked by a
     # hard gate (SheetPromptContractViolation) before any board was even
     # attempted for them — see blocked_scenes' own comment above. Same
@@ -3445,16 +3613,18 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                "Review the sheets; 'Generate pictures' draws exactly this plan.")
         return {"status": "completed",
                 "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
-                           f"got NO boards — {_blocked_detail}",
+                           f"got NO boards — {_blocked_detail}{_prop_warn_suffix}",
                 **_extra}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
-                            "nothing drawn. Review the plan, then draw boards one at a time."),
+                            "nothing drawn. Review the plan, then draw boards one at a time."
+                            f"{_prop_warn_suffix}"),
                 **_extra}
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
-                        "Review the sheets; 'Generate pictures' draws exactly this plan."),
+                        "Review the sheets; 'Generate pictures' draws exactly this plan."
+                        f"{_prop_warn_suffix}"),
             **_extra}
 
 
