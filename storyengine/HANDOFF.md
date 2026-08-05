@@ -1,37 +1,25 @@
-# HANDOFF - 2026-08-04 - carrier video RENDERED and verified; upload is the only step left
+# HANDOFF - 2026-08-04/05. The film-studio program: built, deployed, proven live; One Road (D15) 6 of 9 chunks folded.
 
 ## State
-- Prod: 8d373f7d deployed 20:06 UTC. Render-verb fix (format-aware gate) + G24b matcher hardening both
-  folded to main and live. Full suite on merged main: 4390 passed, 0 failed.
-- Carrier video d2e37cd6-521a-43aa-a14d-ce096a783c1e (tenant 561b872d): status RENDERED.
-  - Render ran 20:08-21:2x UTC, $0.00 external (25.00 render minutes charged internally).
-  - Output verified EYES-ON from a fresh Drive download (file id 1l86Dkw-2QJAGvG71LsEduvE3KbkOKCbH,
-    425MB, 25:11, 1080p h264+aac): 16 frames sampled across the full runtime - clean museum-model style
-    throughout, correct opening title card (Argus 1918, flush-deck fact), rotated views present,
-    CVA-01 (scene 13) renders as honest Jane's-style blueprints (side elevation + top-plan sheet),
-    narration audio present at 100s/700s/1400s. No black frames, no broken text.
-  - Drive folder: https://drive.google.com/drive/folders/1qQGwDe5wVRKvjQnson0zWy2KgWunVO83
-  - Ledger $8.42 of $20 cap. Creative + render 100% done.
+- Prod: e75e6fa7 deployed (window "film-studio-window"), healthy, 0 active tasks, no lock. Migrations 145-152 live.
+- Local main: e5d88ab1 - ~10 commits AHEAD of origin (all D15 + docs checkpoints). NOT pushed. Tree clean except generated next-env.d.ts.
+- What shipped this session:
+  - The 22-point film-studio audit -> full build: staleness system (D7), frame judge live (D8), Custom Film harvest (D9), native story bible (D10), shot archetypes + DP fields + mechanical prompt compiler (D11), pacing/transitions/rhythm (D12), provider dialect (D13). All test-proven, fresh-eyes verified.
+  - Deploy window (~$0.08) + Scene Lab iteration 1 ($0.588): locks extracted from real pixels, 16 panels judged (3 real defects), freeze-on-repeat proven. Boards sent to Ryan.
+  - One Road (D15): plans persist everywhere (D15-2), all buttons routed through the judged executor with plan_only provably free (D15-3), arbiter repair loop-proof (D15-4), ONE canonical shot-context builder (D15-5), redraw folded onto it (D15-6).
+- NOT done, honestly: D15-7 (one style resolver, closes D6-1d) was MID-BUILD in worktree .claude/worktrees/d15-7-style when this session cut - check `git -C <worktree> log` for a commit; if none/partial, re-dispatch from the checklist's D15-7 spec. D15-8 (purpose into assemblers A+C) and D15-9 (one _get_or_plan_directive gate) not started - specs in loop-checklist.md's D15 section.
 
 ## Next action (start here cold)
-UPLOAD - needs Ryan's explicit go (publishing to YouTube is outward-facing).
-When he says go: MCP upload verb on d2e37cd6 (it has skip-if-done), then verify the YouTube draft
-(SEO title/desc/tags, thumbnail attached) before any publish. YouTube upload quota today: 100 remaining.
+Invoke the maestro skill, read ~/economy-fastforward/storyengine/tasks/loop-handoff.md + the D15 section of tasks/loop-checklist.md, then: check worktree `.claude/worktrees/d15-7-style` for D15-7's state (finish or re-dispatch), then D15-8, D15-9. Fold rule for Haiku merge jobs: NEVER stash/reset the shared tree - if blocked by local mods, commit task files as a docs checkpoint first (see tasks/lessons.md tail).
 
 ## Open threads
-- 4 machines have 2/3 views (parked thirds) - $0.05 each via fill runs, cosmetic.
-- Backlog: script-stage calls don't ledger; production-guide next_step says "characters" for static_docu
-  (cosmetic, confirmed again 2026-08-04); scripts.voice_id stamps wrong id; voice_duration_seconds null
-  for THIS video's scenes (stamping only applies to future videos); tasks/loop-checklist.md older items.
-- Unmerged branches, not blockers: claude/festive-bouman-6e2cb8 (self-provision Remotion assets in fresh
-  worktrees), claude/stoic-allen-c5af1a (dead code removal).
+- Scene Lab iteration 2 - Ryan's call: redraw 3 defective panels + teach judge insert-subject fidelity (~$0.15), or clips of best 5 (~$0.50).
+- Next deploy window ships D15; deploy note REQUIRED: picture button now enforces the voice gate (deliberate).
+- Parked decisions: D8-5 rollout, D8-6 eval relabel, D8-8 Gemini judge bake-off (parked till volume), D8-3c channel scoping + deep-link 404.
+- CARRIER VIDEO (other session's loop): d2e37cd6 RENDERED and eyes-on verified, $8.42/$20 - ONLY UPLOAD REMAINS, gated on Ryan's go. Full detail in git history of this file (commit e75e6fa7) + the checklist's top section.
 
 ## Gotchas learned this session
-- ps + grep + head can hide the hot process (old idle PIDs sort first; head cuts the render). Use
-  ps aux --sort=-%cpu before concluding "nothing is running".
-- A branch cut before a design decision can carry a test asserting the OLD behavior - on merge, keep
-  the decision, not the chronology (still-blocks vs blueprint-path).
-- rclone backend copyid gdrive: <fileid> <dest> downloads a Drive file by id cleanly (no uc?id
-  interstitial trouble at 425MB).
-- Prior session gotchas (Drive update-in-place, se db read-only, scene-scoped runs don't advance
-  status, re-voice needs script_status flip, one billable unit after a fix) still stand.
+- git stash is ONE shared ref across worktrees; two workers collided. Fleet rule: patch-file stash-proofs only, folds never stash (lessons.md).
+- Task files are now COMMITTED-by-convention (checkpoint commits) - stops fold collisions and stale overwrites by the other session.
+- Fresh-worktree "28 custom_film_remotion failures" are phantom: symlink backend/venv, remotion-video/node_modules, remotion-video/public from main checkout -> 81/81 pass.
+- Only chat-initiated draws were judged until D15-3; sheet previews create no asset rows; the desktop MCP is tenant-scoped wrong for owner-tenant videos - use se db / VPS API with /tmp/se_token.
