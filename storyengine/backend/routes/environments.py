@@ -139,7 +139,7 @@ class EnvironmentUpdate(BaseModel):
 
 async def _get_video(video_id: str, tenant_id) -> dict:
     video = await fetch_one(
-        "SELECT id, video_title, script, image_style_override, original_dna, "
+        "SELECT id, video_title, script, image_style_override, visual_style, original_dna, "
         "       story_bible, aspect_ratio, environments_approved_at, project_id, "
         "       total_cost, max_spend "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -148,6 +148,96 @@ async def _get_video(video_id: str, tenant_id) -> dict:
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+
+def _reject_style_keywords(text: Optional[str], field: str) -> None:
+    """S6-C save-time style-keyword lint. Rejects a description/material_map
+    BEFORE it can ever be stored if it names a rendering medium — the exact
+    keyword list AND substring semantics coverage_to_app._assert_single_
+    style_declaration's L29 gate (BOARD-LAWS DECLARE-ONE-STYLE) uses at
+    storyboard time (`from scripts.coverage_to_app import _STYLE_KEYWORDS`,
+    `full_low.count(kw)` substring counting), so save-time and board-time can
+    never diverge on what counts as a second style claim.
+
+    Incident this closes: a user-edited environment description carrying a
+    style word ("anime") reached L29 at storyboard time — the scene got NO
+    board, and the reason only surfaced in background_tasks.message, after
+    real spend. Rejecting at save time makes the failure immediate, free,
+    and named, instead of a doomed description silently making it to disk.
+
+    Raises HTTPException(400) with a short, specific detail (under 160
+    chars — errors.ts's humanizeError only passes an HTTPException detail
+    verbatim to a toast under that length) naming the FIRST offending word
+    (in _STYLE_KEYWORDS order) and the field it was found in. No-ops on
+    None/empty text."""
+    from scripts.coverage_to_app import _STYLE_KEYWORDS
+    low = (text or "").lower()
+    for kw in _STYLE_KEYWORDS:
+        if kw in low:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'Style words can\'t be saved in an environment {field} — remove '
+                    f'"{kw}". The channel/video style setting controls the look.'
+                ),
+            )
+
+
+async def _resolve_environment_style_dna(video: dict, tenant_id) -> str:
+    """S6-C channel-DNA fallthrough for environment reference generation —
+    first non-empty source wins. Without this, style_dna read ONLY
+    image_style_override: a format-locked channel's video with no per-video
+    override got a reference with ZERO format signal, which started the
+    PocoAPoco failure chain (a photorealistic reference on a format-locked
+    cartoon channel).
+
+    1. video.image_style_override — unchanged, highest precedence (the
+       creator's most specific, most recent pick).
+    2. video.visual_style — resolved the EXACT SAME way coverage_to_app.
+       _resolve_style resolves it for every other image-prompt path
+       (director/cast-sheet/storyboard-sheet/coverage-frame/redraw — BOARD-
+       LAWS L29's ONE resolver): tried as a style_presets engine id first
+       (shared.profiles.visual's 5 ids via _build_visual_style_directive),
+       falling back to the raw stored string when that doesn't resolve.
+       Calling _resolve_style directly means this can never invent a
+       second, diverging mapping for the same column.
+    3. Channel format lock — get_channel_format() / style_preset_for_format()
+       / STYLE_DESCRIPTIONS[...]['look'], the SAME chain channel_format.
+       apply_format_defaults already uses to default a fresh video's
+       visual_style, and routes/projects.py._channel_style_dna uses for new
+       cast members. Only consulted when neither per-video field resolved
+       to anything AND the channel's format is locked.
+    4. "" — the existing behavior; _generate_environment's own downstream
+       default ("consistent illustrated style") takes over from here.
+
+    _neutralize_style_brands/_enforce_stylized_media are NOT called here —
+    they stay exactly where they already are, inside _generate_environment,
+    which runs them once on whatever style_dna this function returns (both
+    are idempotent, so a directive that already passed through them inside
+    _resolve_style's own tier-2 resolution is unaffected by the second
+    pass)."""
+    override = (video.get("image_style_override") or "").strip()
+    if override:
+        return override
+
+    from scripts.coverage_to_app import _resolve_style
+    _, directive = _resolve_style(None, video.get("visual_style"), None)
+    if directive and directive.strip():
+        return directive.strip()
+
+    try:
+        from channel_format import get_channel_format, style_preset_for_format, STYLE_DESCRIPTIONS
+        fmt, locked = await get_channel_format(tenant_id)
+        if locked:
+            preset = style_preset_for_format(fmt)
+            if preset:
+                look = (STYLE_DESCRIPTIONS.get(preset) or {}).get("look")
+                if look:
+                    return look
+    except Exception as e:  # noqa: BLE001 — enrichment lookup must fail soft, same posture as channel_format's own reads
+        logger.warning("[environments] channel format lookup failed: %s", str(e)[:200])
+
+    return ""
 
 
 def _row_to_read(row: dict) -> EnvironmentRead:
@@ -555,6 +645,8 @@ async def create_environment(
     card. Thin wrapper — the actual INSERT lives in
     `_create_environment_draft`, shared with the MCP `add_environment` tool
     so the two doors can never diverge."""
+    if body.description is not None:
+        _reject_style_keywords(body.description, "description")
     return await _create_environment_draft(video_id, tenant_id, body.name, body.description)
 
 
@@ -590,7 +682,7 @@ async def run_environments_design_step(
     if not api_key:
         return {"status": "failed", "error": "Add your Kie.ai API key in Settings → Keys first."}
 
-    style_dna = video.get("image_style_override") or ""
+    style_dna = await _resolve_environment_style_dna(video, tenant_id)
     aspect_ratio = video.get("aspect_ratio") or "16:9"
 
     await _progress("Reading the Story Bible for locations…")
@@ -785,7 +877,7 @@ async def regenerate_environment(
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "environments")
 
-    style_dna = video.get("image_style_override") or ""
+    style_dna = await _resolve_environment_style_dna(video, tenant_id)
     aspect_ratio = video.get("aspect_ratio") or "16:9"
     _set_task_status(video_id, "running", f"Redesigning {env['name']}…",
                      tenant_id=tenant_id, task_type=TASK_TYPE)
@@ -838,6 +930,7 @@ async def update_environment(
     if body.name is not None:
         params.append(body.name.strip()[:120]); sets.append(f"name = ${len(params)}")
     if body.description is not None:
+        _reject_style_keywords(body.description, "description")
         params.append(body.description.strip()[:1000]); sets.append(f"description = ${len(params)}")
     if body.props is not None:
         # Creator-editable manifest (C4): shape + max-count already enforced by
@@ -846,6 +939,7 @@ async def update_environment(
         props_json = json.dumps([p.model_dump() for p in body.props]) if body.props else None
         params.append(props_json); sets.append(f"props = ${len(params)}")
     if body.material_map is not None:
+        _reject_style_keywords(body.material_map, "material map")
         # Empty string clears it back to NULL ("no canonical map yet") — the
         # composer's fallback (parse_material_map on the LLM's own line)
         # treats NULL and "" identically, matching migration 142's contract.
