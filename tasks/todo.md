@@ -2768,3 +2768,6 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
   `60bb164707194ddc46b2e5f15b6691795337cd6fcb51e574142cd8f29d5175fd`).
 - Next decision: creative changes, or request a refreshed exact BYOK quote <= $15.
   Paid flagship footage, push, deploy, migration, upload, and release remain unapproved.
+
+## Handoff (2026-08-05) - ENV-1 environments location fix
+Branch claude/dreamy-mclaren-54a4fc, commit fbdff463 (worktree vibrant-franklin-502811). Extraction can no longer drop structured scene locations; new POST /api/videos/{video_id}/environments + MCP add_environment for one-row recovery. NOT deployed - Ryan's go required. Post-deploy recipes: storyengine/tasks/deferred-verification.md (live check targets PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a, "the kitchen at home").
