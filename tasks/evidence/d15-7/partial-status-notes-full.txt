@@ -1,0 +1,11 @@
+ M skills/video-pipeline/storyboard/bot.py
+ M skills/video-pipeline/storyboard/coverage.py
+ M storyengine/backend/scripts/coverage_to_app.py
+ M storyengine/backend/tests/functional/test_d6_1_canonical_inputs.py
+ M storyengine/backend/tests/functional/test_redraw_style_parity.py
+?? remotion-video/node_modules
+?? remotion-video/public
+?? skills/video-pipeline/tests/test_d15_7_coverage_style_dedup.py
+?? storyengine/backend/tests/functional/test_d15_7_style_resolution_wiring.py
+?? storyengine/backend/venv
+?? tasks/evidence/

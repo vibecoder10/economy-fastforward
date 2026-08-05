@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.abspath(_BACKEND))
 sys.path.insert(0, os.path.abspath(_PIPELINE_PATH))
 
 from scripts.coverage_to_app import (  # noqa: E402
-    _plan_sheet_prompts, _sheet_header, _resolve_style,
+    _plan_sheet_prompts, _sheet_header, _resolve_style, _preset_style_directive,
     _canonical_material_line, _assert_single_style_declaration,
     _assert_no_unattached_claims, SheetPromptContractViolation,
 )
@@ -268,6 +268,112 @@ def test_resolve_style_falls_back_to_visual_style_when_override_blank():
 def test_resolve_style_none_when_neither_set():
     _profile_c, style_c = _resolve_style(None, None)
     assert style_c is None
+
+
+def test_resolve_style_omitting_preset_arg_is_byte_identical_to_no_style_set():
+    """Every call site that predates D15-7 passes exactly 2 positional args —
+    must remain identical to explicitly passing style_preset_id=None."""
+    a = _resolve_style(None, None)
+    b = _resolve_style(None, None, None)
+    assert a[1] == b[1] == None  # noqa: E711 — explicit None-vs-None check
+
+
+# =============================================================================
+# D15-7 / D6-1d closure — style_preset_id, _resolve_style's third tier.
+# Precedence: image_style_override > visual_style > style_preset_id > None.
+# =============================================================================
+
+def test_resolve_style_preset_only_video_resolves_a_real_style():
+    """THE D6-1d fix: a video with style_preset_id set and BOTH freeform
+    fields empty must resolve to a REAL style directive, not silently fall to
+    the neutral default. Value-based (not just "accepts a 3rd arg") so a
+    revert that keeps the new signature but forgets to actually consult the
+    preset still fails this assertion, not just a TypeError."""
+    profile, style = _resolve_style(None, None, "cinematic_illustration")
+    assert style is not None
+    assert "illustration" in style.lower() or "ink outlines" in style.lower()
+    # `style` is profile.visual_style_directive PLUS _enforce_stylized_media's
+    # anti-photoreal clause (same asymmetry the freeform image_style_override/
+    # visual_style paths already had — _resolve_style's final return line) —
+    # so it starts with, rather than equals, the profile's raw directive.
+    assert style.startswith(profile.visual_style_directive)
+
+
+def test_resolve_style_preset_directive_matches_visual_profile_description():
+    """The resolved text is VisualProfile.description verbatim (post brand-
+    neutralize/stylized-media enforcement) — not a hand-rolled summary that
+    could drift from the profile module itself."""
+    from shared.profiles.visual import load_profile as load_visual_profile
+    vp = load_visual_profile("cinematic_illustration")
+    _profile, style = _resolve_style(None, None, "cinematic_illustration")
+    assert vp.description.strip() in style
+
+
+def test_resolve_style_neutral_v1_preset_is_treated_as_no_style_set():
+    """neutral_v1 is _resolve_visual_profile_id's OWN sentinel for "no real
+    choice made" and declares no medium of its own (neutral_v1.py's
+    docstring) — resolving it would inject the engine's self-description as
+    a fake look. This is also a regression lock for the ONE real production
+    video carrying style_preset_id today (id d2e37cd6, 'neutral_v1', no
+    image_style_override/visual_style) — must stay byte-identical to before
+    D15-7."""
+    profile, style = _resolve_style(None, None, "neutral_v1")
+    assert style is None
+    assert profile.visual_style_directive == _resolve_style(None, None)[0].visual_style_directive
+
+
+def test_resolve_style_preset_is_the_lowest_tier_freeform_override_wins():
+    _profile, style = _resolve_style("Claymation, stop-motion texture", None, "cinematic_illustration")
+    assert "clay" in style.lower()
+    assert "illustration" not in style.lower()
+
+
+def test_resolve_style_preset_is_the_lowest_tier_visual_style_wins():
+    _profile, style = _resolve_style(None, "Photoreal", "cinematic_illustration")
+    assert style is not None
+    assert "illustration" not in style.lower()
+
+
+def test_resolve_style_unknown_preset_id_fails_soft_to_no_style():
+    """Never raises, never fabricates a style from an id that doesn't exist
+    in the style_presets/_PROFILE_MODULES registry — same fail-soft posture
+    as _resolve_visual_profile_id and shared.profiles.visual.load_profile."""
+    profile, style = _resolve_style(None, None, "not-a-real-preset-id")
+    assert style is None
+    assert profile.visual_style_directive == _resolve_style(None, None)[0].visual_style_directive
+
+
+def test_resolve_style_blank_preset_id_same_as_none():
+    assert _resolve_style(None, None, "")[1] is None
+    assert _resolve_style(None, None, "   ")[1] is None
+
+
+@pytest.mark.parametrize("preset_id", [
+    "holographic_hud", "cinematic_dossier", "clay_mannequin",
+    "cinematic_illustration", "mannequin_storytelling",
+])
+def test_resolve_style_every_non_neutral_preset_resolves_to_a_real_style(preset_id):
+    """Every real preset in the registry except neutral_v1 resolves to
+    non-None text — no silent gaps for the other 4 (5 with the legacy alias)."""
+    _profile, style = _resolve_style(None, None, preset_id)
+    assert style, preset_id
+
+
+# =============================================================================
+# _preset_style_directive — the preset->text converter in isolation.
+# =============================================================================
+
+def test_preset_style_directive_none_for_neutral_and_empty_and_unknown():
+    assert _preset_style_directive(None) is None
+    assert _preset_style_directive("") is None
+    assert _preset_style_directive("neutral_v1") is None
+    assert _preset_style_directive("totally-made-up") is None
+
+
+def test_preset_style_directive_returns_visual_profile_description():
+    from shared.profiles.visual import load_profile as load_visual_profile
+    vp = load_visual_profile("clay_mannequin")
+    assert _preset_style_directive("clay_mannequin") == vp.description.strip()
 
 
 if __name__ == "__main__":

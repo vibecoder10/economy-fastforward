@@ -189,7 +189,7 @@ SCENE_FRAME_BUDGET = int(os.getenv("SCENE_FRAME_BUDGET", "18"))
 async def resolve_video(ident: str):
     return await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio, '16:9') AS aspect, "
-        "image_style_override, visual_style "
+        "image_style_override, visual_style, style_preset_id "
         "FROM videos WHERE (id::text LIKE $1 OR video_title ILIKE $2) AND deleted_at IS NULL "
         "ORDER BY created_at DESC LIMIT 1",
         ident + "%", "%" + ident + "%",
@@ -284,61 +284,123 @@ def _enforce_stylized_media(style):
             "NOT live-action, NOT a real photograph.")
 
 
-def _resolve_style(image_style_override, visual_style):
+def _preset_style_directive(style_preset_id: str | None) -> str | None:
+    """D6-1d closure (D15-7): convert a validated `style_preset_id` (FK into
+    `style_presets`, keyed 1:1 to shared.profiles.visual's 5 Python engines —
+    see schema.sql's style_presets comment and _PROFILE_MODULES) into the
+    same freeform style TEXT image_style_override/visual_style already carry,
+    so a preset-only video gets a real ART STYLE line instead of falling
+    through to the neutral photoreal default. This is _resolve_style's THIRD
+    precedence tier — see its docstring.
+
+    "neutral_v1" is deliberately excluded, not resolved: it is both the
+    style_presets id AND _resolve_visual_profile_id's own sentinel for "no
+    real choice made" (its fallback when style_preset_id is unset). Its
+    profile declares no medium of its own (neutral_v1.py's own docstring:
+    "style_prefix and character_prefix are empty... the channel's look is
+    injected at prompt build time") — resolving it would inject the ENGINE's
+    self-description as if it were a look, which it explicitly is not.
+
+    Uses VisualProfile.description — a complete, standalone aesthetic
+    sentence written for humans (style_presets catalog copy) — rather than
+    style_system.style_prefix/character_prefix/style_suffix, which are
+    prompt-assembly FRAGMENTS designed to wrap around scene content ("Cinematic
+    2D animated illustration of ___"), not stand alone as an ART STYLE line.
+
+    Best-effort: an unknown id or a load failure returns None (falls through
+    to "no style set"), same fail-soft posture as _resolve_visual_profile_id
+    and shared.profiles.visual.load_profile itself."""
+    if not style_preset_id or style_preset_id == "neutral_v1":
+        return None
+    try:
+        from shared.profiles.visual import load_profile as load_visual_profile
+        vp = load_visual_profile(style_preset_id)
+    except Exception:  # noqa: BLE001 — preset lookup is best-effort, never fatal
+        return None
+    if not vp:
+        return None
+    return (vp.description or "").strip() or None
+
+
+def _resolve_style(image_style_override, visual_style, style_preset_id=None):
     """Turn a video's stored style choice into (profile, style_directive) —
     the ONE resolved style string every image-prompt path (director, cast
-    sheet, storyboard sheet composer) must state exactly once (BOARD-LAWS
-    L29). This function IS the precedence contract; it was unwritten before
-    D6-1, which is how the sheet composer ended up stating two contradictory
-    styles in one prompt (see _sheet_header's L29 fix).
+    sheet, storyboard sheet composer, real coverage frames, redraw) must
+    state exactly once (BOARD-LAWS L29). This function IS the precedence
+    contract; it was unwritten before D6-1, which is how the sheet composer
+    ended up stating two contradictory styles in one prompt (see
+    _sheet_header's L29 fix).
 
     PRECEDENCE CONTRACT (videos carries EIGHT style-related columns; this is
-    the only function in the codebase that resolves board/cast-sheet style,
-    and it consults exactly two of them, in this order):
+    the only function in the codebase that resolves board/cast-sheet/
+    coverage-frame/redraw style, and it consults exactly three of them, in
+    this order):
       1. image_style_override — wins outright when set. The creator's most
          specific, most recent style choice.
       2. visual_style — used only when (1) is empty. The channel/video's
          general style pick.
-      3. Neither set => style_directive is None; every caller defaults to
-         its own neutral fallback ("Photorealistic, cinematic film still"
-         in the sheet composer, "a PHOTOREAL live-action / 3D-CG style" in
-         build_cast_prompt) — ONE default, stated ONE place per caller,
-         never a second independent guess layered on top.
-      The other SIX videos.* style columns are DELIBERATELY NOT consulted
+      3. style_preset_id — used only when (1) and (2) are BOTH empty (D15-7,
+         closes D6-1d). A validated FK into style_presets / shared.profiles.
+         visual's 5 Python engines, resolved to freeform text via
+         _preset_style_directive (see its docstring for why "neutral_v1"
+         resolves to nothing). Deliberately the LOWEST tier, below both
+         freeform fields — matches this function's existing "creator's most
+         specific, most recent pick wins" framing; a preset chosen once
+         (e.g. at onboarding) should not outrank a later freeform override.
+         (This differs from pipeline_executor._resolve_visual_profile_id's
+         internal order, which checks style_preset_id BEFORE visual_style —
+         that ordering only diverges from this one when a video has BOTH a
+         preset AND a freeform visual_style set, which is zero videos in
+         production as of this writing, and outside D6-1d's stated scope
+         of "preset id with neither freeform field also set.")
+      4. None of the three set => style_directive is None; every caller
+         defaults to its own neutral fallback ("Photorealistic, cinematic
+         film still" in the sheet composer, "a PHOTOREAL live-action / 3D-CG
+         style" in build_cast_prompt) — ONE default, stated ONE place per
+         caller, never a second independent guess layered on top.
+      The other FIVE videos.* style columns are DELIBERATELY NOT consulted
       here, because they answer different questions, not "what does the
       image look like":
         - render_style, video_model — the VIDEO/clip model + its declared
           look for animate/routing (route_shot_model), not the image-prompt
           style text.
-        - production_style_snapshot — pacing/density knobs (_production_
-          density_mode: how many panels, not what they look like).
-        - style_preset_id, production_style_id — preset IDs that resolve
-          through a COMPLETELY SEPARATE mechanism this function does not
-          touch: pipeline_executor._resolve_visual_profile_id reads
-          style_preset_id and sets the VISUAL_PROFILE env var, which a
-          DIFFERENT load_profile (shared.profiles.visual, not shared.
-          channel_profile's load_profile imported here) uses to pick one of
-          5 Python profile engines for the MAIN pictures pipeline. That
-          path is real but genuinely separate — verified by reading both
-          call sites (2026-07-30) rather than assumed. NOTED GAP, not fixed
-          in D6-1: a video whose creator picked a style_preset_id with no
-          image_style_override/visual_style text also set gets the sheet
-          COMPOSER's neutral photoreal default while the real PICTURES path
-          renders in the chosen preset engine — the sheet preview and the
-          real draw can disagree on style for that specific configuration.
-          Fixing it means either mirroring _resolve_visual_profile_id's
-          precedence here or unifying the two resolvers; out of this
-          chunk's scope (composer verbatim insertion), filed for a
-          follow-up rather than silently left undocumented.
+        - production_style_snapshot, production_style_id — pacing/density
+          knobs (_production_density_mode: how many panels, not what they
+          look like) — schema.sql's own comment confirms: "High-level
+          production shape... separate from visual look." NOTE: despite an
+          earlier version of this docstring pairing it with style_preset_id,
+          pipeline_executor._resolve_visual_profile_id never actually reads
+          production_style_id (verified 2026-07-30/D15-7) — only
+          style_preset_id feeds that mechanism, so this column was always
+          correctly out of scope, never actually part of the D6-1d gap.
         - thumbnail_style_override — scoped to the YouTube thumbnail only,
           a different artifact with its own audience and constraints.
-      A caller that finds itself wanting one of those six for a BOARD or
+      A caller that finds itself wanting one of those five for a BOARD or
       CAST-SHEET prompt has the wrong requirement — style-for-drawing always
       resolves through this function and only ever prints ONE line.
 
+    D6-1d HISTORY (now closed): style_preset_id used to resolve through a
+    COMPLETELY SEPARATE mechanism this function never touched —
+    pipeline_executor._resolve_visual_profile_id read style_preset_id and set
+    the VISUAL_PROFILE env var, consumed by shared.profiles.visual's 5-engine
+    loader for the (now-superseded) grid image pipeline. A preset-only video's
+    sheet preview stated the neutral default while the real per-shot coverage
+    frames' ART STYLE line (storyboard.coverage._stated_style_prefix, fed by
+    THIS function's `profile` return) also stated the neutral default — but
+    storyboard.bot.build_image_prompt_from_keyframe's own internal call into
+    that SAME env-based mechanism could inject a second, DIFFERENT style into
+    the same frame prompt whenever VISUAL_PROFILE held a stale value from an
+    earlier, unrelated stage call in the same process (os.environ is
+    process-global). Tier 3 above closes the preview-vs-draw gap by making
+    THIS function the preset's ONLY resolver; build_image_prompt_from_keyframe's
+    `apply_style_wrapping=False` (set by storyboard.coverage's two call sites)
+    retires its redundant, leak-prone second style injection for the coverage
+    path specifically (see that function's docstring) rather than trying to
+    make the legacy env-based mechanism agree with this one.
+
     The picture engine locks every frame to the cast sheet's look, so the cast sheet IS the
-    style. This carries the creator's pick (image_style_override / visual_style) into the
-    director, cast-sheet, and storyboard prompts. Without it, load_profile({}) fell back to a
+    style. This carries the creator's pick (image_style_override / visual_style / style_preset_id)
+    into the director, cast-sheet, and storyboard prompts. Without it, load_profile({}) fell back to a
     neutral 'clean, modern, cinematic' default and every video rendered realistic — even when
     the creator chose a 3D-animated look. style_directive is None when no style was picked, so
     callers keep their own sensible default.
@@ -356,6 +418,10 @@ def _resolve_style(image_style_override, visual_style):
     vs = _neutralize_style_brands((visual_style or "").strip())
     if vs:
         rec["Visual Style"] = vs
+    if not rec:
+        preset_directive = _preset_style_directive(style_preset_id)
+        if preset_directive:
+            rec["Image Style Override"] = _neutralize_style_brands(preset_directive)
     profile = load_profile(rec)
     return profile, _enforce_stylized_media(
         _neutralize_style_brands(profile.visual_style_directive if rec else None))
@@ -2650,7 +2716,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, render_style, video_model, "
+        "image_style_override, visual_style, style_preset_id, render_style, video_model, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio, "
         "production_style_snapshot "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
@@ -2673,7 +2739,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # LOOK + its own clip model, unrelated to which model paints a preview.
     render_style = v["render_style"]
     video_model_id = v["video_model"]
-    profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
+    profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"], v.get("style_preset_id"))
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
@@ -3352,7 +3418,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "a.generation_method, a.group_arrangement, "
         "a.shot_archetype, a.lens_mm, a.camera_height, a.dof, a.shot_location, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
-        "v.image_style_override, v.visual_style "
+        "v.image_style_override, v.visual_style, v.style_preset_id "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
         "WHERE a.id=$1 AND a.video_id=$2 AND a.tenant_id=$3", asset_id, video_id, tenant_id)
     if not a:
@@ -3397,7 +3463,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # stored prompt carried NO style pressure at all beyond the small cast
     # refs, and drifted semi-realistic (proven live on cd5d2883's scene-1
     # redraws, 2026-07-21). Style goes FIRST so it outweighs everything after.
-    _profile, _style_dir = _resolve_style(a.get("image_style_override"), a.get("visual_style"))
+    _profile, _style_dir = _resolve_style(
+        a.get("image_style_override"), a.get("visual_style"), a.get("style_preset_id"))
     style_prefix = (
         f"ART STYLE — the single most important instruction, every element of this frame is "
         f"rendered in it: {_style_dir} " if _style_dir else "")
@@ -4740,7 +4807,8 @@ async def generate_coverage_for_video(
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, image_model_override, render_style, video_model, "
+        "image_style_override, visual_style, style_preset_id, image_model_override, "
+        "render_style, video_model, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio, "
         "production_style_snapshot "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
@@ -4812,11 +4880,14 @@ async def generate_coverage_for_video(
     kie_key = await _require_tenant_kie_key(tenant)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
-    # whole video renders in that style — not the realistic default.
+    # whole video renders in that style — not the realistic default. visual_profile_override
+    # (Custom Film's section_contract) is its own already-resolved override and takes full
+    # precedence — style_preset_id (D15-7's third tier, see _resolve_style) never applies
+    # alongside it, matching the CUSTOM_FILM_AUXILIARY_IMAGE_POLICY branch's existing exclusivity.
     profile, style_dir = (
         _resolve_style(None, visual_profile_override)
         if visual_profile_override
-        else _resolve_style(v["image_style_override"], v["visual_style"])
+        else _resolve_style(v["image_style_override"], v["visual_style"], v.get("style_preset_id"))
     )
     # Scene-aware bible: each scene's directive gets ONLY the characters in that scene
     # (the 1-character-per-scene lock), via the existing _format_story_bible_for_beat.
@@ -5099,7 +5170,7 @@ async def main():
         print(f"No video matched '{args.video}'"); return
     vid, tenant = str(v["id"]), str(v["tenant_id"])
     title, aspect = v["video_title"], v["aspect"]
-    _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
+    _, style_dir = _resolve_style(v["image_style_override"], v["visual_style"], v.get("style_preset_id"))
     print(f"Video: {title}\n  id={vid} tenant={tenant} aspect={aspect}"
           + (f"\n  style: {style_dir[:80]}" if style_dir else "\n  style: (none set — photoreal default)"))
 
@@ -5160,7 +5231,7 @@ async def main():
         claude_model = claude_model_for_direct_client(claude)
         kie_key = await _require_tenant_kie_key(tenant)
         ic = ImageClient(api_key=kie_key, tenant_id=tenant)
-        profile, _ = _resolve_style(v["image_style_override"], v["visual_style"])
+        profile, _ = _resolve_style(v["image_style_override"], v["visual_style"], v.get("style_preset_id"))
         # ONE cast for the whole video so characters match ACROSS scenes: reuse the on-disk cast
         # sheet a prior run made; only build it once. (A fresh cast per scene would drift the look.)
         cast_local = os.path.join(base_dir, "0_cast_sheet.png")

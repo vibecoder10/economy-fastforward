@@ -4300,9 +4300,18 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         s_anchor, s_ref = await _setup_ref(m)
         m_anchor, m_ref = _board(m, board_is_last=not s_ref)
         master_refs = base + m_ref + s_ref
+        # apply_style_wrapping=False (D15-7/D6-1d): style_prefix above ALREADY
+        # states the canonically-resolved ART STYLE line from this exact
+        # `profile` (coverage_to_app._resolve_style's return, including the
+        # style_preset_id tier) — build_image_prompt_from_keyframe's own
+        # internal style lookup reads a process-global env var that can carry
+        # a stale value left by an unrelated video's stage call, so leaving it
+        # enabled here risks either a duplicate style line (L29) or a plain
+        # wrong one. See that function's docstring for the full history.
         master_prompt = (style_prefix
                          + build_image_prompt_from_keyframe(
-                             {"composition": _shot_prompt_description(m)}, profile)
+                             {"composition": _shot_prompt_description(m)}, profile,
+                             apply_style_wrapping=False)
                          + _style_block_for(style_prefix, master_refs) + m_anchor + s_anchor)
         master_url, master_model = await _gen(master_prompt, master_refs)  # master first — angles anchor on it
     finally:
@@ -4372,9 +4381,12 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
             s_anchor, s_ref = await _setup_ref(a)
             a_anchor, a_ref = _board(a, board_is_last=not s_ref)
             angle_refs = angle_base + a_ref + s_ref
+            # apply_style_wrapping=False — same reasoning as the master frame
+            # above: style_prefix already states this frame's ART STYLE line.
             ap = (style_prefix
                   + build_image_prompt_from_keyframe(
-                      {"composition": _shot_prompt_description(a)}, profile)
+                      {"composition": _shot_prompt_description(a)}, profile,
+                      apply_style_wrapping=False)
                   + _SAME_SUBJECT + _style_block_for(style_prefix, angle_refs) + a_anchor + s_anchor)
             url, model_used = await _gen(ap, angle_refs)
         finally:
