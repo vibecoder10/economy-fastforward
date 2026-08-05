@@ -51,10 +51,9 @@
         kitchen regression; stash-proof; suite vs baseline.
 - [x] ENV-2 (judge) Orchestrator review of ENV-1 evidence, then session-end
       docs (todo/lessons/decisions if warranted) and completion report.
+- [x] ENV-3 (orchestrator) Deploy 319fbd99 + live verification: endpoint on prod openapi, add_environment in deployed mcp.py, kitchen draft row 2dc7f70a created on the real video, original 6 rows untouched.
 
 ## Parked for Ryan
-- Deploy + live verification (MCP tools/list shows add_environment; add the
-  missing "the kitchen at home" environment to PocoAPoco video
-  d39892b2-0c85-4752-85d7-b61ca209342a and regenerate just that one).
-- Whether run_environments_design_step should become skip-if-done like other
-  stages (docs/failure-modes.md resumability table marks it full-redraw).
+- ~$0.05: generate the kitchen environment image (POST /environments/2dc7f70a-df34-4074-bce2-d0b6b2134b8b/regenerate on video d39892b2) and approve it. The draft row is in place; this is the only remaining step for that video.
+- Whether run_environments_design_step should become skip-if-done like other stages (docs/failure-modes.md resumability table marks it full-redraw).
+- Note: MCP connectors opened BEFORE this deploy still list 97 tools; reconnect/new session to see add_environment.

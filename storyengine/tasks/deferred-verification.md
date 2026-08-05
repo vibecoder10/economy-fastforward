@@ -5082,3 +5082,9 @@ browser, in draft status with no reference image, immediately regenerate-able.
 `COALESCE(MAX(sort), -1) + 1` query was only exercised against a fake `fetch_one` in tests; worth one
 live check that a hand-added environment lands visually AFTER existing design-generated cards in the
 Environments tab, not jumbled into the middle.
+
+### ENV-1 live results (2026-08-05, post-deploy)
+- Deployed 319fbd99 (`se deploy env1-environments-fix`). Backend + worker active, migrations 162/162.
+- VERIFIED LIVE: POST /api/videos/{video_id}/environments present in prod openapi.json; add_environment in deployed routes/mcp.py (98 tools for fresh MCP sessions).
+- VERIFIED LIVE: real-case recovery - draft row 2dc7f70a-df34-4074-bce2-d0b6b2134b8b "The kitchen at home" created via the new endpoint on PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a; SQL confirms the 6 pre-existing approved rows unchanged.
+- STILL DEFERRED: all-tagged extraction path on a live design run (free proof on the next location-tagged video); paid kitchen image regenerate + approve (parked for Ryan, ~$0.05).
