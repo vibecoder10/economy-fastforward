@@ -2814,9 +2814,36 @@ _DELETE_ENVIRONMENT_TOOL: dict[str, Any] = {
     },
 }
 
+_ADD_ENVIRONMENT_TOOL: dict[str, Any] = {
+    "name": "add_environment",
+    "description": (
+        "Add ONE environment by hand (routes/environments.py's POST /{id}/"
+        "environments) — a draft row (name + description, no reference "
+        "image yet) that redo_environment/edit_environment/upload can then "
+        "operate on exactly like a design_environments-generated card. "
+        "Free, no cost. The recovery path for a location design_environments'"
+        " extraction missed (e.g. a location named in the script's per-scene "
+        "structure but never spoken in dialogue) — no need to re-design "
+        "every other environment on the video to pick up one miss. Call "
+        "redo_environment afterward to generate its reference image."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "name": {"type": "string", "description": "Short specific place name, e.g. 'Kitchen'."},
+            "description": {
+                "type": "string",
+                "description": "What the place looks like + its lighting/time of day (optional).",
+            },
+        },
+        "required": ["video_id", "name"],
+    },
+}
+
 _ENVIRONMENT_TOOLS: list[dict[str, Any]] = [
     _DESIGN_ENVIRONMENTS_TOOL, _REDO_ENVIRONMENT_TOOL,
-    _EDIT_ENVIRONMENT_TOOL, _DELETE_ENVIRONMENT_TOOL,
+    _EDIT_ENVIRONMENT_TOOL, _DELETE_ENVIRONMENT_TOOL, _ADD_ENVIRONMENT_TOOL,
 ]
 
 
@@ -2924,9 +2951,30 @@ async def _call_delete_environment(tenant_id, arguments: dict[str, Any], caller:
     return _text_result(result)
 
 
+async def _call_add_environment(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    name = arguments.get("name")
+    if not video_id or not str(name or "").strip():
+        return _error_result("add_environment requires video_id and a non-empty name")
+    from routes.environments import EnvironmentCreate, create_environment as _create_environment_route
+    try:
+        result = await _create_environment_route(
+            str(video_id),
+            EnvironmentCreate(name=str(name), description=arguments.get("description")),
+            tenant_id=tenant_id,
+        )
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Video not found")
+    except ValueError as e:
+        return _error_result(f"Invalid input: {e}")
+    _log_setup_write("add_environment", tenant_id, caller, detail=str(video_id))
+    return _text_result(result)
+
+
 _ENVIRONMENT_FREE_HANDLERS = {
     "edit_environment": _call_edit_environment,
     "delete_environment": _call_delete_environment,
+    "add_environment": _call_add_environment,
 }
 _ENVIRONMENT_PAID_HANDLERS = {
     "design_environments": _call_design_environments,

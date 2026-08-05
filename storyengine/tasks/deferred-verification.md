@@ -5041,3 +5041,40 @@ call on video 686b4651 scene 1 completed ("15 shot(s), nothing drawn"), hash unc
 Real cross-door convergence proof now requires either (a) Ryan's own local Scene Lab redraw driving
 (free byproduct - check directive_was_reused after), (b) one paid ~$0.05 sheet draw through two doors
 (quote first), or (c) a small future chunk wiring a $0 convergence check into plan_only.
+
+## ENV-1 - environment location extraction fix + create-one endpoint + MCP add_environment - added 2026-08-05
+All work verified in-sandbox with mocked Anthropic/Kie clients (cost cap $0): full backend suite,
+stash-proof (15/19 new tests fail against unpatched code, all 19 pass restored), py_compile clean.
+NOT verified live (needs prod or a locally-DB-connected dev backend, neither available in this sandbox
+per tasks/lessons.md's confirmed local-Mac-cannot-reach-Supabase-pooler note):
+
+**1. The real incident video itself.** Recipe: `se db "SELECT id, location FROM scripts WHERE video_id =
+'d39892b2-0c85-4752-85d7-b61ca209342a' ORDER BY scene"` to confirm all 7 scenes (including the one whose
+location is "the kitchen at home") still carry their structured `location` value. Then, if this video's
+`video_environments` is still short the kitchen row, call the new MCP tool
+`add_environment {"video_id": "d39892b2-0c85-4752-85d7-b61ca209342a", "name": "the kitchen at home"}`
+(free) followed by `redo_environment` (paid, ~$0.03-0.05, quote first) to generate its reference image.
+Expected: a new draft row appears via `get_environment_images`, then gets a `reference_url` after
+redo_environment completes.
+
+**2. A fresh video through submit_script with ALL scenes tagged.** Recipe: submit a script via
+`submit_script` where every scene has a `location`, including one location mentioned in NO scene's
+`text` (mirrors the regression test). Call `design_environments` (or the REST
+`POST /{video_id}/environments/design`) and confirm via `se logs backend | grep -i "extract"` (or
+absence of any Claude/Anthropic call in the request's cost/ledger) that no LLM call fired for location
+extraction, and that every tagged location — including the undialogued one — appears in
+`get_environment_images`. Expected: same count as `SELECT count(*) FROM scripts WHERE video_id = ...`
+distinct non-empty `location` values.
+
+**3. `POST /api/videos/{video_id}/environments` and the `add_environment` MCP tool against the live
+API** (this sandbox only exercised them via TestClient/direct function calls, never a real HTTP round
+trip through the deployed app or a real MCP `tools/call`). Recipe: `claude mcp list` (or any connected
+MCP client) against the prod `storyengine` connector, call `tools/list`, confirm `add_environment`
+appears (98-tool surface, up from 97 pre-ENV-1) with the schema `{video_id, name, description?}`; then
+call it once for real on a scratch video and confirm the row shows up in the Environments tab in the
+browser, in draft status with no reference image, immediately regenerate-able.
+
+**4. `_create_environment_draft`'s sort-append logic against real Postgres** — the
+`COALESCE(MAX(sort), -1) + 1` query was only exercised against a fake `fetch_one` in tests; worth one
+live check that a hand-added environment lands visually AFTER existing design-generated cards in the
+Environments tab, not jumbled into the middle.

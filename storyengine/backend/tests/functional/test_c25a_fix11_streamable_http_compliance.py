@@ -285,7 +285,10 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
     # growth, not a regression; see tasks/decisions.md 2026-07-21.
     # P1 (chat channel-identity rebuild): +1 (get_channel_identity_context —
     # the composed identity pool) — 96 -> 97.
-    assert len(tools) == len(mcp_mod.TOOLS) == 97, (
+    # ENV-1 (2026-08-05, missed-location recovery): +1 (add_environment —
+    # create one draft environment by hand without a full paid re-design) —
+    # 97 -> 98.
+    assert len(tools) == len(mcp_mod.TOOLS) == 98, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

@@ -1,5 +1,45 @@
 # System State — Economy FastForward
 
+## ENV-1: environment location extraction fix + create-one endpoint + MCP add_environment (2026-08-05)
+
+- Real incident: tenant PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a
+  had 7 per-scene locations in its submitted script (STORY LAW S3's
+  `scripts.location`, migration 144), but `_extract_locations_from_script`
+  only ever read the prose script text through Claude — "the kitchen at
+  home" was never spoken in dialogue, so it was silently dropped, and the
+  only recovery was a full paid environment redraw.
+- `routes/environments.py::_extract_locations_from_script` now branches on
+  how many of the video's scenes carry a non-empty `scripts.location`: ALL
+  tagged skips the paid Claude call entirely (free, deterministic,
+  deduped/scene-ordered return); SOME tagged seeds the Claude prompt with
+  the known names and UNIONs the structured set into whatever Claude
+  returns, so a structured location can never be silently dropped; NONE
+  tagged is byte-for-byte the old prompt/behavior (verified by test — prompt
+  text compared for exact equality).
+- New recovery door: `POST /api/videos/{video_id}/environments` creates one
+  draft environment row (name + optional description, no image generated)
+  that the existing regenerate/patch/upload/approve routes can operate on
+  immediately — no full paid re-design needed to pick up one missed
+  location. Shared helper `_create_environment_draft` is the single INSERT
+  both this route and the new MCP tool call, so the two doors can't diverge.
+- New MCP tool `add_environment` (routes/mcp.py, free handler, same
+  tenant/video resolution and result-shape conventions as
+  edit_environment/delete_environment) — wraps the same REST route function.
+  MCP tool surface grows 97 -> 98 (test_c25a_fix11_streamable_http_
+  compliance.py's pinned toolset-count canary updated to match).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_env1_location_extraction.py` | ENV-1 regression: all/some/none-tagged extraction branches, `_dedupe_locations`, POST create-one endpoint (happy path + 404 + validation), MCP `add_environment` tool |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/environments.py` | `_dedupe_locations` helper; `_extract_locations_from_script` all/some/none branch (structured `scripts.location` union, seeded prompt); `EnvironmentCreate` model; `_create_environment_draft` shared helper; new `POST /{video_id}/environments` route |
+| `storyengine/backend/routes/mcp.py` | New `add_environment` MCP tool + `_call_add_environment` handler, registered in `_ENVIRONMENT_TOOLS`/`_ENVIRONMENT_FREE_HANDLERS` |
+| `storyengine/backend/tests/functional/test_c25a_fix11_streamable_http_compliance.py` | Pinned tool-count canary 97 -> 98 (legitimate surface growth, not a regression) |
+
 ## Render verb is format-aware for static documentaries (2026-08-04)
 
 - Live repro: a render-ready static documentary (render_mode='static_docu',

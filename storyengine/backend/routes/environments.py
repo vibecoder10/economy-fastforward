@@ -86,6 +86,29 @@ class EnvironmentRead(BaseModel):
     material_map: Optional[str] = None
 
 
+class EnvironmentCreate(BaseModel):
+    """Body for POST /{video_id}/environments — add ONE environment by hand
+    (ENV-1 recovery path: a location the extraction missed, or a creator
+    just adding one directly). No image is generated here; the row starts
+    exactly like a design_environments-created draft, ready for
+    regenerate/upload/patch/approve to pick up."""
+    name: str
+    description: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_empty(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("name must not be empty")
+        return v[:120]
+
+    @field_validator("description")
+    @classmethod
+    def _description_len(cls, v):
+        return v.strip()[:1000] if v is not None else v
+
+
 class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
@@ -142,6 +165,44 @@ def _row_to_read(row: dict) -> EnvironmentRead:
     )
 
 
+async def _create_environment_draft(video_id: str, tenant_id, name: str, description: Optional[str] = None) -> dict:
+    """The ONE place a hand-added draft environment row gets INSERTed
+    outside the design/regenerate image-generation flow (ENV-1 Part B/C —
+    both the REST create-one route below and the MCP add_environment tool
+    call this, never a second copy of the INSERT). Recovery path for a
+    location `_extract_locations_from_script`/`_extract_environments` missed,
+    or a creator adding one by hand.
+
+    Shares the EXACT row shape `run_environments_design_step`'s own INSERT
+    uses (status default 'draft', source default 'generated', reference_url
+    NULL) so every existing per-environment route — regenerate, patch,
+    upload, approve — operates on it with zero special-casing: the natural
+    next step after creating one is calling regenerate (or upload) to give
+    it a reference image. `sort` is appended after whatever's already on
+    the video so it lands last in the Environments tab, not jumbled into
+    the middle of an existing design run.
+
+    Raises HTTPException(404) via `_get_video` if the video doesn't belong
+    to this tenant — same contract every other route in this file uses."""
+    await _get_video(video_id, tenant_id)
+    sort_row = await fetch_one(
+        "SELECT COALESCE(MAX(sort), -1) + 1 AS next_sort FROM video_environments "
+        "WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    next_sort = (sort_row or {}).get("next_sort")
+    if next_sort is None:
+        next_sort = 0
+    created = await fetch_one(
+        "INSERT INTO video_environments (tenant_id, video_id, name, description, sort) "
+        "VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        tenant_id, video_id, (name or "").strip()[:120], (description or "").strip()[:1000], next_sort,
+    )
+    if not created:
+        raise HTTPException(status_code=500, detail="Couldn't create the environment")
+    return _row_to_read(created).model_dump()
+
+
 def _extract_environments(video: dict) -> list[dict]:
     """Environment list for this video, read straight from the Story Bible's
     locations[] — each location is {id, type, lighting, description,
@@ -163,25 +224,104 @@ def _extract_environments(video: dict) -> list[dict]:
     return envs
 
 
+def _dedupe_locations(locations: list[dict]) -> list[dict]:
+    """Case-insensitive + whitespace-normalized de-dup by `name`, preserving
+    FIRST-SEEN casing and order. The one dedupe rule this module uses
+    everywhere two location lists get reconciled — a script's structured
+    per-scene `scripts.location` tags (migration 144, STORY LAW S3) vs.
+    Claude's prose-only extraction below. Entries earlier in `locations`
+    win ties (their description, if any, is kept over a later duplicate's)."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in locations:
+        name = re.sub(r"\s+", " ", (item.get("name") or "")).strip()
+        key = name.casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append({**item, "name": name})
+    return out
+
+
 async def _extract_locations_from_script(video: dict, api_key: str) -> list[dict]:
-    """Recurring locations read straight from the script — the fallback used when
-    the Story Bible has no locations yet (it's generated later, at the image step,
-    so it's empty during environment design). Mirrors characters._extract_cast's
+    """Recurring locations for this video — the fallback used when the Story
+    Bible has no locations yet (it's generated later, at the image step, so
+    it's empty during environment design). Mirrors characters._extract_cast's
     script fallback so environments work the same way characters already do.
-    Returns [{name, description}] (possibly empty)."""
+    Returns [{name, description}] (possibly empty).
+
+    D-ENV1 (2026-08-05 incident, tenant PocoAPoco video d39892b2): scripts
+    submitted via the MCP submit_script tool (STORY LAW S3) carry an explicit
+    per-scene `location` field — migration 144's `scripts.location` column —
+    the STRUCTURED ground truth for where each scene happens, populated
+    whether or not any dialogue line ever speaks the location's name aloud.
+    The prose-only Claude extraction below only ever reads `video["script"]`
+    (the narration/dialogue text), so a location that's never spoken — "the
+    kitchen at home" in the real incident — was silently dropped even though
+    the submitted script already named it on its own scene. Fix, a three-way
+    branch on how many of this video's scenes carry a non-empty
+    `scripts.location`:
+      - ALL scenes tagged: the structured data is already complete and free
+        — skip the paid Claude call entirely and return the deduped,
+        scene-ordered structured list (no descriptions to synthesize
+        without an LLM call, so callers fall back to the bare name — the
+        same fallback `_generate_environment`'s caller already uses for any
+        environment with an empty description).
+      - SOME scenes tagged: still worth a Claude pass over the prose (it
+        can find locations for the untagged scenes, and writes descriptions
+        the bare structured names lack) — but seed the prompt with the
+        already-known names so the model is nudged to keep them, then UNION
+        the structured set into whatever Claude returns so a structured
+        location can never be silently dropped by the model's own judgment
+        call, even if it disagrees.
+      - NONE tagged (every video before migration 144, or a script that
+        never went through submit_script/set_user_script's location
+        parser): byte-for-byte the old behavior — this branch runs the
+        exact prompt/return shape that existed before this fix.
+    """
+    scene_rows = await fetch_all(
+        "SELECT scene, location FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+        video["id"], video.get("tenant_id"),
+    )
+    tagged_names = [(r.get("location") or "").strip() for r in (scene_rows or [])]
+    non_empty_names = [n for n in tagged_names if n]
+    structured = _dedupe_locations(
+        [{"name": n, "description": ""} for n in non_empty_names]
+    )[:MAX_ENVIRONMENTS]
+
+    if scene_rows and non_empty_names and len(non_empty_names) == len(scene_rows):
+        # ALL scenes have a structured location — nothing for the LLM to add,
+        # and nothing it could drop. Never call it.
+        return structured
+
     script = (video.get("script") or "").strip()
     if not script:
-        return []
+        # SOME (or none) tagged, but no prose to extract more from — return
+        # whatever the structured pass already found (possibly []).
+        return structured
+
     from routes.model_video import _call_claude, _resolve_claude_creds  # provider-aware Claude
     creds = await _resolve_claude_creds(video["tenant_id"]) if video.get("tenant_id") else None
     if creds is None:
         creds = {"provider": "kie", "key": api_key}
+    # Seeding is ONLY added when there's something structured to seed with —
+    # empty when `structured` is [] (the NONE-tagged case), which keeps the
+    # prompt text byte-identical to before this fix for every pre-migration-144
+    # video (verified by test — see test_env1_location_extraction.py).
+    seed_line = ""
+    if structured:
+        seed_names = ", ".join(f'"{s["name"]}"' for s in structured)
+        seed_line = (
+            f" This script's scenes are already tagged with these known locations — your list "
+            f"MUST include every one of them (using this exact wording), plus any other visually "
+            f"distinct location you find: {seed_names}."
+        )
     prompt = f"""Read this script and list every VISUALLY DISTINCT location shown on screen — one
 environment per place that LOOKS different and would need its OWN reference image. Two rooms in
 the same building are SEPARATE environments if they look different: a kitchen and a garage are
 TWO environments, not one "home"; an indoor room and an outdoor shore are separate. ONLY merge
 shots of the literally same room/place (e.g. two angles of the same kitchen). Skip one-off
-throwaway mentions. Maximum {MAX_ENVIRONMENTS}.
+throwaway mentions. Maximum {MAX_ENVIRONMENTS}.{seed_line}
 
 SCRIPT:
 {script[:12000]}
@@ -194,13 +334,21 @@ Return ONLY valid JSON:
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         locs = (json.loads(text).get("locations") or [])[:MAX_ENVIRONMENTS]
+        llm_locations = [
+            {"name": (l.get("name") or "").strip(), "description": (l.get("description") or "").strip()}
+            for l in locs if isinstance(l, dict) and (l.get("name") or "").strip()
+        ]
     except Exception as e:
         logger.warning("[environments] script location extraction failed: %s", str(e)[:200])
-        return []
-    return [
-        {"name": (l.get("name") or "").strip(), "description": (l.get("description") or "").strip()}
-        for l in locs if isinstance(l, dict) and (l.get("name") or "").strip()
-    ]
+        # A Claude failure must never cost us structured data we already
+        # had for free — fall back to it instead of the pre-fix bare [].
+        return structured
+    if not structured:
+        return llm_locations
+    # UNION (never a silent drop): the LLM's own finds win on a name
+    # collision (their description survives), and any structured location
+    # the model didn't surface is appended, never lost.
+    return _dedupe_locations(llm_locations + structured)[:MAX_ENVIRONMENTS]
 
 
 async def _generate_environment(api_key: str, description: str, style_dna: str, aspect_ratio: str = "16:9") -> dict:
@@ -390,6 +538,24 @@ async def list_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
         "environments": [_row_to_read(r).model_dump() for r in (rows or [])],
         "approved_at": str(video["environments_approved_at"]) if video.get("environments_approved_at") else None,
     }
+
+
+@router.post("/{video_id}/environments")
+async def create_environment(
+    video_id: str,
+    body: EnvironmentCreate,
+    tenant_id=Depends(get_tenant_id),
+):
+    """Add ONE environment by hand — ENV-1's recovery path for a location
+    the auto-extraction missed (bulk design only runs from the Story
+    Bible/script extraction; there was previously no way to add a single
+    missed location without a full paid re-design of every environment on
+    the video). Free — no image is generated here; the new row is a draft
+    ready for regenerate/upload/patch/approve like any other environment
+    card. Thin wrapper — the actual INSERT lives in
+    `_create_environment_draft`, shared with the MCP `add_environment` tool
+    so the two doors can never diverge."""
+    return await _create_environment_draft(video_id, tenant_id, body.name, body.description)
 
 
 async def run_environments_design_step(
