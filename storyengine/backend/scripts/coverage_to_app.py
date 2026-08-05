@@ -1667,6 +1667,61 @@ def _scene_text_hash(text: str) -> str:
     return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
 
 
+async def _get_or_plan_directive(vid, tenant, sc, scene_text: str, *, extra_columns: str = "") -> dict:
+    """D15-9: the ONE hash-gate read — replaces the two near-identical
+    "fetch the scene's saved plan, then decide whether it's still fresh"
+    blocks that used to live independently in generate_storyboard_sheet_
+    for_scene's per-board redo branch and generate_coverage_for_video's
+    reuse gate (the D15-1 sweep's "duplicated hash-gate blocks" finding).
+
+    Fresh means: a `scripts` row exists for (vid, tenant, sc), its
+    coverage_directive is non-blank, AND coverage_directive_hash ==
+    _scene_text_hash(scene_text) — the SAME pointer routes/videos.py's
+    _clear_scene_downstream (D7-3 staleness) nulls on a scene-text edit, so
+    an edited scene reads as stale here with zero changes needed on either
+    side. This is the ONE place that predicate is evaluated; both real
+    callers (and the D7 staleness system that invalidates the pointer they
+    both read) now agree on a single verdict for a single scene.
+
+    `extra_columns` lets a caller pull more columns off the SAME row in the
+    SAME query (assembler B's board-anchoring columns) without a second
+    round trip — appended verbatim after `coverage_directive_hash`, so the
+    default ("") reproduces assembler A's original 3-column SELECT text
+    byte-for-byte, and assembler B's ", storyboard_prompts, storyboard_1_url,
+    ..." argument reproduces its original query text byte-for-byte too.
+    Every pre-existing test that pins to either caller's exact SQL string
+    keeps matching — this only centralizes the DECISION, never the SQL shape
+    either caller already owns.
+
+    Returns {"row": <scripts row or None>, "directive": <the stored text
+    when fresh, else None>, "is_reused": bool}. `row` is returned regardless
+    of freshness so a caller that also needs row["id"] (to target a persist
+    UPDATE) or the extra_columns it asked for never re-queries.
+
+    Deliberately does NOT decide what "or plan" means when the stored plan
+    isn't fresh — the two real callers disagree on that by design (assembler
+    A's beat-redo branch never re-plans at all, a stale/missing plan is a
+    hard failure there; assembler B's fresh-plan branch conditionally
+    re-plans with narrative text, else lets run_coverage plan internally)
+    — and this gate is deliberately NEVER consulted by assembler A's main
+    plan-the-scene call (beat=None): "Regenerate storyboard" must still be
+    able to produce a fresh shot list after a cast/environment change even
+    though those don't touch coverage_directive_hash, which is scoped to
+    scene TEXT only (confirmed live: ScenesWorkspaceTab.tsx's "Regenerate
+    storyboard" button's own tooltip is "after changing the cast,
+    environments, or script") — adding reuse there would silently freeze
+    that button's own documented use case. Documented exception, not an
+    oversight."""
+    row = await fetch_one(
+        f"SELECT id, coverage_directive, coverage_directive_hash{extra_columns} FROM scripts "
+        "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
+    directive = None
+    if row and (row.get("coverage_directive") or "").strip():
+        if row.get("coverage_directive_hash") == _scene_text_hash(scene_text or ""):
+            directive = row["coverage_directive"]
+    return {"row": row, "directive": directive, "is_reused": directive is not None}
+
+
 def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles_max: int,
                                    max_frames) -> int:
     """C16b (S7-2): the frame count THIS SAME saved directive would produce if drawn
@@ -2972,9 +3027,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     blocked_scenes: list[tuple] = []
     for s in targets:
         sc = s["scene"]
-        srow = await fetch_one(
-            "SELECT id, coverage_directive, coverage_directive_hash FROM scripts "
-            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
+        # D15-9: ONE hash-gate read (_get_or_plan_directive) — see its own
+        # docstring. beat=None never consults gate["directive"]/["is_reused"]
+        # (documented exception, same function); srow is still needed for
+        # its `id`/existence check either way.
+        gate = await _get_or_plan_directive(vid, tenant, sc, s["scene_text"] or "")
+        srow = gate["row"]
         if not srow:
             continue
         _mm, _amin, _amax, _mframes = _coverage_shape(
@@ -2985,12 +3043,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         if beat is not None:
             # PER-BOARD REDO: redraw ONE sheet from the SAVED plan — never
             # re-plan (that would silently change the other boards' panels).
-            if not (srow.get("coverage_directive") or "").strip() or \
-                    srow.get("coverage_directive_hash") != _scene_text_hash(s["scene_text"] or ""):
+            if not gate["is_reused"]:
                 return {"status": "failed",
                         "error": f"Scene {sc} has no current plan — generate the scene's "
                                  "storyboard first, then redo boards one at a time."}
-            directive = srow["coverage_directive"]
+            directive = gate["directive"]
             _p(f"Scene {sc}: redrawing board {beat} from the saved plan…")
         else:
             _p(f"Scene {sc}: planning the shots…")
@@ -4988,58 +5045,62 @@ async def generate_coverage_for_video(
         directive = None
         board_urls: list = []
         board_panel_total = None
-        saved = await fetch_one(
-            "SELECT id, coverage_directive, coverage_directive_hash, storyboard_prompts, "
-            "storyboard_1_url, storyboard_2_url, storyboard_3_url, "
-            "storyboard_4_url, storyboard_5_url FROM scripts "
-            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
-        if saved and (saved.get("coverage_directive") or "").strip():
-            if saved.get("coverage_directive_hash") == _scene_text_hash(s["scene_text"] or ""):
-                directive = saved["coverage_directive"]
-                # SKIP-IF-DONE (C16b/S7-2 — the default, unless forced above):
-                # this scene's directive is unchanged; if its coverage frames
-                # are ALREADY fully drawn under this exact plan, re-running
-                # would re-bill the paid draw for pixels that would come out
-                # as the identical prompts. "Complete" is judged against the
-                # frame count plan_moments_deterministic() (C7 fix (a)) would
-                # actually produce from THIS saved directive under today's
-                # shape params (_expected_coverage_frame_count) — not merely
-                # "> 0 rows exist" — so a crash or content-policy skip
-                # mid-scene (store_scene only inserts a row per frame that
-                # actually drew — see its `usable` filter over frames with a
-                # real local file) leaves the row count under the expected
-                # count and correctly reads as incomplete, never a false
-                # "done" that would strand a half-drawn scene.
-                if not force_this_scene:
-                    expected_n = _expected_coverage_frame_count(directive, _mm, _amax, _mframes)
-                    drawn_row = await fetch_one(
-                        "SELECT COUNT(*) AS n FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-                        "AND scene=$3 AND generation_method='coverage' AND image_url IS NOT NULL "
-                        "AND drive_image_url IS NOT NULL", vid, tenant, sc)
-                    drawn_n = (drawn_row or {}).get("n") or 0
-                    if expected_n > 0 and drawn_n >= expected_n:
-                        skipped += 1
-                        _p(f"Scene {sc}: already drawn ({drawn_n} frames, unchanged script) — skipping")
-                        continue
-                # BOARD ANCHOR: these sheets were drawn FROM this exact directive
-                # (the gate stores both together), so each shot can be pinned to
-                # its approved panel — same framing, same character placement.
-                board_urls = [saved.get(f"storyboard_{i}_url") for i in range(1, 6)]
-                while board_urls and not board_urls[-1]:
-                    board_urls.pop()
-                # C7 fix (a), layer 2: the TRUE panel count those sheets were
-                # planned with (never re-derived from moments) — the legacy-
-                # sheet guard run_coverage's board-anchor block checks its
-                # own recompute against. storyboard_prompts is set in the
-                # SAME UPDATE as the board URLs (the gate's one write), so
-                # it's present whenever board_urls is; None only for a row
-                # this fix predates or that isn't parseable.
-                board_panel_total = (_stored_sheet_panel_total(saved.get("storyboard_prompts"))
-                                     if board_urls else None)
-                anchored = " — matching the approved boards" if any(board_urls) else ""
-                _p(f"Scene {sc}: drawing the storyboarded plan ({model_override or 'GPT Image 2'}){anchored}…")
-            else:
-                _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
+        # D15-9: ONE hash-gate read (_get_or_plan_directive, shared with
+        # assembler A's beat-redo branch) — same predicate, same
+        # coverage_directive_hash pointer D7-3 staleness invalidation nulls.
+        # extra_columns reproduces this call's original 9-column SELECT text
+        # byte-for-byte (see the helper's own docstring).
+        gate = await _get_or_plan_directive(
+            vid, tenant, sc, s["scene_text"] or "",
+            extra_columns=", storyboard_prompts, storyboard_1_url, storyboard_2_url, "
+                          "storyboard_3_url, storyboard_4_url, storyboard_5_url")
+        saved = gate["row"]
+        if gate["is_reused"]:
+            directive = gate["directive"]
+            # SKIP-IF-DONE (C16b/S7-2 — the default, unless forced above):
+            # this scene's directive is unchanged; if its coverage frames
+            # are ALREADY fully drawn under this exact plan, re-running
+            # would re-bill the paid draw for pixels that would come out
+            # as the identical prompts. "Complete" is judged against the
+            # frame count plan_moments_deterministic() (C7 fix (a)) would
+            # actually produce from THIS saved directive under today's
+            # shape params (_expected_coverage_frame_count) — not merely
+            # "> 0 rows exist" — so a crash or content-policy skip
+            # mid-scene (store_scene only inserts a row per frame that
+            # actually drew — see its `usable` filter over frames with a
+            # real local file) leaves the row count under the expected
+            # count and correctly reads as incomplete, never a false
+            # "done" that would strand a half-drawn scene.
+            if not force_this_scene:
+                expected_n = _expected_coverage_frame_count(directive, _mm, _amax, _mframes)
+                drawn_row = await fetch_one(
+                    "SELECT COUNT(*) AS n FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                    "AND scene=$3 AND generation_method='coverage' AND image_url IS NOT NULL "
+                    "AND drive_image_url IS NOT NULL", vid, tenant, sc)
+                drawn_n = (drawn_row or {}).get("n") or 0
+                if expected_n > 0 and drawn_n >= expected_n:
+                    skipped += 1
+                    _p(f"Scene {sc}: already drawn ({drawn_n} frames, unchanged script) — skipping")
+                    continue
+            # BOARD ANCHOR: these sheets were drawn FROM this exact directive
+            # (the gate stores both together), so each shot can be pinned to
+            # its approved panel — same framing, same character placement.
+            board_urls = [saved.get(f"storyboard_{i}_url") for i in range(1, 6)]
+            while board_urls and not board_urls[-1]:
+                board_urls.pop()
+            # C7 fix (a), layer 2: the TRUE panel count those sheets were
+            # planned with (never re-derived from moments) — the legacy-
+            # sheet guard run_coverage's board-anchor block checks its
+            # own recompute against. storyboard_prompts is set in the
+            # SAME UPDATE as the board URLs (the gate's one write), so
+            # it's present whenever board_urls is; None only for a row
+            # this fix predates or that isn't parseable.
+            board_panel_total = (_stored_sheet_panel_total(saved.get("storyboard_prompts"))
+                                 if board_urls else None)
+            anchored = " — matching the approved boards" if any(board_urls) else ""
+            _p(f"Scene {sc}: drawing the storyboarded plan ({model_override or 'GPT Image 2'}){anchored}…")
+        elif saved and (saved.get("coverage_directive") or "").strip():
+            _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
         # D15-2: fixed HERE, before the fresh-plan branch below can assign a
         # new value to `directive` — True only when the hash-match branch
         # just above set `directive = saved["coverage_directive"]`. A scene
