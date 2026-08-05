@@ -2470,8 +2470,14 @@ and get folded into lanes opportunistically.
   behavior change - headlined for deploy notes); bonus fix: error strings no longer flatten to
   "Something went wrong" (error_utils.user_facing, the existing idiom). 18 new tests, failure sets
   byte-identical. Closes D8-7's core. Fold dispatched. Original: Route the button through the executor.
-- [ ] D15-4 (S) [B][V] Route custom_film_production_runner + arbiter_repair's non-repair callers
-  through the executor (repair-mode beat-scoped calls stay direct - no self-looping the arbiter).
+- [x] D15-4 (S) [B][V] DONE 2026-07-30 (branch d15-4-callers, commit c1a433db, survived two 529s):
+  arbiter_repair's reroll ROUTED through the executor with structural no-self-loop proof (beat is
+  required-int, hook guard unreachable; control test rules out false pass). custom_film runner left
+  DIRECT deliberately - the wrapper cannot express section_contract and the subsystem is dormant
+  (documented exception, revisit only if Custom Film wakes). Suite fully green 4420/0 both ways.
+  ALSO: phantom-failure mystery CLOSED - the 28 custom_film_remotion "pre-existing" failures are a
+  fresh-worktree scaffold gap (gitignored node_modules/public); symlinked = 81/81 pass. Fold
+  dispatched. Original: Route remaining callers through the executor.
 - [x] D15-5 (S) [B][V] DONE 2026-07-30 (branch d15-5-shared-builder, commit eba4286c): new
   storyboard/shot_context.py - ONE canonical builder, both prior copies now thin delegating aliases;
   AST-level reconciliation found exactly ONE semantic diff (None-safety, safer superset won); 95
@@ -2479,8 +2485,12 @@ and get folded into lanes opportunistically.
   vacuous). Cast/identity confirmed not duplicated (out of scope). FLAGGED: the 28 pre-existing
   custom_film_remotion failures deserve their own look someday (renderer-bundle hashing family).
   Fold dispatched. Original: ONE canonical shot-context builder.
-- [ ] D15-6 (S) [B][V] Fold redraw_asset_image onto the shared builder (keep fresh-beats-baked
-  philosophy, kill the third copy of style/material/lock logic).
+- [x] D15-6 (S) [B][V] DONE 2026-07-30 (branch d15-6-redraw, commit 1b017794): redraw's material +
+  env-locks composition now delegates to shot_context (mode="frame", single-env branch byte-identical);
+  cast-identity checked and correctly NOT extracted (live-table vs bible-derived - not a duplicate,
+  flagged as future candidate); 5 golden proofs + wiring-spy test that fails pre-change; guard-neuter
+  8 real AssertionErrors; suite 0/0 both ways, 218 sibling tests unmodified green. Fold dispatched.
+  Original: Fold redraw_asset_image onto the shared builder.
 - [ ] D15-7 (S) [B][V] ONE style-resolution entry point behind style_dir/_stated_style_prefix/
   _resolve_style (closes D6-1d's family for good).
 - [ ] D15-8 (S) [B][V] Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
