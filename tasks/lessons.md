@@ -716,3 +716,11 @@ sacred. Silent grinding against a bad rule is the most expensive form of diligen
 
 ### First post-fix run is ONE unit, never the batch (2026-08-04)
 - After the pictures-stage planner bug was fixed, the orchestrator proposed re-running the full $3.45 batch as the proof. Ryan's correction: run ONE machine (~$0.15) and look at it first. This is the standing Scene Lab habit (under-$1 iterative proofs) applied to every stage: the first run after ANY fix or config change is the smallest billable unit, verified with eyes, before the batch. The batch quote comes second, not first.
+
+## 2026-07-30 - fold jobs must NEVER git-stash the shared checkout (second stash incident today)
+A Haiku fold job hit local mods in the shared main checkout and "helpfully" ran git stash to merge,
+leaving the ENTIRE day's uncommitted task-file state (199 checklist ticks, the loop handoff) in
+stash@{0} instead of the working tree - on a box a second live session shares. Recovered by pop +
+keep-both conflict resolution. Rule: fold/merge briefs must say "if local mods block the merge, STOP
+and report - never stash, never reset". The task files being uncommitted-by-convention makes them
+invisible-fragile; treat any operation that touches the index on the shared tree as a stop condition.

@@ -4358,3 +4358,78 @@ state that was previously (incorrectly) permitted.
   mega-test through all three layers would duplicate that file's own
   extensive DB/vision-mocking harness for no new signal.
 
+
+## D15-2: persist the directive everywhere (branch `d15-2-persist`) — closes the D15-1 sweep's "different storyboard every time" root cause
+
+Built + committed on worktree branch `d15-2-persist` (commit `3f96cc8c`, worktree
+`storyengine/.claude/worktrees/d15-2-persist`), NOT merged to main and NOT
+deployed by this chunk. $0 spend — every test stubs the LLM/image provider.
+
+**What shipped:** `skills/video-pipeline/storyboard/coverage.py::run_coverage`
+now returns the `directive_text` it actually used (passed in, or planned
+internally at its own `if directive_text is None:` leg) as an additive key on
+its result dict. `storyengine/backend/scripts/coverage_to_app.py::
+generate_coverage_for_video` tracks `directive_was_reused` (True only when the
+hash-match branch pulled `directive` from the saved `scripts` row) and, on a
+fresh plan, persists `coverage_directive`/`coverage_directive_hash` back onto
+that scene's `scripts` row — same `_scene_text_hash`, same UPDATE shape as the
+sheet path's existing persist (`generate_storyboard_sheet_for_scene`,
+coverage_to_app.py:3119-3126). Advisory try/except; a persist failure can
+never fail an already-successful, already-billed draw.
+
+**Verified ($0, stubbed):**
+- Fresh plan persists directive+hash with the right hash/row id
+  (`test_fresh_plan_persists_directive_and_hash`).
+- Second call with the persisted directive present + hash matching reuses it
+  (threaded through as `directive_text`, never None) and does NOT re-persist
+  (`test_second_call_reuses_persisted_directive_no_replan`).
+- Stored-directive branch never re-writes
+  (`test_stored_matching_directive_never_rewritten`).
+- Persist failure is advisory-only, draw still reports "completed"
+  (`test_persist_failure_is_advisory_only`).
+- Defensive edge case: `saved` itself missing (shouldn't happen in prod — see
+  below) doesn't crash the draw (`test_missing_scripts_row_does_not_crash_the_draw`).
+- Legacy (already-planned, matching-hash) behavior byte-identical
+  (`test_legacy_behavior_unchanged_when_directive_already_exists`).
+- One layer down: `run_coverage` given a `directive_text` never calls the
+  planner LLM at all; given `directive_text=None`, the planner fires exactly
+  ONCE and its output lands verbatim on `out["directive_text"]`
+  (`skills/video-pipeline/tests/test_coverage.py::
+  test_run_coverage_exposes_the_directive_it_was_given` /
+  `..._it_planned_internally`).
+- Full backend suite (`storyengine/backend`, venv pytest) and full pipeline
+  suite (`skills/video-pipeline`, `--continue-on-collection-errors`)
+  reverted-vs-applied via `git apply -R`/`git apply` on a saved patch (no
+  `git stash`, per worktree discipline) — sorted FAILED test-name sets are
+  BYTE-IDENTICAL both suites (`diff` empty). Backend: 28 pre-existing failures
+  both states (`tests/functional/test_custom_film_remotion.py`, "Custom Film
+  Remotion local font assets are missing" — a worktree scaffold asset gap, not
+  code). Pipeline: 27 pre-existing failures both states + 2 collection errors
+  (`test_ctr_12h_tracking.py`, `test_sound_curation.py` — `ModuleNotFoundError`
+  for `performance_tracker`/`sound_prompt_bot`) — confirmed these two also
+  fail identically on the PRISTINE main checkout
+  (`/Users/ryanayler/economy-fastforward/skills/video-pipeline`), so this is a
+  repo-wide pre-existing sys.path gap in those two test files, not a worktree
+  artifact and not touched by this chunk. Zero real regressions in either
+  suite; only new passing tests added (backend +6, pipeline +2).
+
+**NOT verified by this chunk (deferred):**
+- No prod DB write, no live run against a real video — the `saved["id"]`
+  target and the whole persist path is proven only against a FakeDB. The
+  `test_missing_scripts_row_does_not_crash_the_draw` edge case (saved=None)
+  is a defensive belt-and-suspenders test, not a claim that this happens in
+  prod — every real target scene's row should already exist (script-writing
+  inserts it with `scene_text` populated; `coverage_directive`/`hash` just
+  start NULL) since the `saved` query filters on the exact
+  `video_id`/`tenant_id`/`scene` the `targets` list itself came from.
+- Not merged to main, not deployed. The actual "does a real second click of
+  'Generate all pictures' reuse the same shot list now" proof needs a live
+  video on prod (or local dev against the prod API) AFTER this branch merges
+  and deploys — a `/se-smoke`-style pass isn't the right tool here (no UI
+  surface changed), but a real two-call comparison on one scene (check
+  `scripts.coverage_directive` is non-NULL after call 1, unchanged after call
+  2) would close this out.
+- Other workers' territory (`routes/pipeline.py`, `redraw_asset_image`,
+  `frame_arbiter*`) was deliberately left untouched, per the chunk's own
+  constraint — confirmed via `git diff main HEAD --name-only`: only the 4
+  intended files changed.

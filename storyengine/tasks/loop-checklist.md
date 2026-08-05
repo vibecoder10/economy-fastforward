@@ -2218,8 +2218,12 @@ and get folded into lanes opportunistically.
   byte-identical vs stashed baseline (29 failed both ways); stash-proof via guard-neutering with real
   AssertionErrors (new-module ImportError form correctly avoided). Live-run recipe tail-appended to
   deferred-verification.md section 6. Fold to local main dispatched, NO push.
-- [ ] D8-2 [DECISION - DEPLOY + MONEY] In Ryan's deploy window: ship D8-1, run the flagged
-  scene live ONCE, read back actual ledger spend, confirm a repeat fingerprint freezes.
+- [x] D8-2 [DECISION - DEPLOY + MONEY] DONE 2026-07-30 in Ryan's deploy window (with honest notes):
+  judge ran LIVE on 686b4651 scene 1's existing board via direct library invocation (hook flags stay
+  OFF, nothing drawn, frozen artifact untouched) - real vision call, ledger row actual_cost $0.030615,
+  5 arbiter_findings persisted, verdict caught 2 REAL defects (facing_law_violation, staging_drift) +
+  3 OK. Fingerprints recorded at violation_count=1 frozen=false; FREEZE-ON-REPEAT not yet proven
+  (needs a second judging - rides Scene Lab iteration 1). Original: run the flagged scene live once.
   Quote the vision-call cost per scene BEFORE running.
   QUOTED by D8-1 from the module's own pricing constants: judge-only pass = 1-5 sheets x $0.027-0.03
   = $0.03-$0.15 per scene, under the $0.25 scene cap; a repair adds $0.05 + one $0.03 rejudge per
@@ -2247,6 +2251,24 @@ and get folded into lanes opportunistically.
   before D8-2 so the first live run persists its findings.
 - [ ] D8-4 (H) [D][V] A8 ruling wire-up: upsert_quality_rule rulings flow into prompt +
   gate + repair in one commit; per-rule violation-count escalation.
+- [x] D8-7 (S) [B][V] CORE CLOSED by D15-3 (button routes through the executor, arbiter fires
+  uniformly). Remaining sliver (cross-tenant deep-link 404) lives in D8-3c. Original, found by Scene
+  Lab iteration 1's wiring trace: the Scenes tab's "Generate
+  storyboards" button calls generate_storyboard_sheet_for_scene DIRECTLY, bypassing
+  PipelineExecutor.run_storyboard_sheet - so ONLY chat-initiated draws get judged by the arbiter today.
+  Route the button through the executor (or add the hook call to the direct route) so every draw is
+  judged when flags are on. Also extend D8-3c's scoping fix to the video detail deep-link (deep link
+  to a channel video 404s under the login tenant - hit live during the browser walk).
+- [ ] D8-3c (S) [B][V] Found by the orchestrator's own live UI walk 2026-07-30: the Findings tab scopes
+  to the LOGIN tenant, but the operating-client-channel selector implies channel-scoped data - the
+  judge's 5 real findings (DvsU tenant) are invisible when Ryan operates that channel from his login.
+  Reconcile: findings endpoint should honor the same operating-channel scoping as sibling review
+  endpoints (check how they do it first - if they don't either, this is a product decision for Ryan).
+- [ ] D8-8 (S) [B][V] PARKED until judge volume matters (Ryan asked 2026-07-30 "is Gemini vision
+  cheaper?" - yes, ~2-10x): judge-model bake-off. Run the existing A3b eval fixtures (labeled boards)
+  through Gemini Flash/Pro via the codebase's existing Gemini access, compare verdict accuracy vs
+  Sonnet head-to-head; swap only on parity. The vision call lives in one module (frame_arbiter), so
+  the swap is contained. Trigger: when judging becomes default for all customer draws.
 - [ ] D8-5 [DECISION] A9 rollout wider than one scene, still Ryan's tenant only. Widening
   BEYOND his tenant is a new Ryan decision, not covered by ruling 3.
 - [ ] D8-6 [DECISION - PARKED] D5-A3b-2: needs Ryan as label authority on the 108 "facing"
@@ -2424,6 +2446,46 @@ and get folded into lanes opportunistically.
   PRE-refactor, byte-identical POST; guard-neuter discriminates correctly; 125/125 pre-existing clip
   tests unmodified; failure sets identical (1 real pre-existing). PHASE D13 COMPLETE. Fold dispatched.
   Original: Extract Grok @imageN decoration into one provider-dialect adapter.
+
+### Chunks (D15 ONE ROAD — Ryan 2026-07-30: "when I drive using claude I get a different storyboard
+### output than when it goes through the pipeline, thats a problem." Root cause: 3+ entry points,
+### 2 prompt assemblers, and one path that re-plans per run. Goal: one stored plan, one assembler,
+### every door converges; residual variance only from the image model's own sampling.)
+- [x] D15-1 (S) SWEEP+PLAN DONE 2026-07-30: NINE entry points mapped (autopilot is a 4th BEHAVIOR -
+  skips sheet preview entirely); THREE assemblers (sheet blocks / per-shot tails / redraw re-derive)
+  + THREE style resolvers; fresh plans NEVER persisted at call-site-2 (confirmed live, exact lines);
+  purpose fields consumed by only 1 of 3 assemblers; NO seed support for stills (identical prompts =
+  the only determinism available). Full report in session; chunks D15-2..9 below are its plan.
+- [x] D15-2 (S) [B][V] DONE 2026-07-30 (branch d15-2-persist, commit 3f96cc8c): run_coverage returns
+  the directive_text it actually used (additive key); generate_coverage_for_video persists it + hash
+  after fresh plans only (directive_was_reused flag fixed pre-reassignment), advisory try/except;
+  raise-if-called planner-mock proofs; second call reuses stored plan with ZERO planner calls.
+  Closes D10-3e. Failure sets byte-identical both suites. Fold dispatched.
+  Original: Persist-directive-everywhere.
+- [x] D15-3 (S) [B][V] DONE 2026-07-30 (branch d15-3-route, commit 4a46f715, one mid-flight escalation
+  correctly raised + resolved): both button routes now dispatch through the executor with FULL param
+  forwarding (wrappers gained beat/plan_only/progress additively); cost-regression guard proven
+  (plan_only never reaches a paid call, beat draws exactly one board); arbiter guard narrowed to real
+  full-scene draws only (stash-proofed); voicefix money-gate now enforced on the button (DELIBERATE
+  behavior change - headlined for deploy notes); bonus fix: error strings no longer flatten to
+  "Something went wrong" (error_utils.user_facing, the existing idiom). 18 new tests, failure sets
+  byte-identical. Closes D8-7's core. Fold dispatched. Original: Route the button through the executor.
+- [ ] D15-4 (S) [B][V] Route custom_film_production_runner + arbiter_repair's non-repair callers
+  through the executor (repair-mode beat-scoped calls stay direct - no self-looping the arbiter).
+- [x] D15-5 (S) [B][V] DONE 2026-07-30 (branch d15-5-shared-builder, commit eba4286c): new
+  storyboard/shot_context.py - ONE canonical builder, both prior copies now thin delegating aliases;
+  AST-level reconciliation found exactly ONE semantic diff (None-safety, safer superset won); 95
+  golden tests captured pre-refactor and reproduced byte-for-byte; guard-neuter turned 30 red (not
+  vacuous). Cast/identity confirmed not duplicated (out of scope). FLAGGED: the 28 pre-existing
+  custom_film_remotion failures deserve their own look someday (renderer-bundle hashing family).
+  Fold dispatched. Original: ONE canonical shot-context builder.
+- [ ] D15-6 (S) [B][V] Fold redraw_asset_image onto the shared builder (keep fresh-beats-baked
+  philosophy, kill the third copy of style/material/lock logic).
+- [ ] D15-7 (S) [B][V] ONE style-resolution entry point behind style_dir/_stated_style_prefix/
+  _resolve_style (closes D6-1d's family for good).
+- [ ] D15-8 (S) [B][V] Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
+- [ ] D15-9 (S) [B][V] One _get_or_plan_directive helper replacing the duplicated hash-gate blocks;
+  staleness + judging see one plan object from all nine doors.
 
 ### Chunks (D14 PROOF + COMPLETE)
 - [x] D14-0 (H) [V] DONE 2026-07-30 (commit 9b37cb14): 35 sections consolidated into
