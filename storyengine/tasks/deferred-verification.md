@@ -4873,3 +4873,148 @@ above, this is the missing skeptical check on top of it):**
   hypothetical (a video with a non-neutral preset and no freeform style
   field) and a previously-possible env-leak edge case, both fixed in the
   intended direction.
+
+## D15-8 — thread purpose_kind/shot_purpose into assemblers A and C (worktree `d15-8-purpose`)
+
+**Reality check against the spec, first (per the brief's own "let the code
+argue" instruction):** the brief characterized this as a change that "WILL
+change emitted prompts for purpose-carrying shots." That premise does NOT
+hold — `test_d9_1_shot_purpose.py`'s planted-marker proof already shows
+purpose text never reaches assembler B's actual image-generation prompt
+(rule 23/L27 — PURPOSE lives on its own line precisely so it can be parsed
+and stripped, never baked onto artwork), and D9-1's own docstring
+(`store_scene`'s comment) already documents that sheet previews (assembler
+A) create NO asset rows at all — "the one real stamping site" is
+`store_scene`, called only from `generate_coverage_for_video` (B). So two
+of the three explicit STOP conditions the brief listed are close but not
+exact matches: not "two assemblers already honor purpose" (only B does) and
+not "the fields are dead everywhere" (B's DB-write use is real and tested)
+— rather, assembler A structurally CANNOT duplicate B's DB write (no asset
+rows to write), and assembler C's partial-column UPDATE was already
+non-destructive (it never touches `purpose_kind`/`shot_purpose`, so a
+redrawn shot's DB value survives untouched from whenever it was originally
+drawn by B). DB persistence was therefore never actually a 3-way gap.
+
+**What WAS a real, provable, closeable gap:** the D9-1 WARN-only presence
+gate `check_shot_purpose_present(moments)` — the diagnostic signal for "this
+shot has no stated narrative purpose" — ran ONLY inside `run_coverage`
+(assembler B, real paid draw). Neither the free sheet-preview pass
+(assembler A) nor a redraw (assembler C) ever consulted it, so a creator
+previewing via the sheet, or fixing one shot via redraw, got zero
+purpose-awareness — only a creator who'd already paid for real pictures saw
+the signal. D12-3 had already established the "surface a warn-worthy
+purpose signal at the cheap preview stage" pattern for the MONOTONY variant
+(`longest_purpose_run`, already wired into A's `_rhythm_notes_for_scene`
+before this chunk) — this chunk completes the parallel PRESENCE variant.
+
+**THE FIX (`storyengine/backend/scripts/coverage_to_app.py`):**
+1. `check_shot_purpose_present` imported from `storyboard.coverage`
+   (reused verbatim, never re-implemented — same import block as the
+   existing D12-3 rhythm-report imports).
+2. `generate_storyboard_sheet_for_scene` (assembler A) now calls
+   `check_shot_purpose_present(moments)` immediately after
+   `_rhythm_notes_for_scene(sc, moments)` — the SAME already-computed
+   `moments` list, fire-and-forget (return value discarded, matching B's
+   own usage inside `run_coverage`).
+3. `redraw_asset_image` (assembler C) now SELECTs `shot_type, purpose_kind,
+   shot_purpose` from its own `assets` row (previously not selected AT ALL,
+   unlike the sibling D9/D11/D6-2 columns `shot_archetype`/`lens_mm`/
+   `camera_height`/`dof`/`shot_location`/`group_arrangement` it already
+   fetches) and threads them into the SAME check via a synthetic
+   single-shot moment (`{"moment_number": image_index, "master": {...},
+   "angles": []}`) right after the "no image_prompt to redraw from" guard.
+   Purely diagnostic — never folded into the redraw's own `prompt` string.
+
+**Purpose text NEVER reaches ANY of the three assemblers' drawn prompt —
+proven, not assumed, for all three by this chunk's own tests** (previously
+proven only for B): `test_sheet_panel_prompt_text_never_leaks_purpose_text`
+(A, planted-marker) and `test_redraw_prompt_text_byte_identical_regardless_
+of_purpose_presence` (C, planted-marker) in the new test file below.
+
+**Golden / wiring / value-based tests (all new,
+`storyengine/backend/tests/functional/test_d15_8_purpose_threading.py`, 9
+tests):**
+- `test_sheet_composer_warns_on_untagged_shots_same_wording_as_assembler_b`
+  / `test_sheet_composer_silent_for_the_two_authored_shots_when_tagged`:
+  behavior proof for A, exact warn-line wording matches B's.
+- `test_sheet_composer_purpose_check_is_really_wired` /
+  `test_redraw_purpose_check_is_really_wired`: guard-neuter (patched to
+  raise → propagates, proving the call sites are real, not vacuous).
+- `test_sheet_panel_prompts_byte_identical_regardless_of_the_check`:
+  PURPOSE-ABSENT golden proof for A (check wired in vs. stubbed no-op →
+  identical `_plan_sheet_prompts` output).
+- `test_sheet_panel_prompt_text_never_leaks_purpose_text`: rule-23 proof
+  for A (tagged directive, planted marker text absent from panel prompts).
+- `test_redraw_selects_and_threads_purpose_fields_to_the_check` /
+  `test_redraw_silent_when_asset_already_carries_a_stated_purpose`: wiring
+  + behavior proof for C, exact synthetic-moment shape and warn-line
+  wording asserted.
+- `test_redraw_prompt_text_byte_identical_regardless_of_purpose_presence`:
+  PURPOSE-ABSENT/PRESENT golden proof for C (planted marker absent from the
+  actual drawn prompt string regardless of DB value).
+
+**Stash-proof (patch-file technique, `git diff`/`git apply -R`, never `git
+stash`):** reverse-applying the 1-file implementation diff (test file left
+in place) makes 7/9 new tests fail with a REAL `AttributeError: <module
+'scripts.coverage_to_app'> does not have the attribute
+'check_shot_purpose_present'` (not a vacuous ImportError at collection —
+the module imports fine, only the new call site is missing) — 2 tests
+(`..._silent_for_the_two_authored_shots_when_tagged` and
+`..._prompt_text_never_leaks_purpose_text`) pass either way BY DESIGN, since
+they assert an invariant ("purpose text never leaks into the prompt") that
+was already true before this chunk and stays true after — not a
+discriminating test for the NEW wiring itself. Reapplying the patch:
+9/9 pass.
+
+**Full backend suite** (`storyengine/backend`, venv pytest):
+**4556 passed, 4 skipped, 0 failed** (baseline 4547/4/0 + this chunk's own
+9 new tests, zero pre-existing regressions).
+`test_custom_film_remotion.py`: **81/81** passed independently (the
+fresh-worktree phantom-failure risk this checklist flags — confirmed a
+non-issue here, venv/node_modules/public were symlinked from the shared
+tree at worktree setup).
+
+**Full pipeline suite** (`skills/video-pipeline`, system `python3` 3.9,
+`--continue-on-collection-errors` — this box's `pytest-asyncio` gap is
+pre-existing environment drift, not something this chunk touched):
+**22 failed, 657 passed, 5 errors** in the worktree, and the IDENTICAL
+**22 failed, 657 passed, 5 errors** on the untouched pristine checkout
+(`/Users/ryanayler/economy-fastforward/skills/video-pipeline`, checked out
+at the same commit this worktree branched from) run at the same time —
+sorted FAILED+ERROR line sets (27 lines) diffed byte-identical, zero
+new regressions. (Note: this box's pipeline-suite failure count has clearly
+drifted over time across different D15-x entries in this same file — 27+2
+at one point, 84+5 at another, 22+5 here — always attributable to
+environment state, never to any one chunk's own change, and always
+re-confirmed against the CURRENT pristine tree at verification time rather
+than trusted against a stale number from an earlier entry.)
+
+**py_compile:** clean on both touched files
+(`scripts/coverage_to_app.py`, the new test file).
+
+**What is NOT verified (live prod, cannot be done in-sandbox):** whether
+the new WARN print lines actually appear in `se logs backend` for a real
+sheet-preview call and a real redraw call on prod, and — the bigger gap —
+whether this diagnostic signal is surfaced to the CREATOR anywhere in the
+UI today. It is not: `check_shot_purpose_present` only ever `print()`s to
+the backend process log (same as it always has for assembler B); no route
+threads its count into an API response, and no frontend component renders
+it. This chunk closes the CODE-LEVEL "1 of 3" asymmetry (the check now
+runs identically regardless of door) but does not, by itself, put anything
+new in front of Ryan or a creator — that would be a separate, larger UI
+chunk (surface `rhythm_notes`-style additive data from all three
+assemblers' return values, the way D12-3 did for the monotony signal) and
+is explicitly out of scope here. To verify live: generate a sheet preview
+and a redraw for a scene whose plan has an untagged shot, then
+`se logs backend | grep "shot-purpose check (D9-1)"` and confirm one line
+per untagged shot, on both doors, matching the exact wording
+`run_coverage` already prints today.
+
+**Verdict: safe to fold.** Purely additive/diagnostic (print + a discarded
+int, never a DB write, never a prompt-text change) on both new call sites;
+zero behavior change for any drawn/redrawn picture; the one real behavior
+change is new WARN log lines appearing during sheet-preview planning and
+during redraw for shots the planner never tagged with a stated purpose —
+worth a mention in deploy notes as "backend logs now note purpose-less
+shots earlier, at preview and redraw time, not just at paid-draw time,"
+not as a user-facing change.

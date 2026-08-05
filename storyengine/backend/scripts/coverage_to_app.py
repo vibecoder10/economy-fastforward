@@ -92,6 +92,14 @@ from storyboard.coverage import (  # noqa: E402
     # glance" here means EXACTLY what the warn checks would have flagged.
     build_rhythm_report,
     _SHOT_SIZE_RUN_THRESHOLD, _LENS_RUN_THRESHOLD, _PURPOSE_RUN_THRESHOLD,
+    # D15-8 (closes D15-1's "purpose fields consumed by only 1 of 3
+    # assemblers" finding): the SAME D9-1 warn-only presence gate
+    # run_coverage (assembler B, coverage.py) already calls on every real
+    # draw — imported directly (never re-implemented) so the sheet-preview
+    # pass below (assembler A) and redraw_asset_image (assembler C) print
+    # the IDENTICAL "worth a human glance" line for a shot with no stated
+    # purpose_kind/shot_purpose, regardless of which door a creator used.
+    check_shot_purpose_present,
     # BOARD LAWS (storyengine/BOARD-LAWS.md): multi-location/material-map
     # directive parsing (L3/L20) and the shared motion detector (L4) — the
     # SAME functions run_coverage's own repair-leg locks call, so the sheet
@@ -3014,6 +3022,15 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # See _rhythm_notes_for_scene's own docstring for exactly which runs
         # become a note.
         rhythm_notes.extend(_rhythm_notes_for_scene(sc, moments))
+        # D15-8: the SAME D9-1 shot-purpose-presence WARN gate run_coverage
+        # (assembler B) calls on every real draw, now ALSO consulted here at
+        # the free sheet-preview stage (assembler A) — a creator previewing
+        # boards gets the identical "no PURPOSE: line" signal a real draw
+        # would print, instead of only discovering it after paying for
+        # pictures. Print-only (same warn-not-hard-fail discipline as every
+        # check_* in coverage.py); return value unused, matching run_coverage's
+        # own fire-and-forget call.
+        check_shot_purpose_present(moments)
 
         # D6-1: env matched HERE (moved up from just before the draw loop)
         # so the canonical per-location material map (L20) can be resolved
@@ -3417,6 +3434,12 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, a.hero_shot, "
         "a.generation_method, a.group_arrangement, "
         "a.shot_archetype, a.lens_mm, a.camera_height, a.dof, a.shot_location, "
+        # D15-8: shot_type/purpose_kind/shot_purpose (migration 147) join the
+        # SELECT alongside the other per-shot D9/D11/D6-2 columns above —
+        # closes D15-1's literal "assembler C never even reads this column"
+        # gap. shot_type wasn't previously selected either (only needed here
+        # to label the check below the same way run_coverage's moments do).
+        "a.shot_type, a.purpose_kind, a.shot_purpose, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
         "v.image_style_override, v.visual_style, v.style_preset_id "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
@@ -3426,6 +3449,23 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     prompt = (a["image_prompt"] or "").strip()
     if not prompt:
         return {"status": "failed", "error": "this picture has no image prompt to redraw from"}
+    # D15-8: the SAME D9-1 shot-purpose-presence WARN gate assembler B
+    # (run_coverage) calls on every real draw and assembler A (the sheet
+    # preview, just above in this file) now also calls — reused verbatim via
+    # a synthetic single-shot moment wrapping THIS row's own purpose_kind/
+    # shot_purpose columns (already stamped by store_scene at original draw
+    # time, D9-1; redraw's own UPDATE below never touches these columns, so
+    # they carry forward unchanged). Closes D15-1's "consumed by only 1 of 3
+    # assemblers" finding for the redraw door. Print-only diagnostic — never
+    # folded into `prompt` itself; purpose stays out of the drawn image on
+    # every assembler, unchanged (see test_d9_1_shot_purpose.py's planted-
+    # marker proof for assembler B, mirrored for A/C by this chunk's tests).
+    check_shot_purpose_present([{
+        "moment_number": a.get("image_index"),
+        "master": {"shot_type": a.get("shot_type"), "purpose_kind": a.get("purpose_kind"),
+                   "shot_purpose": a.get("shot_purpose")},
+        "angles": [],
+    }])
     if safe_reframe:
         prompt = SAFE_REFRAME_PREFIX + prompt
 
