@@ -5030,3 +5030,14 @@ Then `se db` the video's coverage directive row: expect the SAME stored directiv
 and directive_was_reused=true on the second call (zero re-planning). Expected: byte-identical directive
 text; any divergence = One Road regression. Pixel-level proof beyond this = Scene Lab shape (~$0.05-0.10
 one sheet through each of two doors, quoted to Ryan first).
+
+### 2026-08-05 UPDATE - recipe as written is NOT runnable, corrected facts from the live deploy run:
+Only ONE door exposes plan_only (REST POST /api/pipeline/storyboard-images/{id}?scene=N&plan_only=true);
+no MCP tool or chat verb accepts plan_only. And plan_only deliberately writes NOTHING to
+scripts.coverage_directive/_hash (D3-59, 2026-07-28) - the plan comes back in the response only, so two
+plan_only calls have no persisted hash to converge on. What WAS proven live post-deploy: one plan_only
+call on video 686b4651 scene 1 completed ("15 shot(s), nothing drawn"), hash unchanged before/after
+(51d311524f1e9467c8c5223a52dfc6efb4bbd553), zero new generation_ledger rows - plan_only is genuinely $0.
+Real cross-door convergence proof now requires either (a) Ryan's own local Scene Lab redraw driving
+(free byproduct - check directive_was_reused after), (b) one paid ~$0.05 sheet draw through two doors
+(quote first), or (c) a small future chunk wiring a $0 convergence check into plan_only.
