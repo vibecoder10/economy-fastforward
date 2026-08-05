@@ -2523,8 +2523,16 @@ and get folded into lanes opportunistically.
   (wired vs stubbed). Backend 4556/4/0 (+9 new), custom_film_remotion 81/81, pipeline FAILED+ERROR
   set byte-identical vs shared tree. FLAGGED future candidate: the WARN is log-only, not surfaced in
   any UI/API response. Original: Thread purpose_kind/shot_purpose into assemblers A and C (B already honors).
-- [ ] D15-9 (S) [B][V] One _get_or_plan_directive helper replacing the duplicated hash-gate blocks;
-  staleness + judging see one plan object from all nine doors.
+- [x] D15-9 (S) [B][V] DONE 2026-08-05 (branch d15-9-gate, commit ece3e72d): both duplicated hash-gate
+  blocks (sheet redo branch + whole-coverage reuse gate, both in coverage_to_app.py) collapsed into ONE
+  module-level _get_or_plan_directive; extra_columns keeps each caller's SQL byte-for-byte (zero test
+  edits needed). DOCUMENTED EXCEPTION: assembler A's main plan branch (beat is None) deliberately NOT
+  routed - the "Regenerate storyboard" button relies on always-re-planning (hash is scene-text-scoped;
+  cast/env changes never touch it; routing would freeze the button). D7 staleness + D8 judging already
+  converge structurally (verified, no changes). Pure extraction, zero semantic diffs. Stash-proof 4/10
+  real AssertionErrors, guard-neuter red via pytest.raises, backend 4566/4/0 (+10), custom_film 81/81,
+  pipeline FAILED+ERROR set byte-identical vs main. Original: One _get_or_plan_directive helper replacing
+  the duplicated hash-gate blocks; staleness + judging see one plan object from all nine doors.
 
 ### Chunks (D14 PROOF + COMPLETE)
 - [x] D14-0 (H) [V] DONE 2026-07-30 (commit 9b37cb14): 35 sections consolidated into

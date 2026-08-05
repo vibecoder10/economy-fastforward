@@ -7,10 +7,10 @@
   - The 22-point film-studio audit -> full build: staleness system (D7), frame judge live (D8), Custom Film harvest (D9), native story bible (D10), shot archetypes + DP fields + mechanical prompt compiler (D11), pacing/transitions/rhythm (D12), provider dialect (D13). All test-proven, fresh-eyes verified.
   - Deploy window (~$0.08) + Scene Lab iteration 1 ($0.588): locks extracted from real pixels, 16 panels judged (3 real defects), freeze-on-repeat proven. Boards sent to Ryan.
   - One Road (D15): plans persist everywhere (D15-2), all buttons routed through the judged executor with plan_only provably free (D15-3), arbiter repair loop-proof (D15-4), ONE canonical shot-context builder (D15-5), redraw folded onto it (D15-6).
-- NOT done, honestly: D15-7 (one style resolver, closes D6-1d) was MID-BUILD in worktree .claude/worktrees/d15-7-style when this session cut - check `git -C <worktree> log` for a commit; if none/partial, re-dispatch from the checklist's D15-7 spec. D15-8 (purpose into assemblers A+C) and D15-9 (one _get_or_plan_directive gate) not started - specs in loop-checklist.md's D15 section.
+- One Road (D15) COMPLETE 9/9, all folded to local main 2026-08-05: one style resolver (D15-7), uniform purpose WARN gate (D15-8), one directive gate (D15-9). NOT deployed; NOT pushed.
 
 ## Next action (start here cold)
-Invoke the maestro skill, read ~/economy-fastforward/storyengine/tasks/loop-handoff.md + the D15 section of tasks/loop-checklist.md, then: check worktree `.claude/worktrees/d15-7-style` for D15-7's state (finish or re-dispatch), then D15-8, D15-9. Fold rule for Haiku merge jobs: NEVER stash/reset the shared tree - if blocked by local mods, commit task files as a docs checkpoint first (see tasks/lessons.md tail).
+Invoke the maestro skill and read tasks/loop-handoff.md - the D15 lane is complete and folded; the loop is idle pending Ryan's calls (deploy window ships D15 with the voice-gate deploy note, then the $0 plan-only convergence proof from deferred-verification.md's tail, then Scene Lab iteration 2 if approved). Local main is ~18 commits ahead of origin - NEVER push outside the deploy window.
 
 ## Open threads
 - Scene Lab iteration 2 - Ryan's call: redraw 3 defective panels + teach judge insert-subject fidelity (~$0.15), or clips of best 5 (~$0.50).

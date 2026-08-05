@@ -5018,3 +5018,15 @@ during redraw for shots the planner never tagged with a stated purpose —
 worth a mention in deploy notes as "backend logs now note purpose-less
 shots earlier, at preview and redraw time, not just at paid-draw time,"
 not as a user-facing change.
+
+## D15 ONE ROAD - lane-level live convergence proof (post-deploy) - added 2026-08-05
+Proof level reached in-sandbox: per-chunk goldens/spies/suites for D15-2..9 (see checklist ticks) -
+every door routes through the judged executor, one style resolver, one shot-context builder, one
+directive gate; purpose WARN uniform. NOT provable in-sandbox: a live cross-door run (prod lacks D15
+until Ryan's deploy window; local backend cannot reach the real DB).
+Recipe (after the deploy window ships D15): pick a voiced video with a planned scene. Door 1: chat/MCP
+draw verb with plan_only=true ($0). Door 2: the sheet-preview/pipeline path in plan-only mode ($0).
+Then `se db` the video's coverage directive row: expect the SAME stored directive hash from both doors
+and directive_was_reused=true on the second call (zero re-planning). Expected: byte-identical directive
+text; any divergence = One Road regression. Pixel-level proof beyond this = Scene Lab shape (~$0.05-0.10
+one sheet through each of two doors, quoted to Ryan first).
