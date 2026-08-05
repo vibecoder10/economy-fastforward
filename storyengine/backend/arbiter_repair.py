@@ -77,15 +77,38 @@ REPAIR_MODEL = "gpt-image-2"
 async def _default_board_reroll(
     video_id: str, tenant_id: str, *, scene: int, beat: int, progress=None,
 ) -> dict:
-    """Real reroll call — the underlying function
+    """Real reroll call — goes through ``PipelineExecutor.run_storyboard_sheet``
+    (pipeline_executor.py), the SAME judged-road wrapper
     ``POST /api/pipeline/storyboard-images/{video_id}?scene=N&beat=M``
-    calls (routes/pipeline.py's ``run_storyboard_images``), called
+    calls (routes/pipeline.py's ``run_storyboard_images`` handler), called
     DIRECTLY here, never over HTTP. Lazy import mirrors that route's own
     convention (the import lives inside its background-task closure, not
     at module top) so importing arbiter_repair never pulls in
-    scripts.coverage_to_app's own (heavier) import graph for a caller who
-    only wants the pure decision-ladder logic (e.g. every test in
+    pipeline_executor's own (heavier) import graph for a caller who only
+    wants the pure decision-ladder logic (e.g. every test in
     tests/functional/test_d5_a5_repair.py).
+
+    D15-4: this used to call ``scripts.coverage_to_app.
+    generate_storyboard_sheet_for_scene`` directly, bypassing the wrapper.
+    Routed through the wrapper instead because ``beat`` is ALWAYS non-None
+    here (see below) and ``run_storyboard_sheet``'s own Frame Arbiter hook
+    guard (pipeline_executor.py, the ``if (scene is not None and beat is
+    None and not plan_only ...)`` condition right after the underlying call)
+    only fires the hook when ``beat is None`` — so a beat-scoped repair call
+    can NEVER re-trigger ``run_after_storyboard_sheet`` and loop back into
+    this same repair ladder. Proven directly (not just inferred from
+    reading the guard) by
+    tests/functional/test_d15_4_arbiter_repair_routing.py, which drives a
+    REAL beat-scoped call through this function with the arbiter flag
+    scoped in and asserts the hook is never awaited — same call-tracking
+    approach test_d15_3_wrapper_param_forwarding.py's own beat-scoped test
+    uses, since the hook call is wrapped in a try/except inside
+    run_storyboard_sheet that a boom-on-call assertion would get silently
+    swallowed by. Going through the wrapper also picks up its static_docu
+    guard for free (a MODEL_DEFECT finding could only ever exist for a
+    video that already generates generic storyboard sheets, so this is a
+    belt-and-suspenders safety net, not a behavior change for any real
+    finding).
 
     ``beat`` is REQUIRED and must be the sheet's own ``sheet_index`` — the
     underlying function's "PER-BOARD REDO" path (beat is not None) redraws
@@ -97,10 +120,10 @@ async def _default_board_reroll(
     this at all when it has no sheet_index, precisely to keep that
     plan-mode fallback unreachable from a repair decision.
     """
-    from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
+    from pipeline_executor import PipelineExecutor
 
-    return await generate_storyboard_sheet_for_scene(
-        video_id, tenant_id, scene=scene, beat=beat, plan_only=False, progress=progress,
+    return await PipelineExecutor(tenant_id).run_storyboard_sheet(
+        video_id, scene=scene, beat=beat, plan_only=False, progress=progress,
     )
 
 
