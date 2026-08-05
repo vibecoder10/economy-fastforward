@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+# Also match a node_modules SYMLINK. Agent worktrees symlink node_modules back
+# to the main checkout to save disk, and git treats a symlink as a file, so the
+# directory-only rule above does not cover it. Without this line a stray
+# `git add -A` in a worktree can stage the whole dependency tree.
+node_modules
 .venv/
 venv/
 __pycache__/
