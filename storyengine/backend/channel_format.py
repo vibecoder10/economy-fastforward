@@ -128,6 +128,26 @@ STYLE_DESCRIPTIONS: dict[str, dict[str, str]] = {
 }
 
 
+def look_for_visual_style(value: Optional[str]) -> Optional[str]:
+    """Resolve a stored videos.visual_style that EXACTLY names one of the six
+    preset ids above (what apply_format_defaults writes for format-locked
+    channels) or a preset's display label onto that preset's full look
+    sentence. Freeform prose returns None and must pass through untouched:
+    no fuzzy matching here, unlike style_preset_for_format — a creator's own
+    wording always beats a canned sentence, and a contains-match ("cinematic
+    noir" → realistic) would silently overwrite it (S6-C follow-up)."""
+    v = (value or "").strip().lower()
+    if not v:
+        return None
+    entry = STYLE_DESCRIPTIONS.get(v.replace(" ", "_").replace("-", "_"))
+    if entry:
+        return entry["look"]
+    for meta in STYLE_DESCRIPTIONS.values():
+        if v == meta["label"].lower():
+            return meta["look"]
+    return None
+
+
 def style_preset_for_format(fmt: dict) -> Optional[str]:
     """Map the format's free-text style onto a renderable visual preset id
     (the same six the chat's style card offers). None when unmappable."""

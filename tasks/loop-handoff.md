@@ -1,20 +1,14 @@
 # Loop handoff
 
-Last done: ALL FOUR build chunks merged and verified on branch
-claude/fervent-vaughan-37a56c. Commits: 6ddfa8e2 + 4ed5aea7 (S6-A: location
-plumbing, L30 hard gate, [PROPS|] extraction + warn check, fixture repairs),
-0c663567 (S6-C: save-time style lint + channel-DNA fallthrough in both
-reference entry points), 8a667f18 (S6-B: estimate_storyboard_workload with
-draw-identical math, honest upper-bound quotes, per-scene readiness warnings
-at mcp/chat/actions surfaces, quoted-vs-actual completion message).
-Final suite: "28 failed, 4607 passed, 4 skipped" - the 28 all pre-existing in
-test_custom_film_remotion.py. Orchestrator money check with own eyes:
-_get_or_plan_directive is a pure DB read, the run-start quote adds no paid
-planning call. Finisher (Haiku) dispatched: lessons/decisions/todo/deferred-
-verification updates + loop-docs commit.
-Next chunk: none - loop complete once the finisher's docs commit lands.
-Parked for Ryan: deploy go (merge to main + se deploy, then the 5 live
-recipes in storyengine/tasks/deferred-verification.md, headlined by the
-PocoAPoco d39892b2 kitchen re-run); env-NAME style lint; _resolve_style
-preset-id fallback bug (chip filed); frontend rendering of the new warnings
-field.
+Last done: S6 loop complete (commits 6ddfa8e2, 4ed5aea7, 0c663567, 8a667f18,
+e1ade640). Ryan gave the deploy go. origin/main had moved: ENV-3 (deployed the
+ENV-1 fix live, created kitchen draft env row 2dc7f70a on PocoAPoco video
+d39892b2, no reference image yet) and the S6-C follow-up session (fixed the
+_resolve_style preset-id fallback bug, already deployed live as e26b715a).
+Merged origin/main into this branch: code auto-merged (their fix touches
+_resolve_style tier 2 + channel_format/channel_profile; complementary to our
+_resolve_environment_style_dna which calls _resolve_style), five doc conflicts
+resolved keeping both sessions' records.
+Next: post-merge full suite must be green vs combined expectations, then push
+main from the Mac, then se deploy, then post-deploy verification (free checks
+now; paid kitchen re-run quoted separately for Ryan).
