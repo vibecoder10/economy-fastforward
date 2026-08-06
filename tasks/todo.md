@@ -2807,4 +2807,12 @@ consume structured planner/dialogue_segments output (transitively protected by S
 tests/functional/test_s7_caption_boundary.py (16, modeled on test_s7_c_speech_boundary.py's
 storage-law-vs-caption-law pair), stash-proven (pre-fix: collection ImportError; run_split
 assertions also fail behaviorally pre-fix by design). sync_video_script untouched (settled:
-byte-identical). NOT merged, NOT deployed - Ryan's explicit go required (same gate as S7).
+byte-identical). DEPLOYED 2026-08-06T15:08Z (Ryan's go; se deploy zealous-tharp-397a4b,
+74213b08 -> 6a31bbdb, rebased onto the S7 session's own merge+deploy of kind-mclean which
+landed minutes earlier - so this deploy shipped ONLY the caption fix). Migrations 163/163
+(154 already applied by the S7 deploy), backend healthy, worker code parity 6a31bbdb, zero
+in-flight builds interrupted. Live proof on prod (read-only script against the deployed
+venv): raw header text would have minted a caption row literally reading "LOCATION: the
+garage ACTION: ..." with a 2.1s timing skew on BOTH segments; deployed code strips it and
+re-balances durations to the real audio. No prod scripts row carries a leading header yet
+(authoring channel shipped the same day), so no existing video was ever desynced.
