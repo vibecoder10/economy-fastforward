@@ -24,11 +24,69 @@ _BOLD_SPEAKER_RE = re.compile(
 _SPEAKER_LINE_RE = re.compile(r"(?m)^\s*[A-Z][A-Za-z .'-]{0,24}:\s+\S.*$")
 _MD_MARKS_RE = re.compile(r"\*{1,3}|^#+\s*|^-{3,}\s*$", re.M)
 
+# S7-C — LOCATION:/ACTION: stage-direction headers must NEVER reach the
+# narrator. Recon proved a live bug: on the submit path (S7-A) a leading
+# "LOCATION: ..." header survives verbatim into scripts.scene_text (storage
+# law — text is never rewritten at storage, see backend/story_laws.py), and
+# in narration mode (dialogue_mode != "character_dialogue") nothing
+# downstream of storage ever stripped it before this fix — the narrator
+# would read "LOCATION: the kitchen" aloud. This is the speech boundary that
+# closes it.
+#
+# This package (skills/video-pipeline) cannot import the backend, so this
+# mirrors backend/story_laws.py's _extract_leading_header semantics locally
+# (leading lines only, either header, at most one line of tolerance for the
+# sibling header, never mid-text prose that happens to contain the word).
+# It ALSO tolerates markdown-bold wrapping around the keyword/colon
+# ("**ACTION:** ...") directly, so the header dies whether this strip runs
+# before or after _BOLD_SPEAKER_RE above — it runs BEFORE (first thing in
+# narration_text, on the raw text), so it must recognize both the plain and
+# the bolded form itself rather than relying on that other regex to have
+# already normalized it.
+_STAR = r"\*{0,3}"
+_LOCATION_HEADER_RE = re.compile(
+    rf"^\s*{_STAR}\s*LOCATION\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
+_ACTION_HEADER_RE = re.compile(
+    rf"^\s*{_STAR}\s*ACTION\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
+
+
+def _strip_leading_stage_headers(text: str) -> str:
+    """Remove up to two leading LOCATION:/ACTION: header lines (either
+    order, either markdown-bold or plain form) from the START of scene
+    text. Never touches mid-text prose that happens to contain either word
+    — only the scene's opening non-blank lines are ever examined, exactly
+    like story_laws.py's own leading-header scanner."""
+    if not text:
+        return text or ""
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    removed: set = set()
+    for _ in range(2):  # at most: this scene's own header + one tolerated sibling
+        if idx >= len(lines):
+            break
+        line = lines[idx]
+        if _LOCATION_HEADER_RE.match(line) or _ACTION_HEADER_RE.match(line):
+            removed.add(idx)
+            idx += 1
+            while idx < len(lines) and not lines[idx].strip():
+                idx += 1
+        else:
+            break
+    if not removed:
+        return text
+    kept = [ln for i, ln in enumerate(lines) if i not in removed]
+    return "\n".join(kept).strip()
+
 
 def narration_text(scene_text: str, dialogue_mode: str = "") -> str:
-    """What the NARRATOR actually reads: markdown-free, and (for dialogue
-    videos) without the character lines — those are performed by the cast."""
-    text = _BOLD_SPEAKER_RE.sub(r"\1\2: ", scene_text or "")
+    """What the NARRATOR actually reads: stage-direction-free (S7-C —
+    LOCATION:/ACTION: headers are storage metadata, never speech),
+    markdown-free, and (for dialogue videos) without the character lines —
+    those are performed by the cast."""
+    text = _strip_leading_stage_headers(scene_text or "")
+    text = _BOLD_SPEAKER_RE.sub(r"\1\2: ", text)
     if (dialogue_mode or "") == "character_dialogue":
         text = _SPEAKER_LINE_RE.sub("", text)
     text = _MD_MARKS_RE.sub("", text)

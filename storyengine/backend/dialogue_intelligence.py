@@ -109,7 +109,24 @@ async def segment_scene(scene_text: str, cast_names: list[str], tenant_id) -> li
     Dialogue segments carry ONLY the spoken line (the attribution phrase
     'Lisa says:' is dropped — the video shows Lisa speaking instead).
     Everything else stays narration, words preserved verbatim.
+
+    S7-C speech boundary: LOCATION:/ACTION: stage-direction headers (storage
+    metadata that scripts.scene_text keeps verbatim per story_laws.py's
+    "never rewrite at storage" law) are stripped BEFORE this text ever
+    reaches the Claude call below — a header must never be classified as a
+    narration segment (and read aloud by dialogue_voice.py) or quoted into a
+    lip-sync prompt (clip_dialogue.py), both of which consume ONLY this
+    function's output (scripts.dialogue_segments), never raw scene_text.
+    story_laws is a leaf module (only imports `re`), so this import can't
+    cycle back here; local import matches every other backend call site's
+    convention for it (routes/videos.py, user_script.py, pipeline_executor.py
+    all do the same, avoiding a module-level dependency on story_laws from
+    a module this widely imported).
     """
+    import story_laws
+    _, scene_text = story_laws.extract_scene_location(scene_text or "")
+    _, scene_text = story_laws.extract_scene_action(scene_text)
+
     reply = await _claude(
         "Split this video scene into an ORDERED performance timeline for a "
         "narrator + on-screen speaking characters.\n\n"
