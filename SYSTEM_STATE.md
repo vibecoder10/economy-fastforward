@@ -3,19 +3,19 @@
 ## S7: ACTION stage-direction authoring channel (2026-08-06)
 
 - Real incident (evidence case): tenant PocoAPoco video
-  d39892b2-0c85-4752-85d7-b61ca209342a — scene 1's celebration dance was
+  d39892b2-0c85-4752-85d7-b61ca209342a - scene 1's celebration dance was
   never boarded and scene 6 was boarded only by lucky inference, because
   nothing captured physical stage business separate from spoken dialogue.
   LOCATION (migration 144) had exactly this capture path; ACTION did not
   exist at all.
 - New `scripts.action` TEXT column (migration 154, nullable, no default, no
-  backfill — mirrors 144 exactly), holding a short plain-text description of
+  backfill - mirrors 144 exactly), holding a short plain-text description of
   physical stage business a scene must show on screen that spoken dialogue
   never carries.
 - `submit_script` (`routes/mcp.py`) accepts an optional `scenes[].action`
   field; when absent, one leading "ACTION: ..." header line in the scene
   text is parsed as a fallback (case-insensitive), same pattern LOCATION
-  already used. LOCATION: and ACTION: may lead in either order — a shared
+  already used. LOCATION: and ACTION: may lead in either order - a shared
   `_extract_leading_header` scanner in `story_laws.py` backs both parsers.
   The submit path never rewrites scene text; `update_scene_text`
   (`routes/videos.py`) is the one edit path that extracts AND strips both
@@ -28,15 +28,15 @@
   planner to stage at least one action keyframe panel per direction. A new
   warn-only `check_stage_direction_presence` (sibling of S6's prop/action
   check) surfaces uncovered directions in the same "; N warning(s)"
-  completion-message slot — it never blocks a build (P3: prose-vs-prose
+  completion-message slot - it never blocks a build (P3: prose-vs-prose
   checks warn, never hard-gate). `_scene_text_hash` now folds the action into
   the directive cache key only when one is present, so an authored action
   correctly invalidates a stale saved plan while every pre-existing hash
-  (no action) stays byte-identical — no invalidation storm.
+  (no action) stays byte-identical - no invalidation storm.
 - Stage-direction text is now guaranteed to never reach spoken/voiced
   output: `voice/run.py::narration_text` strips leading LOCATION:/ACTION:
   headers before narration synthesis (this also closed a latent LOCATION
-  leak — narration mode had no strip at all before this chunk), and
+  leak - narration mode had no strip at all before this chunk), and
   `dialogue_intelligence.py::segment_scene` strips both headers before the
   Claude call that builds dialogue segments, transitively protecting
   per-segment TTS and lip-sync. `routes/videos.py::sync_video_script` is
@@ -79,7 +79,7 @@
 | `storyengine/backend/scripts/coverage_to_app.py` | `_scene_text_hash` folds `action` into the cache key when present; SHEET + FRAME save/compare sites thread it through; completion message gains "; N stage-direction warning(s)" |
 | `skills/video-pipeline/voice/run.py` | `narration_text` strips leading LOCATION:/ACTION: headers before synthesis (also closes the latent LOCATION leak in narration mode; transitively fixes `custom_film_production_runner.py`'s `_voice()`, which imports this function); follow-up: closes the colon-outside-bold escape (`**ACTION**: x`) the first cut of the strip regex missed |
 | `storyengine/backend/dialogue_intelligence.py` | `segment_scene` strips both headers before the Claude call, protecting dialogue TTS + lip-sync transitively |
-| `storyengine/backend/tests/functional/test_c16b_coverage_skip_if_done.py`, `test_d10_3a_planner_narrative.py`, `test_d15_2_directive_persist.py`, `test_d15_7_style_resolution_wiring.py`, `test_d7_2_staleness_hash.py`, `test_d7_1_script_sync.py`, `test_d7_3_scene_edit_invalidation.py` | Sibling fixtures updated to match the new SQL column/arg count (WHERE-tail pattern change, 6th UPDATE arg) — no behavior change |
+| `storyengine/backend/tests/functional/test_c16b_coverage_skip_if_done.py`, `test_d10_3a_planner_narrative.py`, `test_d15_2_directive_persist.py`, `test_d15_7_style_resolution_wiring.py`, `test_d7_2_staleness_hash.py`, `test_d7_1_script_sync.py`, `test_d7_3_scene_edit_invalidation.py` | Sibling fixtures updated to match the new SQL column/arg count (WHERE-tail pattern change, 6th UPDATE arg) - no behavior change |
 
 ## ENV-1: environment location extraction fix + create-one endpoint + MCP add_environment (2026-08-05)
 
