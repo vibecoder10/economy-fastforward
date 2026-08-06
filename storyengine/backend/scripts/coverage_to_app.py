@@ -330,6 +330,27 @@ def _preset_style_directive(style_preset_id: str | None) -> str | None:
     return (vp.description or "").strip() or None
 
 
+def _visual_style_preset_look(visual_style: str) -> str | None:
+    """S6-C follow-up: a stored videos.visual_style naming one of the six
+    channel_format preset ids ("pixar_3d", "anime", ... — what
+    apply_format_defaults writes for format-locked channels) or a preset's
+    display label resolves to that preset's real look sentence. Before this,
+    tier 2 handed the bare id to channel_profile.load_profile, whose engine
+    lookup (5 DIFFERENT ids, a separate axis — see channel_format.py's
+    STYLE_DESCRIPTIONS comment) never matched — and its then-buggy
+    get_profile_or_default alias fell back to the neutral_v1 engine's
+    self-description, so a format-locked cartoon channel's "pixar_3d"
+    produced ZERO cartoon signal on every board/cast/coverage/redraw/
+    environment prompt. Exact id/label matches only; freeform prose returns
+    None and passes through raw (channel_format.look_for_visual_style).
+    Lazy import + fail-soft, same posture as _preset_style_directive."""
+    try:
+        from channel_format import look_for_visual_style
+        return look_for_visual_style(visual_style)
+    except Exception:  # noqa: BLE001 — best-effort, never fatal
+        return None
+
+
 def _resolve_style(image_style_override, visual_style, style_preset_id=None):
     """Turn a video's stored style choice into (profile, style_directive) —
     the ONE resolved style string every image-prompt path (director, cast
@@ -346,7 +367,13 @@ def _resolve_style(image_style_override, visual_style, style_preset_id=None):
       1. image_style_override — wins outright when set. The creator's most
          specific, most recent style choice.
       2. visual_style — used only when (1) is empty. The channel/video's
-         general style pick.
+         general style pick. A value exactly naming one of the six
+         channel_format preset ids or labels (apply_format_defaults writes
+         these for format-locked channels) resolves to that preset's full
+         look sentence via _visual_style_preset_look; anything else passes
+         through as raw freeform text (channel_profile.load_profile's
+         raw-string fallback — S6-C follow-up revived it, see
+         _build_visual_style_directive's docstring).
       3. style_preset_id — used only when (1) and (2) are BOTH empty (D15-7,
          closes D6-1d). A validated FK into style_presets / shared.profiles.
          visual's 5 Python engines, resolved to freeform text via
@@ -423,7 +450,10 @@ def _resolve_style(image_style_override, visual_style, style_preset_id=None):
     iso = _neutralize_style_brands((image_style_override or "").strip())
     if iso:
         rec["Image Style Override"] = iso
-    vs = _neutralize_style_brands((visual_style or "").strip())
+    vs_raw = (visual_style or "").strip()
+    # Map a six-preset id/label to its real look sentence BEFORE brand
+    # neutralization — the raw id must reach the exact-match lookup intact.
+    vs = _neutralize_style_brands(_visual_style_preset_look(vs_raw) or vs_raw)
     if vs:
         rec["Visual Style"] = vs
     if not rec:

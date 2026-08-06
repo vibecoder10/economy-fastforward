@@ -18,7 +18,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from shared.profiles.visual import get_profile_or_default as load_visual_profile
+from shared.profiles.visual import list_profiles as _list_visual_profiles
+from shared.profiles.visual import load_profile as load_visual_profile
 
 
 @dataclass
@@ -732,7 +733,18 @@ DEFAULT_PROFILE = ChannelProfile(
 
 
 def _build_visual_style_directive(profile_id: str) -> Optional[str]:
-    """Resolve a storyboard-ready style directive from a visual profile id."""
+    """Resolve a storyboard-ready style directive from a visual profile id.
+
+    Returns None for ANY value that is not a registered shared.profiles.visual
+    engine id, so load_profile's Visual Style tier falls back to the raw
+    string — the contract for freeform style prose and for the backend's six
+    channel_format preset looks (those resolve to real look text upstream, in
+    coverage_to_app._resolve_style). This used to alias get_profile_or_default,
+    whose neutral_v1 secondary fallback succeeded for EVERY input — replacing
+    freeform styles with the neutral engine's self-description and dead-coding
+    the caller's raw-string fallback (S6-C follow-up)."""
+    if profile_id not in _list_visual_profiles():
+        return None
     visual_profile = load_visual_profile(profile_id)
     if visual_profile is None:
         return None

@@ -348,6 +348,84 @@ def test_resolve_style_blank_preset_id_same_as_none():
     assert _resolve_style(None, None, "   ")[1] is None
 
 
+# =============================================================================
+# S6-C follow-up — tier 2 (visual_style) used to collapse EVERY non-engine-id
+# value to the neutral_v1 engine's self-description ("Neutral Documentary
+# Style-agnostic default profile..."), because channel_profile aliased
+# get_profile_or_default (which never fails) as its engine lookup, dead-coding
+# the `or visual_style.strip()` raw-string fallback. Production visual_style
+# holds one of the six channel_format preset ids or freeform prose — NEVER a
+# 5-engine id — so a format-locked cartoon channel's "pixar_3d" carried zero
+# cartoon signal into every board/cast/coverage/redraw/environment prompt.
+# =============================================================================
+
+def test_resolve_style_channel_format_preset_id_resolves_to_its_look():
+    """visual_style='pixar_3d' (what apply_format_defaults writes) must yield
+    the preset's full look sentence, not the neutral boilerplate and not the
+    bare id."""
+    _profile, style = _resolve_style(None, "pixar_3d")
+    assert "3D animated cartoon" in style
+    assert "Neutral Documentary" not in style
+    assert style != "pixar_3d"
+
+
+def test_resolve_style_channel_format_preset_label_resolves_to_its_look():
+    """Display labels appear in stored visual_style too (routes/videos.py's
+    _normalize_style_preset accepts both shapes) — exact label match only."""
+    _profile, style = _resolve_style(None, "3D Animated")
+    assert "3D animated cartoon" in style
+
+
+def test_resolve_style_anime_preset_gets_look_plus_stylized_ban():
+    """The resolved look sentence runs through the SAME _enforce_stylized_media
+    seam as every other tier — anime's look names a stylized medium with no
+    anti-photoreal clause of its own, so the ban must be appended."""
+    _profile, style = _resolve_style(None, "anime")
+    assert "cel-shaded" in style
+    assert "NOT photorealistic" in style
+    assert "Neutral Documentary" not in style
+
+
+def test_resolve_style_freeform_visual_style_passes_through_raw():
+    """The revived raw-string fallback: freeform prose reaches the prompt
+    verbatim instead of being swallowed by the neutral engine's
+    self-description."""
+    prose = "Gritty neon noir, rain-soaked streets, harsh sodium light"
+    _profile, style = _resolve_style(None, prose)
+    assert style == prose
+
+
+def test_resolve_style_freeform_never_fuzzy_matches_a_preset():
+    """A creator's own wording always beats a canned sentence — 'cinematic'/
+    'real' inside prose must NOT contains-match onto the realistic preset
+    (look_for_visual_style is exact-match by design, unlike
+    style_preset_for_format)."""
+    prose = "Cinematic docu-drama with archival texture and muted color"
+    _profile, style = _resolve_style(None, prose)
+    assert style == prose
+
+
+def test_channel_profile_raw_string_fallback_is_alive_again():
+    """The dead code revived at its source: channel_profile.load_profile's
+    Visual Style tier returns the raw string for any non-engine id."""
+    from shared.channel_profile import load_profile as load_channel_profile
+    directive = load_channel_profile({"Visual Style": "anime"}).visual_style_directive
+    assert directive == "anime"
+    assert "Neutral Documentary" not in directive
+
+
+def test_channel_profile_engine_id_still_resolves_to_engine_directive():
+    """The 5 real shared.profiles.visual engine ids (legacy Airtable Visual
+    Style values) must keep resolving to the engine's directive text — the
+    strict-loader swap only changes UNKNOWN ids."""
+    from shared.channel_profile import load_profile as load_channel_profile
+    directive = load_channel_profile(
+        {"Visual Style": "cinematic_dossier"}).visual_style_directive
+    assert directive != "cinematic_dossier"
+    assert "dossier" in directive.lower()
+    assert "Neutral Documentary" not in directive
+
+
 @pytest.mark.parametrize("preset_id", [
     "holographic_hud", "cinematic_dossier", "clay_mannequin",
     "cinematic_illustration", "mannequin_storytelling",
