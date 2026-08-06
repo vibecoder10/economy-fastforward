@@ -46,7 +46,16 @@
   `script_quality.critique_script`) gained a one-sentence carve-out: leading
   LOCATION:/ACTION: header lines are structural stage direction, never
   judged, never grounds for revise.
-- NOT merged to main, NOT deployed — Ryan's explicit go required (main
+- Two same-day follow-ups closed edge cases in the header regexes, both
+  driven by this codebase's markdown-flavored scene format (`**Name:**
+  dialogue`, not plain text): `story_laws.py`'s `_LOCATION_HEADER_RE`/
+  `_ACTION_HEADER_RE` now tolerate markdown bold in both shapes
+  (`**LOCATION:** x` and `**LOCATION**: x`), with a value cleanup pass that
+  also strips a bolded value; `voice/run.py`'s narration strip separately
+  closes the colon-outside-bold escape (`**ACTION**: x`) that the first cut
+  of those header regexes missed, so a bolded header can no longer survive
+  into narration.
+- NOT merged to main, NOT deployed - Ryan's explicit go required (main
   auto-deploys on any session's VPS restart).
 
 ### New Files
@@ -61,14 +70,14 @@
 ### Modified
 | Path | Change |
 |------|--------|
-| `storyengine/backend/story_laws.py` | Shared `_extract_leading_header` scanner; `_ACTION_HEADER_RE`; `extract_scene_action`/`parse_scene_action`; order-independent LOCATION/ACTION coexistence |
+| `storyengine/backend/story_laws.py` | Shared `_extract_leading_header` scanner; `_ACTION_HEADER_RE`; `extract_scene_action`/`parse_scene_action`; order-independent LOCATION/ACTION coexistence; follow-up: both header regexes tolerate markdown bold in either shape (label+colon bolded together, or label bolded with the colon outside), captured value cleaned of stray asterisks |
 | `storyengine/backend/user_script.py` | `_normalize_external_scenes` accepts `action`; both scripts-table INSERT sites carry the new column |
 | `storyengine/backend/routes/mcp.py` | `submit_script` raw inputSchema + tool description document `scenes[].action` |
 | `storyengine/backend/routes/videos.py` | `update_scene_text` extracts+strips both headers, COALESCE per column (query gained a 6th positional UPDATE arg) |
 | `storyengine/backend/originality.py` | Judge-prompt carve-out for LOCATION:/ACTION: headers |
 | `skills/video-pipeline/storyboard/coverage.py` | `generate_coverage_directive`/`_coverage_user_prompt` gain an `action` param (DECLARED STAGE DIRECTIONS block, new rule 31); new warn-only `check_stage_direction_presence` |
 | `storyengine/backend/scripts/coverage_to_app.py` | `_scene_text_hash` folds `action` into the cache key when present; SHEET + FRAME save/compare sites thread it through; completion message gains "; N stage-direction warning(s)" |
-| `skills/video-pipeline/voice/run.py` | `narration_text` strips leading LOCATION:/ACTION: headers before synthesis (also closes the latent LOCATION leak in narration mode; transitively fixes `custom_film_production_runner.py`'s `_voice()`, which imports this function) |
+| `skills/video-pipeline/voice/run.py` | `narration_text` strips leading LOCATION:/ACTION: headers before synthesis (also closes the latent LOCATION leak in narration mode; transitively fixes `custom_film_production_runner.py`'s `_voice()`, which imports this function); follow-up: closes the colon-outside-bold escape (`**ACTION**: x`) the first cut of the strip regex missed |
 | `storyengine/backend/dialogue_intelligence.py` | `segment_scene` strips both headers before the Claude call, protecting dialogue TTS + lip-sync transitively |
 | `storyengine/backend/tests/functional/test_c16b_coverage_skip_if_done.py`, `test_d10_3a_planner_narrative.py`, `test_d15_2_directive_persist.py`, `test_d15_7_style_resolution_wiring.py`, `test_d7_2_staleness_hash.py`, `test_d7_1_script_sync.py`, `test_d7_3_scene_edit_invalidation.py` | Sibling fixtures updated to match the new SQL column/arg count (WHERE-tail pattern change, 6th UPDATE arg) — no behavior change |
 
