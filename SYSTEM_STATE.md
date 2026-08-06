@@ -1,5 +1,77 @@
 # System State — Economy FastForward
 
+## S7: ACTION stage-direction authoring channel (2026-08-06)
+
+- Real incident (evidence case): tenant PocoAPoco video
+  d39892b2-0c85-4752-85d7-b61ca209342a — scene 1's celebration dance was
+  never boarded and scene 6 was boarded only by lucky inference, because
+  nothing captured physical stage business separate from spoken dialogue.
+  LOCATION (migration 144) had exactly this capture path; ACTION did not
+  exist at all.
+- New `scripts.action` TEXT column (migration 154, nullable, no default, no
+  backfill — mirrors 144 exactly), holding a short plain-text description of
+  physical stage business a scene must show on screen that spoken dialogue
+  never carries.
+- `submit_script` (`routes/mcp.py`) accepts an optional `scenes[].action`
+  field; when absent, one leading "ACTION: ..." header line in the scene
+  text is parsed as a fallback (case-insensitive), same pattern LOCATION
+  already used. LOCATION: and ACTION: may lead in either order — a shared
+  `_extract_leading_header` scanner in `story_laws.py` backs both parsers.
+  The submit path never rewrites scene text; `update_scene_text`
+  (`routes/videos.py`) is the one edit path that extracts AND strips both
+  headers, COALESCE-preserving each column when its header is absent from an
+  edit.
+- The LIVE board planner (`coverage.py::generate_coverage_directive`/
+  `_coverage_user_prompt`, `coverage_to_app.py::_plan_sheet_prompts`/
+  `generate_storyboard_sheet_for_scene`) now injects a DECLARED STAGE
+  DIRECTIONS block per scene into the planning prompt, instructing the
+  planner to stage at least one action keyframe panel per direction. A new
+  warn-only `check_stage_direction_presence` (sibling of S6's prop/action
+  check) surfaces uncovered directions in the same "; N warning(s)"
+  completion-message slot — it never blocks a build (P3: prose-vs-prose
+  checks warn, never hard-gate). `_scene_text_hash` now folds the action into
+  the directive cache key only when one is present, so an authored action
+  correctly invalidates a stale saved plan while every pre-existing hash
+  (no action) stays byte-identical — no invalidation storm.
+- Stage-direction text is now guaranteed to never reach spoken/voiced
+  output: `voice/run.py::narration_text` strips leading LOCATION:/ACTION:
+  headers before narration synthesis (this also closed a latent LOCATION
+  leak — narration mode had no strip at all before this chunk), and
+  `dialogue_intelligence.py::segment_scene` strips both headers before the
+  Claude call that builds dialogue segments, transitively protecting
+  per-segment TTS and lip-sync. `routes/videos.py::sync_video_script` is
+  deliberately unchanged (P11: header text never joins spoken/exported
+  prose).
+- The script quality judge (`originality._SCRIPT_JUDGE_SYSTEM`, shared by
+  `script_quality.critique_script`) gained a one-sentence carve-out: leading
+  LOCATION:/ACTION: header lines are structural stage direction, never
+  judged, never grounds for revise.
+- NOT merged to main, NOT deployed — Ryan's explicit go required (main
+  auto-deploys on any session's VPS restart).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/154_scene_action.sql` | Adds `scripts.action TEXT` (nullable, no backfill), mirrors migration 144 |
+| `storyengine/backend/tests/test_s7_a_scene_action.py` | S7-A: submit_script field/header-fallback parsing, storage, `update_scene_text` extract+strip, critic carve-out (35 tests) |
+| `storyengine/backend/tests/functional/test_s7_b_stage_directions.py` | S7-B: planner DECLARED STAGE DIRECTIONS injection, warn-only presence check, directive-hash save/compare round-trip |
+| `skills/video-pipeline/tests/test_s7_b_stage_directions.py` | S7-B skills-side counterpart (`coverage.py` prompt/hash/warn-check behavior) |
+| `storyengine/backend/tests/functional/test_s7_c_speech_boundary.py` | S7-C: `narration_text` and `segment_scene` header-stripping, storage-law-vs-speech-law pairing (24 tests) |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/story_laws.py` | Shared `_extract_leading_header` scanner; `_ACTION_HEADER_RE`; `extract_scene_action`/`parse_scene_action`; order-independent LOCATION/ACTION coexistence |
+| `storyengine/backend/user_script.py` | `_normalize_external_scenes` accepts `action`; both scripts-table INSERT sites carry the new column |
+| `storyengine/backend/routes/mcp.py` | `submit_script` raw inputSchema + tool description document `scenes[].action` |
+| `storyengine/backend/routes/videos.py` | `update_scene_text` extracts+strips both headers, COALESCE per column (query gained a 6th positional UPDATE arg) |
+| `storyengine/backend/originality.py` | Judge-prompt carve-out for LOCATION:/ACTION: headers |
+| `skills/video-pipeline/storyboard/coverage.py` | `generate_coverage_directive`/`_coverage_user_prompt` gain an `action` param (DECLARED STAGE DIRECTIONS block, new rule 31); new warn-only `check_stage_direction_presence` |
+| `storyengine/backend/scripts/coverage_to_app.py` | `_scene_text_hash` folds `action` into the cache key when present; SHEET + FRAME save/compare sites thread it through; completion message gains "; N stage-direction warning(s)" |
+| `skills/video-pipeline/voice/run.py` | `narration_text` strips leading LOCATION:/ACTION: headers before synthesis (also closes the latent LOCATION leak in narration mode; transitively fixes `custom_film_production_runner.py`'s `_voice()`, which imports this function) |
+| `storyengine/backend/dialogue_intelligence.py` | `segment_scene` strips both headers before the Claude call, protecting dialogue TTS + lip-sync transitively |
+| `storyengine/backend/tests/functional/test_c16b_coverage_skip_if_done.py`, `test_d10_3a_planner_narrative.py`, `test_d15_2_directive_persist.py`, `test_d15_7_style_resolution_wiring.py`, `test_d7_2_staleness_hash.py`, `test_d7_1_script_sync.py`, `test_d7_3_scene_edit_invalidation.py` | Sibling fixtures updated to match the new SQL column/arg count (WHERE-tail pattern change, 6th UPDATE arg) — no behavior change |
+
 ## ENV-1: environment location extraction fix + create-one endpoint + MCP add_environment (2026-08-05)
 
 - Real incident: tenant PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a
