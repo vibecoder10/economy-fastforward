@@ -105,6 +105,11 @@ from storyboard.coverage import (  # noqa: E402
     # the assembled shot plan actually draw every named prop/action anywhere
     # in the scene? Peer of check_shot_purpose_present immediately above.
     check_prop_action_presence,
+    # S7-B (STORY-LAWS.md S7): the SAME warn-not-hard-fail discipline, for
+    # the script's own authored ACTION (rule 31, DECLARED STAGE DIRECTIONS)
+    # — did the assembled shot plan actually stage it anywhere? Sibling of
+    # check_prop_action_presence immediately above, never modifies it.
+    check_stage_direction_presence,
     # BOARD LAWS (storyengine/BOARD-LAWS.md): multi-location/material-map
     # directive parsing (L3/L20) and the shared motion detector (L4) — the
     # SAME functions run_coverage's own repair-leg locks call, so the sheet
@@ -1752,13 +1757,28 @@ def _storyboard_sheet_system(style: str | None = None) -> str:
         "numbered frames, small timecodes. Output ONLY the image prompt, no preamble.")
 
 
-def _scene_text_hash(text: str) -> str:
-    """Pins a saved coverage plan to the scene text it was planned from."""
+def _scene_text_hash(text: str, action: str | None = None) -> str:
+    """Pins a saved coverage plan to the scene text (and, S7-B, the authored
+    stage direction) it was planned from.
+
+    action (S7-B, scripts.action, migration 154): folded into the SAME hash
+    WHEN PRESENT (non-blank, after stripping) — a scene whose script gains
+    an authored ACTION after being planned must invalidate its saved plan
+    and get replanned with the DECLARED STAGE DIRECTIONS block, exactly like
+    an edited scene_text does today. None/"" (every call before this chunk,
+    and every scene with no authored action — which is every scene before
+    migration 154 and any scene the creator never authors one for)
+    reproduces today's scene_text-only hash BYTE-FOR-BYTE — no existing
+    saved directive anywhere is invalidated by this change."""
     import hashlib
-    return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
+    composed = text or ""
+    if (action or "").strip():
+        composed = f"{composed}\n[ACTION] {action.strip()}"
+    return hashlib.sha1(" ".join(composed.split()).encode()).hexdigest()
 
 
-async def _get_or_plan_directive(vid, tenant, sc, scene_text: str, *, extra_columns: str = "") -> dict:
+async def _get_or_plan_directive(vid, tenant, sc, scene_text: str, *, extra_columns: str = "",
+                                 action: str | None = None) -> dict:
     """D15-9: the ONE hash-gate read — replaces the two near-identical
     "fetch the scene's saved plan, then decide whether it's still fresh"
     blocks that used to live independently in generate_storyboard_sheet_
@@ -1798,17 +1818,27 @@ async def _get_or_plan_directive(vid, tenant, sc, scene_text: str, *, extra_colu
     plan-the-scene call (beat=None): "Regenerate storyboard" must still be
     able to produce a fresh shot list after a cast/environment change even
     though those don't touch coverage_directive_hash, which is scoped to
-    scene TEXT only (confirmed live: ScenesWorkspaceTab.tsx's "Regenerate
-    storyboard" button's own tooltip is "after changing the cast,
-    environments, or script") — adding reuse there would silently freeze
-    that button's own documented use case. Documented exception, not an
-    oversight."""
+    scene TEXT (and, S7-B, the authored action — see below) only (confirmed
+    live: ScenesWorkspaceTab.tsx's "Regenerate storyboard" button's own
+    tooltip is "after changing the cast, environments, or script") — adding
+    reuse there would silently freeze that button's own documented use
+    case. Documented exception, not an oversight.
+
+    action (S7-B, scripts.action, migration 154): a caller's already-
+    fetched value for this SAME scene, folded into the SAME hash
+    _scene_text_hash composes (see its own docstring) — so a scene whose
+    saved plan was planned before an authored direction existed reads as
+    stale here exactly like an edited scene_text does, and gets replanned
+    with the DECLARED STAGE DIRECTIONS block. None (the default — a caller
+    that doesn't carry action, e.g. the pre-S7-B call sites before this
+    chunk existed) reproduces today's scene_text-only comparison, byte-for-
+    byte."""
     row = await fetch_one(
         f"SELECT id, coverage_directive, coverage_directive_hash{extra_columns} FROM scripts "
         "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
     directive = None
     if row and (row.get("coverage_directive") or "").strip():
-        if row.get("coverage_directive_hash") == _scene_text_hash(scene_text or ""):
+        if row.get("coverage_directive_hash") == _scene_text_hash(scene_text or "", action):
             directive = row["coverage_directive"]
     return {"row": row, "directive": directive, "is_reused": directive is not None}
 
@@ -1880,7 +1910,7 @@ async def estimate_storyboard_workload(video_id, tenant_id, scene=None) -> dict:
     production_style_snapshot = v.get("production_style_snapshot")
 
     rows = await fetch_all(
-        "SELECT scene, scene_text, location FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "SELECT scene, scene_text, location, action FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
     targets = [r for r in rows if scene is None or r["scene"] == scene]
     if not targets:
@@ -1896,7 +1926,12 @@ async def estimate_storyboard_workload(video_id, tenant_id, scene=None) -> dict:
         sc = row["scene"]
         scene_text = row.get("scene_text") or ""
         location = (row.get("location") or "").strip()
-        gate = await _get_or_plan_directive(video_id, tenant_id, sc, scene_text)
+        # S7-B: this scene's authored action, folded into the SAME hash
+        # _get_or_plan_directive compares below — so a scene whose saved
+        # plan predates an authored direction reads "not exact" here too,
+        # consistent with the SHEET path's own replan decision.
+        action = (row.get("action") or "").strip()
+        gate = await _get_or_plan_directive(video_id, tenant_id, sc, scene_text, action=action or None)
         directive = gate["directive"]  # non-None only when the saved plan is fresh
         exact = directive is not None
         if exact:
@@ -3081,8 +3116,15 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # Threaded below into _match_scene_env's env-matching preference, the
     # planning prompt (generate_coverage_directive), the FIXED SET
     # injection, and the L30 hard gate — see each call site's own comment.
+    # action (S7-B, STORY-LAWS.md S7): scripts.action, migration 154 — the
+    # script's own authored stage direction for this scene (nullable, not
+    # backfilled; NULL for every scene with no authored ACTION). Threaded
+    # below into the hash gate (_get_or_plan_directive/_scene_text_hash),
+    # the planning prompt (generate_coverage_directive's DECLARED STAGE
+    # DIRECTIONS block) and the WARN-only presence check
+    # (check_stage_direction_presence) — see each call site's own comment.
     scenes = await fetch_all(
-        "SELECT scene, scene_text, location FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "SELECT scene, scene_text, location, action FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
     targets = [s for s in scenes if scene is None or s["scene"] == scene]
     if not targets:
@@ -3326,6 +3368,10 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # just surfaced in the completion message below so a creator sees it
     # without having to read the logs.
     prop_warnings_total = 0
+    # S7-B: same discipline, for the WARN-only authored-stage-direction
+    # presence check (check_stage_direction_presence) — never blocks, just
+    # surfaced in the completion message below, in its own suffix segment.
+    stage_direction_warnings_total = 0
     for s in targets:
         sc = s["scene"]
         # S6-A (STORY-LAWS.md S6): this scene's canonical scripts.location,
@@ -3333,11 +3379,19 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # below treats "" identically to how it treated the absence of this
         # parameter before this chunk existed.
         scene_location = s.get("location") or ""
+        # S7-B (STORY-LAWS.md S7): this scene's authored scripts.action, ""
+        # when NULL (every scene with no authored ACTION) — every
+        # action-aware call below treats "" identically to how it treated
+        # the absence of this parameter before this chunk existed.
+        scene_action = (s.get("action") or "").strip()
         # D15-9: ONE hash-gate read (_get_or_plan_directive) — see its own
         # docstring. beat=None never consults gate["directive"]/["is_reused"]
         # (documented exception, same function); srow is still needed for
-        # its `id`/existence check either way.
-        gate = await _get_or_plan_directive(vid, tenant, sc, s["scene_text"] or "")
+        # its `id`/existence check either way. S7-B: action threaded so the
+        # freshness comparison folds it into the hash — see _get_or_plan_
+        # directive's own docstring.
+        gate = await _get_or_plan_directive(vid, tenant, sc, s["scene_text"] or "",
+                                            action=scene_action or None)
         srow = gate["row"]
         if not srow:
             continue
@@ -3371,7 +3425,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 # are told to name it up front, not left to infer it from the
                 # narration prose alone. "" -> None (the parameter's own
                 # documented "omit the block" default).
-                location=scene_location or None)
+                location=scene_location or None,
+                # S7-B (STORY-LAWS.md S7): the script's own authored stage
+                # direction for this scene, so the planner's DECLARED STAGE
+                # DIRECTIONS block tells it up front what to stage, not left
+                # to infer it from the narration prose alone. "" -> None
+                # (the parameter's own documented "omit the block" default).
+                action=scene_action or None)
         # C7 fix (a): parse -> budget -> floors -> variety, the SAME deterministic
         # pipeline (and order) run_coverage() runs on this exact directive_text at
         # picture-draw time — the sheet preview built below from `moments` and the
@@ -3407,6 +3467,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # once in the final completion message below (never per-scene, never
         # blocking).
         prop_warnings_total += check_prop_action_presence(moments)
+        # S7-B: same warn-not-hard-fail discipline, for the script's own
+        # authored ACTION (rule 31's DECLARED STAGE DIRECTIONS block) — did
+        # the assembled shot plan actually stage it anywhere? Sibling of
+        # check_prop_action_presence immediately above, never modifies it;
+        # accumulated separately and surfaced in its own completion-message
+        # suffix segment below.
+        stage_direction_warnings_total += check_stage_direction_presence(
+            scene_action or None, moments)
 
         # D6-1: env matched HERE (moved up from just before the draw loop)
         # so the canonical per-location material map (L20) can be resolved
@@ -3515,7 +3583,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                     "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
                     "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
                     "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
-                    directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+                    directive, _scene_text_hash(s["scene_text"] or "", scene_action or None),
+                    blocks, len(prompts), srow["id"])
             if plan_only:
                 # PLAN GATE (Ryan, 2026-07-07): stop here — the creator reads
                 # the shot plan in the app, then draws boards one at a time.
@@ -3760,6 +3829,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # before this chunk existed.
     _prop_warn_suffix = (f"; {prop_warnings_total} prop/action warning(s) — see logs"
                         if prop_warnings_total else "")
+    # S7-B: same discipline, its own suffix segment — "" when zero (every
+    # plan with no authored actions, and any plan whose authored actions all
+    # landed somewhere), so a build with no stage-direction drift reads
+    # byte-identical to before this chunk existed.
+    _stage_direction_warn_suffix = (
+        f"; {stage_direction_warnings_total} stage-direction warning(s) — see logs"
+        if stage_direction_warnings_total else "")
     # S6-B (evidence: PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a —
     # quoted $0.35, actually drew $1.10+, with no way for the creator to see
     # the gap): appended to every "completed" message below, including the
@@ -3795,18 +3871,19 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                "Review the sheets; 'Generate pictures' draws exactly this plan.")
         return {"status": "completed",
                 "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
-                           f"got NO boards — {_blocked_detail}{_prop_warn_suffix}{_quote_suffix}",
+                           f"got NO boards — {_blocked_detail}{_prop_warn_suffix}"
+                           f"{_stage_direction_warn_suffix}{_quote_suffix}",
                 **_extra}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
                             "nothing drawn. Review the plan, then draw boards one at a time."
-                            f"{_prop_warn_suffix}{_quote_suffix}"),
+                            f"{_prop_warn_suffix}{_stage_direction_warn_suffix}{_quote_suffix}"),
                 **_extra}
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
                         "Review the sheets; 'Generate pictures' draws exactly this plan."
-                        f"{_prop_warn_suffix}{_quote_suffix}"),
+                        f"{_prop_warn_suffix}{_stage_direction_warn_suffix}{_quote_suffix}"),
             **_extra}
 
 
@@ -5315,8 +5392,15 @@ async def generate_coverage_for_video(
     render_style = v["render_style"]
     video_model_id = v["video_model"]
 
+    # S7-B (STORY-LAWS.md S7, closing the FRAME path's pre-existing location
+    # gap in passing): this SQL selected NEITHER scripts.location NOR
+    # scripts.action before this chunk — the SHEET path's own scenes query
+    # (generate_storyboard_sheet_for_scene, above in this file) has carried
+    # location since S6-A, but this narrative-branch fallback below never
+    # had either fact to pass into generate_coverage_directive. Both are now
+    # threaded the same way the SHEET path already threads them.
     scenes = await fetch_all(
-        "SELECT scene, scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "SELECT scene, scene_text, location, action FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", vid, tenant)
     targets = [s for s in scenes
                if (scene is None or s["scene"] == scene)
@@ -5378,6 +5462,12 @@ async def generate_coverage_for_video(
     for s in targets:
         sc = s["scene"]
         outdir = f"{base_dir}/scene{sc}"
+        # S7-B: this scene's canonical location + authored action, "" when
+        # NULL — same treatment the SHEET path gives both (scene_location/
+        # scene_action there). Threaded below into the hash gate and the
+        # narrative-branch fresh-plan call.
+        scene_location = (s.get("location") or "").strip()
+        scene_action = (s.get("action") or "").strip()
         # Size coverage to the dialogue + the channel's pacing policy (see
         # _coverage_shape): echo/voice_over paces to runtime with earned
         # angles; grok_native keeps the rich cinematic multi-angle coverage.
@@ -5401,11 +5491,13 @@ async def generate_coverage_for_video(
         # assembler A's beat-redo branch) — same predicate, same
         # coverage_directive_hash pointer D7-3 staleness invalidation nulls.
         # extra_columns reproduces this call's original 9-column SELECT text
-        # byte-for-byte (see the helper's own docstring).
+        # byte-for-byte (see the helper's own docstring). S7-B: action
+        # threaded so the freshness comparison folds it into the hash.
         gate = await _get_or_plan_directive(
             vid, tenant, sc, s["scene_text"] or "",
             extra_columns=", storyboard_prompts, storyboard_1_url, storyboard_2_url, "
-                          "storyboard_3_url, storyboard_4_url, storyboard_5_url")
+                          "storyboard_3_url, storyboard_4_url, storyboard_5_url",
+            action=scene_action or None)
         saved = gate["row"]
         if gate["is_reused"]:
             directive = gate["directive"]
@@ -5482,7 +5574,15 @@ async def generate_coverage_for_video(
                     s["scene_text"] or "", title, profile, bible, [sc], [],
                     max_moments=_mm, angles_min=_amin, angles_max=_amax,
                     anthropic_client=claude, model=claude_model,
-                    board_rules_text=_narrative_board_text)
+                    board_rules_text=_narrative_board_text,
+                    # S7-B (closing the pre-existing location gap in passing,
+                    # same ruling as the SQL comment above): this call site
+                    # never passed EITHER fact before this chunk — the SHEET
+                    # path's equivalent call (generate_storyboard_sheet_for_
+                    # scene) has passed location since S6-A. "" -> None (both
+                    # parameters' own documented "omit the block" default).
+                    location=scene_location or None,
+                    action=scene_action or None)
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         if env:
             _p(f"Scene {sc}: locked to {env['name']}")
@@ -5545,7 +5645,8 @@ async def generate_coverage_for_video(
                     await execute(
                         "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
                         "updated_at=now() WHERE id=$3",
-                        _directive_used, _scene_text_hash(s["scene_text"] or ""), saved["id"])
+                        _directive_used, _scene_text_hash(s["scene_text"] or "", scene_action or None),
+                        saved["id"])
             except Exception as _persist_exc:  # noqa: BLE001 — advisory only
                 _p(f"Scene {sc}: directive persist failed ({str(_persist_exc)[:120]}) — "
                    "boards drew fine, but the next run may re-plan")

@@ -517,7 +517,12 @@ class _CallSite2DB:
         raise AssertionError(f"unexpected fetch_one: {query}")
 
     async def fetch_all(self, query, *args):
-        if "SELECT scene, scene_text FROM scripts" in query:
+        # S7-B added "location, action" to this SELECT's column list —
+        # match the shared WHERE clause tail so this fixture is robust to
+        # the exact column list, same precedent test_d15_9_directive_gate.py
+        # already set for S6-A's own column addition.
+        if "FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene IS NOT NULL " \
+           "AND scene_text IS NOT NULL ORDER BY scene" in query:
             return [{"scene": 1, "scene_text": SCENE_TEXT}]
         if "FROM video_characters" in query:
             return [{"reference_url": "https://cast.png/x.png"}]

@@ -505,6 +505,14 @@ invented (e.g. a line that says "here, two tickets" and stage direction that a c
 the trash can becomes `[PROPS | two tickets, saluting the trash can]`). Omit the row entirely \
 when this moment names no specific prop or physical action — most silent establishing, transit or \
 reaction moments have none, and this is the common case, not an error.
+31) WHEN A DECLARED STAGE DIRECTIONS BLOCK APPEARS BELOW, EVERY DIRECTION IN IT IS A MUST (S7-B). \
+The script's own authored ACTION — a canonical fact, not something inferred from the narration \
+prose — names a physical action this scene MUST show. Stage AT LEAST ONE panel (MASTER or ANGLE) \
+per directed action whose description shows that action MID-EXECUTION — the character actually \
+doing it, not a beat before or after — and name it on that moment's own [PROPS | ...] row (rule \
+30) as well, so the extraction check can confirm it landed. Skip this rule entirely when no \
+DECLARED STAGE DIRECTIONS block appears below (every scene before this migration, and any scene \
+with no authored action) — it changes nothing about rule 30's own contract.
 </rules>
 
 <output_format>
@@ -679,7 +687,7 @@ def format_boundary_blocks(incoming: dict | None = None, outgoing: dict | None =
 
 def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
                           incoming: dict | None = None, outgoing: dict | None = None,
-                          location: str | None = None) -> str:
+                          location: str | None = None, action: str | None = None) -> str:
     parts = [f'Plan cinematic COVERAGE for "{video_title or "this scene"}".',
              f"\nScene narration:\n{beat_text.strip()}"]
     # S6-A (STORY-LAWS.md S6 — "the script is the origin of truth"): when the
@@ -694,6 +702,21 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
             f"\n--- DECLARED LOCATION (canonical, from the script) ---\n"
             f"This scene's location is: {location.strip()}. Your [SET | ...] header (or, for a "
             "multi-location scene, at least one [LOCSET | ...] header) MUST name it.")
+    # S7-B (STORY-LAWS.md S7 — scripts.action, migration 154, backend/
+    # story_laws.py's ACTION: header parser): when the script authors a
+    # canonical stage direction for this scene, state it as a FACT the
+    # planner must stage, not just something it might infer from the
+    # narration prose above — same discipline as the DECLARED LOCATION block
+    # right above this one. "" / None (every scene before this migration,
+    # and any scene with no authored ACTION) omits the block entirely,
+    # byte-identical to before this chunk existed.
+    if (action or "").strip():
+        parts.append(
+            f"\n--- DECLARED STAGE DIRECTIONS (canonical, from the script) ---\n"
+            f"This scene's script calls for: {action.strip()}. Stage AT LEAST ONE keyframe panel "
+            "per directed action above — a panel whose description shows the action MID-EXECUTION, "
+            "not a beat before or after it — and include each directed action in some moment's "
+            "[PROPS | ...] row (rule 30) so downstream checks can see it landed.")
     bible = _format_story_bible_for_beat(story_bible, beat_scenes or [])
     if bible:
         parts.append(f"\n--- VISUAL BIBLE (binding) ---\n{bible}\n--- END VISUAL BIBLE ---")
@@ -725,7 +748,7 @@ async def generate_coverage_directive(
     beat_text, video_title, profile, story_bible, beat_scenes, image_prompts,
     max_moments=3, angles_min=2, angles_max=4, anthropic_client=None, model=None,
     incoming: dict | None = None, outgoing: dict | None = None, board_rules_text: str = "",
-    location: str | None = None,
+    location: str | None = None, action: str | None = None,
 ) -> str:
     """Run Claude to produce the coverage plan text. Returns the raw directive.
     model: pass a valid model id for a DIRECT Anthropic client (its built-in default can be
@@ -747,13 +770,22 @@ async def generate_coverage_directive(
     gate) — passed straight through to _coverage_user_prompt as a stated
     fact the planner's [SET|]/[LOCSET|] header(s) must name. None (the
     default — the legacy cron caller in storyboard/bot.py never passes this)
+    omits the block entirely, byte-identical to before this chunk existed.
+
+    action (S7-B, STORY-LAWS.md S7 — scripts.action, migration 154): the
+    scene's own authored stage direction, extracted by backend/story_laws.
+    py's ACTION: header parser — passed straight through to
+    _coverage_user_prompt as a DECLARED STAGE DIRECTIONS block the planner
+    must stage at least one panel for. None (the default — every caller
+    before this chunk, and the legacy cron caller in storyboard/bot.py)
     omits the block entirely, byte-identical to before this chunk existed."""
     if anthropic_client is None:
         from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
     kwargs = dict(
         prompt=_coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
-                                     incoming=incoming, outgoing=outgoing, location=location),
+                                     incoming=incoming, outgoing=outgoing, location=location,
+                                     action=action),
         system_prompt=_coverage_system_prompt(profile, max_moments, angles_min, angles_max,
                                               board_rules_text=board_rules_text),
         max_tokens=6000, temperature=0.7,
@@ -1033,6 +1065,97 @@ def check_prop_action_presence(moments: list[dict]) -> int:
             print(f"  ⚠️ prop/action extraction drift check: '{name}' (from this scene's own "
                   f"[PROPS | ...] extraction) is not mentioned in any planned shot description — "
                   f"worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+_STAGE_DIRECTION_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "at", "with", "for", "is",
+    "are", "was", "were", "be", "being", "been", "his", "her", "their", "he", "she", "it",
+    "they", "them", "then", "that", "this", "as", "into", "onto", "over", "under", "from",
+    "by", "up", "down", "out", "off", "again", "once", "here", "there", "when", "where",
+    "how", "all", "each", "some", "so", "than", "too", "very", "can", "will", "just", "now",
+    "own", "you", "your", "who", "which", "while", "toward", "towards", "across", "one",
+    "its", "not", "no", "yet", "still",
+})
+_STAGE_DIRECTION_SPLIT_RE = re.compile(r"[\n;]+|(?<=[.!?])\s+")
+_STAGE_DIRECTION_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _stage_direction_content_words(text: str) -> list[str]:
+    """The non-stopword, len>2 tokens in `text` — the 'key content words' the
+    presence heuristic below checks for, same discipline as
+    _PROP_NAME_NORM_RE's normalization but word-level rather than phrase-
+    level (a paraphrase-tolerant fallback, see check_stage_direction_
+    presence's own docstring for why phrase match alone is too strict)."""
+    words = _STAGE_DIRECTION_WORD_RE.findall(text.lower())
+    return [w for w in words if w not in _STAGE_DIRECTION_STOPWORDS and len(w) > 2]
+
+
+def check_stage_direction_presence(action: str | None, moments: list[dict]) -> int:
+    """S7-B WARN-only drift ALARM — sibling of check_prop_action_presence
+    above, same warning-family conventions: NOT a gate, never blocks or
+    rewrites anything, just logs loudly and returns a count. Never touches
+    check_prop_action_presence itself.
+
+    `action` is this scene's authored scripts.action (migration 154,
+    backend/story_laws.py's ACTION: header parser) — the SAME text
+    _coverage_user_prompt's DECLARED STAGE DIRECTIONS block hands the
+    planner. Did the assembled shot plan actually stage it? None/"" (every
+    scene before this migration, and any scene with no authored direction)
+    -> 0, a no-op, byte-identical to before this chunk existed.
+
+    `action` may name one direction or several (split on newlines/
+    semicolons, or sentence boundaries within a single line/paragraph — a
+    creator may write "Ryan waves. Vanessa salutes the trash can." as two
+    directed actions in one field). Checked SCENE-WIDE, not moment-by-
+    moment, exactly like check_prop_action_presence: a directed action may
+    legitimately land in ANY moment's [PROPS | ...] row or master/angle
+    description, not necessarily the "obvious" one.
+
+    A direction counts as PRESENT (no warning) if EITHER (a) its whole
+    text, normalized, appears as a substring anywhere in the scene's props
+    + descriptions (the same exact-phrase check check_prop_action_presence
+    uses), OR (b) at least one of its own key content words (non-stopword,
+    len>2 — plural/paraphrase tolerant) shows up somewhere. (b) is
+    deliberately loose: this is a drift ALARM meant to catch a direction
+    that was dropped entirely, not a linter for exact wording, and a
+    stricter phrase-only match would false-positive on any reasonable
+    paraphrase ("hands over two tickets" planned as "passes the tickets
+    across"). Bias toward FEW false positives, per design.
+
+    Returns the number of directions found in NEITHER form, anywhere in the
+    scene. 0 when action is None/empty, or every direction is reflected
+    somewhere."""
+    action = (action or "").strip()
+    if not action:
+        return 0
+    directions = [d.strip() for d in _STAGE_DIRECTION_SPLIT_RE.split(action) if d.strip()]
+    if not directions:
+        return 0
+    haystack_parts: list[str] = []
+    for m in moments:
+        for p in (m.get("props") or []):
+            if p:
+                haystack_parts.append(str(p))
+        master = m.get("master") or {}
+        if master.get("description"):
+            haystack_parts.append(master["description"])
+        for a in (m.get("angles") or []):
+            if a.get("description"):
+                haystack_parts.append(a["description"])
+    norm_haystack = f" {_PROP_NAME_NORM_RE.sub(' ', ' '.join(haystack_parts).lower())} "
+    warnings = 0
+    for direction in directions:
+        norm_direction = _PROP_NAME_NORM_RE.sub(" ", direction.lower()).strip()
+        if norm_direction and f" {norm_direction} " in norm_haystack:
+            continue  # exact normalized phrase, present verbatim
+        content_words = _stage_direction_content_words(direction)
+        if content_words and any(f" {w} " in norm_haystack for w in content_words):
+            continue  # a key content word landed somewhere — treat as present
+        warnings += 1
+        print(f"  ⚠️ stage direction presence check: '{direction}' (from this scene's "
+              f"authored ACTION) is not reflected in any planned shot description or "
+              f"[PROPS | ...] row — worth a human glance, not a hard failure", flush=True)
     return warnings
 
 
