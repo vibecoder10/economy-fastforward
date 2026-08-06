@@ -35,6 +35,7 @@ from pathlib import Path
 
 from database import fetch_all
 from storage import upload_bytes, download_bytes
+from story_laws import strip_scene_stage_headers
 from render_stitch import (
     ProgressCb,
     _emit,
@@ -188,7 +189,12 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
         )
         segments.append({
             "scene": s["scene"],
-            "scene_text": s.get("scene_text") or "",
+            # Storage keeps leading LOCATION:/ACTION: stage headers verbatim
+            # (S7-A); the voice step strips them before synthesis (S7-C), so
+            # everything render-side that consumes this text (today the
+            # music-mood pass; any future caption use) must see the same
+            # header-free text the narration was actually made from.
+            "scene_text": strip_scene_stage_headers(s.get("scene_text")),
             "voice_url": s["voice_over_url"],
             "voice_duration": float(s["voice_duration_seconds"] or 0),
             # image_url stays for old tests/callers; images is authoritative.
