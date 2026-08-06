@@ -126,6 +126,71 @@ def test_narration_text_mixed_bold_and_plain_header_order():
     assert narration_text(text) == "Music plays."
 
 
+# ---------------------------------------------------------------------------
+# S7-C follow-up (manager review, 2026-08-06) — the colon-OUTSIDE-the-bold
+# form: "**ACTION**: x" / "**LOCATION**: x". A first cut of the header
+# regexes only tolerated stars immediately before the keyword and
+# immediately after the colon ("**ACTION:** x"), so this shape — stars
+# wrapping ONLY the keyword, colon outside — matched neither header regex,
+# survived the strip, got reduced by _BOLD_SPEAKER_RE to plain "ACTION: x",
+# and nothing removed it in narration mode: the narrator would read it
+# aloud. _BOLD_SPEAKER_RE's own colon alternation
+# (?::\s*\*{1,3}|\*{1,3}\s*:) already treats this as an equally valid
+# speaker-label shape — the header regexes must too.
+# ---------------------------------------------------------------------------
+
+def test_narration_text_strips_colon_outside_bold_location_header():
+    text = "**LOCATION**: the kitchen\n\nShe stirs the soup slowly."
+    assert narration_text(text) == "She stirs the soup slowly."
+
+
+def test_narration_text_strips_colon_outside_bold_action_header():
+    text = "**ACTION**: she jumps on the table and dances\n\nThe room falls silent."
+    assert narration_text(text) == "The room falls silent."
+
+
+def test_narration_text_strips_colon_outside_bold_headers_both_orders():
+    for text in (
+        "**LOCATION**: the garage\n**ACTION**: she dances on the workbench\n\nMusic plays.",
+        "**ACTION**: she dances on the workbench\n**LOCATION**: the garage\n\nMusic plays.",
+    ):
+        out = narration_text(text)
+        assert out == "Music plays.", f"FAIL for {text!r}: got {out!r}"
+
+
+def test_narration_text_colon_outside_bold_paired_with_plain_sibling():
+    """The exact leak scenario, either header order, mixed with a plain
+    (unstyled) sibling header — no consistent authoring style assumed."""
+    for text in (
+        "**LOCATION**: the garage\nACTION: she dances\n\nMusic plays.",
+        "ACTION: she dances\n**LOCATION**: the garage\n\nMusic plays.",
+        "**ACTION**: she dances\nLOCATION: the garage\n\nMusic plays.",
+        "LOCATION: the garage\n**ACTION**: she dances\n\nMusic plays.",
+    ):
+        out = narration_text(text)
+        assert out == "Music plays.", f"FAIL for {text!r}: got {out!r}"
+
+
+def test_narration_text_colon_outside_bold_end_to_end_narration_mode():
+    """End-to-end through narration_text in narration mode (dialogue_mode
+    falsy — the exact mode the manager's review flagged as having NO strip
+    at all before S7-C): the line must be fully gone, not just transformed,
+    proving the narrator never receives it."""
+    text = "**ACTION**: she leaps onto the crate\n\nShe opens the hatch."
+    out = narration_text(text, dialogue_mode="")
+    assert out == "She opens the hatch."
+    assert "ACTION" not in out
+    assert "leaps onto the crate" not in out
+
+
+def test_narration_text_colon_outside_bold_location_end_to_end_narration_mode():
+    text = "**LOCATION**: the kitchen\n\nThe narrator explains the recipe."
+    out = narration_text(text, dialogue_mode="")
+    assert out == "The narrator explains the recipe."
+    assert "LOCATION" not in out
+    assert "the kitchen" not in out
+
+
 def test_narration_text_keeps_prose_intact_when_no_headers():
     text = "She wakes up and reaches for the light. The room is cold."
     assert narration_text(text) == text

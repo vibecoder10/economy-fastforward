@@ -37,17 +37,27 @@ _MD_MARKS_RE = re.compile(r"\*{1,3}|^#+\s*|^-{3,}\s*$", re.M)
 # mirrors backend/story_laws.py's _extract_leading_header semantics locally
 # (leading lines only, either header, at most one line of tolerance for the
 # sibling header, never mid-text prose that happens to contain the word).
-# It ALSO tolerates markdown-bold wrapping around the keyword/colon
-# ("**ACTION:** ...") directly, so the header dies whether this strip runs
-# before or after _BOLD_SPEAKER_RE above — it runs BEFORE (first thing in
-# narration_text, on the raw text), so it must recognize both the plain and
-# the bolded form itself rather than relying on that other regex to have
-# already normalized it.
+# It ALSO tolerates markdown-bold wrapping around the keyword/colon in EVERY
+# position _BOLD_SPEAKER_RE itself recognizes for a speaker label — stars
+# before the keyword, AND stars on either side of the colon independently
+# ("**ACTION:** ...", "**ACTION**: ...", "ACTION**:** ..."), not just the
+# one "stars wrap keyword+colon together" shape. Manager review (2026-08-06)
+# caught the gap: a first cut only tolerated stars immediately before the
+# keyword and immediately after the colon, so "**ACTION**: dance" (colon
+# OUTSIDE the bold — the exact second alternative in _BOLD_SPEAKER_RE's own
+# `(?::\s*\*{1,3}|\*{1,3}\s*:)`) matched neither header regex, survived this
+# strip, got reduced to plain "ACTION: dance" by _BOLD_SPEAKER_RE below, and
+# then nothing removed it in narration mode — the exact leak this chunk
+# exists to kill. Allowing optional stars on BOTH sides of the colon
+# simultaneously (rather than mirroring the alternation literally) is a
+# superset that covers every shape without needing two branches, and stays
+# safe because the whole match is still anchored to the literal keyword at
+# line-start.
 _STAR = r"\*{0,3}"
 _LOCATION_HEADER_RE = re.compile(
-    rf"^\s*{_STAR}\s*LOCATION\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
+    rf"^\s*{_STAR}\s*LOCATION\s*{_STAR}\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
 _ACTION_HEADER_RE = re.compile(
-    rf"^\s*{_STAR}\s*ACTION\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
+    rf"^\s*{_STAR}\s*ACTION\s*{_STAR}\s*:\s*{_STAR}\s*(?:.+?)\s*{_STAR}\s*$", re.IGNORECASE)
 
 
 def _strip_leading_stage_headers(text: str) -> str:
