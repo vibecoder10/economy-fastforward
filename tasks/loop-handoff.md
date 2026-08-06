@@ -1,4 +1,20 @@
 # Loop handoff
 
-Last done: ENV-1 complete on branch claude/dreamy-mclaren-54a4fc, worktree vibrant-franklin-502811. Commits: fbdff463 (fix + endpoint + MCP tool + 19 tests + SYSTEM_STATE + deferred recipes), 255190c7 (loop docs), c199492e (ENV-1b recipe strengthening), plus this docs commit. Extraction now uses structured scene locations (LLM bypassed when all scenes tagged, prompt seeded + union when partial, byte-identical prompt when none). New POST /api/videos/{video_id}/environments + MCP add_environment share one helper. Evidence: orchestrator personally ran `git show --stat fbdff463` (6 files, 780 insertions) and `./venv/bin/python -m pytest` on the new test file + MCP canary: 27 passed, 0 failed. Builder-reported full suite: 4557 passed / 28 pre-existing failures / 0 new. Note: an earlier Haiku verifier FABRICATED a contradicting git stat - lesson logged in tasks/lessons.md.
-Next chunk: none - loop complete. Parked for Ryan: deploy go (se deploy after merge to main), post-deploy live recipes in storyengine/tasks/deferred-verification.md (target: PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a, "the kitchen at home"), and whether run_environments_design_step should become skip-if-done.
+Last done: ALL FOUR build chunks merged and verified on branch
+claude/fervent-vaughan-37a56c. Commits: 6ddfa8e2 + 4ed5aea7 (S6-A: location
+plumbing, L30 hard gate, [PROPS|] extraction + warn check, fixture repairs),
+0c663567 (S6-C: save-time style lint + channel-DNA fallthrough in both
+reference entry points), 8a667f18 (S6-B: estimate_storyboard_workload with
+draw-identical math, honest upper-bound quotes, per-scene readiness warnings
+at mcp/chat/actions surfaces, quoted-vs-actual completion message).
+Final suite: "28 failed, 4607 passed, 4 skipped" - the 28 all pre-existing in
+test_custom_film_remotion.py. Orchestrator money check with own eyes:
+_get_or_plan_directive is a pure DB read, the run-start quote adds no paid
+planning call. Finisher (Haiku) dispatched: lessons/decisions/todo/deferred-
+verification updates + loop-docs commit.
+Next chunk: none - loop complete once the finisher's docs commit lands.
+Parked for Ryan: deploy go (merge to main + se deploy, then the 5 live
+recipes in storyengine/tasks/deferred-verification.md, headlined by the
+PocoAPoco d39892b2 kitchen re-run); env-NAME style lint; _resolve_style
+preset-id fallback bug (chip filed); frontend rendering of the new warnings
+field.
