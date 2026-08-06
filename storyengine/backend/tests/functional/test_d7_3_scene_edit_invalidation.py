@@ -97,8 +97,9 @@ def _make_fake_db(scene_texts: dict):
             return "UPDATE 1"
         if q.startswith("UPDATE scripts SET scene_text"):
             # update_scene_text's write: (stored_text, video_id, scene,
-            # tenant_id, new_location)
-            stored_text, _video_id, scene, _tenant_id, new_location = args
+            # tenant_id, new_location, new_action) — S7-A added new_action
+            # as a 6th positional arg.
+            stored_text, _video_id, scene, _tenant_id, new_location, _new_action = args
             row = state["scripts"].get(scene)
             if row is None:
                 return "UPDATE 0"

@@ -95,7 +95,10 @@ def _make_fake_db(initial_scene_text: str, initial_videos_script: str, *,
         q = query.strip()
         if q.startswith("UPDATE scripts SET scene_text"):
             if "COALESCE" in q:
-                stored_text, _video_id, scene, _tenant_id, _new_location = args
+                # S7-A: update_scene_text now also extracts/strips an
+                # ACTION: header (action = COALESCE($6, action)) alongside
+                # location — one more positional arg than before.
+                stored_text, _video_id, scene, _tenant_id, _new_location, _new_action = args
             else:
                 stored_text, _video_id, scene, _tenant_id = args
             row = state["scripts"].get(scene)

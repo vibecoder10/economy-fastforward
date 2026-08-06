@@ -53,8 +53,9 @@ def _make_fake_db(initial_scene_text: str, initial_videos_script: str):
     async def fake_execute(query, *args):
         q = query.strip()
         if q.startswith("UPDATE scripts SET scene_text"):
-            # args: (stored_text, video_id, scene, tenant_id, new_location)
-            stored_text, _video_id, scene, _tenant_id, new_location = args
+            # args: (stored_text, video_id, scene, tenant_id, new_location,
+            # new_action) — S7-A added new_action as a 6th positional arg.
+            stored_text, _video_id, scene, _tenant_id, new_location, _new_action = args
             row = state["scripts"].get(scene)
             if row is None:
                 return "UPDATE 0"
