@@ -1,0 +1,19 @@
+-- 154_scene_action.sql
+-- S7-A: the ACTION stage-direction AUTHORING channel, mirroring migration
+-- 144_scene_location.sql exactly.
+--
+-- Adds scripts.action: a short plain-text description of the physical
+-- stage business a scene must SHOW on screen (a celebration dance, a
+-- sprint across a parking lot) that spoken `Name:` dialogue alone never
+-- carries — extracted from an optional `ACTION: <direction>` header a
+-- scene's text may open with (see backend/story_laws.py — the ONE place
+-- that prose and its parsers live). LOCATION: and ACTION: headers may
+-- coexist, in either order, as the scene's two leading header lines.
+--
+-- Nullable, no default, no backfill: every scene written before this
+-- migration keeps action = NULL forever. Nothing in the board or render
+-- path reads this column as of this migration — the planner-side
+-- consumer (a parallel lane) and this column's own writers land in the
+-- same chunk, so NULL rows are byte-for-byte unaffected; the column only
+-- starts getting populated going forward.
+ALTER TABLE scripts ADD COLUMN IF NOT EXISTS action TEXT;

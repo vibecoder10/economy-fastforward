@@ -203,8 +203,12 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
     # text) is used. In practice a creator's own prose almost never matches
     # the exact header format, so `location` stays NULL for most
     # creator-supplied scenes — that's expected, not a bug.
+    #
+    # S7-A: same read-only treatment for ACTION:, its stage-direction
+    # sibling — parse_scene_action never touches scene["text"] either.
     for scene in scenes:
         scene["location"] = story_laws.parse_scene_location(scene["text"])
+        scene["action"] = story_laws.parse_scene_action(scene["text"])
 
     # D6-3 (S3 GATE leg) — WARN, NEVER BLOCK. set_user_script's entire
     # contract is "no retention grading, no factual gate... the creator's
@@ -256,10 +260,10 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
     await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, tenant_id)
     for i, scene in enumerate(scenes, start=1):
         await execute(
-            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
-               VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, action, title, script_status, voice_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'Create', $8)""",
             tenant_id, video_id, i, scene["text"].strip(), scene.get("location"),
-            video.get("video_title"), DEFAULT_VOICE_ID,
+            scene.get("action"), video.get("video_title"), DEFAULT_VOICE_ID,
         )
 
     # D7-7 (STORY-LAWS S6): this writes videos.script directly (the
@@ -294,9 +298,9 @@ def _normalize_external_scenes(scenes: Any) -> list[dict]:
     """Same scene SHAPE every save path in this module already enforces (see
     ``split_scenes_paragraphs``/``split_scenes_explicit`` above and
     ``PipelineExecutor._parse_modeled_scenes``): an ordered
-    ``[{"scene": n, "text": str, "location": str|None}, ...]`` list,
-    renumbered sequentially from 1 (an externally-submitted "scene" index is
-    untrusted — never used as-is).
+    ``[{"scene": n, "text": str, "location": str|None, "action": str|None}, ...]``
+    list, renumbered sequentially from 1 (an externally-submitted "scene"
+    index is untrusted — never used as-is).
 
     D6-3 (S3 parser leg): a submitting agent may pass an explicit
     ``"location"`` field per scene — the clean, structured way to declare
@@ -308,6 +312,14 @@ def _normalize_external_scenes(scenes: Any) -> list[dict]:
     back to a READ-ONLY parse of a LOCATION: header from ``text`` (defense
     in depth for an agent that used the header convention anyway) — never
     altering ``text`` either way.
+
+    S7-A: an ``"action"`` field gets the identical treatment — the physical
+    stage business a scene must SHOW on screen (a celebration dance, a
+    sprint) that spoken ``Name:`` dialogue lines alone never carry. Optional;
+    when omitted, falls back to a READ-ONLY parse of an ACTION: header from
+    ``text`` (which may coexist with a LOCATION: header, in either order —
+    see ``story_laws.extract_scene_action``). ``text`` is never altered
+    either way, same as ``location``.
 
     Raises ValueError with a concrete, one-line reason per bad item so the
     submitting agent gets something it can act on, not a silent empty list.
@@ -327,7 +339,11 @@ def _normalize_external_scenes(scenes: Any) -> list[dict]:
         location = str(location).strip() if isinstance(location, str) and location.strip() else None
         if location is None:
             location = story_laws.parse_scene_location(text)
-        out.append({"scene": len(out) + 1, "text": text, "location": location})
+        action = item.get("action")
+        action = str(action).strip() if isinstance(action, str) and action.strip() else None
+        if action is None:
+            action = story_laws.parse_scene_action(text)
+        out.append({"scene": len(out) + 1, "text": text, "location": location, "action": action})
     return out
 
 
@@ -534,10 +550,10 @@ async def accept_external_script(
     await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, tenant_id)
     for sc in normalized:
         await execute(
-            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
-               VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, action, title, script_status, voice_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'Create', $8)""",
             tenant_id, video_id, sc["scene"], sc["text"], sc.get("location"),
-            video.get("video_title"), DEFAULT_VOICE_ID,
+            sc.get("action"), video.get("video_title"), DEFAULT_VOICE_ID,
         )
 
     # D7-7 (STORY-LAWS S6): this writes videos.script directly (the

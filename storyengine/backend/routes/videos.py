@@ -1680,13 +1680,24 @@ async def update_scene_text(
     # every generation path — it must never be spoken); otherwise the edit
     # carries NO location signal at all, so COALESCE($5, location) leaves
     # the existing column exactly as it was rather than blanking it.
+    #
+    # S7-A: same repair-leg treatment for ACTION:, its stage-direction
+    # sibling. LOCATION: and ACTION: may coexist as the text's two leading
+    # header lines in EITHER order (extract_scene_location/extract_scene_
+    # action each tolerate the other one preceding them — see story_laws'
+    # _extract_leading_header), so location is extracted first and action is
+    # extracted from WHAT'S LEFT — this correctly strips both regardless of
+    # which header the editor put first, and leaves the body untouched when
+    # neither is present.
     import story_laws
-    new_location, stored_text = story_laws.extract_scene_location(body.text)
+    new_location, after_location_text = story_laws.extract_scene_location(body.text)
+    new_action, stored_text = story_laws.extract_scene_action(after_location_text)
     result = await execute(
         "UPDATE scripts SET scene_text = $1, location = COALESCE($5, location), "
+        "action = COALESCE($6, action), "
         "updated_at = now() "
         "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
-        stored_text, video_id, scene, tenant_id, new_location,
+        stored_text, video_id, scene, tenant_id, new_location, new_action,
     )
     if not result or "UPDATE 0" in result:
         raise HTTPException(404, "Scene not found")

@@ -1807,7 +1807,17 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
         "everything about how they look or where they are that the story "
         "needs — rather than assuming an existing cast sheet or environment "
         "design still covers what you leave out; anything built from an "
-        "older script is treated as stale the moment this submission lands."
+        "older script is treated as stale the moment this submission lands.\n\n"
+        "ACTION (S7-A, optional): give a scene an 'action' field naming the "
+        "physical stage business it must SHOW on screen (e.g. \"she jumps "
+        "on the table and dances\", \"he sprints across the parking lot\") "
+        "when spoken `Name:` dialogue lines alone wouldn't carry it. If "
+        "omitted, an `ACTION: <direction>` line at the very start of `text` "
+        "is parsed instead (and left in place — `text` is never rewritten, "
+        "same as LOCATION). LOCATION: and ACTION: headers may coexist, in "
+        "either order, as a scene's two leading lines. Stage directions are "
+        "NEVER spoken or voiced; the board planner stages at least one "
+        "keyframe panel per directed action."
     ),
     "inputSchema": {
         "type": "object",
@@ -1816,11 +1826,13 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
             "scenes": {
                 "type": "array",
                 "description": (
-                    "Ordered scenes: [{\"text\": \"...\", \"location\": \"...\"}, ...]. "
+                    "Ordered scenes: [{\"text\": \"...\", \"location\": \"...\", "
+                    "\"action\": \"...\"}, ...]. "
                     "Scene numbers are assigned 1..N from this order. `location` is "
                     "REQUIRED (S3) — the single physical place that scene happens in; "
                     "if omitted, a `LOCATION: <place>` line at the very start of `text` "
-                    "is parsed instead (and left in place — `text` is never rewritten)."
+                    "is parsed instead (and left in place — `text` is never rewritten). "
+                    "`action` is OPTIONAL (S7-A) — see the tool description above."
                 ),
                 "items": {
                     "type": "object",
@@ -1829,6 +1841,16 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
                         "location": {
                             "type": "string",
                             "description": "This scene's single physical location (S3, STORY-LAWS.md).",
+                        },
+                        "action": {
+                            "type": "string",
+                            "description": (
+                                "Optional (S7-A). The physical stage business this scene "
+                                "must SHOW on screen (e.g. \"she jumps on the table and "
+                                "dances\", \"he sprints across the parking lot\") — never "
+                                "spoken or voiced. If omitted, an `ACTION: <direction>` "
+                                "line at the very start of `text` is parsed instead."
+                            ),
                         },
                     },
                     "required": ["text"],

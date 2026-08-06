@@ -90,22 +90,30 @@ SCENE_LOCATION_LAW = (
 # contain the word "location" is never mistaken for the header.
 _LOCATION_HEADER_RE = re.compile(r"^\s*LOCATION\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
+# S7-A — ACTION: <direction>, the stage-direction sibling of LOCATION:. Same
+# strict whole-line match, same reasoning: ordinary narration that happens to
+# use the word "action" must never be misread as the header.
+_ACTION_HEADER_RE = re.compile(r"^\s*ACTION\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
-def extract_scene_location(text: str) -> tuple[str | None, str]:
-    """Pull a leading ``LOCATION: <place>`` header off scene text.
 
-    Looks only at the first non-blank line — the writer's contract requires
-    it there and nowhere else, so a stray "location" mention deeper in the
-    narration is never misread as the header. Returns
-    ``(location, remaining_text)`` where ``remaining_text`` has the header
-    line (and any blank lines before it) removed. When no header is present,
-    or the first line doesn't match, returns ``(None, text)`` — the original
-    text, byte-for-byte.
+def _extract_leading_header(
+    text: str, own_re: "re.Pattern[str]", other_re: "re.Pattern[str]"
+) -> tuple[str | None, str]:
+    """Shared scan behind :func:`extract_scene_location` and
+    :func:`extract_scene_action`. Looks at the first non-blank line for
+    ``own_re``. LOCATION: and ACTION: may coexist as a scene's two leading
+    header lines in EITHER order (S7-A), so when that first line instead
+    matches ``other_re`` (the sibling header), tolerates it and looks at the
+    NEXT non-blank line for ``own_re`` — never more than one line of
+    tolerance, so a stray header-shaped line deeper in the narration is
+    still never mistaken for the real thing.
 
-    Call sites that must preserve their input byte-for-byte (the SUBMIT
-    path's verbatim guarantee for creator-supplied scripts) should read only
-    the first element of the tuple and keep using their ORIGINAL text, never
-    the second element.
+    Returns ``(value, remaining_text)`` exactly like the two public
+    extractors: ``remaining_text`` has ONLY the matched header line (and any
+    blank lines strictly before it) removed — a sibling header line, if
+    tolerated, is left in place for that sibling's own extractor to strip.
+    When nothing matches, returns ``(None, text)`` — the original text,
+    byte-for-byte.
     """
     if not text:
         return None, text or ""
@@ -115,14 +123,48 @@ def extract_scene_location(text: str) -> tuple[str | None, str]:
         idx += 1
     if idx >= len(lines):
         return None, text
-    m = _LOCATION_HEADER_RE.match(lines[idx])
+    m = own_re.match(lines[idx])
+    header_idx = idx
     if not m:
+        if not other_re.match(lines[idx]):
+            return None, text
+        idx2 = idx + 1
+        while idx2 < len(lines) and not lines[idx2].strip():
+            idx2 += 1
+        if idx2 >= len(lines):
+            return None, text
+        m = own_re.match(lines[idx2])
+        if not m:
+            return None, text
+        header_idx = idx2
+    value = m.group(1).strip().strip("\"“”'")
+    if not value:
         return None, text
-    location = m.group(1).strip().strip("\"“”'")
-    if not location:
-        return None, text
-    remaining = "\n".join(lines[:idx] + lines[idx + 1:]).strip()
-    return location, remaining
+    remaining = "\n".join(lines[:header_idx] + lines[header_idx + 1:]).strip()
+    return value, remaining
+
+
+def extract_scene_location(text: str) -> tuple[str | None, str]:
+    """Pull a leading ``LOCATION: <place>`` header off scene text.
+
+    Looks at the first non-blank line, tolerating at most one leading
+    ``ACTION:`` line before it (S7-A — the two headers may coexist, in
+    either order, as the scene's two leading lines) — the writer's contract
+    requires the LOCATION header to be one of the first (at most) two
+    non-blank lines, so a stray "location" mention deeper in the narration
+    is never misread as the header. Returns ``(location, remaining_text)``
+    where ``remaining_text`` has the LOCATION line (and any blank lines
+    strictly before it) removed — an ACTION line, if present, is left in
+    place; only :func:`extract_scene_action` strips that one. When no
+    header is present, or nothing matches, returns ``(None, text)`` — the
+    original text, byte-for-byte.
+
+    Call sites that must preserve their input byte-for-byte (the SUBMIT
+    path's verbatim guarantee for creator-supplied scripts) should read only
+    the first element of the tuple and keep using their ORIGINAL text, never
+    the second element.
+    """
+    return _extract_leading_header(text, _LOCATION_HEADER_RE, _ACTION_HEADER_RE)
 
 
 def parse_scene_location(text: str) -> str | None:
@@ -131,6 +173,39 @@ def parse_scene_location(text: str) -> str | None:
     caller. Use this at any call site that must not touch stored text (the
     SUBMIT path's creator-verbatim guarantee)."""
     return extract_scene_location(text)[0]
+
+
+def extract_scene_action(text: str) -> tuple[str | None, str]:
+    """Pull a leading ``ACTION: <direction>`` header off scene text — the
+    S7-A stage-direction sibling of :func:`extract_scene_location`, same
+    contract, same tolerance for the OTHER header preceding this one (a
+    LOCATION: line may sit before the ACTION: line; at most one line of
+    tolerance, never more).
+
+    ``action`` is the physical stage business a scene must SHOW on screen
+    (e.g. "she jumps on the table and dances", "he sprints across the
+    parking lot") that spoken ``Name:`` dialogue lines alone never carry —
+    it is NEVER spoken or voiced. Returns ``(action, remaining_text)`` where
+    ``remaining_text`` has ONLY the ACTION line (and any blank lines
+    strictly before it) removed — a LOCATION line, if present, is left in
+    place for :func:`extract_scene_location` to strip. When no header is
+    present, or nothing matches, returns ``(None, text)`` — the original
+    text, byte-for-byte.
+
+    Call sites that must preserve their input byte-for-byte (the SUBMIT
+    path's verbatim guarantee for creator-supplied scripts) should read only
+    the first element of the tuple and keep using their ORIGINAL text, never
+    the second element.
+    """
+    return _extract_leading_header(text, _ACTION_HEADER_RE, _LOCATION_HEADER_RE)
+
+
+def parse_scene_action(text: str) -> str | None:
+    """Read-only variant of :func:`extract_scene_action` — the action only;
+    the input text is never altered or even considered mutable by the
+    caller. Use this at any call site that must not touch stored text (the
+    SUBMIT path's verbatim guarantee)."""
+    return extract_scene_action(text)[0]
 
 
 def _location_spans(text: str, location: str) -> list[tuple[int, int]]:
