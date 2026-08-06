@@ -88,12 +88,31 @@ SCENE_LOCATION_LAW = (
 # Matches ONLY when the whole line is the header (optionally leading/trailing
 # whitespace) — deliberately strict so ordinary narration that happens to
 # contain the word "location" is never mistaken for the header.
-_LOCATION_HEADER_RE = re.compile(r"^\s*LOCATION\s*:\s*(.+?)\s*$", re.IGNORECASE)
+#
+# S7-A follow-up: this codebase's house scene format is markdown-flavored
+# (**Name:** dialogue), so an agent will sooner or later write the header
+# bolded too — both "**LOCATION:** x" (bold wraps label+colon) and
+# "**LOCATION**: x" (bold wraps label only) show up in practice. The
+# `\*{0,3}` slots tolerate 0-3 asterisks whenever markdown bold/italic could
+# legally sit (before the label, between label and colon, and right after
+# the colon) — 0 stars is the plain form, so every pre-existing plain-form
+# match is byte-identical to before this change. A star run embedded deeper
+# in the value (e.g. the value itself independently bolded, "**LOCATION:**
+# **the garage**") is mopped up by the `.strip("*")` pass on the captured
+# group in `_extract_leading_header` below, not by the regex itself.
+_LOCATION_HEADER_RE = re.compile(
+    r"^\s*\*{0,3}\s*LOCATION\s*\*{0,3}\s*:\s*\*{0,3}\s*(.+?)\s*\*{0,3}\s*$",
+    re.IGNORECASE,
+)
 
 # S7-A — ACTION: <direction>, the stage-direction sibling of LOCATION:. Same
 # strict whole-line match, same reasoning: ordinary narration that happens to
-# use the word "action" must never be misread as the header.
-_ACTION_HEADER_RE = re.compile(r"^\s*ACTION\s*:\s*(.+?)\s*$", re.IGNORECASE)
+# use the word "action" must never be misread as the header. Same markdown
+# bold tolerance as LOCATION (S7-A follow-up) — see the comment above.
+_ACTION_HEADER_RE = re.compile(
+    r"^\s*\*{0,3}\s*ACTION\s*\*{0,3}\s*:\s*\*{0,3}\s*(.+?)\s*\*{0,3}\s*$",
+    re.IGNORECASE,
+)
 
 
 def _extract_leading_header(
@@ -137,7 +156,18 @@ def _extract_leading_header(
         if not m:
             return None, text
         header_idx = idx2
-    value = m.group(1).strip().strip("\"“”'")
+    # S7-A follow-up: strip any residual markdown bold asterisks the regex
+    # itself didn't already exclude from the capture (e.g. the value having
+    # its OWN independent bold span, "**LOCATION:** **the garage**" — the
+    # regex's own `\*{0,3}` slots only account for stars immediately
+    # flanking the label/colon, not a second star run after intervening
+    # whitespace). Order matters: strip whitespace, then stars, then quotes,
+    # re-stripping whitespace between each pass so a value quoted INSIDE
+    # bold ("**"the garage"**") or bolded INSIDE quotes ("**the garage**")
+    # comes out clean either way.
+    value = m.group(1).strip()
+    value = value.strip("*").strip()
+    value = value.strip("\"“”'").strip()
     if not value:
         return None, text
     remaining = "\n".join(lines[:header_idx] + lines[header_idx + 1:]).strip()

@@ -215,6 +215,121 @@ def test_neither_header_present_text_fully_untouched():
 
 
 # ---------------------------------------------------------------------------
+# Markdown bold tolerance (S7-A follow-up) — this codebase's house scene
+# format is markdown-flavored (**Name:** dialogue), so an agent will sooner
+# or later bold the header too. Both "**LABEL:** x" (bold wraps label+colon)
+# and "**LABEL**: x" (bold wraps label only) must parse to the clean value,
+# with the stars never leaking into the stored value or the remaining text.
+# ---------------------------------------------------------------------------
+
+def test_location_bold_wraps_label_and_colon():
+    text = "**LOCATION:** the garage\n\nShe wakes up."
+    location, remaining = extract_scene_location(text)
+    assert location == "the garage"
+    assert remaining == "She wakes up."
+    assert "*" not in remaining
+
+
+def test_location_bold_wraps_label_only_colon_outside():
+    text = "**LOCATION**: the garage\n\nShe wakes up."
+    location, remaining = extract_scene_location(text)
+    assert location == "the garage"
+    assert remaining == "She wakes up."
+
+
+def test_action_bold_wraps_label_and_colon():
+    text = "**ACTION:** she jumps on the table and dances\n\nThe room falls silent."
+    action, remaining = extract_scene_action(text)
+    assert action == "she jumps on the table and dances"
+    assert remaining == "The room falls silent."
+    assert "*" not in remaining
+
+
+def test_action_bold_wraps_label_only_colon_outside():
+    text = "**ACTION**: she jumps on the table and dances\n\nThe room falls silent."
+    action, remaining = extract_scene_action(text)
+    assert action == "she jumps on the table and dances"
+    assert remaining == "The room falls silent."
+
+
+def test_bold_value_itself_independently_bolded_still_strips_clean():
+    """The value can carry its OWN bold span too ("**LOCATION:** **the
+    garage**") — the regex's flanking `\\*{0,3}` slots only account for
+    stars immediately next to the label/colon, so the residual star run has
+    to be mopped up by the post-match `.strip("*")` pass."""
+    text = "**LOCATION:** **the garage**\n\nShe wakes up."
+    location, remaining = extract_scene_location(text)
+    assert location == "the garage"
+    assert remaining == "She wakes up."
+
+
+def test_bold_coexistence_location_then_bold_action():
+    text = "LOCATION: the garage\n**ACTION:** she dances on the workbench\n\nMusic plays."
+    location, after_location = extract_scene_location(text)
+    assert location == "the garage"
+    action, stored = extract_scene_action(after_location)
+    assert action == "she dances on the workbench"
+    assert stored == "Music plays."
+
+
+def test_bold_coexistence_bold_action_then_plain_location():
+    text = "**ACTION:** she dances on the workbench\nLOCATION: the garage\n\nMusic plays."
+    location, after_location = extract_scene_location(text)
+    assert location == "the garage"
+    action, stored = extract_scene_action(after_location)
+    assert action == "she dances on the workbench"
+    assert stored == "Music plays."
+
+
+def test_bold_coexistence_both_headers_bolded_either_order():
+    for text in (
+        "**LOCATION:** the garage\n**ACTION**: she dances\n\nBody prose.",
+        "**ACTION**: she dances\n**LOCATION:** the garage\n\nBody prose.",
+    ):
+        location, after_location = extract_scene_location(text)
+        action, stored = extract_scene_action(after_location)
+        assert location == "the garage"
+        assert action == "she dances"
+        assert stored == "Body prose."
+
+
+def test_bold_dialogue_line_mid_text_never_mistaken_for_header():
+    """The house **Name:** dialogue format itself must never be misread as
+    a LOCATION/ACTION header, bolded or not — this is the exact shape the
+    coordinator flagged (an agent authoring bolded dialogue lines nearby)."""
+    text = "**Ryan:** I can't believe it.\n**Vanessa:** Neither can I."
+    location, remaining = extract_scene_location(text)
+    action, remaining2 = extract_scene_action(remaining)
+    assert location is None
+    assert action is None
+    assert remaining2 == text
+
+
+def test_bold_prose_mid_narration_never_mistaken_for_header():
+    text = "She thinks the **location** of the treasure is close. This is an **action** movie."
+    location, remaining = extract_scene_location(text)
+    action, remaining2 = extract_scene_action(remaining)
+    assert location is None
+    assert action is None
+    assert remaining2 == text
+
+
+def test_s3_gate_passes_when_location_header_is_bolded():
+    """check_scene_location_law reads the already-extracted `location`
+    column, not raw text — but the extraction that FEEDS that column has to
+    actually recognize the bolded header, or a real agent-authored bolded
+    LOCATION line would silently read as no_location and hard-fail S3."""
+    text = "**LOCATION:** the parking lot\n\nShe runs fast."
+    location, _ = extract_scene_location(text)
+    assert location == "the parking lot"  # sanity: the bolded header was found
+
+    scenes = [{"scene": 1, "location": location, "scene_text": text}]
+    result = check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+
+
+# ---------------------------------------------------------------------------
 # S3 hard gate (check_scene_location_law) still passes when an ACTION: line
 # precedes the LOCATION: line — the location extracted from the raw text is
 # a real value, so the gate's no_location check never fires.
