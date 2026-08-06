@@ -2782,3 +2782,29 @@ Branch claude/inspiring-grothendieck-2dc6df (worktree inspiring-grothendieck-2dc
 ## Handoff (2026-08-06) - S7 loop (ACTION stage-direction channel)
 
 S7 loop complete on branch claude/kind-mclean-96ca38 (7 code commits: 9a4c4362, ea147362, 5a674cdf, 03b6a43c, b2237056, 94ec88de, 4cd14a54). Shipped: a per-scene ACTION channel that mirrors LOCATION - submit_script's scenes[].action field (with an "ACTION:" header-line fallback) stored on scripts.action (migration 154); the live board planner injects a DECLARED STAGE DIRECTIONS block into the planning prompt and runs a warn-only presence check surfaced in the completion message; speech boundaries (voice/run.py narration_text, dialogue_intelligence.segment_scene) now strip both LOCATION:/ACTION: headers so nothing authored is ever voiced, which also fixed the latent LOCATION-header narration leak that predated this loop; the script quality critic gets a structural-header carve-out; the submit_script MCP tool description documents the new field. NOT merged, NOT deployed - Ryan's explicit go required. Parked: the caption-pipeline header leak (render_static feeds raw scene_text into captions - spawn_task chip filed for Ryan), run_coverage's internal directive_text=None fallback plans without location or action, the platform-generation path doesn't author actions yet, plus the S6 parked items that still stand (env-name style lint, frontend warnings rendering, run_environments_design_step skip-if-done).
+
+## Handoff (2026-08-06) - S7 follow-up: caption-boundary header strip (the parked caption leak)
+
+Branch claude/zealous-tharp-397a4b (worktree zealous-tharp-397a4b). Closes the caption-pipeline
+header leak S7 parked: storage keeps LOCATION:/ACTION: headers verbatim (S7-A) and the voice
+step strips them before synthesis (S7-C), so any path segmenting RAW scene_text into captions
+minted a header caption row with no audio under it AND skewed every segment's duration (the
+splitter divides voice_duration by the total word count, headers included). NOTE: this branch
+merged claude/kind-mclean-96ca38 (the S7 work) first - the fix depends on extract_scene_action
+and the S7-C test conventions, which only existed there. Neither is merged to main or deployed.
+
+Shipped: story_laws.strip_scene_stage_headers (chains the module's own two extractors,
+order-independent - no third stripping dialect); PipelineExecutor.run_split strips before
+segment_scene_deterministic (assets.sentence_text now matches the audio; a headers-only scene
+writes no caption rows instead of a phantom one); render_static._gather_segments strips at the
+render boundary (today that text only feeds the music-mood pass - the kickoff's claim that it
+feeds segment_scene_deterministic was NOT true of the current tree; stripped anyway so any
+future caption use inherits clean text). Caller sweep for other raw-scene_text segmentation:
+scene_expander.py x2 are legacy-Airtable-only (that script writer never emits headers, backend
+never routes there - left alone); static_docu's sentence_text is a verbatim [:500] copy (asset
+description, not caption segmentation - left alone); coverage_to_app + custom_film_compositor
+consume structured planner/dialogue_segments output (transitively protected by S7-C). Tests:
+tests/functional/test_s7_caption_boundary.py (16, modeled on test_s7_c_speech_boundary.py's
+storage-law-vs-caption-law pair), stash-proven (pre-fix: collection ImportError; run_split
+assertions also fail behaviorally pre-fix by design). sync_video_script untouched (settled:
+byte-identical). NOT merged, NOT deployed - Ryan's explicit go required (same gate as S7).

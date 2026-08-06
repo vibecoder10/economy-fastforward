@@ -16602,6 +16602,7 @@ scenes."""
         try:
             # Import the deterministic splitter
             from shared.clients.deterministic_splitter import segment_scene_deterministic
+            from story_laws import strip_scene_stage_headers
 
             # Load scripts with voice for this video
             scripts = await fetch_all(
@@ -16626,7 +16627,13 @@ scenes."""
 
             for script in scripts:
                 scene_num = script.get("scene")
-                scene_text = script.get("scene_text")
+                # Captions must match the AUDIO, not the stored text: the
+                # voice step strips leading LOCATION:/ACTION: stage headers
+                # before synthesis (S7-C), so segmenting the raw scene_text
+                # would mint a caption row the narrator never speaks AND
+                # skew every segment's duration share (the splitter divides
+                # the narration's real length across all words it sees).
+                scene_text = strip_scene_stage_headers(script.get("scene_text"))
                 voice_duration = script.get("voice_duration_seconds")
 
                 if not scene_text or not scene_text.strip():

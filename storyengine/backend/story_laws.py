@@ -238,6 +238,36 @@ def parse_scene_action(text: str) -> str | None:
     return extract_scene_action(text)[0]
 
 
+def strip_scene_stage_headers(text: str) -> str:
+    """Scene text with any leading LOCATION:/ACTION: stage-direction headers
+    removed — what SPEECH and CAPTION boundaries consume.
+
+    Storage keeps the headers verbatim (S7-A's storage law: scripts.
+    scene_text / videos.script are never rewritten), and the speech
+    boundaries already strip them on their own (S7-C: voice/run.py
+    narration_text, dialogue_intelligence.segment_scene). This helper is
+    that same strip for the CAPTION/SEGMENTATION side: any path that turns
+    raw scene_text into sentence/caption segments (pipeline_executor.
+    run_split's assets.sentence_text rows, render_static's per-scene
+    segment dicts) must call it first — otherwise a header line becomes its
+    own caption row with no matching audio underneath (an on-screen
+    artifact), and, worse, the splitter allocates the narration's REAL
+    duration across words the narrator never reads, skewing every
+    segment's timing (the voice step strips headers before synthesis, so
+    header words exist in the text but not in the audio).
+
+    Chains the two public extractors, which makes it ORDER-INDEPENDENT
+    (each extractor tolerates the sibling header sitting ahead of its own)
+    and guarantees the strip is byte-identical to what those extractors
+    individually remove — no third stripping dialect to drift. Text with
+    no leading headers comes back byte-for-byte unchanged; None comes
+    back as "".
+    """
+    _, remaining = extract_scene_location(text)
+    _, remaining = extract_scene_action(remaining)
+    return remaining
+
+
 def _location_spans(text: str, location: str) -> list[tuple[int, int]]:
     """All word-boundary occurrences of ``location`` inside ``text``."""
     if len(location) < 3 or not text:
