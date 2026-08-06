@@ -198,17 +198,34 @@ def test_all_scenes_blocked_surfaces_as_failed_with_violation_text():
          patch.object(cta, "_plan_sheet_prompts",
                       side_effect=SheetPromptContractViolation("L29 (DECLARE ONE STYLE, ONCE): test violation")):
 
-        m_fetch_one.side_effect = [
-            {"id": "v1", "tenant_id": "t1", "video_title": "T", "aspect": "16:9",
-             "image_style_override": None, "visual_style": None, "render_style": None,
-             "video_model": None, "dialogue_audio": "voice_over",
-             "production_style_snapshot": None},
-            {"id": "s1", "coverage_directive": None, "coverage_directive_hash": None},
-        ]
-        m_fetch_all.side_effect = [
-            [{"scene": 1, "scene_text": "some scene text"}],
-            [],
-        ]
+        # S6-B: generate_storyboard_sheet_for_scene now also reads
+        # estimate_storyboard_workload at run start (its own "Quoted $X"
+        # completion-message line) — a SECOND fetch_one("FROM videos...")
+        # and fetch_all(scenes) pair, ahead of _get_or_plan_directive's own
+        # fetch_one. A strict positional side_effect list can no longer
+        # predict call order/count, so dispatch by query text instead (the
+        # same query-aware fixture pattern test_d15_9/test_d15_3 already
+        # use) — robust to however many times each query actually runs.
+        async def fake_fetch_one(query, *args):
+            if "FROM videos WHERE id=$1" in query:
+                return {"id": "v1", "tenant_id": "t1", "video_title": "T", "aspect": "16:9",
+                        "image_style_override": None, "visual_style": None, "render_style": None,
+                        "video_model": None, "dialogue_audio": "voice_over",
+                        "production_style_snapshot": None}
+            if "coverage_directive, coverage_directive_hash FROM scripts" in query:
+                return {"id": "s1", "coverage_directive": None, "coverage_directive_hash": None}
+            raise AssertionError(f"unexpected fetch_one: {query}")
+
+        async def fake_fetch_all(query, *args):
+            if "FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene IS NOT NULL " \
+               "AND scene_text IS NOT NULL ORDER BY scene" in query:
+                return [{"scene": 1, "scene_text": "some scene text", "location": None}]
+            if "FROM video_characters" in query:
+                return []
+            raise AssertionError(f"unexpected fetch_all: {query}")
+
+        m_fetch_one.side_effect = fake_fetch_one
+        m_fetch_all.side_effect = fake_fetch_all
         result = _run(cta.generate_storyboard_sheet_for_scene("v1", "t1", scene=1))
 
     assert result["status"] == "failed", result

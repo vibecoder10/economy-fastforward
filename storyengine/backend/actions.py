@@ -793,6 +793,11 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     counts. Per-scene actions price just that scene's pictures/clips."""
     model = summary["model"]
     clip = CLIP_COST.get(model, 0.10)
+    # S6-B: only the "storyboards" branch below ever sets this — every other
+    # verb keeps the generic "~$X.XX" / "no extra cost" text the last two
+    # lines of this function have always produced. Local to this function so
+    # no other verb's return shape changes.
+    custom_text: Optional[str] = None
     if verb == "animate":
         costs = await _routed_clip_costs(tenant_id, video_id, scene, model)
         if scene is not None and not costs:
@@ -833,7 +838,42 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
                 n = 6
         cost = n * PICTURE_COST
     elif verb == "storyboards":
-        cost = (1 if scene is not None else max(1, summary["scenes"])) * PICTURE_COST
+        # S6-B (evidence: PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a
+        # — quoted $0.35 flat "1 board/scene x 7 scenes", actually drew
+        # $1.10+ of boards): the flat guess above never matched the real
+        # job's per-scene board math (shot_count from
+        # plan_moments_deterministic, chunked by sheet_chunk_sizes, capped
+        # at 5 boards/scene). Now reads the SAME shared workload estimator
+        # generate_storyboard_sheet_for_scene itself quotes its own
+        # "Quoted $X" completion-message line from
+        # (coverage_to_app.estimate_storyboard_workload) — one workload
+        # math, every caller. `cost` is the UPPER bound (boards_max):
+        # exact when every pending scene already has a fresh
+        # coverage_directive (boards_min == boards_max there), a real
+        # ceiling otherwise (up to 5 boards/scene for scenes with no saved
+        # plan yet) — never an underestimate.
+        #
+        # Lazy import (matches this module's own repeated `from actions
+        # import picture_price_for` inside coverage_to_app.py, and
+        # kie_unified.py's documented reason for avoiding a module-level
+        # actions import): scripts/coverage_to_app.py sets
+        # STORAGE_BACKEND and mutates sys.path as an import-time side
+        # effect meant for its own standalone-script callers. actions.py
+        # is imported very early and widely at server boot — a module-level
+        # import here would force that side effect onto every process that
+        # merely imports actions, not just the "storyboards" quote path.
+        from scripts.coverage_to_app import estimate_storyboard_workload
+        workload = await estimate_storyboard_workload(video_id, tenant_id, scene=scene)
+        cost = round(workload["boards_max"] * PICTURE_COST, 2)
+        if cost > 0:
+            if workload["all_exact"]:
+                custom_text = (
+                    f"${cost:.2f} — {workload['boards_max']} board(s) across "
+                    f"{workload['scene_count']} scene(s)")
+            else:
+                custom_text = (
+                    f"${cost:.2f} max — up to 5 boards per scene; exact "
+                    "count is set by each scene's shot plan")
     elif verb == "voice":
         # Real per-character estimate (ElevenLabs bills per character, not
         # per run — docs/cost-awareness.md) when the script already exists;
@@ -906,8 +946,57 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
         )
     else:
         cost = 0.0
-    text = "no extra cost" if cost <= 0 else f"~${cost:.2f}"
+    text = custom_text if custom_text is not None else (
+        "no extra cost" if cost <= 0 else f"~${cost:.2f}")
     return round(cost, 2), text
+
+
+def _storyboard_warnings_from_workload(workload: dict[str, Any]) -> list[str]:
+    """Turn estimate_storyboard_workload's per-scene rows into short,
+    plain-English readiness warnings — surfaced BEFORE spend so a creator
+    sees a scene's board will fall back to prose matching (no environment
+    reference for its declared location) or that no location was declared
+    at all, instead of discovering it only after paying to draw. Pure
+    formatting, no I/O — split out from storyboard_quote_warnings so every
+    caller reads the exact same two warning shapes."""
+    warnings: list[str] = []
+    for entry in workload.get("scenes") or []:
+        sc = entry.get("scene")
+        location = (entry.get("location") or "").strip()
+        if not location:
+            warnings.append(f"Scene {sc} has no declared location.")
+        elif entry.get("location_covered") is False:
+            warnings.append(
+                f"Scene {sc}'s location '{location}' has no environment "
+                "reference - its board would fall back to prose matching."
+            )
+    return warnings
+
+
+async def storyboard_quote_warnings(tenant_id, video_id, scene: Optional[int]) -> list[str]:
+    """S6-B: per-scene data-readiness warnings for a "storyboards" quote,
+    read BEFORE any money moves — a scene with no declared location, or a
+    declared location with no approved environment reference to lock its
+    board to (it would fall back to prose matching, the SAME failure class
+    the PocoAPoco d39892b2-0c85-4752-85d7-b61ca209342a incident traces to).
+
+    A SEPARATE call from estimate_cost's own "storyboards" branch (not
+    folded into that function's (cost, text) return) — estimate_cost's
+    2-tuple contract is shared by every verb, and every other verb's return
+    shape must stay byte-identical. Callers that want warnings (currently
+    only the "storyboards" verb, at mcp.py's _call_verb and chat.py's
+    confirm-card builder) call this ADDITIONALLY, the same "additive, only
+    for verbs that need it" convention this file already uses for
+    cost_breakdown/budget_check alongside estimate_cost.
+
+    Empty list when nothing needs flagging (every scene has a declared
+    location covered by an approved environment reference) — never raises;
+    a video with no scenes yet or a bad video_id just yields no warnings,
+    the same fail-quiet behavior estimate_storyboard_workload's own empty
+    case already gives every other caller."""
+    from scripts.coverage_to_app import estimate_storyboard_workload
+    workload = await estimate_storyboard_workload(video_id, tenant_id, scene=scene)
+    return _storyboard_warnings_from_workload(workload)
 
 
 async def estimate_custom_film_plan(

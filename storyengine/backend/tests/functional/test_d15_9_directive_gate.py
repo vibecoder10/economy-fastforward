@@ -317,9 +317,20 @@ def test_beat_redo_delegates_to_get_or_plan_directive_and_draws():
             p.stop()
 
     assert result["status"] == "completed", result
-    assert calls == [(VIDEO_ID, TENANT_ID, SCENE, SCENE_TEXT, "")], (
-        "generate_storyboard_sheet_for_scene must call _get_or_plan_directive "
-        "with no extra_columns (its original 3-column SELECT shape)")
+    # S6-B added a SECOND call to this same gate: generate_storyboard_sheet_
+    # for_scene now reads estimate_storyboard_workload at run start (before
+    # the beat-redo branch below it in the function body) to build the
+    # "Quoted $X, actual $Y" completion-message line — that estimator calls
+    # the SAME _get_or_plan_directive for each scene it's about to price.
+    # Both calls carry IDENTICAL args (same vid/tenant/scene/scene_text, no
+    # extra_columns) — this is still proof the beat-redo branch itself
+    # delegates to the real helper rather than its own inline hash check
+    # (the neuter test below still turns red through this exact branch).
+    expected_call = (VIDEO_ID, TENANT_ID, SCENE, SCENE_TEXT, "")
+    assert calls == [expected_call, expected_call], (
+        "generate_storyboard_sheet_for_scene (and its S6-B quote read) must "
+        "call _get_or_plan_directive with no extra_columns (its original "
+        "3-column SELECT shape)")
     image_client.assert_awaited_once()
 
 
@@ -345,7 +356,12 @@ def test_beat_redo_guard_neuter_turns_red():
         for p in patches:
             p.stop()
 
-    assert calls == [(VIDEO_ID, TENANT_ID, SCENE, SCENE_TEXT, "")]
+    # S6-B: the SAME second call (this function's own quote read, see the
+    # sibling GREEN test's comment above) — the neutered gate reports "not
+    # fresh" to BOTH callers, so both calls in the list see the neutered
+    # verdict too.
+    expected_call = (VIDEO_ID, TENANT_ID, SCENE, SCENE_TEXT, "")
+    assert calls == [expected_call, expected_call]
     image_client.assert_not_awaited()
     with pytest.raises(AssertionError):
         assert result["status"] == "completed", result

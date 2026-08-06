@@ -628,6 +628,36 @@ def _env_named_in_header_opening(text: str, envs: list[dict]) -> dict | None:
     return None
 
 
+def _location_env_match(location: str | None, envs: list[dict]) -> dict | None:
+    """Exact-normalized-then-containment match of a canonical scripts.location
+    (S6-A) against approved environments' own names — the SAME preference
+    block `_match_scene_env` checks FIRST, before its header/phrase-scoring
+    chain (see that function's docstring for the incident this closes).
+    Factored out (S6-B/P10) so the storyboard-quote readiness check ("does
+    this scene's declared location have an environment reference to lock
+    to?") reuses the IDENTICAL normalization/containment rule instead of a
+    second hand-rolled comparison that could silently drift from what the
+    real draw path decides. `_match_scene_env` calls this exact function for
+    its own location check — behavior is unchanged, this is a pure
+    extraction, not a new rule.
+
+    None when `location` is empty/None, or when no approved environment's
+    name matches it exactly or by containment either way."""
+    if not location:
+        return None
+    norm_loc = _norm_env_text(location)
+    if not norm_loc:
+        return None
+    for e in envs:
+        if _norm_env_text(e.get("name") or "") == norm_loc:
+            return e
+    for e in envs:
+        norm_name = _norm_env_text(e.get("name") or "")
+        if norm_name and (norm_loc in norm_name or norm_name in norm_loc):
+            return e
+    return None
+
+
 def _match_scene_env(text: str, envs: list[dict], location: str | None = None) -> dict | None:
     """Pick the ONE approved environment this scene lives in.
 
@@ -745,16 +775,9 @@ def _match_scene_env(text: str, envs: list[dict], location: str | None = None) -
     # scene 1, script location "the kitchen at home" — the header/phrase
     # chain below locked the wrong room because nothing before this checked
     # the script's own stated fact first.
-    if location:
-        norm_loc = _norm_env_text(location)
-        if norm_loc:
-            for e in envs:
-                if _norm_env_text(e.get("name") or "") == norm_loc:
-                    return e
-            for e in envs:
-                norm_name = _norm_env_text(e.get("name") or "")
-                if norm_name and (norm_loc in norm_name or norm_name in norm_loc):
-                    return e
+    location_match = _location_env_match(location, envs)
+    if location_match:
+        return location_match
     # STRONGEST signal among what the PLANNER wrote, checked first: the
     # planner's own [SET | Name: ...]
     # header (see _SET_HEADER_ENV_RE above) states this scene's location
@@ -1777,6 +1800,106 @@ def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles
     if not moments:
         return 0
     return sum(1 + len(m.get("angles") or []) for m in moments)
+
+
+async def estimate_storyboard_workload(video_id, tenant_id, scene=None) -> dict:
+    """S6-B (money-quote honesty): the SAME per-scene board math
+    generate_storyboard_sheet_for_scene actually draws with — parse ->
+    budget -> floors -> variety (plan_moments_deterministic, via
+    _expected_coverage_frame_count), sheet capacity (panels_per_sheet_for)
+    and BALANCED per-board panel counts (sheet_chunk_sizes), capped at the
+    5 boards a real draw ever persists (storyboard_1_url..storyboard_5_url)
+    — computed for exactly the scene(s) a caller is about to quote or run,
+    never a flat "1 board per scene" guess (the old estimate_cost math this
+    replaces; see actions.py's own docstring for the evidence incident).
+
+    A scene whose saved coverage_directive is missing or stale (hash
+    mismatch against the CURRENT scene_text — the same freshness gate
+    _get_or_plan_directive uses) can't have its exact board count known
+    ahead of a fresh planning call: that scene gets a [1, 5]-board RANGE
+    (min: at least one board once anything is drawn; max: the hard 5-board
+    cap every draw enforces). A scene with a valid saved directive gets its
+    EXACT board count, replayed through the identical deterministic
+    pipeline the real draw uses — `exact` is True only then.
+
+    Also reports, per scene, whether its canonical scripts.location (S6-A)
+    is covered by an approved environment reference (S6-B/P10 — reuses
+    _location_env_match, the SAME normalization/containment logic
+    _match_scene_env's location-preference block runs against
+    `video_environments WHERE reference_url IS NOT NULL`, i.e. _approved_
+    envs' own rows) — the data-readiness signal a caller turns into a
+    plain-English warning BEFORE spend (never a hard block; see
+    storyboard_quote_warnings in actions.py).
+
+    Returns {"scenes": [{"scene", "boards_min", "boards_max", "exact",
+    "shot_count" (None when not exact), "location", "location_covered"
+    (True/False, or None when the scene has no declared location)}],
+    "boards_min": int, "boards_max": int, "all_exact": bool,
+    "scene_count": int}. A video with no matching scenes (a fresh video, or
+    a `scene` argument that doesn't exist) returns an empty "scenes" list
+    and every total at 0, `all_exact` True (vacuously — nothing to be
+    inexact about)."""
+    empty = {"scenes": [], "boards_min": 0, "boards_max": 0, "all_exact": True, "scene_count": 0}
+    v = await fetch_one(
+        "SELECT id, COALESCE(dialogue_audio,'voice_over') AS dialogue_audio, "
+        "production_style_snapshot FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL",
+        video_id, tenant_id)
+    if not v:
+        return empty
+    dialogue_audio = v.get("dialogue_audio") or "voice_over"
+    production_style_snapshot = v.get("production_style_snapshot")
+
+    rows = await fetch_all(
+        "SELECT scene, scene_text, location FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+        "AND scene IS NOT NULL AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
+    targets = [r for r in rows if scene is None or r["scene"] == scene]
+    if not targets:
+        return empty
+
+    envs = await _approved_envs(video_id, tenant_id)
+
+    scenes_out: list[dict] = []
+    boards_min_total = 0
+    boards_max_total = 0
+    all_exact = True
+    for row in targets:
+        sc = row["scene"]
+        scene_text = row.get("scene_text") or ""
+        location = (row.get("location") or "").strip()
+        gate = await _get_or_plan_directive(video_id, tenant_id, sc, scene_text)
+        directive = gate["directive"]  # non-None only when the saved plan is fresh
+        exact = directive is not None
+        if exact:
+            _mm, _amin, _amax, _mframes = _coverage_shape(
+                scene_text, dialogue_audio, production_style_snapshot)
+            shot_count = _expected_coverage_frame_count(directive, _mm, _amax, _mframes)
+            cap = panels_per_sheet_for(directive)
+            boards = min(len(sheet_chunk_sizes(shot_count, cap)), 5)
+            boards_min = boards_max = boards
+        else:
+            shot_count = None
+            boards_min, boards_max = 1, 5
+        location_covered = (_location_env_match(location, envs) is not None) if location else None
+        scenes_out.append({
+            "scene": sc,
+            "boards_min": boards_min,
+            "boards_max": boards_max,
+            "exact": exact,
+            "shot_count": shot_count,
+            "location": location,
+            "location_covered": location_covered,
+        })
+        boards_min_total += boards_min
+        boards_max_total += boards_max
+        all_exact = all_exact and exact
+
+    return {
+        "scenes": scenes_out,
+        "boards_min": boards_min_total,
+        "boards_max": boards_max_total,
+        "all_exact": all_exact,
+        "scene_count": len(scenes_out),
+    }
 
 
 def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_line: str,
@@ -3126,6 +3249,24 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
               f"{attempts} attempt(s) — {entry['class']}: {entry['msg'] or 'no message'}")
         return False, entry
 
+    # S6-B (money-quote honesty, evidence: PocoAPoco video
+    # d39892b2-0c85-4752-85d7-b61ca209342a — quoted $0.35, actually drew
+    # $1.10+): the SAME workload math the draws below run
+    # (estimate_storyboard_workload — parse -> budget -> floors -> variety,
+    # sheet capacity, balanced per-board panel counts, capped at 5 boards),
+    # computed ONCE here for exactly the scene(s) this call is about to
+    # process — never threaded through a route parameter. `quoted_cost`
+    # feeds the "Quoted $X, actual $Y" line in every completion message
+    # below; `actual_cost` accumulates as boards genuinely land, same
+    # sheet_price the ledger write below already prices with (identical
+    # to actions.PICTURE_COST — both resolve to IMAGE_PRICE_BY_MODEL
+    # ["gpt-image-2"]).
+    from actions import picture_price_for
+    sheet_price = picture_price_for(SHEET_DRAW_MODEL)
+    _workload = await estimate_storyboard_workload(vid, tenant, scene=scene)
+    quoted_cost = round(_workload["boards_max"] * sheet_price, 2)
+    actual_cost = 0.0
+
     done = 0
     total_shots = 0
     # D12-3 (board rhythm report): human-readable "worth a glance" lines
@@ -3545,11 +3686,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # convention store_scene()'s "image" stage write uses — priced with
         # the SAME PICTURE_COST(gpt-image-2) number actions.py's
         # pre-generation "storyboards" verb quote already charges per board.
-        from actions import picture_price_for
-        sheet_price = picture_price_for(SHEET_DRAW_MODEL)
+        # sheet_price is hoisted above the loop (constant model, computed
+        # once) — S6-B also accumulates it into actual_cost for the
+        # "Quoted $X, actual $Y" completion-message line.
+        this_scene_cost = round(ok * sheet_price, 2)
+        actual_cost += this_scene_cost
         await record_ledger_entry(
             tenant_id=tenant, video_id=vid, stage="storyboard", model=SHEET_DRAW_MODEL,
-            units=ok, unit_cost=sheet_price, actual_cost=round(ok * sheet_price, 2),
+            units=ok, unit_cost=sheet_price, actual_cost=this_scene_cost,
         )
         done += 1
         total_shots += shot_count
@@ -3586,6 +3730,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # before this chunk existed.
     _prop_warn_suffix = (f"; {prop_warnings_total} prop/action warning(s) — see logs"
                         if prop_warnings_total else "")
+    # S6-B (evidence: PocoAPoco video d39892b2-0c85-4752-85d7-b61ca209342a —
+    # quoted $0.35, actually drew $1.10+, with no way for the creator to see
+    # the gap): appended to every "completed" message below, including the
+    # partial/blocked shape — quoted_cost/actual_cost are computed above,
+    # before the loop and as boards genuinely land, respectively. Never
+    # added to the all-blocked "failed" return above (that path returns
+    # before this point).
+    _quote_suffix = f" Quoted ${quoted_cost:.2f}, actual ${actual_cost:.2f}."
     # D6-1b: honest status/message when one or more scenes were blocked by a
     # hard gate (SheetPromptContractViolation) before any board was even
     # attempted for them — see blocked_scenes' own comment above. Same
@@ -3613,18 +3765,18 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                "Review the sheets; 'Generate pictures' draws exactly this plan.")
         return {"status": "completed",
                 "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
-                           f"got NO boards — {_blocked_detail}{_prop_warn_suffix}",
+                           f"got NO boards — {_blocked_detail}{_prop_warn_suffix}{_quote_suffix}",
                 **_extra}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
                             "nothing drawn. Review the plan, then draw boards one at a time."
-                            f"{_prop_warn_suffix}"),
+                            f"{_prop_warn_suffix}{_quote_suffix}"),
                 **_extra}
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
                         "Review the sheets; 'Generate pictures' draws exactly this plan."
-                        f"{_prop_warn_suffix}"),
+                        f"{_prop_warn_suffix}{_quote_suffix}"),
             **_extra}
 
 

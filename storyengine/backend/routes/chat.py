@@ -62,6 +62,7 @@ from actions import (
     estimate_cost as _estimate_cost,
     estimate_custom_film_plan as _estimate_custom_film_plan,
     estimate_plan_cost as _estimate_plan_cost,
+    storyboard_quote_warnings as _storyboard_quote_warnings,
     guardrail_note as _guardrail_note,
     make_action_step as _make_copilot_step,
     make_autobuild_step as _make_autobuild_step,
@@ -1684,6 +1685,7 @@ def _confirm_card(
     cost_text: str,
     breakdown: Optional[dict[str, Any]] = None,
     budget_warning: Optional[dict[str, Any]] = None,
+    warnings: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Smallest-change confirm: a single-select card the frontend already renders;
     the dock reads the pick back as selections.confirm_action = yes|no.
@@ -1702,9 +1704,23 @@ def _confirm_card(
     design calls for, and a ``budget`` key carries the numbers for a frontend
     that wants to render them distinctly. Omitted entirely when there's no
     cap or the quote fits under it — an old frontend, or a video with no cap
-    set, sees the exact same card as before this chunk."""
+    set, sees the exact same card as before this chunk.
+
+    S6-B: an optional ``warnings`` list (currently only
+    ``actions.storyboard_quote_warnings``, for the "storyboards" verb) rides
+    along the same additive way — short, plain-English data-readiness lines
+    (a scene with no declared location, or no environment reference for its
+    declared location) appended straight onto the card's own visible label
+    text, so a creator reads them before tapping "Do it" even though there's
+    no dedicated frontend surface for them yet; also carried as a structured
+    ``warnings`` key for a future UI that wants to render them distinctly.
+    Omitted entirely when there's nothing to flag, so every other verb's
+    card (and a storyboards quote with nothing to warn about) is
+    byte-identical to before this parameter existed."""
     cfg = COPILOT_ACTIONS[verb]
     what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
+    if warnings:
+        what += " (" + " ".join(warnings) + ")"
     yes_label = (
         f"Do it anyway · {cost_text}" if budget_warning else f"Do it · {cost_text}"
     )
@@ -1721,6 +1737,8 @@ def _confirm_card(
         card["breakdown"] = breakdown
     if budget_warning:
         card["budget"] = budget_warning
+    if warnings:
+        card["warnings"] = warnings
     return card
 
 
@@ -1752,7 +1770,15 @@ async def _still_pending_card_reply(
         cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
         breakdown = await _cost_breakdown(tenant_id, video_id, verb, scene, summary)
         budget_warning = _budget_check(summary, cost)
-        card = _confirm_card(verb, scene, cost_text, breakdown, budget_warning)
+        # S6-B: same additive, storyboards-only readiness warnings the main
+        # confirm-card build below computes — recomputed live here too
+        # (never cached on `pending`), matching this function's own
+        # "recompute the quote live" discipline for cost/breakdown/budget.
+        storyboard_warnings = (
+            await _storyboard_quote_warnings(tenant_id, video_id, scene)
+            if verb == "storyboards" else None
+        )
+        card = _confirm_card(verb, scene, cost_text, breakdown, budget_warning, storyboard_warnings)
     else:
         card = _confirm_card(verb, scene, "")
     lead = f"{prefix} " if prefix else ""
@@ -2613,6 +2639,17 @@ async def _handle_copilot(
     # exist) — cost_text alone carries the confirm text in that case,
     # unchanged from pre-C15 behavior.
     breakdown = await _cost_breakdown(tenant_id, video_id, verb, scene, summary)
+    # S6-B: data-readiness warnings for a "storyboards" quote, computed
+    # BEFORE spend from the SAME workload estimator the dollar figure above
+    # comes from — a scene with no declared location, or one whose declared
+    # location has no approved environment reference (its board would fall
+    # back to prose matching). Additive, storyboards-only: every other
+    # verb's confirm card is unchanged. _confirm_card below folds these
+    # straight into the card's own visible text.
+    storyboard_warnings = (
+        await _storyboard_quote_warnings(tenant_id, video_id, scene)
+        if verb == "storyboards" else None
+    )
 
     # --- approval gate (feat/approval-gates): the SAME cost quote computed
     # above, shown as the rich script/anchors review card instead of the
@@ -2674,7 +2711,7 @@ async def _handle_copilot(
         f"Tap to run it, or tell me to change anything first.{guard}{budget_note}{change_note}"
     )
     return await _reply(
-        intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning)]
+        intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning, storyboard_warnings)]
     )
 
 

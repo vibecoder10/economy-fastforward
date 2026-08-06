@@ -206,6 +206,19 @@ def test_list_video_actions_carries_breakdown_for_draft_pass_and_none_elsewhere(
         return {"chars": 0, "n": 0}
     monkeypatch.setattr(actions, "fetch_one", fake_fetch_one)
 
+    # S6-B: estimate_cost's "storyboards" branch now reads
+    # scripts.coverage_to_app.estimate_storyboard_workload for its dollar
+    # figure — a SEPARATE fetch_one/fetch_all pair from actions.py's own
+    # (that module lazy-imports coverage_to_app rather than importing it at
+    # module level; see actions.py's own comment on why). Stub its video-row
+    # lookup to None so the estimator short-circuits to its empty/zero-cost
+    # result — this test's subject is the breakdown field, not storyboards'
+    # own cost math (covered separately by test_s6_b_storyboard_quote.py).
+    import scripts.coverage_to_app as _cta
+    async def fake_cta_fetch_one(query, *args):
+        return None
+    monkeypatch.setattr(_cta, "fetch_one", fake_cta_fetch_one)
+
     result = asyncio.run(pipeline_route.list_video_actions(VIDEO, tenant_id=TENANT))
     by_verb = {a["verb"]: a for a in result["actions"]}
 

@@ -2832,7 +2832,7 @@ async def list_video_actions(
         # for the other 15+ verbs. GuidedNextStep's draft/finalize labels and
         # savings line read this instead of computing anything client-side.
         breakdown = await actions.cost_breakdown(tenant_id, video_id, verb, None, summary)
-        out.append({
+        entry = {
             "verb": verb,
             "label": cfg["label"],
             "paid": bool(cfg.get("paid")),
@@ -2842,7 +2842,20 @@ async def list_video_actions(
             "cost": cost,
             "cost_text": cost_text,
             "breakdown": breakdown,      # null = nothing to itemize yet
-        })
+        }
+        # S6-B: additive, storyboards-only data-readiness warnings — a scene
+        # with no declared location, or one whose declared location has no
+        # approved environment reference (its board would fall back to
+        # prose matching). Only computed when the action isn't already
+        # blocked (a video with no scenes yet has nothing to warn about).
+        # This route has no response_model — a raw dict, no Pydantic
+        # contract to extend — so this key is simply absent on every other
+        # verb's entry, unchanged from before this chunk.
+        if verb == "storyboards" and not blocked:
+            warnings = await actions.storyboard_quote_warnings(tenant_id, video_id, None)
+            if warnings:
+                entry["warnings"] = warnings
+        out.append(entry)
     # The build meta-verb's next checkpoint, so a UI button can label itself.
     build_target = "pictures" if summary["status"] in actions.BUILD_TO_PICTURES else "finish"
     return {

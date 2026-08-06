@@ -3686,6 +3686,17 @@ async def _call_verb(tenant_id, verb: str, arguments: dict[str, Any],
         }
         if breakdown:
             quote["breakdown"] = breakdown
+        # S6-B: data-readiness warnings for a "storyboards" quote — a scene
+        # with no declared location, or one whose declared location has no
+        # approved environment reference to lock its board to (falls back
+        # to prose matching). Additive, storyboards-only: every other verb's
+        # quote dict is untouched (actions.storyboard_quote_warnings is a
+        # SEPARATE call from estimate_cost above, never folded into its
+        # shared (cost, text) return — see that function's own docstring).
+        if verb == "storyboards":
+            storyboard_warnings = await actions.storyboard_quote_warnings(tenant_id, video_id, scene)
+            if storyboard_warnings:
+                quote["warnings"] = storyboard_warnings
         # C36 (checklist §3.3 item 3): same optional per-video budget cap
         # chat.py's confirm card surfaces — the quote says so honestly
         # instead of silently minting a confirm_token as if nothing were
