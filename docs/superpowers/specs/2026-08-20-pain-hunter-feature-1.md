@@ -59,6 +59,9 @@ How many *independent* voices, weighted for recency.
 - `distinct_threads` — signals sharing a `thread_key` collapse to ONE. A thread
   is one event, no matter how many people pile on. **This rule alone removes most
   of the noise.**
+- `distinct_source_classes` — appearing in a pain source AND a spend source AND
+  a supply gap is far stronger than volume within one class (see 4.3). This is
+  weighted above raw source count.
 - `distinct_sources` — appearing in 3 communities beats 10 hits in one.
 - `distinct_authors` — capped, and only counted across threads.
 - `recency` — half-life weighting; a pain from 2019 that stopped being mentioned
@@ -66,8 +69,9 @@ How many *independent* voices, weighted for recency.
 
 ```
 frequency = min(25,
-    5.0 * distinct_sources
-  + 2.0 * min(distinct_threads, 6)
+    6.0 * distinct_source_classes   # pain | spend | supply | search_demand
+  + 2.5 * min(distinct_sources, 4)
+  + 1.5 * min(distinct_threads, 6)
   + 3.0 * recency_factor            # recency_factor in [0,1], 90-day half-life
 )
 ```
@@ -147,21 +151,99 @@ its `scorer_version` so retuning is measurable rather than vibes.
 
 ## 4. Sources
 
-Ordered by signal-to-noise, which is **not** the same as volume.
+**Rank sources by what they PROVE, not by how much complaining they carry.**
+The score has five axes; the source portfolio exists to cover them. Three sources
+that all prove "people are annoyed" is one source with extra steps.
 
-| Source | Yields | S/N | Friction |
-|---|---|---|---|
-| App Store / Play 1–2★ on *paid* apps | spend + pain in one item | highest | no official API for competitors; scraping |
-| G2 / Capterra low reviews | spend + pain, B2B budgets | highest | ToS-hostile; scraping |
-| Fiverr / Upwork listings + order counts | proven repeat spend | high | scraping |
-| Reddit rants + "what do you use for X" | pain + workarounds | medium | OAuth API, rate limits, paid above free tier |
-| GitHub issues: many 👍, no fix, stale | supply gap | medium | free API, generous |
-| Hacker News "Ask HN" | pain, technical | medium | free Algolia API |
+| Axis | Sources that can actually prove it |
+|---|---|
+| Frequency | Reddit, Hacker News, YouTube comments, niche forums |
+| **Spend** | **Review sites, freelance marketplaces, job postings, commercial-intent search volume** |
+| Workaround | Reddit, Discord, Stack Overflow |
+| Reachability | wherever the pain concentrated |
+| Supply gap | GitHub, Product Hunt graveyards |
 
-**Start with GitHub + Hacker News + Reddit.** All three have real APIs and low
-legal friction. The review-scrapers are higher signal but will eat every hour you
-have on anti-bot work while teaching you *nothing* about whether the product is
-good. Add them in feature 1.5, once the pipeline produces a digest you trust.
+Reddit appears in three rows and **not in the spend row**. That is precisely the
+weakness of a Reddit-only hunter — which is what every competitor in this
+category is.
+
+### 4.1 Per-source verdicts
+
+**Reddit — necessary, overrated, not the edge.** Best source anywhere for the
+*exact words* people use (which is what makes the DM copy and landing headline in
+§7 good) and for workaround evidence. Low on spend evidence. Also the same input
+every competitor uses, and the same input yields the same output.
+
+- Query by *phrase*, not by subreddit: "what do you use for", "is there anything
+  better than", "how do you all handle", "still doing this manually", "we're
+  paying".
+- Target **vertical professional subs** where people discuss tools they pay for
+  (r/msp, r/sysadmin, r/accounting, r/dentistry, r/realtors, r/restaurateur).
+- Avoid r/Entrepreneur, r/SaaS, r/startups — those are people selling, not
+  suffering.
+
+**GitHub — supply-side truth, with a bias that will wreck the feed if unchecked.**
+It does not give you pain. It answers: does this already exist, is it maintained,
+is there a 200-reaction issue open for three years. Strongest single pattern is a
+**high-star archived repo** — someone validated the demand and then quit.
+
+The trap: GitHub pain is *developer* pain. Weight it heavily and every digest
+points at dev tools, the most saturated and least willing-to-pay market there is.
+**Use GitHub to check whether a solution exists, not to find the pain.**
+
+**Google Search — bad for discovery, excellent for verification.** Scraping SERPs
+returns affiliate listicles, not pain. Two adjacent surfaces are top-tier though:
+
+- **Autocomplete + People Also Ask** — aggregated real queries, free, with nobody's
+  opinion in between. Confirms a pain's phrasing and breadth.
+- **Commercial-intent keyword volume** — "alternative to [tool]", "[tool] pricing",
+  "how to stop doing X manually". A high-volume "alternative to X" query is
+  **spend evidence at scale**: people already paying, actively shopping to leave.
+
+Google's role is sizing and verification, never discovery.
+
+### 4.2 High-density sources that beat Google here
+
+1. **G2 / Capterra / App Store 1-3 star reviews** — the highest-density rows in the
+   product. One review = named product + confirmed payer + specific complaint +
+   often company size. Nothing else supplies three axes in a single row.
+2. **Job postings** — badly underrated and unused by competitors. A company hiring
+   an "Operations Coordinator to manage our spreadsheets for X" is spending $60k/yr
+   on a workflow. A *recurring* post for a repetitive process is the loudest spend
+   signal that exists.
+3. **Fiverr / Upwork listings with order counts** — a price tag and a volume count
+   attached to a defined task. Proven repeat spend.
+
+### 4.3 Cross-source corroboration (add to the scorer)
+
+The strongest cluster is not the one with 40 Reddit hits. It is the one where the
+same pain appears in a **pain source AND a spend source AND a supply gap** —
+people complain, people pay badly, nothing good exists. Three sources of different
+*types* beat ten of the same type.
+
+Add a corroboration bonus keyed on distinct `source_class`
+(pain | spend | supply | search_demand), not distinct `source_id`. Frequency
+(3.1) currently rewards distinct sources; it should reward distinct source
+*classes* more.
+
+### 4.4 Starting portfolio — revised
+
+The original plan (GitHub + HN + Reddit, chosen for clean APIs) gets the pipeline
+running but **cannot test the wedge**: none of those three carries real spend
+evidence, so the heaviest axis sits near zero in the first digest and Step 2's
+gate becomes meaningless. Fix it cheapest-first:
+
+1. **Extract spend evidence from inside Reddit/HN text.** People state prices
+   constantly — "we pay $400/mo", "the agency quoted us $3k". No new source, no
+   scraping. Gets the spend axis off the floor on day one.
+2. **Add commercial-intent search volume** for tools named in extractions. One
+   API, no scraping, feeds the spend axis directly.
+3. **Then** review scrapers and job boards in feature 1.5, once the digest is
+   worth improving.
+
+Do not start with the review scrapers despite their being highest-signal — they
+will consume every available hour on anti-bot work while teaching nothing about
+whether the product is good.
 
 ---
 
@@ -173,6 +255,7 @@ create extension if not exists vector;
 create table sources (
   id            uuid primary key default gen_random_uuid(),
   kind          text not null,            -- reddit_sub | github_search | hn_query | app_store | g2
+  source_class  text not null,            -- pain | spend | supply | search_demand  (see 4.3)
   identifier    text not null,            -- r/smallbusiness | "label:bug is:open" | ...
   config        jsonb not null default '{}',
   enabled       boolean not null default true,
@@ -359,10 +442,13 @@ to send them" is a different product.
 The app comes last, deliberately. Feature 1's proof is "the digest is good," and
 that can be proven in a text file.
 
-- **Step 1 — sweep + store, no LLM.** GitHub + HN + Reddit into Supabase. Then
-  read the raw `signals` table. *Gate: do these rows contain real pain?*
-- **Step 2 — extract + cluster + score v0.** Output a ranked markdown file. Read
-  it. *Gate: is the top 5 any good? Would you act on one?*
+- **Step 1 — sweep + store, no LLM.** Reddit (vertical pro subs, phrase queries)
+  + HN + GitHub into Supabase, per the revised portfolio in 4.4. Then read the raw
+  `signals` table. *Gate: do these rows contain real pain?*
+- **Step 2 — extract + cluster + score v0**, including in-text price extraction
+  (4.4 item 1) so the spend axis is non-zero. Output a ranked markdown file. Read
+  it. *Gate: is the top 5 any good? Would you act on one? If spend evidence is
+  empty across the board, the wedge is untested and Step 3 is premature.*
 - **Step 3 — solution + first test + digest + push.** Then the Expo shell around
   it.
 
