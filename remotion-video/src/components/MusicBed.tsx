@@ -1,12 +1,18 @@
-// Per-act background music component with looping and crossfades
+// Channel-fixed full-video music or legacy per-act beds.
 
 import React, { useMemo } from 'react';
 import { Audio } from '@remotion/media';
 import { staticFile, useCurrentFrame, useVideoConfig, interpolate, Sequence } from 'remotion';
-import { getMusicBeds, getActBoundaries, MusicBed as MusicBedType, getTotalDurationFromConfig } from '../renderConfig';
+import {
+	ActMusicBed,
+	FullVideoMusicBed,
+	getMusicBeds,
+	getActBoundaries,
+	getTotalDurationFromConfig,
+} from '../renderConfig';
 
 /**
- * Per-act background music component with looping and crossfades.
+ * Background music component supporting fixed full-video and per-act beds.
  *
  * Features:
  * - One music track per act
@@ -29,19 +35,44 @@ export const MusicBed: React.FC = () => {
 		return totalDurationSeconds ? Math.ceil(totalDurationSeconds * fps) : null;
 	}, [totalDurationSeconds, fps]);
 
-	// Backward compatibility: if no music beds, render nothing
-	if (musicBeds.length === 0 || actBoundaries.length === 0 || !totalDurationFrames) {
-		return null;
-	}
-
-	// Create a map of act -> music bed for quick lookup
+	const fullVideoBed = useMemo(
+		() => musicBeds.find((bed): bed is FullVideoMusicBed => bed.scope === 'video'),
+		[musicBeds]
+	);
+	const actMusicBeds = useMemo(
+		() => musicBeds.filter((bed): bed is ActMusicBed => bed.scope !== 'video'),
+		[musicBeds]
+	);
 	const musicByAct = useMemo(() => {
-		const map = new Map<number, MusicBedType>();
-		for (const bed of musicBeds) {
+		const map = new Map<number, ActMusicBed>();
+		for (const bed of actMusicBeds) {
 			map.set(bed.act, bed);
 		}
 		return map;
-	}, [musicBeds]);
+	}, [actMusicBeds]);
+
+	// Backward compatibility: if no music beds or duration, render nothing.
+	if (musicBeds.length === 0 || !totalDurationFrames) {
+		return null;
+	}
+
+	// A channel-fixed bed owns the full timeline and keeps its exact gain.
+	if (fullVideoBed) {
+		return (
+			<Sequence from={0} durationInFrames={totalDurationFrames}>
+				<Audio
+					src={staticFile(`music/${fullVideoBed.file}`)}
+					volume={fullVideoBed.volume}
+					trimBefore={Math.floor(fullVideoBed.trim_before_seconds * fps)}
+					loop={fullVideoBed.loop}
+				/>
+			</Sequence>
+		);
+	}
+
+	if (actBoundaries.length === 0) {
+		return null;
+	}
 
 	// Determine last act for crossfade logic
 	const lastAct = actBoundaries[actBoundaries.length - 1]?.act ?? 1;

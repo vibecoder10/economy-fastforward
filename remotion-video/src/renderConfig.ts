@@ -71,12 +71,23 @@ export interface RenderScene {
     caption_specs?: string[];
 }
 
-export interface MusicBed {
+export interface ActMusicBed {
+    scope?: "act";
     act: number;
     file: string;
     mood: string;
     volume: number;
 }
+
+export interface FullVideoMusicBed {
+    scope: "video";
+    file: string;
+    volume: number;
+    trim_before_seconds: number;
+    loop: boolean;
+}
+
+export type MusicBed = ActMusicBed | FullVideoMusicBed;
 
 export interface RenderConfig {
     video_id: string;

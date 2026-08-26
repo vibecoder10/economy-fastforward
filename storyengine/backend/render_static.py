@@ -45,6 +45,7 @@ from render_stitch import (
     _run_subprocess,
 )
 import render_static_ffmpeg
+import channel_audio
 
 logger = logging.getLogger(__name__)
 
@@ -335,11 +336,30 @@ _MUSIC_LIB_DIR = _REMOTION_DIR / "public" / "music"
 
 async def _select_music_beds(tenant_id: str, segments: list[dict],
                              rc: dict, public_dir: Path) -> list[dict]:
-    """Per-act background music from the local library (mood-tagged files like
+    """Use a fixed channel bed when configured, else select per-act music.
+
+    Legacy selection uses the local library (mood-tagged files like
     'tension_dark_horizon_1.mp3'). One Claude call classifies each act's mood;
     a deterministic fallback alternates moods if that fails. Chosen tracks are
-    copied into this render's isolated public dir. Never raises — a render
-    without music beats no render."""
+    copied into this render's isolated public dir. Invalid fixed configuration
+    raises instead of silently changing the channel's configured gain."""
+    fixed = await channel_audio.get_fixed_music_bed_config(tenant_id)
+    if fixed is not None:
+        music_dir = public_dir / "music"
+        music_dir.mkdir(exist_ok=True)
+        staged = music_dir / fixed.file_name
+        if not staged.exists():
+            gc = _google_client() if _extract_drive_file_id(fixed.asset_url) else None
+            await _download_to(fixed.asset_url, staged, gc)
+            await _normalize_audio(staged)
+        return [{
+            "scope": "video",
+            "file": fixed.file_name,
+            "volume": fixed.volume,
+            "trim_before_seconds": fixed.trim_before_seconds,
+            "loop": fixed.loop,
+        }]
+
     try:
         tracks = [p.name for p in _MUSIC_LIB_DIR.glob("*.mp3")]
         moods_available = sorted({t.split("_")[0] for t in tracks})
