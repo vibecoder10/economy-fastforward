@@ -234,100 +234,38 @@ def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
     )
 
 
-# --- never-built blueprint path (Ryan's decision, 2026-08-04) --------------
-#
-# A roster entry pipeline_executor._roster_entry_never_built classifies as a
-# cancelled programme with zero physical hulls ever completed (CVA-01
-# class: cancelled February 1966 before construction) structurally can
-# NEVER have a reference photograph. The fail-closed reference-hunt gate
-# below is correct to refuse a photo-grounded render for it — but it also
-# permanently blocks the scene's render gate for a machine everyone already
-# knows was never built. Ryan's call: ship an HONEST monochrome technical
-# blueprint instead of inventing a fake "photograph" of a machine that
-# never existed.
-#
-# Style choice: black linework on white, not an aged blue-and-white
-# "cyanotype" blueprint look. Reasoning: the caption overlay already
-# stamps "Design study — never built" onto the warm cream title card
-# (`_caption` below, rendered verbatim by `DocumentaryTitleCard` in
-# remotion-video/src/Scene.tsx) — a stark line-drawing recognition plate
-# reads as a deliberate, confident documentary device against that card,
-# where a colored cyanotype would look like a rendering glitch or a
-# missing photo. Black-on-white also gives the image model one fewer thing
-# to get wrong: a cyanotype's blue has to land exactly right or it reads as
-# "broken image", where plain black-and-white linework does not.
-_BLUEPRINT_STYLE_NOTE = (
-    "Style: a monochrome naval/aeronautical technical drawing — precise "
-    "black linework on a clean white background, orthographic projection, "
-    "in the manner of a Jane's Fighting Ships recognition plate or a "
-    "shipyard general-arrangement drawing. Pure line art: no color, no "
-    "photographic rendering, no 3D shading or gradients, never a "
-    "photograph — this is an engineering illustration, not a photo. "
-    "ABSOLUTELY NO text, NO lettering, NO numerals, NO dimension lines or "
-    "callouts, NO title block, NO watermark anywhere in the image — the "
-    "drawing must be pure linework with no writing of any kind."
-)
-
-# Caption marker (Ryan's decision, 2026-08-04): every blueprint view's
-# caption_sub is prefixed with this so the honest "never built" fact
-# survives all the way to the rendered video, not just the operator-facing
-# DB row — see `_caption` in `_one_scene` for exactly how it's applied, and
-# the module note above for how it reaches the screen.
+# --- verified-design never-built reconstruction path -----------------------
 _NEVER_BUILT_CAPTION_PREFIX = "Design study — never built"
 
-_BLUEPRINT_VIEW_DIRECTIONS = {
-    "side_profile": (
-        "Draw a true orthographic SIDE ELEVATION: the complete outline "
-        "viewed directly from the side at a 90-degree angle to the "
-        "machine's long axis, full length framed edge to edge, silhouette "
-        "and major structural lines only — like a museum recognition-chart "
-        "profile rendered as a line drawing."
-    ),
-    "top_planform": (
-        "Draw a true orthographic TOP-DOWN PLAN VIEW: looking straight "
-        "down from directly above, showing the outline and major surface "
-        "layout exactly as seen from the top, with no perspective "
-        "foreshortening."
-    ),
-}
-
-
-def _blueprint_prompt(machine: str, view_plan: dict, facts: Optional[list] = None, *,
-                      emphasize_geometry: bool = False) -> str:
-    """One never-built-machine prompt: a monochrome technical drawing, not a
-    photo-grounded studio render (see the module note above for the style
-    rationale). Grounded ONLY in `facts` — the scene's own vetted
-    caption_specs plus the resolved roster entry's role/years/status/
-    built_count text, never an invented detail. No reference or anchor
-    image is ever passed for this path (see `_generate_blueprint_view`) —
-    there is no photograph to lock identity against, so the prompt is the
-    only source of truth for what the machine looked like.
-
-    `emphasize_geometry` mirrors `_studio_prompt`'s role-conformance retry
-    wording: unchanged style/grounding, just a stronger, repeated push on
-    the requested drawing geometry when the first attempt didn't deliver
-    it."""
-    direction = _BLUEPRINT_VIEW_DIRECTIONS.get(
-        view_plan.get("role"), view_plan.get("direction", ""))
+def _never_built_reconstruction_prompt(
+    machine: str,
+    view_plan: dict,
+    facts: Optional[list] = None,
+    *,
+    emphasize_geometry: bool = False,
+    from_anchor: bool = False,
+) -> str:
+    """Ground a full-size photoreal reconstruction in a verified design."""
+    direction = view_plan.get("direction", "")
     if emphasize_geometry:
         direction = (
-            "DRAWING GEOMETRY CORRECTION — the previous attempt did not "
-            "deliver the required view. " + direction + " This viewpoint "
-            "is not optional."
+            "CAMERA ANGLE CORRECTION — the previous reconstruction did not "
+            "deliver the requested DVSU angle. " + direction
         )
     fact_bits = [str(f).strip() for f in (facts or []) if str(f).strip()]
-    facts_line = (
-        "Known factual details to depict accurately, and ONLY these — do "
-        "not invent armament, equipment, or features not listed here: "
-        + "; ".join(fact_bits) + ". "
-    ) if fact_bits else ""
+    facts_line = "Verified details: " + "; ".join(fact_bits) + ". " if fact_bits else ""
+    input_label = "first approved reconstruction" if from_anchor else "verified design reference"
     return (
-        f"{direction} Subject: the {machine} — a design that was never "
-        "actually built (a paper project or a programme cancelled before "
-        "construction), so this is an illustrative engineering design "
-        "study of what it would have looked like, not a photograph of a "
-        f"real object. {facts_line}"
-        f"{_BLUEPRINT_STYLE_NOTE}"
+        f"Using the supplied {input_label}, reconstruct the exact {machine} "
+        "paper-project as a full-size completed machine, professionally photographed "
+        "in a clean studio. Preserve the reference proportions, components, planform, "
+        "control surfaces, engines, armament, and every distinctive geometry. "
+        f"{direction} {facts_line}Use plausible full-scale materials, manufacturing detail, "
+        "lighting, and scale cues. Do not redesign or guess beyond the reference. "
+        "ABSOLUTELY NO blueprint, schematic, line drawing, orthographic plate, CAD, "
+        "technical illustration, miniature, model, toy, labels, dimensions, "
+        "watermarks, or text. The output must look like a real full-size machine "
+        "captured by a professional camera, never flat media or CGI presentation art."
     )
 
 
@@ -1071,9 +1009,33 @@ async def _ensure_ref_cache_schema() -> None:
             machine TEXT,
             hosted_url TEXT NOT NULL,
             source_url TEXT,
+            reference_kind TEXT NOT NULL DEFAULT 'photo'
+                CHECK (reference_kind IN ('photo', 'design')),
             verified_at TIMESTAMPTZ DEFAULT now(),
             PRIMARY KEY (tenant_id, machine_key)
         )""")
+    await execute(
+        "ALTER TABLE static_reference_cache ADD COLUMN IF NOT EXISTS "
+        "reference_kind TEXT NOT NULL DEFAULT 'photo'")
+    await execute(
+        "ALTER TABLE static_reference_cache ALTER COLUMN reference_kind "
+        "SET DEFAULT 'photo'")
+    await execute(
+        "UPDATE static_reference_cache SET reference_kind='photo' "
+        "WHERE reference_kind IS NULL")
+    await execute(
+        "ALTER TABLE static_reference_cache ALTER COLUMN reference_kind SET NOT NULL")
+    await execute(
+        """DO $$ BEGIN
+             IF NOT EXISTS (
+               SELECT 1 FROM pg_constraint
+               WHERE conname = 'static_reference_cache_reference_kind_check'
+             ) THEN
+               ALTER TABLE static_reference_cache
+               ADD CONSTRAINT static_reference_cache_reference_kind_check
+               CHECK (reference_kind IN ('photo', 'design'));
+             END IF;
+           END $$""")
     # C8 (2026-07-29): WHY a machine missed, scoped per-VIDEO rather than
     # per (tenant, machine_key) like static_reference_cache above — the same
     # machine can miss for one video (a bad alias, a transient fetch error)
@@ -1095,6 +1057,25 @@ async def _ensure_ref_cache_schema() -> None:
             checked_at TIMESTAMPTZ DEFAULT now(),
             PRIMARY KEY (tenant_id, video_id, machine_key)
         )""")
+
+
+def _reference_cache_upsert_sql(reference_kind: str) -> str:
+    """Cache write with photo-over-design precedence under the existing PK."""
+    if reference_kind not in {"photo", "design"}:
+        raise ValueError("reference_kind must be photo or design")
+    conflict_guard = (
+        " WHERE static_reference_cache.reference_kind = 'design'"
+        if reference_kind == "design" else ""
+    )
+    return (
+        "INSERT INTO static_reference_cache "
+        "(tenant_id, machine_key, machine, hosted_url, source_url, reference_kind) "
+        f"VALUES ($1,$2,$3,$4,$5,'{reference_kind}') "
+        "ON CONFLICT (tenant_id, machine_key) DO UPDATE SET "
+        "machine=$3, hosted_url=$4, source_url=$5, "
+        f"reference_kind = '{reference_kind}', verified_at=now()"
+        + conflict_guard
+    )
 
 
 # Reason vocabulary for static_reference_misses.reason_code (C8). Three of
@@ -1448,6 +1429,182 @@ _RENDER_EMPTY_KEYWORDS = ("empty", "blank", "not an aircraft")
 
 def _has_keyword(text: str, keywords: tuple) -> bool:
     return any(re.search(r"\b" + re.escape(k) + r"\b", text) for k in keywords)
+
+
+async def _vision_yes_no(
+    tenant_id: str,
+    image_urls: list[str],
+    prompt_text: str,
+    *,
+    reason_out: Optional[list] = None,
+    log_label: str = "static_docu vision QA",
+) -> bool:
+    """Small shared transport for the design-only YES/NO checks below."""
+    from vault import get_secret
+
+    async def _ask_once() -> Optional[str]:
+        content = [{"type": "text", "text": prompt_text}]
+        for image_url in image_urls:
+            downloaded = await _download_image_b64(image_url)
+            if downloaded is None:
+                return ""
+            media_type, b64_data = downloaded
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+            })
+        anthropic_key = await get_secret("anthropic_api_key", tenant_id)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            if anthropic_key:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": anthropic_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": CLAUDE_MODELS["anthropic"]["smart"],
+                        "max_tokens": 100,
+                        "messages": [{"role": "user", "content": content}],
+                    },
+                )
+            else:
+                kie_key = await get_secret("kie_ai_api_key", tenant_id)
+                if not kie_key:
+                    return None
+                response = await client.post(
+                    os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/")
+                    + "/v1/messages",
+                    headers={"Authorization": f"Bearer {kie_key}",
+                             "Content-Type": "application/json"},
+                    json={
+                        "model": CLAUDE_MODELS["kie"]["smart"],
+                        "max_tokens": 100,
+                        "messages": [{"role": "user", "content": content}],
+                    },
+                )
+        if response.status_code != 200:
+            _logger.warning("%s: model API HTTP %s", log_label, response.status_code)
+            return ""
+        body = response.json()
+        return " ".join(
+            block.get("text", "") for block in body.get("content", [])
+            if block.get("type") == "text"
+        ).strip().lower()
+
+    text_reply: Optional[str] = None
+    for _attempt in range(2):
+        try:
+            result = await _ask_once()
+        except Exception:  # noqa: BLE001 - one retry, then fail closed
+            result = ""
+        if result is None:
+            if reason_out is not None:
+                reason_out.append("(no provider key configured — QA skipped)")
+            return True
+        text_reply = result
+        if text_reply:
+            break
+    if not text_reply:
+        if reason_out is not None:
+            reason_out.append("(no response from QA judge — transport failure)")
+        return False
+    if reason_out is not None:
+        reason_out.append(_qa_reason_text(text_reply))
+    return bool(re.match(r"^\W*yes\b", text_reply))
+
+
+async def _gather_design_reference_candidates(
+    machine: str, aliases: Optional[list], search_query: Optional[str]
+) -> list[tuple[str, str]]:
+    """Find design media tied to this unit's own article/source set."""
+    names = [machine] + [str(alias) for alias in (aliases or []) if alias]
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(url: str, label: str) -> None:
+        if url and url not in seen:
+            seen.add(url)
+            candidates.append((url, label or _url_file_title(url)))
+
+    for item in await find_wikipedia_lead_images(names):
+        _add(item.get("url"), item.get("page") or "machine article lead")
+    for item in await find_article_images(names):
+        _add(item.get("url"), item.get("file_title") or "machine article image")
+    if not candidates:
+        for item in await find_commons_photos(search_query or f"{machine} design drawing"):
+            _add(item.get("url"), item.get("title") or "exact design search")
+    return candidates
+
+
+async def _design_reference_confirms(
+    tenant_id: str,
+    image_url: str,
+    machine: str,
+    aliases: Optional[list] = None,
+    facts: Optional[dict] = None,
+    source_label: Optional[str] = None,
+) -> bool:
+    aliases_text = ", ".join(str(alias) for alias in (aliases or []) if alias)
+    facts_text = "; ".join(
+        f"{key}: {value}" for key, value in (facts or {}).items() if value
+    )
+    prompt = (
+        f"Verify this candidate as a design reference for the exact named {machine}. "
+        f"Aliases: {aliases_text or 'none'}. Source title: {source_label or 'unknown'}. "
+        f"Known facts: {facts_text or 'none supplied'}. Answer YES or NO first. "
+        "YES only if it is a schematic, three-view, concept illustration, or "
+        "manufacturer/shipyard drawing explicitly belonging to this exact design and "
+        "showing enough external geometry to reconstruct its proportions, planform, "
+        "major components, control surfaces, engines, and armament. Flat media is "
+        "allowed here. NO for another variant, generic concept art, text-only pages, "
+        "logos, interiors, or an image without usable geometry."
+    )
+    return await _vision_yes_no(
+        tenant_id, [image_url], prompt, log_label="_design_reference_confirms")
+
+
+async def _reconstruction_matches_design_reference(
+    tenant_id: str,
+    source_url: str,
+    render_url: str,
+    machine: str,
+    facts: Optional[list] = None,
+    *,
+    reason_out: Optional[list] = None,
+) -> bool:
+    prompt = (
+        f"Image 1 is a verified design drawing for the exact {machine}. Image 2 is a "
+        "photoreal reconstruction. Answer YES or NO first. YES only if image 2 preserves "
+        "image 1's proportions, component layout, planform, control surfaces, engine "
+        "count and placement, armament, and distinctive geometry/configuration. Reject "
+        "redesigns, generic substitutes, and incompatible variants. Known facts: "
+        + "; ".join(str(f) for f in (facts or []) if f)
+    )
+    return await _vision_yes_no(
+        tenant_id, [source_url, render_url], prompt, reason_out=reason_out,
+        log_label="_reconstruction_matches_design_reference")
+
+
+async def _photoreal_render_confirms(
+    tenant_id: str,
+    render_url: str,
+    machine: str,
+    *,
+    reason_out: Optional[list] = None,
+) -> bool:
+    prompt = (
+        f"This should be a professional photograph of a full-size completed {machine}. "
+        "Answer YES or NO first. YES only if it convincingly reads as a real full-scale "
+        "machine with plausible materials, manufacturing detail, light, lens behavior, "
+        "and scale. NO if it is a blueprint, schematic, line drawing, orthographic plate, "
+        "CAD or technical illustration, obvious CGI presentation render, miniature, "
+        "scale model, toy, or contains labels, dimensions, watermarks, or text."
+    )
+    return await _vision_yes_no(
+        tenant_id, [render_url], prompt, reason_out=reason_out,
+        log_label="_photoreal_render_confirms")
 
 
 def _qa_reason_text(txt: str, limit: int = 200) -> str:
@@ -2198,133 +2355,6 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
     return verdict
 
 
-async def _blueprint_render_confirms(tenant_id: str, image_url: str, machine: str,
-                                     facts: Optional[list] = None, *,
-                                     reason_out: Optional[list] = None) -> bool:
-    """Never-built-machine identity QA (Ryan's decision, 2026-08-04):
-    `_render_matches_reference` cannot run for this path — by definition
-    there is no reference photograph to compare the render against. This is
-    the replacement question: is this image actually a monochrome
-    TECHNICAL DRAWING (not a photograph, not a color render) of a
-    plausible `machine`, broadly consistent with its own known facts, with
-    no readable text anywhere in the frame? Role-conformance QA
-    (`_view_role_confirms`) is UNCHANGED and still runs on top of this —
-    that check is purely about camera/drawing geometry (does a side
-    elevation read side-on?) and needs no reference image either way.
-
-    Single-image judge, same self-fetch-then-base64 pattern as
-    `_vision_confirms`/`_view_role_confirms` (a URL-source image block
-    400s through the Kie gateway, so every image is downloaded and inlined
-    as base64 instead).
-
-    FAILS CLOSED on transport failure: one retry, then treated as REJECTED
-    — the caller's own bounded-retry-then-park loop treats a rejection here
-    exactly like every other QA judge in this module, never silently
-    promoted to "passes". FAILS OPEN on a config gap (no provider key at
-    all configured for the tenant) — same carve-out as every other judge
-    here, since there is nothing this check can do without a vision model.
-
-    `reason_out`, when given a list, gets exactly one entry — the judge's
-    reason text (or a placeholder for a transport failure / config gap) —
-    regardless of verdict, matching every other judge's `reason_out`
-    contract in this module."""
-    from vault import get_secret
-
-    fact_bits = [str(f).strip() for f in (facts or []) if str(f).strip()]
-    facts_txt = (
-        "Known facts about this machine: " + "; ".join(fact_bits) + ". "
-    ) if fact_bits else ""
-
-    prompt_text = (
-        f"This image is supposed to be a monochrome technical engineering "
-        f"drawing of the {machine} — a machine that was designed but "
-        "never actually built, so this is meant to be an illustrative "
-        f"design study, not a photograph of a real object. {facts_txt}"
-        "Answer on one line: first word YES or NO, then one short reason. "
-        "YES only if the image is a black-and-white/monochrome line-art "
-        "technical drawing (NOT a color photograph, NOT a photorealistic "
-        "3D render) that plausibly depicts the type of vehicle named "
-        "above, broadly consistent with the known facts, and contains NO "
-        "readable text, lettering, numerals, or dimension labels anywhere "
-        "in the image. NO if it is a color photograph or photorealistic "
-        "render, if it clearly shows the wrong type of vehicle, or if it "
-        "contains any readable text or lettering."
-    )
-
-    async def _ask_once() -> Optional[str]:
-        img = await _download_image_b64(image_url)
-        if img is None:
-            return ""  # download/size failure this attempt — caller retries
-        media_type, b64_data = img
-        content = [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": media_type, "data": b64_data}},
-        ]
-
-        akey = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            if akey:
-                r = await c.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": akey,
-                             "anthropic-version": "2023-06-01",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-            else:
-                key = await get_secret("kie_ai_api_key", tenant_id)
-                if not key:
-                    return None
-                kie_claude_url = os.getenv(
-                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
-                ).rstrip("/") + "/v1/messages"
-                r = await c.post(
-                    kie_claude_url,
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-        if r.status_code != 200:
-            _logger.warning("_blueprint_render_confirms: model API HTTP %s", r.status_code)
-            return ""
-        body = r.json()
-        return " ".join(b.get("text", "") for b in body.get("content", [])
-                        if b.get("type") == "text").strip().lower()
-
-    txt: Optional[str] = None
-    no_key = False
-    for attempt in range(2):
-        try:
-            result = await _ask_once()
-        except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
-            result = ""
-        if result is None:
-            no_key = True
-            txt = None
-            break
-        txt = result
-        if txt:
-            break
-        # empty reply — loop again for the one allowed retry
-
-    if no_key:
-        if reason_out is not None:
-            reason_out.append("(no provider key configured — QA skipped)")
-        return True  # config gap, not a transport failure — unchanged behavior
-    if not txt:
-        if reason_out is not None:
-            reason_out.append("(no response from QA judge — transport failure)")
-        return False  # FAIL CLOSED — see docstring
-
-    verdict = bool(re.match(r"^\W*yes\b", txt))
-    if reason_out is not None:
-        reason_out.append(_qa_reason_text(txt))
-    return verdict
-
-
 # --- subject planning batching -------------------------------------------
 #
 # Root cause (live, 2026-08-03): _scene_subjects used to plan the WHOLE
@@ -2399,8 +2429,8 @@ def _machine_facts_for_planner(entry: Optional[dict], card: Optional[dict]) -> s
     Two sources, both already trusted elsewhere in this file for grounding
     an image prompt in real facts rather than an invention:
       - `entry["facts"]` (role/years/status/built_count) — the SAME coarse
-        roster-item facts `_generate_blueprint_view` already grounds a
-        never-built blueprint prompt with (see that function below). Always
+        roster-item facts the reconstruction generator grounds its prompt
+        with. Always
         available for a locked roster entry; no lookup required.
       - `card` (this machine's own `machine_research_cards` row) —
         `timeframe` and `visual_identity` are the schema's own image-brief/
@@ -2749,8 +2779,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # built: a cancelled programme with zero physical hulls/airframes
         # ever completed (_roster_entry_never_built). That machine can
         # never have a reference photograph, so this scene takes the
-        # blueprint path (2 monochrome technical-drawing views, no
-        # reference/anchor image) below instead of the photo-grounded
+        # verified-design reconstruction path below instead of the photo-grounded
         # reference hunt, which would otherwise correctly — but
         # permanently and unhelpfully — block it forever.
         #
@@ -2789,6 +2818,26 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             _roster_entry_for_scene_machine(roster_entries, machine, sub.get("aliases"))
             if roster_entries else None
         )
+        mkey = _machine_key(machine)
+        roster_mkey = _machine_key(roster_entry["name"]) if roster_entry else None
+
+        # A verified historical photo is stronger evidence than the text
+        # classifier. Read it before consulting never_built so a stale or
+        # mistaken roster label can never route a real machine into design
+        # reconstruction.
+        cached_photo = await fetch_one(
+            "SELECT hosted_url, source_url FROM static_reference_cache "
+            "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
+            tenant_id, mkey,
+        )
+        roster_cached_photo = None
+        if not cached_photo and roster_mkey and roster_mkey != mkey:
+            roster_cached_photo = await fetch_one(
+                "SELECT hosted_url, source_url FROM static_reference_cache "
+                "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
+                tenant_id, roster_mkey,
+            )
+        verified_photo_veto = bool(cached_photo or roster_cached_photo)
         positional_roster_entry = (
             roster_entries[sc - 1]
             if roster_entries and 1 <= sc <= len(roster_entries)
@@ -2799,7 +2848,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             if positional_roster_entry is not None
             else roster_entry
         )
-        never_built = bool(never_built_entry and never_built_entry.get("never_built"))
+        never_built = bool(
+            never_built_entry
+            and never_built_entry.get("never_built")
+            and not verified_photo_veto
+        )
 
         # Operator override (G27, 2026-08-04, Ryan's call on video d2e37cd6
         # scene 9): the CVA-01 cancellation story sits on the "Audacious
@@ -2812,10 +2865,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # sc` — the SAME positional resolution as everything else on this
         # page, sourced from `cards_by_scene`/`_machine_research_cards_by_
         # scene` computed once above, never a second query) with
-        # `blueprint_override: true` to force the blueprint path exactly as
+        # `blueprint_override: true` to force the design-study path exactly as
         # if `never_built` were true. Grounding is unaffected by this flag:
         # the card's own facts already flow into `caption_specs` via the
-        # G25 planner-grounding path above, and `_generate_blueprint_view`
+        # G25 planner-grounding path above, and the reconstruction generator
         # below still reads `never_built_entry` (the positional roster
         # entry) for its role/years/status/built_count block, so a blueprint
         # view is grounded in card facts + positional entry either way.
@@ -2826,7 +2879,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # gate, or the card referee, all of which are untouched above/below.
         scene_card = (cards_by_scene or {}).get(sc)
         blueprint_override = bool(scene_card) and scene_card.get("blueprint_override") is True
-        never_built = never_built or blueprint_override
+        never_built = never_built or (blueprint_override and not verified_photo_veto)
 
         view_plans_for_scene = NEVER_BUILT_VIEW_PLANS if never_built else STATIC_VIEW_PLANS
 
@@ -2896,6 +2949,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 continue
             role = cap.get("view_role")
             if role not in current_roles:
+                continue
+            if never_built and not (
+                cap.get("design_study") is True
+                and cap.get("reconstruction_style") == "photorealistic"
+            ):
+                # Old blueprint-era rows are stale even if their role names
+                # happen to overlap the current three-view contract.
                 continue
             status = row.get("status")
             if status == "done" and row.get("image_url"):
@@ -2983,6 +3043,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 # no Remotion-side change needed. design_study=True is the
                 # machine-readable marker for the same fact.
                 cap["design_study"] = True
+                cap["reconstruction_style"] = "photorealistic"
                 cap["sub"] = f"{_NEVER_BUILT_CAPTION_PREFIX} • {caption_sub}"
             return cap
 
@@ -3139,19 +3200,67 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         #    Never-built machines (Ryan's decision, 2026-08-04) skip this
         #    ENTIRE reference hunt — and the FAIL CLOSED gate below it —
         #    outright: no photo can ever exist, so ref_url simply stays
-        #    unset and the blueprint path (_generate_blueprint_view below)
-        #    never uses it.
+        #    unset and the verified-design branch resolves its own reference.
         ref_url = None
         ref_src = None
-        mkey = _machine_key(machine)
         if never_built:
-            _p(f"Segment {sc}: {machine} was never built — generating a "
-               "monochrome technical blueprint instead of a photo-grounded "
-               "render.")
-        else:
-            cached = await fetch_one(
+            _p(f"Segment {sc}: {machine} was never built — locating a verified "
+               "design reference for a photoreal reconstruction.")
+            design_cached = await fetch_one(
                 "SELECT hosted_url, source_url FROM static_reference_cache "
-                "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
+                "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='design'",
+                tenant_id, mkey,
+            )
+            if not design_cached and roster_mkey and roster_mkey != mkey:
+                design_cached = await fetch_one(
+                    "SELECT hosted_url, source_url FROM static_reference_cache "
+                    "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='design'",
+                    tenant_id, roster_mkey,
+                )
+            if design_cached:
+                ref_url, ref_src = design_cached["hosted_url"], design_cached["source_url"]
+            else:
+                candidates = await _gather_design_reference_candidates(
+                    machine, sub.get("aliases"), sub.get("search_query"))
+                for idx, (candidate_url, source_label) in enumerate(candidates):
+                    hosted = await _host_reference(
+                        candidate_url, video_id, tenant_id, f"S{sc:02d}_design_{idx}")
+                    if not hosted:
+                        continue
+                    if not await _design_reference_confirms(
+                        tenant_id, hosted, machine, sub.get("aliases"),
+                        facts=(never_built_entry or {}).get("facts"),
+                        source_label=source_label,
+                    ):
+                        continue
+                    # Re-read immediately before the design upsert. A photo
+                    # may have been seeded while the source was being checked;
+                    # it wins, and the design must not replace it.
+                    late_photo = await fetch_one(
+                        "SELECT hosted_url, source_url FROM static_reference_cache "
+                        "WHERE tenant_id=$1 AND machine_key=$2 "
+                        "AND reference_kind='photo'",
+                        tenant_id, mkey,
+                    )
+                    if late_photo:
+                        break
+                    await execute(
+                        _reference_cache_upsert_sql("design"),
+                        tenant_id, mkey, machine[:200], hosted, candidate_url,
+                    )
+                    ref_url, ref_src = hosted, candidate_url
+                    break
+            if not ref_url:
+                _p(f"Segment {sc}: no verified design reference found for the "
+                   f"{machine} — scene BLOCKED (no model-memory guess).")
+                await execute(
+                    "UPDATE assets SET status='blocked_no_reference', "
+                    "image_url=NULL, drive_image_url=NULL WHERE id=$1", row_id)
+                return {"scene": sc, "done": 0, "reason": "blocked_no_reference"}
+            await execute(
+                "UPDATE assets SET drive_image_url=$2 WHERE id=$1", row_id, ref_url)
+        else:
+            cached = cached_photo
             if cached:
                 ref_url, ref_src = cached["hosted_url"], cached["source_url"]
                 await execute(
@@ -3182,10 +3291,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             # rather than calling _roster_entry_for_scene_machine a second
             # time for the exact same (roster_entries, machine, aliases).
             if not ref_url and roster_entry:
-                roster_mkey = _machine_key(roster_entry["name"])
-                roster_cached = await fetch_one(
-                    "SELECT hosted_url, source_url FROM static_reference_cache "
-                    "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, roster_mkey)
+                roster_cached = roster_cached_photo
                 if roster_cached:
                     roster_hosted = roster_cached["hosted_url"]
                     await execute(
@@ -3198,12 +3304,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     ):
                         ref_url, ref_src = roster_hosted, roster_cached["source_url"]
                         await execute(
-                            """INSERT INTO static_reference_cache
-                                   (tenant_id, machine_key, machine, hosted_url, source_url)
-                               VALUES ($1,$2,$3,$4,$5)
-                               ON CONFLICT (tenant_id, machine_key)
-                               DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
-                                             verified_at=now()""",
+                            _reference_cache_upsert_sql("photo"),
                             tenant_id, mkey, machine[:200], roster_hosted,
                             roster_cached["source_url"])
                         _p(f"Segment {sc}: using the video's own verified "
@@ -3229,12 +3330,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                               sub.get("aliases"), trusted_source=trusted):
                         ref_url, ref_src = hosted, cand
                         await execute(
-                            """INSERT INTO static_reference_cache
-                                   (tenant_id, machine_key, machine, hosted_url, source_url)
-                               VALUES ($1,$2,$3,$4,$5)
-                               ON CONFLICT (tenant_id, machine_key)
-                               DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
-                                             verified_at=now()""",
+                            _reference_cache_upsert_sql("photo"),
                             tenant_id, mkey, machine[:200], hosted, cand)
                         break
                     _p(f"Segment {sc}: candidate photo rejected (not the {machine})")
@@ -3273,38 +3369,28 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 await execute("DELETE FROM assets WHERE id=$1", stale_parked_id)
             row_ids.append(new_row_id)
 
-        async def _generate_blueprint_view(view_index: int, view_plan: dict,
-                                           view_row_id: str) -> bool:
-            """Never-built machine (Ryan's decision, 2026-08-04): no
-            reference photo exists or ever will, so this view is a
-            monochrome technical-drawing design study instead of a
-            photo-grounded studio render. Pure text-to-image
-            (reference_image_url=None passed to generate_scene_image_gpt)
-            — no reference or anchor input at all, since chained/identity
-            QA against a photo makes no sense when there is no photo.
-            Role-conformance QA (`_view_role_confirms`) is UNCHANGED and
-            still applies: a "side elevation" must still read side-on.
-            Same budget-check/ledger/park/retry SHAPE as the photo path's
-            `_generate_view` below — deliberately a separate function
-            rather than threading `never_built` branches through that
-            250-line function, so the (unchanged, load-bearing) photo path
-            stays exactly as it was before this feature."""
+        async def _generate_reconstruction_view(view_index: int, view_plan: dict,
+                                                view_row_id: str) -> bool:
+            """Generate one paid, design-grounded photoreal reconstruction."""
+            nonlocal anchor_url, anchor_role
             grounding_facts = list(caption_specs)
             for key in ("role", "years", "status", "built_count"):
-                # `never_built_entry` (positional-first, see the comment at
-                # this scene's never-built detection above) — the same
-                # entry that decided this scene takes the blueprint path in
-                # the first place, so its facts are the ones that actually
-                # describe this scene's machine.
                 value = (never_built_entry or {}).get("facts", {}).get(key)
                 if value:
                     grounding_facts.append(f"{key.replace('_', ' ')}: {value}")
 
-            prompt = _blueprint_prompt(machine, view_plan, grounding_facts)
+            use_anchor = anchor_url is not None
+            generation_input = anchor_url if use_anchor else ref_url
+            prompt = _never_built_reconstruction_prompt(
+                machine, view_plan, grounding_facts, from_anchor=use_anchor)
+            await execute(
+                "UPDATE assets SET drive_image_url=$2 WHERE id=$1",
+                view_row_id, generation_input,
+            )
             _p(
                 f"Segment {sc}/{len(scenes)}, view {view_index}/"
                 f"{len(view_plans_for_scene)}: {view_plan['label']} "
-                "(never built — monochrome blueprint design study)…"
+                "(never built — verified-design photoreal reconstruction)…"
             )
 
             from actions import budget_refusal, picture_price_for
@@ -3319,12 +3405,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 return False
 
-            async def _park_blueprint(candidate_url: str, prompt_used: str, *,
-                                      qa_events: Optional[list] = None) -> None:
-                """Mirrors `_park` below (paid renders are parked for human
-                review, never deleted) minus the reference/input-marker
-                bookkeeping that doesn't apply here — there is no reference
-                or anchor image for a blueprint view."""
+            async def _park_reconstruction(candidate_url: str, prompt_used: str, *,
+                                           qa_events: Optional[list] = None) -> None:
                 parked_url = candidate_url
                 try:
                     async with httpx.AsyncClient(timeout=120.0) as c:
@@ -3341,7 +3423,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     )
                 except Exception as exc:  # noqa: BLE001
                     _logger.warning(
-                        "static_docu._park_blueprint: failed to re-host "
+                        "static_docu._park_reconstruction: failed to re-host "
                         "rejected render for scene %s view %s (%s) — "
                         "parking with the ephemeral provider URL instead",
                         sc, view_index, exc,
@@ -3364,13 +3446,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
                     view_row_id, parked_url,
                     (
-                        "[never-built: blueprint] " + prompt_used[:900]
+                        "[never-built: photoreal-reconstruction] " + prompt_used[:900]
                         + (f" {reason_block}" if reason_block else "")
                     ),
                 )
 
             res = await ic.generate_scene_image_gpt(
-                prompt, None, aspect_ratio=v["aspect"], allow_fallback=False,
+                prompt, generation_input, aspect_ratio=v["aspect"], allow_fallback=False,
                 resolution="1K",
             )
             url = (res or {}).get("url")
@@ -3382,18 +3464,30 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 model="gpt-image-2", units=1, unit_cost=quote, actual_cost=quote,
             )
 
+            async def _passes_reconstruction_qa(
+                candidate_url: str, qa_events: list,
+            ) -> bool:
+                geometry_reason: list = []
+                geometry_ok = await _reconstruction_matches_design_reference(
+                    tenant_id, ref_url, candidate_url, machine, grounding_facts,
+                    reason_out=geometry_reason,
+                )
+                if not geometry_ok and geometry_reason:
+                    qa_events.append(("geometry", geometry_reason[0]))
+                photoreal_reason: list = []
+                photoreal_ok = await _photoreal_render_confirms(
+                    tenant_id, candidate_url, machine, reason_out=photoreal_reason,
+                )
+                if not photoreal_ok and photoreal_reason:
+                    qa_events.append(("photoreal", photoreal_reason[0]))
+                return geometry_ok and photoreal_ok
+
             qa_note = ""
-            style_qa_events: list = []
-            first_style_reason: list = []
-            if not await _blueprint_render_confirms(
-                tenant_id, url, machine, grounding_facts,
-                reason_out=first_style_reason,
-            ):
-                if first_style_reason:
-                    style_qa_events.append(("blueprint", first_style_reason[0]))
+            reconstruction_events: list = []
+            if not await _passes_reconstruction_qa(url, reconstruction_events):
                 _p(
-                    f"Segment {sc}, view {view_index}: render is not a "
-                    f"valid monochrome technical drawing of the {machine} "
+                    f"Segment {sc}, view {view_index}: render drifted from the "
+                    f"verified design or is not convincingly photoreal "
                     "— one retry…"
                 )
                 retry_refusal = await budget_refusal(
@@ -3404,7 +3498,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                        "keeping the first render unretried.")
                 else:
                     res = await ic.generate_scene_image_gpt(
-                        prompt, None, aspect_ratio=v["aspect"],
+                        prompt, generation_input, aspect_ratio=v["aspect"],
                         allow_fallback=False, resolution="1K",
                     )
                     url2 = (res or {}).get("url")
@@ -3414,16 +3508,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                             model="gpt-image-2", units=1, unit_cost=quote,
                             actual_cost=quote,
                         )
-                second_style_reason: list = []
-                if url2 and await _blueprint_render_confirms(
-                    tenant_id, url2, machine, grounding_facts,
-                    reason_out=second_style_reason,
-                ):
+                if url2 and await _passes_reconstruction_qa(url2, reconstruction_events):
                     url = url2
                 else:
-                    if url2 and second_style_reason:
-                        style_qa_events.append(("blueprint", second_style_reason[0]))
-                    await _park_blueprint(url2 or url, prompt, qa_events=style_qa_events)
+                    await _park_reconstruction(
+                        url2 or url, prompt, qa_events=reconstruction_events)
                     return False
 
             # Role-conformance QA (unchanged): side elevation reads side-on;
@@ -3442,8 +3531,9 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     f"its {view_plan['label']} role — one retry with "
                     "stronger geometry wording…"
                 )
-                geometry_prompt = _blueprint_prompt(
-                    machine, view_plan, grounding_facts, emphasize_geometry=True)
+                geometry_prompt = _never_built_reconstruction_prompt(
+                    machine, view_plan, grounding_facts,
+                    emphasize_geometry=True, from_anchor=use_anchor)
                 geometry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's role-conformance retry")
                 role_retry_url = None
@@ -3452,7 +3542,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                        "keeping the first render unretried.")
                 else:
                     res = await ic.generate_scene_image_gpt(
-                        geometry_prompt, None, aspect_ratio=v["aspect"],
+                        geometry_prompt, generation_input, aspect_ratio=v["aspect"],
                         allow_fallback=False, resolution="1K",
                     )
                     role_retry_url = (res or {}).get("url")
@@ -3471,19 +3561,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     )
                     if not role_retry_ok and second_role_reason:
                         role_qa_events.append(("role", second_role_reason[0]))
-                style_retry_reason: list = []
-                style_retry_ok = role_retry_ok and await _blueprint_render_confirms(
-                    tenant_id, role_retry_url, machine, grounding_facts,
-                    reason_out=style_retry_reason,
-                )
-                if role_retry_ok and not style_retry_ok and style_retry_reason:
-                    role_qa_events.append(("blueprint", style_retry_reason[0]))
+                style_retry_ok = role_retry_ok and await _passes_reconstruction_qa(
+                    role_retry_url, role_qa_events)
                 if role_retry_url and role_retry_ok and style_retry_ok:
                     url = role_retry_url
                     prompt = geometry_prompt
                     qa_note += "[qa: role-conformance retry] "
                 else:
-                    await _park_blueprint(
+                    await _park_reconstruction(
                         role_retry_url or url,
                         geometry_prompt if role_retry_url else prompt,
                         qa_events=role_qa_events,
@@ -3503,8 +3588,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
                 "image_prompt=$3, image_model='gpt-image-2' WHERE id=$1",
                 view_row_id, durable,
-                "[never-built: blueprint] " + qa_note + prompt[:900],
+                "[never-built: photoreal-reconstruction] " + qa_note + prompt[:900],
             )
+            if anchor_url is None:
+                anchor_url, anchor_role = durable, view_plan["role"]
             return True
 
         async def _generate_view(view_index: int, view_plan: dict,
@@ -3512,7 +3599,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             nonlocal anchor_url, anchor_role
 
             if never_built:
-                return await _generate_blueprint_view(view_index, view_plan, view_row_id)
+                return await _generate_reconstruction_view(
+                    view_index, view_plan, view_row_id)
 
             # Chained generation: once this scene has ANY verified render
             # (from a prior run via FILL mode, or from an earlier view in
@@ -4012,12 +4100,7 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                                   trusted_source=trusted, facts=facts,
                                   source_label=cand_label):
             await execute(
-                """INSERT INTO static_reference_cache
-                       (tenant_id, machine_key, machine, hosted_url, source_url)
-                   VALUES ($1,$2,$3,$4,$5)
-                   ON CONFLICT (tenant_id, machine_key)
-                   DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
-                                 verified_at=now()""",
+                _reference_cache_upsert_sql("photo"),
                 tenant_id, mkey, machine[:200], hosted, cand)
             await _clear_reference_miss(tenant_id, video_id, machine)
             return True
@@ -4080,12 +4163,7 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
             "reason": "That photo doesn't look consistent with this machine — try a clearer or more specific photo.",
         }
     await execute(
-        """INSERT INTO static_reference_cache
-               (tenant_id, machine_key, machine, hosted_url, source_url)
-           VALUES ($1,$2,$3,$4,$5)
-           ON CONFLICT (tenant_id, machine_key)
-           DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
-                         verified_at=now()""",
+        _reference_cache_upsert_sql("photo"),
         tenant_id, mkey, machine[:200], hosted, url)
     # C8: a manually-seeded photo resolves this video's open miss (if any)
     # exactly like an automated prefetch success does — same clear helper,
@@ -4147,7 +4225,8 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
         try:
             cached = await fetch_one(
                 "SELECT hosted_url FROM static_reference_cache "
-                "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
+                "WHERE tenant_id=$1 AND machine_key=$2 "
+                "AND reference_kind='photo'", tenant_id, mkey)
             if cached:
                 verified += 1
                 # C8: this machine already carries a tenant-global verified
@@ -4299,7 +4378,8 @@ async def _report_tracked_prefetch_progress(video_id: str, tenant_id: str, task_
             await asyncio.sleep(5)
             rows = await fetch_all(
                 "SELECT machine_key FROM static_reference_cache "
-                "WHERE tenant_id = $1 AND machine_key = ANY($2)",
+                "WHERE tenant_id = $1 AND machine_key = ANY($2) "
+                "AND reference_kind='photo'",
                 tenant_id, mkeys,
             )
             verified_now = len(rows or [])

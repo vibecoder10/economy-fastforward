@@ -371,7 +371,7 @@ def _install_common_fakes(monkeypatch, video_row, scene_text, machine, aliases=N
     cache_rows = cache_rows or {}
     db_rows = {"assets": {}}
     calls = {"host_reference": [], "vision_confirms": [], "cache_lookups": [],
-             "cache_writes": []}
+             "cache_queries": [], "cache_writes": []}
 
     async def fake_fetch_one(query, *args):
         if "FROM videos" in query:
@@ -380,7 +380,11 @@ def _install_common_fakes(monkeypatch, video_row, scene_text, machine, aliases=N
             mkey = args[1]
             calls["cache_lookups"].append(mkey)
             row = cache_rows.get(mkey)
-            return dict(row) if row else None
+            requested_kind = "photo" if "reference_kind='photo'" in query else (
+                "design" if "reference_kind='design'" in query else None)
+            calls["cache_queries"].append((requested_kind, mkey))
+            row_kind = (row or {}).get("reference_kind", "photo")
+            return dict(row) if row and requested_kind == row_kind else None
         return None
 
     async def fake_fetch_all(query, *args):
@@ -605,7 +609,7 @@ async def test_scene22_shape_reuses_roster_photo_end_to_end(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_roster_entry_matched_never_built_routes_to_blueprint_not_blocked(
+async def test_roster_entry_matched_never_built_uses_verified_design_reference(
     monkeypatch,
 ):
     """(b) UPDATED (2026-08-04, Ryan's decision): a roster entry resolves
@@ -615,7 +619,7 @@ async def test_roster_entry_matched_never_built_routes_to_blueprint_not_blocked(
     scene stayed permanently blocked_no_reference, because
     prefetch_roster_references never even attempts a photo lookup for a
     never-built machine and the ordinary web hunt (Wikipedia/Commons) can
-    never find one either. Ryan's call: route it to the blueprint path
+    never find one either. Route it to the verified-design reconstruction path
     instead of blocking it — the ENTIRE reference hunt (LAYER 0/0b/1/2 and
     the web hunt) is skipped outright, never even attempted, and the scene
     proceeds straight to blueprint generation. This test proves the skip:
@@ -636,7 +640,13 @@ async def test_roster_entry_matched_never_built_routes_to_blueprint_not_blocked(
             "World War Two fleet carriers, with a catapult system."
         ),
         machine="CVA-01",
-        cache_rows={},  # nothing cached anywhere — never built, never prefetched
+        cache_rows={
+            static_docu._machine_key("CVA-01"): {
+                "hosted_url": "https://storage.example/cva01-design.png",
+                "source_url": "https://source.example/cva01-three-view.png",
+                "reference_kind": "design",
+            },
+        },
         fail_on_web_hunt=True,  # the web hunt must never even run for this scene
     )
 
@@ -644,18 +654,19 @@ async def test_roster_entry_matched_never_built_routes_to_blueprint_not_blocked(
 
     assert calls["host_reference"] == []  # nothing ever hosted
     assert calls["vision_confirms"] == []  # nothing ever reached vision — no reference hunt at all
-    assert calls["cache_lookups"] == [], (
-        "a never-built scene must skip static_reference_cache lookups "
-        "entirely, not just miss them")
+    assert calls["cache_queries"] == [
+        ("photo", static_docu._machine_key("CVA-01")),
+        ("photo", _cache_key_for(_CVA01_CLASS)),
+        ("design", static_docu._machine_key("CVA-01")),
+    ]
     # The run only stops at the SAME budget-cap stub every other test here
     # uses — reference resolution is not the reason it stopped.
     assert result["status"] == "failed"
-    assert db_rows["assets"], "expected asset rows for both blueprint views"
+    assert db_rows["assets"], "expected asset rows for all reconstruction views"
     for row in db_rows["assets"].values():
         assert row["status"] == "budget_capped"
         assert row["status"] != "blocked_no_reference"
-        assert row["drive_image_url"] is None, (
-            "a blueprint view has no reference/anchor image to record")
+        assert row["drive_image_url"] == "https://storage.example/cva01-design.png"
 
 
 @pytest.mark.asyncio

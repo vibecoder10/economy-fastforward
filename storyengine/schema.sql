@@ -1656,13 +1656,15 @@ CREATE POLICY tenant_id_isolation ON channel_analytics_daily FOR ALL TO authenti
 -- Real tenant_id column — RLS closed by migrations/083_enable_rls_ad_hoc_tables.sql (C01a).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS static_reference_cache (
-  tenant_id UUID NOT NULL,
-  machine_key TEXT NOT NULL,
-  machine TEXT,
-  hosted_url TEXT NOT NULL,
-  source_url TEXT,
-  verified_at TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (tenant_id, machine_key)
+    tenant_id UUID NOT NULL,
+    machine_key TEXT NOT NULL,
+    machine TEXT,
+    hosted_url TEXT NOT NULL,
+    source_url TEXT,
+    reference_kind TEXT NOT NULL DEFAULT 'photo'
+        CHECK (reference_kind IN ('photo', 'design')),
+    verified_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (tenant_id, machine_key)
 );
 
 ALTER TABLE static_reference_cache ENABLE ROW LEVEL SECURITY;

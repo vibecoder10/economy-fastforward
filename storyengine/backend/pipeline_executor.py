@@ -11149,8 +11149,9 @@ class PipelineExecutor:
         from static_docu import _machine_key as _static_machine_key
         try:
             ref_rows = await fetch_all(
-                "SELECT machine_key, hosted_url, source_url FROM static_reference_cache "
-                "WHERE tenant_id = $1", self.tenant_id,
+                "SELECT machine_key, hosted_url, source_url, reference_kind "
+                "FROM static_reference_cache WHERE tenant_id = $1",
+                self.tenant_id,
             )
             ref_cache_by_key = {
                 row.get("machine_key"): row for row in (ref_rows or []) if isinstance(row, dict)
@@ -11199,6 +11200,7 @@ class PipelineExecutor:
                     "status": "verified",
                     "hosted_url": ref_row.get("hosted_url"),
                     "source_url": ref_row.get("source_url"),
+                    "kind": ref_row.get("reference_kind") or "photo",
                 }
             else:
                 miss_row = miss_by_key.get(_static_machine_key(machine))

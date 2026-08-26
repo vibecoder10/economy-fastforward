@@ -548,8 +548,10 @@ async def test_cached_photo_wins_over_never_built_classification(monkeypatch):
         if "FROM videos" in query:
             return dict(video_row)
         if "FROM static_reference_cache" in query:
+            assert "reference_kind='photo'" in query
             if args and args[-1] == cva01_key:
-                return {"hosted_url": "https://storage.example/manually-seeded-cva01.jpg"}
+                return {"hosted_url": "https://storage.example/manually-seeded-cva01.jpg",
+                        "reference_kind": "photo"}
             return None  # the other two are unrelated to this assertion
         return None
 
@@ -631,3 +633,46 @@ async def test_dashboard_marks_never_built_machine_not_retryable(monkeypatch):
     assert cva01_unit["reference"]["status"] == "missing"
     assert cva01_unit["reference"]["reason_code"] == "never_built"
     assert cva01_unit["reference"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_dashboard_reports_verified_design_kind(monkeypatch):
+    tenant_id, video_id = str(uuid.uuid4()), str(uuid.uuid4())
+    machine = pe._unit_display_name(_REAL_CVA01)
+    video_row = {
+        "id": video_id, "tenant_id": tenant_id, "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "designed_vs_used",
+            "unit_roster": ["Boeing XB-15", "Northrop XB-35", machine],
+        },
+    }
+    executor = pe.PipelineExecutor(tenant_id)
+
+    async def noop():
+        return None
+
+    async def get_video(_video_id):
+        return dict(video_row)
+
+    async def load_cards(_video_id, payload, roster=None, target_machine=None):
+        return payload
+
+    async def fake_fetch_all(query, *args):
+        if "FROM static_reference_cache" in query:
+            return [{
+                "machine_key": sd._machine_key(machine),
+                "hosted_url": "https://storage.example/cva01-design.png",
+                "source_url": "https://source.example/cva01-three-view.png",
+                "reference_kind": "design",
+            }]
+        return []
+
+    monkeypatch.setattr(executor, "_ensure_initialized", noop)
+    monkeypatch.setattr(executor, "_get_video", get_video)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", load_cards)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+
+    result = await executor.roster_repair_dashboard(video_id)
+    unit = next(item for item in result["units"] if item["machine"] == machine)
+    assert unit["reference"]["status"] == "verified"
+    assert unit["reference"]["kind"] == "design"
