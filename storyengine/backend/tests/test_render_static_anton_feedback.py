@@ -179,6 +179,26 @@ def test_closing_script_line_uses_exact_last_sentence_when_pair_exceeds_limit():
     assert render_static._closing_script_line(f"{penultimate} {final}", max_chars=80) == final
 
 
+@pytest.mark.parametrize("sentence", [
+    "It served the U.S. Air Force for decades.",
+    "It flew from the U.K. under allied control.",
+    "Lt. Col. James Doolittle approved the design.",
+    "Dr. Theodore von Kármán reviewed the proposal.",
+    "Its thrust-to-weight ratio reached 1.5 in 1955.",
+])
+def test_closing_script_line_preserves_abbreviations_decimals_and_years_verbatim(sentence):
+    assert render_static._closing_script_line(sentence) == sentence
+
+
+def test_closing_script_line_preserves_original_spacing_between_antithesis_sentences():
+    script = (
+        "It was designed to make the bomber obsolete.  "
+        "It became the bomber's longest-serving escort."
+    )
+
+    assert render_static._closing_script_line(script) == script
+
+
 def test_overlay_helpers_fall_back_only_to_grounded_caption_or_script_values():
     caption = {
         "title": "XB-70 Valkyrie",
@@ -202,6 +222,28 @@ def test_caption_disable_flag_emits_no_overlay(monkeypatch):
     rc = render_static._build_render_config("legacy-video", [_multi_view_segment()])
 
     assert all("overlay" not in scene for scene in rc["scenes"])
+
+
+def test_captionless_legacy_scene_stays_cardless_after_position_analysis():
+    segment = {
+        "scene": 1,
+        "scene_text": "It served the U.S. Air Force for decades.",
+        "voice_url": "voice.mp3",
+        "voice_duration": 5.0,
+        "duration": 5.0,
+        "image_url": "legacy.png",
+        "caption": None,
+        "images": [{
+            "image_url": "legacy.png",
+            "source_index": 1,
+            "caption": {"overlay_position": "bottom_left"},
+        }],
+    }
+
+    rc = render_static._build_render_config("legacy-video", [segment])
+
+    assert "overlay" not in rc["scenes"][0]
+    assert rc["scenes"][0]["caption_title"] == ""
 
 
 @pytest.mark.asyncio

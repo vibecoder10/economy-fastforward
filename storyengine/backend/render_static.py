@@ -226,22 +226,93 @@ def _images_for_segment(segment: dict) -> list[dict]:
     return []
 
 
+_NON_TERMINAL_ABBREVIATIONS = {
+    "adm", "brig", "capt", "cmdr", "col", "dr", "gen", "jr", "lt",
+    "maj", "mr", "mrs", "ms", "no", "prof", "sgt", "sr", "st", "vs",
+}
+_LIKELY_SENTENCE_STARTERS = {
+    "a", "after", "although", "as", "at", "before", "but", "by", "despite",
+    "during", "even", "for", "from", "he", "her", "here", "his", "history",
+    "how", "however", "in", "instead", "it", "its", "meanwhile", "nevertheless",
+    "next", "now", "on", "once", "she", "since", "so", "that", "the", "their",
+    "then", "there", "these", "they", "this", "those", "through", "to", "until",
+    "we", "what", "when", "where", "while", "who", "why", "with", "yet", "you",
+}
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Return exact sentence spans without splitting abbreviations or decimals."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while start < len(text) and text[start].isspace():
+        start += 1
+
+    index = start
+    while index < len(text):
+        mark = text[index]
+        if mark not in ".!?":
+            index += 1
+            continue
+
+        end = index + 1
+        while end < len(text) and text[end] in "\"'”’)]}":
+            end += 1
+        next_start = end
+        while next_start < len(text) and text[next_start].isspace():
+            next_start += 1
+        if next_start < len(text) and end == next_start:
+            index += 1
+            continue
+
+        is_boundary = True
+        if mark == "." and next_start < len(text):
+            token_start = index
+            while token_start > start and not text[token_start - 1].isspace():
+                token_start -= 1
+            token = text[token_start:index + 1].strip("\"'“‘([{<")
+            bare = token[:-1].lower()
+            next_match = re.match(r"[A-Za-z]+", text[next_start:])
+            next_word = next_match.group(0).lower() if next_match else ""
+            dotted_initialism = bool(
+                re.fullmatch(r"(?:[A-Za-z]\.){2,}", token)
+            )
+            if bare in _NON_TERMINAL_ABBREVIATIONS:
+                is_boundary = False
+            elif dotted_initialism and next_word not in _LIKELY_SENTENCE_STARTERS:
+                is_boundary = False
+            elif re.fullmatch(r"[A-Z]\.", token):
+                is_boundary = False
+
+        if is_boundary:
+            spans.append((start, end))
+            start = next_start
+            index = next_start
+        else:
+            index += 1
+
+    if start < len(text):
+        end = len(text)
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        if end > start:
+            spans.append((start, end))
+    return spans
+
+
 def _closing_script_line(scene_text: str, max_chars: int = 150) -> str:
     """Return the exact final DvsU punch without rewriting the script."""
     prose = strip_scene_stage_headers(scene_text)
-    sentences = [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", prose.strip())
-        if sentence.strip()
-    ]
-    if not sentences:
+    spans = _sentence_spans(prose)
+    if not spans:
         return ""
-    final = sentences[-1]
-    if len(sentences) < 2:
+    final_start, final_end = spans[-1]
+    final = prose[final_start:final_end]
+    if len(spans) < 2:
         return final
 
-    penultimate = sentences[-2]
-    pair = f"{penultimate} {final}"
+    penultimate_start, penultimate_end = spans[-2]
+    penultimate = prose[penultimate_start:penultimate_end]
+    pair = prose[penultimate_start:final_end]
     design_terms = re.search(
         r"\b(design(?:ed)?|built|meant|intend(?:ed)?|envisioned|conceived|planned|created)\b",
         penultimate,
@@ -257,15 +328,11 @@ def _closing_script_line(scene_text: str, max_chars: int = 150) -> str:
     return final
 
 
-def _overlay_for_view(local_index: int, caption: dict, scene_text: str) -> dict:
+def _overlay_for_view(
+    local_index: int, caption: dict, scene_text: str
+) -> dict | None:
     """Map each view to grounded identity, spec, or closing-script content."""
     caption = caption if isinstance(caption, dict) else {}
-    position = caption.get("overlay_position")
-    if position not in {"bottom_left", "bottom_right"}:
-        raise ValueError(
-            f"View {local_index} is missing its analyzed overlay_position"
-        )
-
     title = str(caption.get("title") or "").strip()
     sub = str(caption.get("sub") or "").strip()
     specs = [
@@ -273,6 +340,15 @@ def _overlay_for_view(local_index: int, caption: dict, scene_text: str) -> dict:
         for value in (caption.get("specs") or [])
         if str(value).strip()
     ]
+    if not (title or sub or specs):
+        return None
+
+    position = caption.get("overlay_position")
+    if position not in {"bottom_left", "bottom_right"}:
+        raise ValueError(
+            f"View {local_index} is missing its analyzed overlay_position"
+        )
+
     closing = _closing_script_line(scene_text)
     grounded = [
         value
@@ -398,9 +474,11 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
                 },
             }
             if DRAW_CAPTIONS and image_cap.get("overlay_position"):
-                render_scene["overlay"] = _overlay_for_view(
+                overlay = _overlay_for_view(
                     local_index, image_cap, seg.get("scene_text") or ""
                 )
+                if overlay:
+                    render_scene["overlay"] = overlay
             scenes.append(render_scene)
             elapsed = round(elapsed + view_duration, 4)
             motion_index += 1

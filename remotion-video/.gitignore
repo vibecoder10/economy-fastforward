@@ -4,6 +4,7 @@ dist/
 .test-build/
 .motion-test-build/
 .showcase-test-build/
+.documentary-test-build/
 
 # Dependencies
 node_modules/

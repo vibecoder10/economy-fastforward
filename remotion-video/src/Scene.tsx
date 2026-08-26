@@ -22,6 +22,10 @@ import {
     getRenderScenesForScene,
     RenderScene,
 } from "./renderConfig";
+import {
+    buildDocumentarySequenceTimings,
+    documentaryTransitionOpacity,
+} from "./documentaryTransitions";
 
 interface SceneProps {
     sceneNumber: number;
@@ -115,40 +119,21 @@ export const Scene: React.FC<SceneProps> = ({
         return { startFrame, durationFrames: segmentDuration };
     }, [hasTranscript, transcript?.words, activeSegment, activeSegmentIndex, fps, durationInFrames, images.length]);
 
-    // Crossfade overlap duration (in frames) - clips overlap for smooth transitions
-    const CROSSFADE_FRAMES = Math.floor(fps * 0.4); // 0.4 second overlap
-
-    // Calculate timing using AIRTABLE DURATIONS (cumulative timing)
-    // This is more reliable than word matching since transcription may differ from written text
-    const segmentTimings = useMemo(() => {
-        let cumulativeStart = 0;
-
-        return segments.map((seg, index) => {
-            const startFrame = Math.floor(cumulativeStart * fps);
-            const baseDurationFrames = Math.floor(seg.duration * fps);
-
-            // Extend duration for crossfade overlap (except last segment)
-            const durationFrames = baseDurationFrames + (index < segments.length - 1 ? CROSSFADE_FRAMES : 0);
-
-            // Accumulate for next segment
-            cumulativeStart += seg.duration;
-
-            return {
-                imageFile: seg.imageFile,
-                startFrame,
-                durationFrames,
-            };
-        });
-    }, [segments, fps, CROSSFADE_FRAMES]);
-
-    // SFX fade duration in frames (0.3s)
-    const SFX_FADE_FRAMES = Math.floor(fps * 0.3);
-
-    // Load per-image Ken Burns + transition data from render_config
+    // Load per-image Ken Burns + transition data from render_config.
     const renderScenes = useMemo(
         () => getRenderScenesForScene(sceneNumber),
         [sceneNumber],
     );
+
+    // Calculate timing from the authored transition at each image boundary.
+    // A cut has no overlap; fades/dissolves keep both Sequences alive for
+    // their full configured duration.
+    const segmentTimings = useMemo(() => {
+        return buildDocumentarySequenceTimings(segments, renderScenes, fps);
+    }, [segments, renderScenes, fps]);
+
+    // SFX fade duration in frames (0.3s)
+    const SFX_FADE_FRAMES = Math.floor(fps * 0.3);
 
     return (
         <AbsoluteFill>
@@ -225,33 +210,12 @@ const DocumentaryInfoCard: React.FC<{
 }> = ({ overlay, segmentDurationFrames, transitionIn, transitionOut }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
-
-    const fadeInSeconds = (transitionIn?.duration as number) ?? 0.4;
-    const fadeOutSeconds = (transitionOut?.duration as number) ?? 0.4;
-    const fadeInFrames = Math.max(1, Math.floor(fps * fadeInSeconds));
-    const fadeOutFrames = Math.max(1, Math.floor(fps * fadeOutSeconds));
-    const fadeOutStart = Math.max(
-        fadeInFrames,
-        segmentDurationFrames - fadeOutFrames,
-    );
-    const fadeIn = interpolate(frame, [0, fadeInFrames], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-    });
-    const fadeOut = interpolate(
+    const opacity = documentaryTransitionOpacity(
         frame,
-        [fadeOutStart, segmentDurationFrames],
-        [1, 0],
-        {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-        },
-    );
-    const transitionInType = (transitionIn?.type as string) ?? "crossfade";
-    const transitionOutType = (transitionOut?.type as string) ?? "crossfade";
-    const opacity = Math.min(
-        transitionInType === "cut" ? 1 : fadeIn,
-        transitionOutType === "cut" ? 1 : fadeOut,
+        segmentDurationFrames,
+        transitionIn,
+        transitionOut,
+        fps,
     );
 
     return (
@@ -402,29 +366,12 @@ const DynamicImage: React.FC<{
     // Frame is relative to Sequence start (0-based)
     const localFrame = frame;
 
-    // Transition durations from render_config (fall back to 0.4s crossfade)
-    const fadeInDuration = (transitionIn?.duration as number) ?? 0.4;
-    const fadeOutDuration = (transitionOut?.duration as number) ?? 0.4;
-    const FADE_IN_FRAMES = Math.floor(fps * fadeInDuration);
-    const FADE_OUT_FRAMES = Math.floor(fps * fadeOutDuration);
-
-    // Transition type determines opacity curve
-    const transInType = (transitionIn?.type as string) ?? "crossfade";
-    const transOutType = (transitionOut?.type as string) ?? "crossfade";
-
-    // Safety: ensure we have enough frames for the fade curve
-    const safeDuration = Math.max(segmentDurationFrames, FADE_IN_FRAMES + FADE_OUT_FRAMES + 1);
-    const fadeOutStart = Math.max(FADE_IN_FRAMES + 1, safeDuration - FADE_OUT_FRAMES);
-
-    // "cut" transitions are instant (no fade), "dip_to_black" uses full fade
-    const fadeInTarget = transInType === "cut" ? 0 : FADE_IN_FRAMES;
-    const fadeOutTarget = transOutType === "cut" ? 0 : FADE_OUT_FRAMES;
-
-    const opacity = interpolate(
+    const opacity = documentaryTransitionOpacity(
         localFrame,
-        [0, Math.max(fadeInTarget, 1), fadeOutStart, fadeOutStart + Math.max(fadeOutTarget, 1)],
-        [transInType === "cut" ? 1 : 0, 1, 1, transOutType === "fade_to_black" || transOutType === "dip_to_black" ? 0 : 0],
-        { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
+        segmentDurationFrames,
+        transitionIn,
+        transitionOut,
+        fps,
     );
 
     // Progress through FULL segment - motion NEVER stops
