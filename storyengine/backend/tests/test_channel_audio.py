@@ -68,6 +68,7 @@ async def test_reads_fixed_full_video_music_bed_from_channel_identity(monkeypatc
         None,
         {},
         {"music_bed": {"mode": "per_act"}},
+        {"music_bed": []},
         "not-json",
     ],
 )
@@ -87,12 +88,22 @@ async def test_returns_none_without_a_fixed_music_bed(monkeypatch, channel_ident
     "overrides",
     [
         {"asset_url": ""},
+        {"asset_url": None},
         {"file_name": ""},
+        {"file_name": None},
+        {"file_name": "../outside.mp3"},
+        {"file_name": "nested/track.mp3"},
+        {"file_name": "..\\outside.mp3"},
+        {"file_name": "."},
+        {"file_name": ".."},
         {"volume": -0.001},
         {"volume": 1.001},
+        {"volume": "loud"},
+        {"trim_before_seconds": "not-a-number"},
+        {"loop": "true"},
     ],
 )
-async def test_rejects_incomplete_or_out_of_range_fixed_music_bed(monkeypatch, overrides):
+async def test_malformed_fixed_music_bed_fails_closed(monkeypatch, overrides):
     channel_audio = _channel_audio()
 
     async def fake_fetch_one(query, *args):
@@ -100,5 +111,4 @@ async def test_rejects_incomplete_or_out_of_range_fixed_music_bed(monkeypatch, o
 
     monkeypatch.setattr(channel_audio, "fetch_one", fake_fetch_one)
 
-    with pytest.raises(ValueError):
-        await channel_audio.get_fixed_music_bed_config("tenant-dvsu")
+    assert await channel_audio.get_fixed_music_bed_config("tenant-dvsu") is None

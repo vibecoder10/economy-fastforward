@@ -28,11 +28,11 @@ def _parse_identity(raw) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
-def _durable_url(value) -> str:
+def _durable_url(value) -> str | None:
     url = value.strip() if isinstance(value, str) else ""
     parsed = urlparse(url)
     if not url or parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("fixed music bed requires a durable asset_url")
+        return None
     return url
 
 
@@ -47,22 +47,35 @@ async def get_fixed_music_bed_config(tenant_id: str) -> FixedMusicBedConfig | No
         return None
 
     asset_url = _durable_url(raw.get("asset_url"))
-    file_name = raw.get("file_name")
-    if not isinstance(file_name, str) or not file_name.strip():
-        raise ValueError("fixed music bed requires a file_name")
+    file_name_raw = raw.get("file_name")
+    file_name = file_name_raw.strip() if isinstance(file_name_raw, str) else ""
+    if (
+        asset_url is None
+        or not file_name
+        or file_name in {".", ".."}
+        or "/" in file_name
+        or "\\" in file_name
+    ):
+        return None
 
-    try:
-        volume = float(raw.get("volume"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("fixed music bed volume must be between 0 and 1") from exc
+    volume_raw = raw.get("volume")
+    if isinstance(volume_raw, bool) or not isinstance(volume_raw, (int, float)):
+        return None
+    volume = float(volume_raw)
     if not math.isfinite(volume) or not 0.0 <= volume <= 1.0:
-        raise ValueError("fixed music bed volume must be between 0 and 1")
+        return None
 
-    trim_before_seconds = float(raw.get("trim_before_seconds", 0.0))
+    trim_raw = raw.get("trim_before_seconds", 0.0)
+    if isinstance(trim_raw, bool) or not isinstance(trim_raw, (int, float)):
+        return None
+    trim_before_seconds = float(trim_raw)
+    loop = raw.get("loop", True)
+    if not math.isfinite(trim_before_seconds) or not isinstance(loop, bool):
+        return None
     return FixedMusicBedConfig(
         asset_url=asset_url,
-        file_name=file_name.strip(),
+        file_name=file_name,
         volume=volume,
         trim_before_seconds=trim_before_seconds,
-        loop=bool(raw.get("loop", True)),
+        loop=loop,
     )

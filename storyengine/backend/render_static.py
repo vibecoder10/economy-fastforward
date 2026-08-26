@@ -334,6 +334,12 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
 _MUSIC_LIB_DIR = _REMOTION_DIR / "public" / "music"
 
 
+def _music_progress_message(beds: list[dict]) -> str:
+    if len(beds) == 1 and beds[0].get("scope") == "video":
+        return "Music: full-video channel bed selected"
+    return f"Music: {len(beds)} act beds selected"
+
+
 async def _select_music_beds(tenant_id: str, segments: list[dict],
                              rc: dict, public_dir: Path) -> list[dict]:
     """Use a fixed channel bed when configured, else select per-act music.
@@ -341,8 +347,8 @@ async def _select_music_beds(tenant_id: str, segments: list[dict],
     Legacy selection uses the local library (mood-tagged files like
     'tension_dark_horizon_1.mp3'). One Claude call classifies each act's mood;
     a deterministic fallback alternates moods if that fails. Chosen tracks are
-    copied into this render's isolated public dir. Invalid fixed configuration
-    raises instead of silently changing the channel's configured gain."""
+    copied into this render's isolated public dir. Malformed fixed configuration
+    fails closed to this legacy path instead of aborting the render."""
     fixed = await channel_audio.get_fixed_music_bed_config(tenant_id)
     if fixed is not None:
         music_dir = public_dir / "music"
@@ -541,7 +547,7 @@ async def render_static_video(
         beds = await _select_music_beds(tenant_id, segments, rc, public_dir)
         if beds:
             rc["music_beds"] = beds
-            await _emit(on_progress, f"Music: {len(beds)} act beds selected")
+            await _emit(on_progress, _music_progress_message(beds))
         props_file = workdir / "props.json"
         props_file.write_text(json.dumps({"renderConfig": rc}))
 

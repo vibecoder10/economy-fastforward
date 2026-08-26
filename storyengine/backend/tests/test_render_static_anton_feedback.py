@@ -254,3 +254,71 @@ async def test_absent_fixed_channel_music_keeps_legacy_per_act_selection(monkeyp
         "mood": "tension",
         "volume": 0.03,
     }]
+
+
+@pytest.mark.asyncio
+async def test_traversal_file_name_falls_back_without_staging_outside_music(
+    monkeypatch, tmp_path,
+):
+    channel_audio = _channel_audio()
+
+    async def fake_fetch_one(query, *args):
+        return {"channel_identity": {
+            "music_bed": {
+                "mode": "fixed_full_video",
+                "asset_url": "https://storage.test/channel/music.mp3",
+                "file_name": "../escaped.mp3",
+                "volume": 0.018,
+            },
+        }}
+
+    class FakeTextClient:
+        async def generate(self, **kwargs):
+            return '{"1": "legacy"}'
+
+    async def fake_get_text_client(tenant_id):
+        return FakeTextClient()
+
+    async def fake_normalize(path):
+        return None
+
+    async def forbidden_download(url, dest, gc):
+        raise AssertionError("malformed fixed music must not be downloaded")
+
+    music_library = tmp_path / "library"
+    music_library.mkdir()
+    (music_library / "legacy_safe.mp3").write_bytes(b"legacy music")
+    monkeypatch.setattr(channel_audio, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(render_static, "_MUSIC_LIB_DIR", music_library)
+    monkeypatch.setattr(render_static, "_normalize_audio", fake_normalize)
+    monkeypatch.setattr(render_static, "_download_to", forbidden_download)
+    import kie_unified
+    monkeypatch.setattr(kie_unified, "get_text_client_for_tenant", fake_get_text_client)
+
+    public_dir = tmp_path / "isolated-public"
+    public_dir.mkdir()
+    beds = await render_static._select_music_beds(
+        "tenant-malformed",
+        [{"scene": 1, "scene_text": "Legacy narration."}],
+        {"scenes": [{"scene_number": 1, "act": 1}]},
+        public_dir,
+    )
+
+    assert beds == [{
+        "act": 1,
+        "file": "legacy_safe.mp3",
+        "mood": "legacy",
+        "volume": 0.03,
+    }]
+    assert not (public_dir / "escaped.mp3").exists()
+    assert not (tmp_path / "escaped.mp3").exists()
+
+
+def test_music_progress_message_distinguishes_full_video_from_act_beds():
+    assert hasattr(render_static, "_music_progress_message")
+    assert render_static._music_progress_message([{"scope": "video"}]) == (
+        "Music: full-video channel bed selected"
+    )
+    assert render_static._music_progress_message([{"act": 1}, {"act": 2}]) == (
+        "Music: 2 act beds selected"
+    )
