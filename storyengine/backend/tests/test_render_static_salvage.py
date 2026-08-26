@@ -23,11 +23,20 @@ tests/test_machine_documentary_hold.py (fake fetch_one/fetch_all).
 import os
 import sys
 
+from PIL import Image
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import render_static  # noqa: E402
+
+
+def _write_fake_download(dest):
+    """Stage a readable image while keeping narration as inert fake bytes."""
+    if dest.suffix.lower() == ".png":
+        Image.new("RGB", (16, 9), "white").save(dest, format="PNG")
+    else:
+        dest.write_bytes(b"fake-audio-bytes")
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +73,7 @@ async def test_upload_failure_salvages_finished_mp4_before_workdir_cleanup(
         return object()
 
     async def fake_download_to(url, dest, gc):
-        dest.write_bytes(b"fake-bytes")
+        _write_fake_download(dest)
 
     async def fake_normalize_audio(path):
         return None
@@ -137,7 +146,7 @@ async def test_happy_path_still_cleans_up_fully_no_salvage_file(monkeypatch, tmp
         }]
 
     async def fake_download_to(url, dest, gc):
-        dest.write_bytes(b"fake-bytes")
+        _write_fake_download(dest)
 
     async def fake_normalize_audio(path):
         return None
