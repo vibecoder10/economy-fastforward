@@ -78,7 +78,12 @@ def _multi_view_segment():
     }
     return {
         "scene": 4,
-        "scene_text": "B-52 narration",
+        "scene_text": (
+            "LOCATION: High desert test range.\n"
+            "ACTION: The bomber crosses frame.\n"
+            "It was designed for one decisive mission. "
+            "It became the aircraft that refused to leave."
+        ),
         "voice_url": "voice.mp3",
         "voice_duration": 12.0,
         "duration": 12.0,
@@ -87,21 +92,33 @@ def _multi_view_segment():
         "images": [
             {
                 "image_url": "three-quarter.png", "source_index": 1,
-                "caption": {**caption, "view_role": "three_quarter"},
+                "caption": {
+                    **caption,
+                    "view_role": "three_quarter",
+                    "overlay_position": "bottom_left",
+                },
             },
             {
                 "image_url": "top.png", "source_index": 2,
-                "caption": {**caption, "view_role": "top_oblique"},
+                "caption": {
+                    **caption,
+                    "view_role": "top_oblique",
+                    "overlay_position": "bottom_right",
+                },
             },
             {
                 "image_url": "detail.png", "source_index": 3,
-                "caption": {**caption, "view_role": "engineering_detail"},
+                "caption": {
+                    **caption,
+                    "view_role": "engineering_detail",
+                    "overlay_position": "bottom_left",
+                },
             },
         ],
     }
 
 
-def test_render_config_rotates_three_views_without_restarting_the_title_or_voice():
+def test_render_config_rotates_grounded_overlay_content_with_each_view():
     rc = render_static._build_render_config("video", [_multi_view_segment()])
     scenes = rc["scenes"]
 
@@ -115,12 +132,124 @@ def test_render_config_rotates_three_views_without_restarting_the_title_or_voice
     assert {scene["narration_start"] for scene in scenes} == {0.0}
     assert {scene["narration_end"] for scene in scenes} == {12.0}
 
-    assert scenes[0]["caption_title"] == "B-52 Stratofortress"
-    assert scenes[0]["caption_specs"] == [
-        "Wingspan 185 ft", "Maximum speed 650 mph",
-    ]
-    assert scenes[1]["caption_title"] == scenes[2]["caption_title"] == ""
-    assert scenes[1]["caption_specs"] == scenes[2]["caption_specs"] == []
+    assert scenes[0]["overlay"] == {
+        "kind": "identity",
+        "title": "B-52 Stratofortress",
+        "body": "USAF • 1955–present",
+        "position": "bottom_left",
+    }
+    assert scenes[1]["overlay"] == {
+        "kind": "spec",
+        "title": "KEY SPEC",
+        "body": "Wingspan 185 ft",
+        "position": "bottom_right",
+    }
+    assert scenes[2]["overlay"] == {
+        "kind": "script",
+        "title": "B-52 Stratofortress",
+        "body": (
+            "It was designed for one decisive mission. "
+            "It became the aircraft that refused to leave."
+        ),
+        "position": "bottom_left",
+    }
+
+
+def test_closing_script_line_keeps_exact_short_antithesis_after_stripping_headers():
+    script = (
+        "LOCATION: A black hangar.\n"
+        "ACTION: The prototype rolls into view.\n"
+        "Engineers designed it to outrun the future. "
+        "History used it to preserve the past."
+    )
+
+    assert render_static._closing_script_line(script) == (
+        "Engineers designed it to outrun the future. "
+        "History used it to preserve the past."
+    )
+
+
+def test_closing_script_line_uses_exact_last_sentence_when_pair_exceeds_limit():
+    penultimate = (
+        "It was designed as a very long explanation of a machine whose intended "
+        "purpose accumulated enough grounded detail to make the final pair too long."
+    )
+    final = "What survived was the contradiction."
+
+    assert render_static._closing_script_line(f"{penultimate} {final}", max_chars=80) == final
+
+
+def test_overlay_helpers_fall_back_only_to_grounded_caption_or_script_values():
+    caption = {
+        "title": "XB-70 Valkyrie",
+        "sub": "USAF • 1964–1969",
+        "specs": [],
+        "overlay_position": "bottom_right",
+    }
+    scene_text = "Designed to escape interception. Used to teach the future."
+
+    assert render_static._overlay_for_view(2, caption, scene_text) == {
+        "kind": "spec",
+        "title": "KEY SPEC",
+        "body": "USAF • 1964–1969",
+        "position": "bottom_right",
+    }
+
+
+def test_caption_disable_flag_emits_no_overlay(monkeypatch):
+    monkeypatch.setattr(render_static, "DRAW_CAPTIONS", False)
+
+    rc = render_static._build_render_config("legacy-video", [_multi_view_segment()])
+
+    assert all("overlay" not in scene for scene in rc["scenes"])
+
+
+@pytest.mark.asyncio
+async def test_render_analyzes_each_downloaded_image_before_building_payload(monkeypatch):
+    segment = _multi_view_segment()
+    choose_calls = []
+
+    async def fake_gather(video_id, tenant_id):
+        return [segment]
+
+    async def fake_download(url, dest, gc):
+        dest.write_bytes(b"locally staged")
+
+    async def fake_normalize(path):
+        return None
+
+    async def fake_probe(path):
+        return 12.0
+
+    def fake_choose(path, view_index):
+        assert path.exists()
+        choose_calls.append((path.name, view_index))
+        return "bottom_left" if view_index % 2 else "bottom_right"
+
+    class StopAfterBuild(Exception):
+        pass
+
+    def fake_build(video_id, segments):
+        assert choose_calls == [
+            ("Scene_04_01.png", 1),
+            ("Scene_04_02.png", 2),
+            ("Scene_04_03.png", 3),
+        ]
+        assert [image["caption"]["overlay_position"] for image in segments[0]["images"]] == [
+            "bottom_left", "bottom_right", "bottom_left",
+        ]
+        raise StopAfterBuild
+
+    monkeypatch.setattr(render_static, "_gather_segments", fake_gather)
+    monkeypatch.setattr(render_static, "_google_client", lambda: None)
+    monkeypatch.setattr(render_static, "_download_to", fake_download)
+    monkeypatch.setattr(render_static, "_normalize_audio", fake_normalize)
+    monkeypatch.setattr(render_static, "_probe_duration", fake_probe)
+    monkeypatch.setattr(render_static, "choose_overlay_position", fake_choose, raising=False)
+    monkeypatch.setattr(render_static, "_build_render_config", fake_build)
+
+    with pytest.raises(StopAfterBuild):
+        await render_static.render_static_video("video", "tenant")
 
 
 def test_render_config_alternates_only_smooth_push_in_and_pull_out():

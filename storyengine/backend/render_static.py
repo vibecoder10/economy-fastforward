@@ -46,6 +46,7 @@ from render_stitch import (
 )
 import render_static_ffmpeg
 import channel_audio
+from overlay_position import choose_overlay_position
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,83 @@ def _images_for_segment(segment: dict) -> list[dict]:
     return []
 
 
+def _closing_script_line(scene_text: str, max_chars: int = 150) -> str:
+    """Return the exact final DvsU punch without rewriting the script."""
+    prose = strip_scene_stage_headers(scene_text)
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", prose.strip())
+        if sentence.strip()
+    ]
+    if not sentences:
+        return ""
+    final = sentences[-1]
+    if len(sentences) < 2:
+        return final
+
+    penultimate = sentences[-2]
+    pair = f"{penultimate} {final}"
+    design_terms = re.search(
+        r"\b(design(?:ed)?|built|meant|intend(?:ed)?|envisioned|conceived|planned|created)\b",
+        penultimate,
+        re.IGNORECASE,
+    )
+    outcome_terms = re.search(
+        r"\b(use[ds]?|became|turned|proved|ended|survived|instead|but|yet|never|refused)\b",
+        final,
+        re.IGNORECASE,
+    )
+    if design_terms and outcome_terms and len(pair) <= max_chars:
+        return pair
+    return final
+
+
+def _overlay_for_view(local_index: int, caption: dict, scene_text: str) -> dict:
+    """Map each view to grounded identity, spec, or closing-script content."""
+    caption = caption if isinstance(caption, dict) else {}
+    position = caption.get("overlay_position")
+    if position not in {"bottom_left", "bottom_right"}:
+        raise ValueError(
+            f"View {local_index} is missing its analyzed overlay_position"
+        )
+
+    title = str(caption.get("title") or "").strip()
+    sub = str(caption.get("sub") or "").strip()
+    specs = [
+        str(value).strip()
+        for value in (caption.get("specs") or [])
+        if str(value).strip()
+    ]
+    closing = _closing_script_line(scene_text)
+    grounded = [
+        value
+        for value in (title, sub, specs[0] if specs else "", closing)
+        if value
+    ]
+    fallback = grounded[0] if grounded else ""
+
+    if local_index == 1:
+        return {
+            "kind": "identity",
+            "title": title or fallback,
+            "body": sub or (specs[0] if specs else closing or fallback),
+            "position": position,
+        }
+    if local_index == 2:
+        return {
+            "kind": "spec",
+            "title": "KEY SPEC",
+            "body": (specs[0] if specs else sub or closing or fallback),
+            "position": position,
+        }
+    return {
+        "kind": "script",
+        "title": title or sub or (specs[0] if specs else fallback),
+        "body": closing or (specs[0] if specs else sub or title or fallback),
+        "position": position,
+    }
+
+
 def _build_render_config(video_id: str, segments: list[dict]) -> dict:
     """The renderConfig the Remotion composition reads (embedded in --props).
 
@@ -258,10 +336,13 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
             )
             view_start = round(scene_start + elapsed, 4)
             view_end = round(view_start + view_duration, 4)
-            image_cap = (image.get("caption") or cap) if DRAW_CAPTIONS else {}
+            image_cap = (
+                {**cap, **(image.get("caption") or {})}
+                if DRAW_CAPTIONS else {}
+            )
             role = (image_cap or {}).get("view_role") or ""
             push_in = motion_index % 2 == 0
-            scenes.append({
+            render_scene = {
                 "scene_number": seg["scene"],
                 "image_path": f"Scene_{seg['scene']:02d}_{local_index:02d}.png",
                 "image_index": local_index,
@@ -315,7 +396,12 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
                     "motion_curve": "cinematic_smoothstep",
                     "disable_breathe": True,
                 },
-            })
+            }
+            if DRAW_CAPTIONS and image_cap.get("overlay_position"):
+                render_scene["overlay"] = _overlay_for_view(
+                    local_index, image_cap, seg.get("scene_text") or ""
+                )
+            scenes.append(render_scene)
             elapsed = round(elapsed + view_duration, 4)
             motion_index += 1
         cursor = round(scene_start + duration, 4)
@@ -493,6 +579,7 @@ def _requires_remotion(rc: dict) -> bool:
     return (
         bool(rc.get("music_beds"))
         or len(scene_numbers) != len(set(scene_numbers))
+        or any(scene.get("overlay") for scene in scenes)
         or any(scene.get("caption_title") for scene in scenes)
     )
 
@@ -529,11 +616,21 @@ async def render_static_video(
             for local_index, image in enumerate(
                 _images_for_segment(seg), start=1
             ):
+                image_path = (
+                    public_dir
+                    / f"Scene_{seg['scene']:02d}_{local_index:02d}.png"
+                )
                 await _download_to(
                     image["image_url"],
-                    public_dir / f"Scene_{seg['scene']:02d}_{local_index:02d}.png",
+                    image_path,
                     gc,
                 )
+                image["caption"] = {
+                    **(image.get("caption") or {}),
+                    "overlay_position": choose_overlay_position(
+                        image_path, local_index
+                    ),
+                }
 
         # Segment duration = the narration's real length. Trust the stored
         # figure only when it matches the file (stale rows happen); ffprobe is

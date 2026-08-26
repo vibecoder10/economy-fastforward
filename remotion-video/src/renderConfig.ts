@@ -45,6 +45,13 @@ export interface WordTimestamp {
     end: number;
 }
 
+export interface DocumentaryOverlay {
+    kind: "identity" | "spec" | "script";
+    title: string;
+    body: string;
+    position: "bottom_left" | "bottom_right";
+}
+
 export interface RenderScene {
     scene_number: number;
     image_path: string;
@@ -69,6 +76,7 @@ export interface RenderScene {
     caption_title?: string;
     caption_sub?: string;
     caption_specs?: string[];
+    overlay?: DocumentaryOverlay;
 }
 
 export interface ActMusicBed {

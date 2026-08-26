@@ -5,7 +5,6 @@ import {
     useCurrentFrame,
     useVideoConfig,
     interpolate,
-    Easing,
     OffthreadVideo,
     Sequence,
 } from "remotion";
@@ -18,7 +17,11 @@ import {
     getSegmentsForScene,
 } from "./segments";
 import { CaptionsOverlay } from "./components/CaptionsOverlay";
-import { getRenderScenesForScene, RenderScene } from "./renderConfig";
+import {
+    DocumentaryOverlay,
+    getRenderScenesForScene,
+    RenderScene,
+} from "./renderConfig";
 
 interface SceneProps {
     sceneNumber: number;
@@ -146,7 +149,6 @@ export const Scene: React.FC<SceneProps> = ({
         () => getRenderScenesForScene(sceneNumber),
         [sceneNumber],
     );
-    const titleScene = renderScenes.find((rs) => rs.caption_title);
 
     return (
         <AbsoluteFill>
@@ -158,6 +160,16 @@ export const Scene: React.FC<SceneProps> = ({
                 const img = images[index];
                 // Match render_config entry by image_index (1-based)
                 const rs = renderScenes[index] as RenderScene | undefined;
+                const overlay: DocumentaryOverlay | undefined = rs?.overlay ?? (
+                    rs?.caption_title
+                        ? {
+                            kind: "identity",
+                            title: rs.caption_title,
+                            body: rs.caption_sub ?? "",
+                            position: "bottom_left",
+                        }
+                        : undefined
+                );
                 return (
                     <Sequence
                         key={timing.imageFile}
@@ -172,6 +184,14 @@ export const Scene: React.FC<SceneProps> = ({
                             transitionIn={rs?.transition_in}
                             transitionOut={rs?.transition_out}
                         />
+                        {overlay && (
+                            <DocumentaryInfoCard
+                                overlay={overlay}
+                                segmentDurationFrames={timing.durationFrames}
+                                transitionIn={rs?.transition_in}
+                                transitionOut={rs?.transition_out}
+                            />
+                        )}
                         {/* Per-image sound effect — plays for exactly the image duration */}
                         {img?.sfx && (
                             <ImageSfxAudio
@@ -185,17 +205,6 @@ export const Scene: React.FC<SceneProps> = ({
                 );
             })}
 
-            {/* One aircraft title card for the narration scene. It sits above
-                every image Sequence, so rotating views never restart it. */}
-            {titleScene && (
-                <DocumentaryTitleCard
-                    title={titleScene.caption_title ?? ""}
-                    sub={titleScene.caption_sub ?? ""}
-                    specs={titleScene.caption_specs ?? []}
-                    sceneDurationFrames={durationInFrames}
-                />
-            )}
-
             {/* Karaoke captions — word-level highlight synced to audio */}
             {/* Uses character-based chunking (max 38 chars) to prevent overflow */}
             {hasTranscript && transcript?.words && transcript.words.length > 0 && (
@@ -208,98 +217,91 @@ export const Scene: React.FC<SceneProps> = ({
     );
 };
 
-const DocumentaryTitleCard: React.FC<{
-    title: string;
-    sub: string;
-    specs: string[];
-    sceneDurationFrames: number;
-}> = ({ title, sub, specs, sceneDurationFrames }) => {
+const DocumentaryInfoCard: React.FC<{
+    overlay: DocumentaryOverlay;
+    segmentDurationFrames: number;
+    transitionIn?: Record<string, unknown>;
+    transitionOut?: Record<string, unknown>;
+}> = ({ overlay, segmentDurationFrames, transitionIn, transitionOut }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
 
-    const enterFrames = Math.max(1, Math.round(fps * 0.55));
-    const exitFrames = Math.max(1, Math.round(fps * 0.5));
-    const desiredExit = Math.round(fps * 6.5);
-    const exitStart = Math.max(
-        enterFrames + 1,
-        Math.min(desiredExit, sceneDurationFrames - exitFrames - 1),
+    const fadeInSeconds = (transitionIn?.duration as number) ?? 0.4;
+    const fadeOutSeconds = (transitionOut?.duration as number) ?? 0.4;
+    const fadeInFrames = Math.max(1, Math.floor(fps * fadeInSeconds));
+    const fadeOutFrames = Math.max(1, Math.floor(fps * fadeOutSeconds));
+    const fadeOutStart = Math.max(
+        fadeInFrames,
+        segmentDurationFrames - fadeOutFrames,
     );
-    const enter = interpolate(frame, [0, enterFrames], [0, 1], {
-        easing: Easing.out(Easing.cubic),
+    const fadeIn = interpolate(frame, [0, fadeInFrames], [0, 1], {
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
     });
-    const exit = interpolate(
+    const fadeOut = interpolate(
         frame,
-        [exitStart, Math.min(sceneDurationFrames - 1, exitStart + exitFrames)],
+        [fadeOutStart, segmentDurationFrames],
         [1, 0],
         {
-            easing: Easing.in(Easing.cubic),
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
         },
     );
-    const opacity = Math.min(enter, exit);
-    const translateY = interpolate(enter, [0, 1], [22, 0]);
+    const transitionInType = (transitionIn?.type as string) ?? "crossfade";
+    const transitionOutType = (transitionOut?.type as string) ?? "crossfade";
+    const opacity = Math.min(
+        transitionInType === "cut" ? 1 : fadeIn,
+        transitionOutType === "cut" ? 1 : fadeOut,
+    );
 
     return (
         <div
             style={{
                 position: "absolute",
-                left: 76,
+                left: overlay.position === "bottom_left" ? 76 : undefined,
+                right: overlay.position === "bottom_right" ? 76 : undefined,
                 bottom: 68,
-                maxWidth: 940,
+                width: 940,
+                height: 230,
+                boxSizing: "border-box",
                 padding: "22px 30px 23px 28px",
                 background: "rgba(250, 249, 246, 0.92)",
                 borderLeft: "7px solid #a88345",
                 boxShadow: "0 16px 40px rgba(0, 0, 0, 0.16)",
                 color: "#252525",
                 opacity,
-                transform: `translateY(${translateY}px)`,
                 fontFamily: "Georgia, 'Times New Roman', serif",
+                overflow: "hidden",
             }}
         >
             <div
                 style={{
-                    fontSize: 58,
-                    fontWeight: 600,
-                    letterSpacing: 0.4,
-                    lineHeight: 1.05,
+                    fontFamily: "Arial, Helvetica, sans-serif",
+                    fontSize: 22,
+                    fontWeight: 800,
+                    letterSpacing: 1.4,
+                    lineHeight: 1.1,
+                    color: overlay.kind === "spec" ? "#765b2e" : "#54504a",
+                    textTransform: overlay.kind === "spec" ? "uppercase" : "none",
                 }}
             >
-                {title}
+                {overlay.title}
             </div>
-            {sub && (
-                <div
-                    style={{
-                        fontSize: 25,
-                        marginTop: 10,
-                        color: "#54504a",
-                        letterSpacing: 0.5,
-                    }}
-                >
-                    {sub}
-                </div>
-            )}
-            {specs.length > 0 && (
-                <div
-                    style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "9px 24px",
-                        marginTop: 13,
-                        fontFamily: "Arial, Helvetica, sans-serif",
-                        fontSize: 22,
-                        fontWeight: 700,
-                        color: "#765b2e",
-                        letterSpacing: 0.3,
-                    }}
-                >
-                    {specs.slice(0, 2).map((spec) => (
-                        <span key={spec}>{spec}</span>
-                    ))}
-                </div>
-            )}
+            <div
+                style={{
+                    display: "-webkit-box",
+                    WebkitBoxOrient: "vertical",
+                    WebkitLineClamp: overlay.kind === "script" ? 3 : 2,
+                    overflow: "hidden",
+                    fontSize: overlay.kind === "script" ? 34 : 43,
+                    fontWeight: overlay.kind === "script" ? 500 : 600,
+                    letterSpacing: 0.25,
+                    lineHeight: overlay.kind === "script" ? 1.18 : 1.12,
+                    marginTop: 13,
+                }}
+            >
+                {overlay.body.slice(0, 150)}
+            </div>
         </div>
     );
 };

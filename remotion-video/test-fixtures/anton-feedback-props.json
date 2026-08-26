@@ -28,6 +28,12 @@
           "Wingspan 185 ft",
           "Maximum speed 650 mph"
         ],
+        "overlay": {
+          "kind": "identity",
+          "title": "Boeing B-52 Stratofortress",
+          "body": "United States Air Force • 1955–present",
+          "position": "bottom_left"
+        },
         "ken_burns": {
           "direction": "slow_push_in",
           "start_scale": 1.025,
@@ -65,6 +71,12 @@
         "caption_title": "",
         "caption_sub": "",
         "caption_specs": [],
+        "overlay": {
+          "kind": "spec",
+          "title": "KEY SPEC",
+          "body": "Wingspan 185 ft",
+          "position": "bottom_right"
+        },
         "ken_burns": {
           "direction": "slow_pull_out",
           "start_scale": 1.085,
@@ -102,6 +114,12 @@
         "caption_title": "",
         "caption_sub": "",
         "caption_specs": [],
+        "overlay": {
+          "kind": "script",
+          "title": "Boeing B-52 Stratofortress",
+          "body": "It was designed for one decisive mission. It became the aircraft that refused to leave.",
+          "position": "bottom_left"
+        },
         "ken_burns": {
           "direction": "slow_push_in",
           "start_scale": 1.025,
