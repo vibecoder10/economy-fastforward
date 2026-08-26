@@ -484,13 +484,15 @@ def _requires_remotion(rc: dict) -> bool:
     """Does this config use DvsU features the legacy FFmpeg path cannot draw?
 
     FFmpeg's optional speed experiment still assumes one image/audio pair per
-    scene and has no title-card compositor. Never silently drop multi-view
-    rotation or overlays merely because an environment flag selected it.
+    scene, has no title-card compositor, and does not mix music. Never silently
+    drop multi-view rotation, overlays, or beds merely because an environment
+    flag selected it.
     """
     scenes = rc.get("scenes") or []
     scene_numbers = [scene.get("scene_number") for scene in scenes]
     return (
-        len(scene_numbers) != len(set(scene_numbers))
+        bool(rc.get("music_beds"))
+        or len(scene_numbers) != len(set(scene_numbers))
         or any(scene.get("caption_title") for scene in scenes)
     )
 

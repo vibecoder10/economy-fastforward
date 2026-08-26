@@ -99,6 +99,7 @@ async def test_returns_none_without_a_fixed_music_bed(monkeypatch, channel_ident
         {"volume": -0.001},
         {"volume": 1.001},
         {"volume": "loud"},
+        {"trim_before_seconds": -0.001},
         {"trim_before_seconds": "not-a-number"},
         {"loop": "true"},
     ],

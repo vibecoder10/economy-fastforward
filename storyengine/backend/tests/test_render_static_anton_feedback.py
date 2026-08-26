@@ -153,6 +153,24 @@ def test_multiview_or_title_card_never_silently_uses_legacy_ffmpeg_path():
     assert render_static._requires_remotion(legacy) is False
 
 
+def test_single_view_fixed_music_never_silently_uses_legacy_ffmpeg_path():
+    rc = {
+        "scenes": [{
+            "scene_number": 1,
+            "caption_title": "",
+        }],
+        "music_beds": [{
+            "scope": "video",
+            "file": "light_music-lonely-piano-189659.mp3",
+            "volume": 0.018,
+            "trim_before_seconds": 0.0,
+            "loop": True,
+        }],
+    }
+
+    assert render_static._requires_remotion(rc) is True
+
+
 @pytest.mark.asyncio
 async def test_fixed_channel_music_returns_one_full_video_bed_and_skips_mood_classification(
     monkeypatch, tmp_path,

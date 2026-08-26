@@ -70,7 +70,11 @@ async def get_fixed_music_bed_config(tenant_id: str) -> FixedMusicBedConfig | No
         return None
     trim_before_seconds = float(trim_raw)
     loop = raw.get("loop", True)
-    if not math.isfinite(trim_before_seconds) or not isinstance(loop, bool):
+    if (
+        not math.isfinite(trim_before_seconds)
+        or trim_before_seconds < 0.0
+        or not isinstance(loop, bool)
+    ):
         return None
     return FixedMusicBedConfig(
         asset_url=asset_url,
