@@ -3220,6 +3220,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     tenant_id, cache_key,
                 )
                 if row:
+                    if cache_key != mkey:
+                        # A roster alias is only a lead, never proof that the
+                        # photo is this scene's exact variant. Apply the same
+                        # trusted roster-cache identity check as the ordinary
+                        # photo path before allowing it to veto reconstruction.
+                        if not await _vision_confirms(
+                            tenant_id, row["hosted_url"], machine,
+                            sub.get("aliases"), trusted_source=True,
+                            facts=(roster_entry or {}).get("facts"),
+                            source_label=(roster_entry or {}).get("name"),
+                        ):
+                            continue
                     return {**row, "reference_kind": "photo"}
             return None
 

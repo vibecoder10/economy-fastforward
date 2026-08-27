@@ -14,6 +14,7 @@ _BACKEND = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.abspath(_BACKEND))
 
 import static_docu  # noqa: E402
+import pipeline_executor as pe  # noqa: E402
 import shared.clients.image_client as image_client_mod  # noqa: E402,F401
 from static_docu_contract import NEVER_BUILT_VIEW_PLANS, STATIC_VIEW_PLANS  # noqa: E402
 from test_static_docu_qa_park import _ClientCM, _FakeDownloadResp  # noqa: E402
@@ -554,13 +555,91 @@ async def test_late_roster_key_photo_wins_over_design(monkeypatch, design_source
             reason_out.append("same machine")
         return True
 
+    identity_calls = []
+
+    async def photo_identity(tenant_arg, image_url, machine, aliases=None,
+                             trusted_source=False, facts=None, source_label=None):
+        identity_calls.append({
+            "image_url": image_url,
+            "machine": machine,
+            "aliases": aliases,
+            "trusted_source": trusted_source,
+            "facts": facts,
+            "source_label": source_label,
+        })
+        return True
+
     monkeypatch.setattr(static_docu, "fetch_one", racing_fetch_one)
     monkeypatch.setattr(static_docu, "_render_matches_reference", photo_render_matches)
+    monkeypatch.setattr(static_docu, "_vision_confirms", photo_identity)
 
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
     assert result["status"] == "completed"
     assert env["gen_calls"][0][1] == photo["hosted_url"]
+    assert len(identity_calls) == 1
+    assert identity_calls[0]["trusted_source"] is True
+    assert identity_calls[0]["source_label"] == pe._unit_display_name(_CVA01_CLASS)
+    assert identity_calls[0]["facts"]
     for _row, caption in _rows_by_role(env).values():
         assert "design_study" not in caption
+
+
+@pytest.mark.asyncio
+async def test_rejected_late_roster_photo_keeps_verified_design(monkeypatch):
+    design = "https://storage.example/cached-design.png"
+    env = _environment(
+        monkeypatch,
+        cached_kind="design",
+        cached_url=design,
+        generated_urls=("gen://a", "gen://b", "gen://c"),
+    )
+    original_fetch_one = env["fake_fetch_one"]
+    roster_key = _cache_key_for(_CVA01_CLASS)
+    roster_photo_reads = 0
+    late_photo = "https://storage.example/wrong-variant.jpg"
+
+    async def racing_fetch_one(query, *args):
+        nonlocal roster_photo_reads
+        if ("FROM static_reference_cache" in query
+                and "reference_kind='photo'" in query
+                and len(args) > 1 and args[1] == roster_key):
+            roster_photo_reads += 1
+            if roster_photo_reads == 2:
+                return {
+                    "hosted_url": late_photo,
+                    "source_url": "https://source.example/wrong-variant",
+                }
+        return await original_fetch_one(query, *args)
+
+    identity_calls = []
+
+    async def reject_identity(tenant_arg, image_url, machine, aliases=None,
+                              trusted_source=False, facts=None, source_label=None):
+        identity_calls.append({
+            "image_url": image_url,
+            "machine": machine,
+            "aliases": aliases,
+            "trusted_source": trusted_source,
+            "facts": facts,
+            "source_label": source_label,
+        })
+        return False
+
+    monkeypatch.setattr(static_docu, "fetch_one", racing_fetch_one)
+    monkeypatch.setattr(static_docu, "_vision_confirms", reject_identity)
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert env["gen_calls"][0][1] == design
+    assert all(ref != late_photo for _prompt, ref in env["gen_calls"])
+    assert len(identity_calls) == 1
+    call = identity_calls[0]
+    assert call["trusted_source"] is True
+    assert call["source_label"] == pe._unit_display_name(_CVA01_CLASS)
+    assert call["facts"]
+    for _row, caption in _rows_by_role(env).values():
+        assert caption["design_study"] is True
