@@ -148,6 +148,7 @@ export const Scene: React.FC<SceneProps> = ({
         frame,
         segmentTimings,
         overlays,
+        durationInFrames,
     );
 
     // SFX fade duration in frames (0.3s)
@@ -190,8 +191,8 @@ export const Scene: React.FC<SceneProps> = ({
                 );
             })}
 
-            {/* One fully readable global card selected from canonical image
-                start boundaries. Overlapping image Sequences never own cards. */}
+            {/* One fully readable global card selected at each image transition's
+                visual-dominance crossover. Overlapping Sequences never own cards. */}
             {activeOverlay && <DocumentaryInfoCard overlay={activeOverlay} />}
 
             {/* Karaoke captions — word-level highlight synced to audio */}

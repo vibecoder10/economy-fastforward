@@ -59,10 +59,30 @@ export const activeDocumentaryOverlay = <Overlay>(
     absoluteFrame: number,
     timings: DocumentarySequenceTiming[],
     overlays: Array<Overlay | undefined>,
+    sceneEndFrame: number,
 ): Overlay | undefined => {
+    if (
+        absoluteFrame < 0
+        || absoluteFrame >= sceneEndFrame
+        || timings.length === 0
+        || absoluteFrame < timings[0].startFrame
+    ) {
+        return undefined;
+    }
+
     let activeIndex = -1;
     for (let index = 0; index < timings.length; index += 1) {
-        if (absoluteFrame < timings[index].startFrame) break;
+        const timing = timings[index];
+        if (index === 0) {
+            activeIndex = 0;
+            continue;
+        }
+
+        const previousTiming = timings[index - 1];
+        const previousEndFrame = previousTiming.startFrame + previousTiming.durationFrames;
+        const overlapFrames = Math.max(0, previousEndFrame - timing.startFrame);
+        const crossoverFrame = timing.startFrame + Math.ceil(overlapFrames / 2);
+        if (absoluteFrame < crossoverFrame) break;
         activeIndex = index;
     }
     return activeIndex >= 0 ? overlays[activeIndex] : undefined;

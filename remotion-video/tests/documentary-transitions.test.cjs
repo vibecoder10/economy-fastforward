@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   activeDocumentaryOverlay,
   buildDocumentarySequenceTimings,
+  documentaryTransitionOpacity,
 } = require("../.documentary-test-build/documentaryTransitions.js");
 
 const FPS = 24;
@@ -37,37 +38,100 @@ const transitionScenes = (type, duration) => [
   },
 ];
 
-const assertAntonBoundarySelection = (type, duration) => {
+const assertAntonCrossoverSelection = (type, duration, crossoverOffset) => {
   const timings = buildDocumentarySequenceTimings(
     SEGMENTS,
     transitionScenes(type, duration),
     FPS,
   );
+  const sceneEndFrame = 240;
+  const firstCrossover = timings[1].startFrame + crossoverOffset;
+  const secondCrossover = timings[2].startFrame + crossoverOffset;
 
   assert.deepEqual(timings.map((timing) => timing.startFrame), [0, 80, 160]);
-  assert.equal(activeDocumentaryOverlay(79, timings, OVERLAYS), OVERLAYS[0]);
-  assert.equal(activeDocumentaryOverlay(80, timings, OVERLAYS), OVERLAYS[1]);
-  assert.equal(activeDocumentaryOverlay(81, timings, OVERLAYS), OVERLAYS[1]);
-  assert.equal(activeDocumentaryOverlay(159, timings, OVERLAYS), OVERLAYS[1]);
-  assert.equal(activeDocumentaryOverlay(160, timings, OVERLAYS), OVERLAYS[2]);
-  assert.equal(activeDocumentaryOverlay(161, timings, OVERLAYS), OVERLAYS[2]);
+  assert.equal(
+    activeDocumentaryOverlay(firstCrossover - 1, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[0],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(firstCrossover, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[1],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(firstCrossover + 1, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[1],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(secondCrossover - 1, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[1],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(secondCrossover, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[2],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(secondCrossover + 1, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[2],
+  );
+
+  if (crossoverOffset > 0) {
+    const transition = {type, duration};
+    const outgoingDuration = timings[0].durationFrames;
+    const outgoingBefore = documentaryTransitionOpacity(
+      firstCrossover - 1,
+      outgoingDuration,
+      undefined,
+      transition,
+      FPS,
+    );
+    const incomingBefore = documentaryTransitionOpacity(
+      crossoverOffset - 1,
+      timings[1].durationFrames,
+      transition,
+      transition,
+      FPS,
+    );
+    const outgoingAt = documentaryTransitionOpacity(
+      firstCrossover,
+      outgoingDuration,
+      undefined,
+      transition,
+      FPS,
+    );
+    const incomingAt = documentaryTransitionOpacity(
+      crossoverOffset,
+      timings[1].durationFrames,
+      transition,
+      transition,
+      FPS,
+    );
+    assert.ok(outgoingBefore > incomingBefore);
+    assert.ok(incomingAt >= outgoingAt);
+  }
 
   // Scene 1 has a one-second audio-tail buffer after the 9-second fixture.
   // The last grounded card remains the one global overlay through that tail.
-  assert.equal(activeDocumentaryOverlay(239, timings, OVERLAYS), OVERLAYS[2]);
+  assert.equal(
+    activeDocumentaryOverlay(239, timings, OVERLAYS, sceneEndFrame),
+    OVERLAYS[2],
+  );
+  assert.equal(
+    activeDocumentaryOverlay(240, timings, OVERLAYS, sceneEndFrame),
+    undefined,
+  );
 };
 
 test("hard-cut fixture selects exactly one card at both canonical boundaries", () => {
-  assertAntonBoundarySelection("cut", 0);
+  assertAntonCrossoverSelection("cut", 0, 0);
 });
 
-test("0.4-second crossfade cannot change global card boundary selection", () => {
-  assertAntonBoundarySelection("crossfade", 0.4);
+test("0.4-second crossfade switches the global card at visual dominance", () => {
+  assertAntonCrossoverSelection("crossfade", 0.4, 5);
 });
 
 for (const type of ["dissolve", "dip_to_black"]) {
-  test(`1.5-second ${type} cannot extend or overlap global card lifetime`, () => {
-    assertAntonBoundarySelection(type, 1.5);
+  test(`1.5-second ${type} switches the global card at visual dominance`, () => {
+    assertAntonCrossoverSelection(type, 1.5, 18);
   });
 }
 
@@ -79,7 +143,7 @@ test("captionless legacy timings stay cardless at every frame", () => {
   );
 
   for (const frame of [0, 1, 71, 72, 239]) {
-    assert.equal(activeDocumentaryOverlay(frame, timings, [undefined]), undefined);
+    assert.equal(activeDocumentaryOverlay(frame, timings, [undefined], 240), undefined);
   }
 });
 
@@ -89,5 +153,5 @@ test("frames before the first canonical start have no overlay", () => {
     transitionScenes("crossfade", 0.4),
     FPS,
   );
-  assert.equal(activeDocumentaryOverlay(-1, timings, OVERLAYS), undefined);
+  assert.equal(activeDocumentaryOverlay(-1, timings, OVERLAYS, 240), undefined);
 });
