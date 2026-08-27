@@ -23,6 +23,7 @@ import {
     RenderScene,
 } from "./renderConfig";
 import {
+    activeDocumentaryOverlay,
     buildDocumentarySequenceTimings,
     documentaryTransitionOpacity,
 } from "./documentaryTransitions";
@@ -131,6 +132,23 @@ export const Scene: React.FC<SceneProps> = ({
     const segmentTimings = useMemo(() => {
         return buildDocumentarySequenceTimings(segments, renderScenes, fps);
     }, [segments, renderScenes, fps]);
+    const overlays = useMemo(() => renderScenes.map((rs) => (
+        rs.overlay ?? (
+            rs.caption_title
+                ? {
+                    kind: "identity" as const,
+                    title: rs.caption_title,
+                    body: rs.caption_sub ?? "",
+                    position: "bottom_left" as const,
+                }
+                : undefined
+        )
+    )), [renderScenes]);
+    const activeOverlay = activeDocumentaryOverlay(
+        frame,
+        segmentTimings,
+        overlays,
+    );
 
     // SFX fade duration in frames (0.3s)
     const SFX_FADE_FRAMES = Math.floor(fps * 0.3);
@@ -145,16 +163,6 @@ export const Scene: React.FC<SceneProps> = ({
                 const img = images[index];
                 // Match render_config entry by image_index (1-based)
                 const rs = renderScenes[index] as RenderScene | undefined;
-                const overlay: DocumentaryOverlay | undefined = rs?.overlay ?? (
-                    rs?.caption_title
-                        ? {
-                            kind: "identity",
-                            title: rs.caption_title,
-                            body: rs.caption_sub ?? "",
-                            position: "bottom_left",
-                        }
-                        : undefined
-                );
                 return (
                     <Sequence
                         key={timing.imageFile}
@@ -169,14 +177,6 @@ export const Scene: React.FC<SceneProps> = ({
                             transitionIn={rs?.transition_in}
                             transitionOut={rs?.transition_out}
                         />
-                        {overlay && (
-                            <DocumentaryInfoCard
-                                overlay={overlay}
-                                segmentDurationFrames={timing.durationFrames}
-                                transitionIn={rs?.transition_in}
-                                transitionOut={rs?.transition_out}
-                            />
-                        )}
                         {/* Per-image sound effect — plays for exactly the image duration */}
                         {img?.sfx && (
                             <ImageSfxAudio
@@ -189,6 +189,10 @@ export const Scene: React.FC<SceneProps> = ({
                     </Sequence>
                 );
             })}
+
+            {/* One fully readable global card selected from canonical image
+                start boundaries. Overlapping image Sequences never own cards. */}
+            {activeOverlay && <DocumentaryInfoCard overlay={activeOverlay} />}
 
             {/* Karaoke captions — word-level highlight synced to audio */}
             {/* Uses character-based chunking (max 38 chars) to prevent overflow */}
@@ -204,20 +208,7 @@ export const Scene: React.FC<SceneProps> = ({
 
 const DocumentaryInfoCard: React.FC<{
     overlay: DocumentaryOverlay;
-    segmentDurationFrames: number;
-    transitionIn?: Record<string, unknown>;
-    transitionOut?: Record<string, unknown>;
-}> = ({ overlay, segmentDurationFrames, transitionIn, transitionOut }) => {
-    const frame = useCurrentFrame();
-    const { fps } = useVideoConfig();
-    const opacity = documentaryTransitionOpacity(
-        frame,
-        segmentDurationFrames,
-        transitionIn,
-        transitionOut,
-        fps,
-    );
-
+}> = ({ overlay }) => {
     return (
         <div
             style={{
@@ -233,7 +224,7 @@ const DocumentaryInfoCard: React.FC<{
                 borderLeft: "7px solid #a88345",
                 boxShadow: "0 16px 40px rgba(0, 0, 0, 0.16)",
                 color: "#252525",
-                opacity,
+                opacity: 1,
                 fontFamily: "Georgia, 'Times New Roman', serif",
                 overflow: "hidden",
             }}

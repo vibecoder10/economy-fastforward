@@ -55,6 +55,19 @@ export const buildDocumentarySequenceTimings = (
     });
 };
 
+export const activeDocumentaryOverlay = <Overlay>(
+    absoluteFrame: number,
+    timings: DocumentarySequenceTiming[],
+    overlays: Array<Overlay | undefined>,
+): Overlay | undefined => {
+    let activeIndex = -1;
+    for (let index = 0; index < timings.length; index += 1) {
+        if (absoluteFrame < timings[index].startFrame) break;
+        activeIndex = index;
+    }
+    return activeIndex >= 0 ? overlays[activeIndex] : undefined;
+};
+
 const clampUnit = (value: number): number => Math.max(0, Math.min(1, value));
 
 export const documentaryTransitionOpacity = (
