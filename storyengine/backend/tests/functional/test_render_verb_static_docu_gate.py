@@ -27,9 +27,12 @@ fails OPEN into the old clip-count gate by design).
 Run: cd storyengine/backend && ./venv/bin/python -m pytest tests/functional/test_render_verb_static_docu_gate.py -q
 """
 import asyncio
+import json
 import os
 import sys
 from unittest.mock import patch
+
+import pytest
 
 _BACKEND = os.path.join(os.path.dirname(__file__), "..", "..")
 _PIPELINE_PATH = os.path.join(_BACKEND, "..", "..", "skills", "video-pipeline")
@@ -37,10 +40,51 @@ sys.path.insert(0, os.path.abspath(_BACKEND))
 sys.path.insert(0, os.path.abspath(_PIPELINE_PATH))
 
 import actions  # noqa: E402
+import render_static  # noqa: E402
+import routes.pipeline as pipeline_routes  # noqa: E402
 import status_map  # noqa: E402
 
 TENANT = "tenant-1"
 VIDEO = "video-1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("imported_count", [1, 2, 3])
+async def test_render_route_gate_requires_complete_never_built_handoff(
+    monkeypatch, imported_count,
+):
+    roles = ("three_quarter", "side_profile", "top_planform")
+
+    async def fake_fetch_all(query, *args):
+        if "FROM scripts" in query:
+            return [{
+                "scene": 1, "scene_text": "Paper carrier.",
+                "voice_over_url": "voice.mp3", "voice_duration_seconds": 8.0,
+            }]
+        return [{
+            "scene": 1, "image_index": index,
+            "image_url": f"https://storage.example/{role}.png"
+            if index <= imported_count else None,
+            "status": "done" if index <= imported_count
+            else "awaiting_chatgpt_generation",
+            "generation_method": "static_docu", "hero_shot": index == 1,
+            "transition_kind": None,
+            "caption": json.dumps({
+                "view_role": role,
+                "generation_source": "chatgpt_thread"
+                if index <= imported_count else None,
+                "design_study": True,
+                "reconstruction_style": "photorealistic",
+            }),
+        } for index, role in enumerate(roles, start=1)]
+
+    monkeypatch.setattr(render_static, "fetch_all", fake_fetch_all)
+    assert hasattr(pipeline_routes, "_static_render_blocker")
+    blocker = await pipeline_routes._static_render_blocker(VIDEO, TENANT)
+    if imported_count < 3:
+        assert blocker and "awaiting ChatGPT generation" in blocker
+    else:
+        assert blocker is None
 
 
 def _static_summary(**over):

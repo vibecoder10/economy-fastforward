@@ -13,6 +13,78 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import render_static  # noqa: E402
 
 
+def _never_built_rows(imported_count: int):
+    roles = ("three_quarter", "side_profile", "top_planform")
+    rows = []
+    for index, role in enumerate(roles, start=1):
+        imported = index <= imported_count
+        rows.append({
+            "scene": 1,
+            "image_index": index,
+            "image_url": f"https://storage.example/{role}.png" if imported else None,
+            "status": "done" if imported else "awaiting_chatgpt_generation",
+            "generation_method": "static_docu",
+            "hero_shot": index == 1,
+            "transition_kind": None,
+            "caption": json.dumps({
+                "title": "CVA-01 class",
+                "view_role": role,
+                "generation_source": "chatgpt_thread" if imported else None,
+                "design_study": True,
+                "reconstruction_style": "photorealistic",
+                "design_reference_url": "https://storage.example/design.png",
+                "design_source_url": "https://source.example/design",
+            }),
+        })
+    return rows
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("imported_count", [1, 2, 3])
+async def test_gather_never_built_requires_all_three_imported_roles(
+    monkeypatch, imported_count,
+):
+    async def fake_fetch_all(query, *args):
+        if "FROM scripts" in query:
+            return [{
+                "scene": 1,
+                "scene_text": "CVA-01 remained a paper carrier.",
+                "voice_over_url": "voice.mp3",
+                "voice_duration_seconds": 8.0,
+            }]
+        return _never_built_rows(imported_count)
+
+    monkeypatch.setattr(render_static, "fetch_all", fake_fetch_all)
+    if imported_count < 3:
+        with pytest.raises(RuntimeError, match="awaiting ChatGPT generation"):
+            await render_static._gather_segments("video", "tenant")
+    else:
+        segments = await render_static._gather_segments("video", "tenant")
+        assert [
+            image["caption"]["view_role"] for image in segments[0]["images"]
+        ] == ["three_quarter", "side_profile", "top_planform"]
+
+
+@pytest.mark.asyncio
+async def test_gather_never_built_rejects_incomplete_import_metadata(monkeypatch):
+    rows = _never_built_rows(3)
+    caption = json.loads(rows[1]["caption"])
+    caption.pop("generation_source")
+    rows[1]["caption"] = json.dumps(caption)
+
+    async def fake_fetch_all(query, *args):
+        if "FROM scripts" in query:
+            return [{
+                "scene": 1, "scene_text": "Paper project.",
+                "voice_over_url": "voice.mp3", "voice_duration_seconds": 8.0,
+            }]
+        return rows
+
+    monkeypatch.setattr(render_static, "fetch_all", fake_fetch_all)
+    with pytest.raises(RuntimeError, match="awaiting ChatGPT generation"):
+        await render_static._gather_segments("video", "tenant")
+
+
 def _channel_audio():
     spec = importlib.util.find_spec("channel_audio")
     assert spec is not None, "channel_audio module must define the fixed music-bed contract"

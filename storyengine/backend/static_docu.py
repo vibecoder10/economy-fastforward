@@ -2841,13 +2841,21 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             tenant_id, mkey,
         )
         roster_cached_photo = None
+        roster_cached_photo_verified: Optional[bool] = None
         if not cached_photo and roster_mkey and roster_mkey != mkey:
             roster_cached_photo = await fetch_one(
                 "SELECT hosted_url, source_url FROM static_reference_cache "
                 "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
                 tenant_id, roster_mkey,
             )
-        verified_photo_veto = bool(cached_photo or roster_cached_photo)
+            if roster_cached_photo:
+                roster_cached_photo_verified = await _vision_confirms(
+                    tenant_id, roster_cached_photo["hosted_url"], machine,
+                    sub.get("aliases"), trusted_source=True,
+                    facts=(roster_entry or {}).get("facts"),
+                    source_label=(roster_entry or {}).get("name"),
+                )
+        verified_photo_veto = bool(cached_photo or roster_cached_photo_verified)
         positional_roster_entry = (
             roster_entries[sc - 1]
             if roster_entries and 1 <= sc <= len(roster_entries)
@@ -2961,6 +2969,12 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             role = cap.get("view_role")
             if role not in current_roles:
                 continue
+            if verified_photo_veto and cap.get("design_study") is True:
+                # A verified historical photo that appeared after handoff
+                # creation invalidates every design reconstruction for this
+                # scene. Never let those imported rows satisfy the ordinary
+                # built/photo completion shortcut on resume.
+                continue
             if never_built and not (
                 cap.get("design_study") is True
                 and cap.get("reconstruction_style") == "photorealistic"
@@ -3073,6 +3087,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 cap["reconstruction_style"] = "photorealistic"
                 cap["sub"] = f"{_NEVER_BUILT_CAPTION_PREFIX} • {caption_sub}"
                 cap["handoff_marker"] = _NEVER_BUILT_CAPTION_PREFIX
+                cap["handoff_machine"] = machine
+                cap["handoff_machine_key"] = mkey
+                cap["handoff_aliases"] = list(sub.get("aliases") or [])
+                if roster_mkey:
+                    cap["handoff_roster_machine_key"] = roster_mkey
+                if roster_entry:
+                    cap["handoff_roster_name"] = roster_entry.get("name")
+                    cap["handoff_roster_facts"] = roster_entry.get("facts") or {}
                 if handoff_design_url:
                     cap["design_reference_url"] = handoff_design_url
                 if handoff_design_source:
@@ -3190,6 +3212,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # render-QA, download, or upload boundary can run.
         if never_built:
             late_roster_photo_verdicts: dict[tuple[str, str], bool] = {}
+            if (
+                roster_cached_photo
+                and roster_mkey
+                and roster_cached_photo_verified is not None
+            ):
+                late_roster_photo_verdicts[
+                    (roster_mkey, roster_cached_photo["hosted_url"])
+                ] = roster_cached_photo_verified
 
             async def _latest_handoff_photo() -> Optional[dict]:
                 keys = [mkey]
@@ -3630,11 +3660,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     await execute(
                         "UPDATE assets SET drive_image_url=$2 WHERE id=$1",
                         row_id, roster_hosted)
-                    if await _vision_confirms(
-                        tenant_id, roster_hosted, machine, sub.get("aliases"),
-                        trusted_source=True, facts=roster_entry.get("facts"),
-                        source_label=roster_entry["name"],
-                    ):
+                    roster_identity_ok = roster_cached_photo_verified
+                    if roster_identity_ok is None:
+                        roster_identity_ok = await _vision_confirms(
+                            tenant_id, roster_hosted, machine, sub.get("aliases"),
+                            trusted_source=True, facts=roster_entry.get("facts"),
+                            source_label=roster_entry["name"],
+                        )
+                    if roster_identity_ok:
                         ref_url, ref_src = roster_hosted, roster_cached["source_url"]
                         await execute(
                             _reference_cache_upsert_sql("photo"),
@@ -4182,12 +4215,25 @@ async def import_never_built_handoff_image(
 
     row = await fetch_one(
         "SELECT id, tenant_id, video_id, scene, status, image_url, caption, "
-        "image_prompt, drive_image_url FROM assets "
+        "image_prompt, drive_image_url, generation_method FROM assets "
         "WHERE id=$1 AND tenant_id=$2 AND video_id=$3",
         slot_id, tenant_id, video_id,
     )
     if not row:
         return {"status": "rejected", "reason": "slot_not_found"}
+
+    if row.get("status") == "done" and row.get("image_url"):
+        return {
+            "status": "already_imported",
+            "reason": "slot_already_imported",
+            "slot_id": slot_id,
+        }
+    if row.get("status") == "stale_design_reference":
+        return {
+            "status": "stale_design_photo_won",
+            "reason": "verified_photo_won",
+            "slot_id": slot_id,
+        }
 
     cap = row.get("caption")
     if isinstance(cap, str):
@@ -4197,6 +4243,7 @@ async def import_never_built_handoff_image(
             cap = None
     valid_slot = (
         row.get("scene") == scene
+        and row.get("generation_method") == STATIC_RENDER_MODE
         and row.get("status") == "awaiting_chatgpt_generation"
         and not row.get("image_url")
         and isinstance(cap, dict)
@@ -4214,20 +4261,73 @@ async def import_never_built_handoff_image(
     if not valid_slot:
         return {"status": "rejected", "reason": "slot_mismatch_or_complete"}
 
+    # A historical photo may arrive after the handoff package was created.
+    # Re-read both cache identities at the last safe point before claiming
+    # the slot. The exact scene key is authoritative directly; the roster
+    # alias remains only a lead and must pass the same identity verifier used
+    # by the established roster-cache path.
+    scene_key = cap.get("handoff_machine_key") or _machine_key(
+        cap.get("handoff_machine") or cap.get("title") or ""
+    )
+    roster_key = cap.get("handoff_roster_machine_key")
+    photo_winner = await fetch_one(
+        "SELECT hosted_url, source_url FROM static_reference_cache "
+        "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
+        tenant_id, scene_key,
+    )
+    if not photo_winner and roster_key and roster_key != scene_key:
+        roster_photo = await fetch_one(
+            "SELECT hosted_url, source_url FROM static_reference_cache "
+            "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
+            tenant_id, roster_key,
+        )
+        if roster_photo and await _vision_confirms(
+            tenant_id,
+            roster_photo["hosted_url"],
+            cap.get("handoff_machine") or cap.get("title") or "",
+            cap.get("handoff_aliases") or None,
+            trusted_source=True,
+            facts=cap.get("handoff_roster_facts") or None,
+            source_label=cap.get("handoff_roster_name") or None,
+        ):
+            photo_winner = roster_photo
+    if photo_winner:
+        await execute(
+            "UPDATE assets SET status='stale_design_reference' "
+            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+            "AND generation_method=$4 "
+            "AND status='awaiting_chatgpt_generation'",
+            video_id, tenant_id, scene, STATIC_RENDER_MODE,
+        )
+        return {
+            "status": "stale_design_photo_won",
+            "reason": "verified_photo_won",
+            "slot_id": slot_id,
+            "photo_url": photo_winner["hosted_url"],
+        }
+
     imported_caption = dict(cap)
     imported_caption.update({
         "generation_source": "chatgpt_thread",
         "design_study": True,
         "reconstruction_style": "photorealistic",
     })
-    await execute(
+    claimed = await fetch_one(
         "UPDATE assets SET image_url=$5, drive_image_url=$5, status='done', "
         "caption=$6, image_model='chatgpt-thread' "
         "WHERE id=$1 AND tenant_id=$2 AND video_id=$3 AND scene=$4 "
-        "AND status='awaiting_chatgpt_generation' AND image_url IS NULL",
+        "AND status='awaiting_chatgpt_generation' AND image_url IS NULL "
+        "AND caption->>'view_role'=$7 AND generation_method=$8 "
+        "RETURNING id, status",
         slot_id, tenant_id, video_id, scene, hosted_image_url,
-        json.dumps(imported_caption),
+        json.dumps(imported_caption), view_role, STATIC_RENDER_MODE,
     )
+    if not claimed:
+        return {
+            "status": "already_imported",
+            "reason": "slot_claim_lost",
+            "slot_id": slot_id,
+        }
     return {
         "status": "imported",
         "slot_id": slot_id,

@@ -2579,6 +2579,17 @@ async def run_thumbnail(
     return PipelineResponse(video_id=video_id, status="running", message="Thumbnail generation started")
 
 
+async def _static_render_blocker(video_id: str, tenant_id: str) -> Optional[str]:
+    """Return the render-side prerequisite error, if any, without rendering."""
+    from render_static import _gather_segments
+
+    try:
+        await _gather_segments(video_id, tenant_id)
+    except RuntimeError as exc:
+        return str(exc)
+    return None
+
+
 @router.post("/render/{video_id}", response_model=PipelineResponse)
 async def run_render(
     video_id: str,
@@ -2603,24 +2614,18 @@ async def run_render(
 
     _require_stage_enabled(video, "render")
 
+    if (video.get("render_mode") or "") == "static_docu":
+        static_blocker = await _static_render_blocker(video_id, tenant_id)
+        if static_blocker:
+            raise HTTPException(status_code=400, detail=static_blocker)
+
     # Render whatever's been generated: a stitch only needs clips to exist. Allow it
     # once the video is at/past ready_to_render OR any clips have been generated (so a
     # partially-animated video can be stitched into a final from the clips it has).
     # Static documentaries have no clips ever — they need images + narration instead.
     if not is_at_or_past_stage(video["status"], "ready_to_render"):
         if (video.get("render_mode") or "") == "static_docu":
-            ready = await fetch_one(
-                "SELECT (SELECT count(*) FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-                "        AND image_url IS NOT NULL) AS imgs, "
-                "       (SELECT count(*) FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
-                "        AND voice_over_url IS NOT NULL) AS voiced",
-                video_id, tenant_id,
-            )
-            if not (ready and ready["imgs"] > 0 and ready["voiced"] > 0):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Static render needs the images and the voiceover first (status: {video['status']})",
-                )
+            pass  # exact narration/view readiness was checked above
         else:
             clip_row = await fetch_one(
                 "SELECT count(*) AS n FROM assets "

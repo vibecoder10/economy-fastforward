@@ -34,6 +34,7 @@ import tempfile
 from pathlib import Path
 
 from database import fetch_all
+from static_docu_contract import NEVER_BUILT_VIEW_ROLES
 from storage import upload_bytes, download_bytes
 from story_laws import strip_scene_stage_headers
 from render_stitch import (
@@ -134,9 +135,11 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
             "put the voiceover under the images)."
         )
     images = await fetch_all(
-        "SELECT scene, image_index, image_url, generation_method, hero_shot, caption, "
-        "transition_kind "
-        "FROM assets WHERE video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL "
+        "SELECT scene, image_index, image_url, status, generation_method, hero_shot, "
+        "caption, transition_kind "
+        "FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "AND (image_url IS NOT NULL OR status IN "
+        "('awaiting_chatgpt_generation','stale_design_reference')) "
         "ORDER BY scene, image_index",
         video_id, tenant_id,
     )
@@ -154,15 +157,51 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
 
     def _pick_many(scene: int) -> list[dict]:
         rows = by_scene.get(scene) or []
+        design_rows = []
+        for row in rows:
+            if row.get("generation_method") != "static_docu":
+                continue
+            cap = _parse_caption(row.get("caption"))
+            if cap and (
+                cap.get("design_study") is True
+                or cap.get("generation_source") == "chatgpt_thread"
+                or cap.get("handoff_marker") == "Design study — never built"
+            ):
+                design_rows.append((row, cap))
+        if design_rows:
+            approved_by_role = {}
+            invalid = False
+            for row, cap in design_rows:
+                role = cap.get("view_role")
+                valid = (
+                    role in NEVER_BUILT_VIEW_ROLES
+                    and role not in approved_by_role
+                    and row.get("status") == "done"
+                    and bool(row.get("image_url"))
+                    and cap.get("generation_source") == "chatgpt_thread"
+                    and cap.get("design_study") is True
+                    and cap.get("reconstruction_style") == "photorealistic"
+                )
+                if not valid:
+                    invalid = True
+                    continue
+                approved_by_role[role] = row
+            if invalid or set(approved_by_role) != set(NEVER_BUILT_VIEW_ROLES):
+                raise RuntimeError(
+                    f"Scene {scene} is awaiting ChatGPT generation — all three "
+                    "approved Never-Built views are required before render."
+                )
+            return [approved_by_role[role] for role in NEVER_BUILT_VIEW_ROLES]
         static_rows = [
-            r for r in rows if r.get("generation_method") == "static_docu"
+            r for r in rows
+            if r.get("generation_method") == "static_docu" and r.get("image_url")
         ][:3]
         if static_rows:
             return static_rows
         for r in rows:
-            if r.get("hero_shot"):
+            if r.get("hero_shot") and r.get("image_url"):
                 return [r]
-        return rows[:1]
+        return [r for r in rows if r.get("image_url")][:1]
 
     segments = []
     missing = []

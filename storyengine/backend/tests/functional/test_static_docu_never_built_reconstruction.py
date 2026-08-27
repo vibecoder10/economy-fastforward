@@ -74,6 +74,15 @@ def _environment(
         env["queries"].append(query)
         if "FROM videos" in query:
             return dict(video)
+        if query.lstrip().startswith("UPDATE assets SET image_url=$5"):
+            row = env["assets"].get(args[0])
+            if not row or row.get("status") != "awaiting_chatgpt_generation":
+                return None
+            row.update(
+                image_url=args[4], drive_image_url=args[4], status="done",
+                caption=args[5],
+            )
+            return {"id": args[0], "status": "done"}
         if "FROM assets" in query and args:
             row = env["assets"].get(args[0])
             if not row:
@@ -152,6 +161,10 @@ def _environment(
             row = env["assets"].setdefault(args[0], {})
             row.update(status="blocked_no_reference", image_url=None,
                        drive_image_url=None)
+        elif "UPDATE assets SET status='stale_design_reference'" in query:
+            for row in env["assets"].values():
+                if row.get("scene") == args[2] and row.get("status") == "awaiting_chatgpt_generation":
+                    row["status"] = "stale_design_reference"
         elif "DELETE FROM assets WHERE video_id=" in query:
             env["assets"].clear()
         elif "DELETE FROM assets WHERE id=" in query:
@@ -793,7 +806,165 @@ async def test_handoff_import_rejects_wrong_owner_role_and_duplicate(monkeypatch
         hosted_image_url="https://storage.example/result-2.png",
     )
     assert accepted["status"] == "imported"
-    assert duplicate["status"] == "rejected"
+    assert duplicate["status"] == "already_imported"
+
+
+@pytest.mark.asyncio
+async def test_handoff_import_uses_atomic_claim_and_reports_duplicate(monkeypatch):
+    env = _environment(monkeypatch)
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    package = pending["handoff_packages"][0]
+
+    first = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/first.png",
+    )
+    second = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/loser.png",
+    )
+
+    atomic_claims = [
+        query for query in env["queries"]
+        if query.lstrip().startswith("UPDATE assets SET image_url=$5")
+        and "RETURNING" in query
+    ]
+    assert first["status"] == "imported"
+    assert second["status"] == "already_imported"
+    assert len(atomic_claims) == 1
+    assert env["assets"][package["slot_id"]]["image_url"].endswith("first.png")
+
+
+@pytest.mark.asyncio
+async def test_handoff_import_concurrent_claim_loser_is_not_reported_imported(monkeypatch):
+    env = _environment(monkeypatch)
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    package = pending["handoff_packages"][0]
+    original_fetch_one = env["fake_fetch_one"]
+
+    async def concurrent_winner(query, *args):
+        if query.lstrip().startswith("UPDATE assets SET image_url=$5"):
+            env["queries"].append(query)
+            return None
+        return await original_fetch_one(query, *args)
+
+    monkeypatch.setattr(static_docu, "fetch_one", concurrent_winner)
+    result = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/concurrent-loser.png",
+    )
+
+    assert result["status"] == "already_imported"
+    assert env["assets"][package["slot_id"]]["image_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_photo_arriving_after_handoff_rejects_stale_imports_and_wins_resume(
+    monkeypatch,
+):
+    env = _environment(
+        monkeypatch,
+        generated_urls=("gen://photo-a", "gen://photo-b", "gen://photo-c"),
+    )
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    photo = {
+        "hosted_url": "https://storage.example/late-historical-photo.jpg",
+        "source_url": "https://source.example/late-historical-photo",
+    }
+    original_fetch_one = env["fake_fetch_one"]
+    scene_key = static_docu._machine_key("CVA-01 class")
+
+    async def photo_now_wins(query, *args):
+        if (
+            "FROM static_reference_cache" in query
+            and "reference_kind='photo'" in query
+            and len(args) > 1 and args[1] == scene_key
+        ):
+            return dict(photo)
+        return await original_fetch_one(query, *args)
+
+    async def photo_render_matches(*args, reason_out=None, **kwargs):
+        if reason_out is not None:
+            reason_out.append("same machine")
+        return True
+
+    monkeypatch.setattr(static_docu, "fetch_one", photo_now_wins)
+    monkeypatch.setattr(static_docu, "_render_matches_reference", photo_render_matches)
+
+    import_results = []
+    for package in pending["handoff_packages"]:
+        import_results.append(await static_docu.import_never_built_handoff_image(
+            tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+            slot_id=package["slot_id"], view_role=package["view_role"],
+            hosted_image_url=f"https://storage.example/stale-{package['view_role']}.png",
+        ))
+
+    resumed = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert {result["status"] for result in import_results} == {
+        "stale_design_photo_won"
+    }
+    assert resumed["status"] == "completed"
+    assert len(env["gen_calls"]) == 3
+    assert env["gen_calls"][0][1] == photo["hosted_url"]
+    for _row, caption in _rows_by_role(env).values():
+        assert caption.get("design_study") is not True
+
+
+@pytest.mark.asyncio
+async def test_rejected_roster_alias_photo_after_handoff_keeps_design_path(monkeypatch):
+    env = _environment(monkeypatch)
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    original_fetch_one = env["fake_fetch_one"]
+    roster_key = _cache_key_for(_CVA01_CLASS)
+    roster_photo = "https://storage.example/wrong-roster-variant.jpg"
+
+    async def roster_photo_exists(query, *args):
+        if (
+            "FROM static_reference_cache" in query
+            and "reference_kind='photo'" in query
+            and len(args) > 1 and args[1] == roster_key
+        ):
+            return {
+                "hosted_url": roster_photo,
+                "source_url": "https://source.example/wrong-roster-variant",
+            }
+        return await original_fetch_one(query, *args)
+
+    identity_calls = []
+
+    async def reject_roster_identity(*args, **kwargs):
+        identity_calls.append((args, kwargs))
+        return False
+
+    async def no_photo_candidates(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(static_docu, "fetch_one", roster_photo_exists)
+    monkeypatch.setattr(static_docu, "_vision_confirms", reject_roster_identity)
+    monkeypatch.setattr(static_docu, "_gather_reference_candidates", no_photo_candidates)
+
+    package = pending["handoff_packages"][0]
+    imported = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/approved-design-view.png",
+    )
+    resumed = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert imported["status"] == "imported"
+    assert resumed["status"] == "awaiting_chatgpt_generation"
+    assert env["gen_calls"] == []
+    assert identity_calls
 
 
 @pytest.mark.asyncio
