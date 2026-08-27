@@ -643,3 +643,54 @@ async def test_rejected_late_roster_photo_keeps_verified_design(monkeypatch):
     assert call["facts"]
     for _row, caption in _rows_by_role(env).values():
         assert caption["design_study"] is True
+
+
+@pytest.mark.asyncio
+async def test_rejected_late_roster_photo_verdict_is_stable_within_scene(monkeypatch):
+    env = _environment(
+        monkeypatch,
+        generated_urls=("gen://a", "gen://b", "gen://c"),
+    )
+    original_fetch_one = env["fake_fetch_one"]
+    roster_key = _cache_key_for(_CVA01_CLASS)
+    roster_reads = 0
+    late_photo = "https://storage.example/persistent-wrong-variant.jpg"
+
+    async def racing_fetch_one(query, *args):
+        nonlocal roster_reads
+        if ("FROM static_reference_cache" in query
+                and "reference_kind='photo'" in query
+                and len(args) > 1 and args[1] == roster_key):
+            roster_reads += 1
+            # Absent during the initial classifier veto read, then persistent
+            # for every authoritative late-photo read in this scene run.
+            if roster_reads >= 2:
+                return {
+                    "hosted_url": late_photo,
+                    "source_url": "https://source.example/persistent-wrong-variant",
+                }
+        return await original_fetch_one(query, *args)
+
+    verifier_outcomes = [False, True]
+    identity_calls = []
+
+    async def nondeterministic_identity(
+        tenant_arg, image_url, machine, aliases=None, trusted_source=False,
+        facts=None, source_label=None,
+    ):
+        identity_calls.append((image_url, source_label))
+        return verifier_outcomes.pop(0)
+
+    monkeypatch.setattr(static_docu, "fetch_one", racing_fetch_one)
+    monkeypatch.setattr(static_docu, "_vision_confirms", nondeterministic_identity)
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert len(identity_calls) == 1
+    assert identity_calls[0][0] == late_photo
+    assert env["gen_calls"][0][1] == "https://storage.example/cva01-design.png"
+    assert all(ref != late_photo for _prompt, ref in env["gen_calls"])
+    for _row, caption in _rows_by_role(env).values():
+        assert caption["design_study"] is True

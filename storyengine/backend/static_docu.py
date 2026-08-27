@@ -3206,6 +3206,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         #    unset and the verified-design branch resolves its own reference.
         ref_url = None
         ref_src = None
+        late_roster_photo_verdicts: dict[tuple[str, str], bool] = {}
 
         async def _latest_verified_photo() -> Optional[dict]:
             """Re-check both scene and roster identities; either photo wins."""
@@ -3225,12 +3226,17 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         # photo is this scene's exact variant. Apply the same
                         # trusted roster-cache identity check as the ordinary
                         # photo path before allowing it to veto reconstruction.
-                        if not await _vision_confirms(
-                            tenant_id, row["hosted_url"], machine,
-                            sub.get("aliases"), trusted_source=True,
-                            facts=(roster_entry or {}).get("facts"),
-                            source_label=(roster_entry or {}).get("name"),
-                        ):
+                        verdict_key = (cache_key, row["hosted_url"])
+                        if verdict_key not in late_roster_photo_verdicts:
+                            late_roster_photo_verdicts[verdict_key] = (
+                                await _vision_confirms(
+                                    tenant_id, row["hosted_url"], machine,
+                                    sub.get("aliases"), trusted_source=True,
+                                    facts=(roster_entry or {}).get("facts"),
+                                    source_label=(roster_entry or {}).get("name"),
+                                )
+                            )
+                        if not late_roster_photo_verdicts[verdict_key]:
                             continue
                     return {**row, "reference_kind": "photo"}
             return None
