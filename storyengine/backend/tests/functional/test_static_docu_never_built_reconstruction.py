@@ -17,7 +17,11 @@ import static_docu  # noqa: E402
 import shared.clients.image_client as image_client_mod  # noqa: E402,F401
 from static_docu_contract import NEVER_BUILT_VIEW_PLANS, STATIC_VIEW_PLANS  # noqa: E402
 from test_static_docu_qa_park import _ClientCM, _FakeDownloadResp  # noqa: E402
-from test_static_docu_roster_reference_layer import _CVA01_CLASS, _video_row  # noqa: E402
+from test_static_docu_roster_reference_layer import (  # noqa: E402
+    _CVA01_CLASS,
+    _cache_key_for,
+    _video_row,
+)
 
 
 def _environment(
@@ -29,8 +33,11 @@ def _environment(
     cached_kind=None,
     cached_url=None,
     design_verified=True,
+    design_candidates=None,
+    design_verdicts=(),
     geometry_verdicts=(),
     photoreal_verdicts=(),
+    role_verdicts_by_url=None,
     existing_assets=(),
 ):
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
@@ -48,6 +55,7 @@ def _environment(
         "design_checks": [],
         "geometry_checks": [],
         "photoreal_checks": [],
+        "role_checks": [],
         "uploads": [],
         "ledger": [],
         "stored_reference": None,
@@ -152,14 +160,20 @@ def _environment(
         return "fake-key" if name == "kie_ai_api_key" else None
 
     async def fake_design_candidates(machine, aliases, search_query):
+        if design_candidates is not None:
+            return list(design_candidates)
         return [(design_candidate, "File:CVA-01 three-view design.png")] if design_candidate else []
 
+    remaining_design_verdicts = list(design_verdicts)
+
     async def fake_host_reference(url, video_arg, tenant_arg, tag):
-        return design_url
+        return design_url if design_candidates is None else f"https://storage.example/{tag}.png"
 
     async def fake_design_confirms(tenant_arg, image_url, machine, aliases=None,
                                    facts=None, source_label=None):
         env["design_checks"].append((image_url, machine, source_label))
+        if remaining_design_verdicts:
+            return remaining_design_verdicts.pop(0)
         return design_verified
 
     remaining_urls = list(generated_urls)
@@ -188,10 +202,13 @@ def _environment(
             reason_out.append("full-size photograph" if verdict else "flat CGI model")
         return verdict
 
-    async def fake_role(*args, reason_out=None, **kwargs):
+    async def fake_role(tenant_arg, image_url, machine, view_plan,
+                        reason_out=None, **kwargs):
+        env["role_checks"].append(image_url)
+        verdict = (role_verdicts_by_url or {}).get(image_url, True)
         if reason_out is not None:
-            reason_out.append("correct angle")
-        return True
+            reason_out.append("correct angle" if verdict else "wrong angle")
+        return verdict
 
     class FakeHttp:
         async def get(self, url, **kwargs):
@@ -434,3 +451,116 @@ async def test_photo_winner_during_design_verification_routes_to_photo_path(
     for _row, caption in _rows_by_role(env).values():
         assert "design_study" not in caption
         assert "reconstruction_style" not in caption
+
+
+@pytest.mark.asyncio
+async def test_all_qa_shares_one_paid_retry_ceiling(monkeypatch):
+    env = _environment(
+        monkeypatch,
+        generated_urls=(
+            "gen://bad-quality", "gen://bad-angle", "gen://good-two",
+            "gen://good-three", "gen://must-not-run",
+        ),
+        photoreal_verdicts=(False, True, True, True),
+        role_verdicts_by_url={"gen://bad-quality": True, "gen://bad-angle": False},
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"  # generic 2-view recovery
+    assert len(env["gen_calls"]) == 4
+    assert len(env["ledger"]) == 4
+    parked = [row for row in env["assets"].values() if row.get("status") == "qa_rejected"]
+    assert len(parked) == 1
+    assert "wrong angle" in parked[0]["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_unusable_article_design_falls_back_to_valid_commons_design(monkeypatch):
+    article = ("https://article.example/unusable.png", "article concept")
+    commons = ("https://commons.example/exact-three-view.png", "exact three-view")
+    env = _environment(
+        monkeypatch,
+        design_candidates=(article, commons),
+        design_verdicts=(False, True),
+        generated_urls=("gen://a", "gen://b", "gen://c"),
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert [call[2] for call in env["design_checks"]] == [article[1], commons[1]]
+    assert len(env["gen_calls"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_design_candidate_gather_keeps_commons_after_article_sources(monkeypatch):
+    async def lead(_names):
+        return [{"url": "article://lead", "page": "CVA-01"}]
+
+    async def article(_names):
+        return [{"url": "article://three-view", "file_title": "CVA-01 drawing"}]
+
+    async def commons(_query):
+        return [{"url": "commons://exact", "title": "CVA-01 exact three-view"}]
+
+    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", lead)
+    monkeypatch.setattr(static_docu, "find_article_images", article)
+    monkeypatch.setattr(static_docu, "find_commons_photos", commons)
+
+    candidates = await static_docu._gather_design_reference_candidates(
+        "CVA-01 class", ["CVA-01"], "CVA-01 design")
+    assert candidates == [
+        ("article://lead", "CVA-01"),
+        ("article://three-view", "CVA-01 drawing"),
+        ("commons://exact", "CVA-01 exact three-view"),
+    ]
+
+
+@pytest.mark.parametrize("design_source", ["cached", "fresh"])
+@pytest.mark.asyncio
+async def test_late_roster_key_photo_wins_over_design(monkeypatch, design_source):
+    kwargs = {
+        "generated_urls": ("gen://a", "gen://b", "gen://c"),
+    }
+    if design_source == "cached":
+        kwargs.update(
+            cached_kind="design",
+            cached_url="https://storage.example/cached-design.png",
+        )
+    env = _environment(monkeypatch, **kwargs)
+    original_fetch_one = env["fake_fetch_one"]
+    roster_key = _cache_key_for(_CVA01_CLASS)
+    roster_photo_reads = 0
+    photo = {
+        "hosted_url": "https://storage.example/late-roster-photo.jpg",
+        "source_url": "https://source.example/late-roster-photo",
+    }
+
+    async def racing_fetch_one(query, *args):
+        nonlocal roster_photo_reads
+        if ("FROM static_reference_cache" in query
+                and "reference_kind='photo'" in query
+                and len(args) > 1 and args[1] == roster_key):
+            roster_photo_reads += 1
+            if roster_photo_reads == 2:
+                return dict(photo)
+        return await original_fetch_one(query, *args)
+
+    async def photo_render_matches(*args, reason_out=None, **kwargs):
+        if reason_out is not None:
+            reason_out.append("same machine")
+        return True
+
+    monkeypatch.setattr(static_docu, "fetch_one", racing_fetch_one)
+    monkeypatch.setattr(static_docu, "_render_matches_reference", photo_render_matches)
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert env["gen_calls"][0][1] == photo["hosted_url"]
+    for _row, caption in _rows_by_role(env).values():
+        assert "design_study" not in caption

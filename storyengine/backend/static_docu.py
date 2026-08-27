@@ -1532,9 +1532,12 @@ async def _gather_design_reference_candidates(
         _add(item.get("url"), item.get("page") or "machine article lead")
     for item in await find_article_images(names):
         _add(item.get("url"), item.get("file_title") or "machine article image")
-    if not candidates:
-        for item in await find_commons_photos(search_query or f"{machine} design drawing"):
-            _add(item.get("url"), item.get("title") or "exact design search")
+    # Article/source media is tried first, but its mere existence says
+    # nothing about exact-design identity or usable geometry. Always append
+    # Commons fallback candidates so verification success—not candidate
+    # presence—decides whether the search is exhausted.
+    for item in await find_commons_photos(search_query or f"{machine} design drawing"):
+        _add(item.get("url"), item.get("title") or "exact design search")
     return candidates
 
 
@@ -3203,6 +3206,33 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         #    unset and the verified-design branch resolves its own reference.
         ref_url = None
         ref_src = None
+
+        async def _latest_verified_photo() -> Optional[dict]:
+            """Re-check both scene and roster identities; either photo wins."""
+            keys = [mkey]
+            if roster_mkey and roster_mkey != mkey:
+                keys.append(roster_mkey)
+            for cache_key in keys:
+                row = await fetch_one(
+                    "SELECT hosted_url, source_url FROM static_reference_cache "
+                    "WHERE tenant_id=$1 AND machine_key=$2 "
+                    "AND reference_kind='photo'",
+                    tenant_id, cache_key,
+                )
+                if row:
+                    return {**row, "reference_kind": "photo"}
+            return None
+
+        async def _adopt_photo_winner(photo: dict) -> None:
+            """Switch an already-started design scene onto the built path."""
+            nonlocal never_built, ref_url, ref_src
+            ref_url, ref_src = photo["hosted_url"], photo.get("source_url")
+            never_built = False
+            await execute(
+                "UPDATE assets SET caption=$2 WHERE id=$1",
+                row_id, json.dumps(_caption(first_plan)),
+            )
+
         if never_built:
             _p(f"Segment {sc}: {machine} was never built — locating a verified "
                "design reference for a photoreal reconstruction.")
@@ -3233,18 +3263,12 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         source_label=source_label,
                     ):
                         continue
-                    # Re-read immediately before the design upsert. A photo
-                    # may have been seeded while the source was being checked;
-                    # it wins, and the design must not replace it.
-                    late_photo = await fetch_one(
-                        "SELECT hosted_url, source_url FROM static_reference_cache "
-                        "WHERE tenant_id=$1 AND machine_key=$2 "
-                        "AND reference_kind='photo'",
-                        tenant_id, mkey,
-                    )
+                    # A photo may have been seeded under either the scene key
+                    # or its roster alias while design verification ran.
+                    late_photo = await _latest_verified_photo()
                     winner = None
                     if late_photo:
-                        winner = {**late_photo, "reference_kind": "photo"}
+                        winner = late_photo
                     else:
                         await execute(
                             _reference_cache_upsert_sql("design"),
@@ -3263,19 +3287,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         continue
                     ref_url, ref_src = winner["hosted_url"], winner.get("source_url")
                     if winner.get("reference_kind") == "photo":
-                        # Classification changed after the first placeholder
-                        # was inserted. Route through the ordinary photo path
-                        # and remove design-study metadata from that row;
-                        # later placeholders read the now-false flag directly.
-                        never_built = False
-                        await execute(
-                            "UPDATE assets SET caption=$2 WHERE id=$1",
-                            row_id, json.dumps(_caption(first_plan)),
-                        )
+                        await _adopt_photo_winner(winner)
                     elif winner.get("reference_kind") != "design":
                         ref_url = ref_src = None
                         continue
                     break
+            # Cached designs and freshly stored winners share this final
+            # authority check. A late photo under either identity always
+            # routes the ordinary built/photo path.
+            if never_built and ref_url:
+                late_photo = await _latest_verified_photo()
+                if late_photo:
+                    await _adopt_photo_winner(late_photo)
             if not ref_url:
                 _p(f"Segment {sc}: no verified design reference found for the "
                    f"{machine} — scene BLOCKED (no model-memory guess).")
@@ -3490,7 +3513,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 model="gpt-image-2", units=1, unit_cost=quote, actual_cost=quote,
             )
 
-            async def _passes_reconstruction_qa(
+            async def _passes_all_qa(
                 candidate_url: str, qa_events: list,
             ) -> bool:
                 geometry_reason: list = []
@@ -3506,25 +3529,34 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 if not photoreal_ok and photoreal_reason:
                     qa_events.append(("photoreal", photoreal_reason[0]))
-                return geometry_ok and photoreal_ok
+                role_reason: list = []
+                role_ok = await _view_role_confirms(
+                    tenant_id, candidate_url, machine, view_plan,
+                    reason_out=role_reason,
+                )
+                if not role_ok and role_reason:
+                    qa_events.append(("role", role_reason[0]))
+                return geometry_ok and photoreal_ok and role_ok
 
             qa_note = ""
-            reconstruction_events: list = []
-            if not await _passes_reconstruction_qa(url, reconstruction_events):
+            qa_events: list = []
+            if not await _passes_all_qa(url, qa_events):
                 _p(
-                    f"Segment {sc}, view {view_index}: render drifted from the "
-                    f"verified design or is not convincingly photoreal "
-                    "— one retry…"
+                    f"Segment {sc}, view {view_index}: one or more geometry, "
+                    "photoreal, or role checks failed — one bounded retry…"
                 )
                 retry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's QA retry")
                 url2 = None
+                retry_prompt = _never_built_reconstruction_prompt(
+                    machine, view_plan, grounding_facts,
+                    emphasize_geometry=True, from_anchor=use_anchor)
                 if retry_refusal:
                     _p(f"Segment {sc}, view {view_index}: {retry_refusal} — "
                        "keeping the first render unretried.")
                 else:
                     res = await ic.generate_scene_image_gpt(
-                        prompt, generation_input, aspect_ratio=v["aspect"],
+                        retry_prompt, generation_input, aspect_ratio=v["aspect"],
                         allow_fallback=False, resolution="1K",
                     )
                     url2 = (res or {}).get("url")
@@ -3534,70 +3566,15 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                             model="gpt-image-2", units=1, unit_cost=quote,
                             actual_cost=quote,
                         )
-                if url2 and await _passes_reconstruction_qa(url2, reconstruction_events):
+                if url2 and await _passes_all_qa(url2, qa_events):
                     url = url2
+                    prompt = retry_prompt
+                    qa_note = "[qa: bounded retry] "
                 else:
                     await _park_reconstruction(
-                        url2 or url, prompt, qa_events=reconstruction_events)
-                    return False
-
-            # Role-conformance QA (unchanged): side elevation reads side-on;
-            # plan reads top-down. Same judge, same retry shape as the photo
-            # path — geometry is geometry whether the pixels are a photo or
-            # a line drawing.
-            role_qa_events: list = []
-            first_role_reason: list = []
-            if not await _view_role_confirms(
-                tenant_id, url, machine, view_plan, reason_out=first_role_reason
-            ):
-                if first_role_reason:
-                    role_qa_events.append(("role", first_role_reason[0]))
-                _p(
-                    f"Segment {sc}, view {view_index}: view does not match "
-                    f"its {view_plan['label']} role — one retry with "
-                    "stronger geometry wording…"
-                )
-                geometry_prompt = _never_built_reconstruction_prompt(
-                    machine, view_plan, grounding_facts,
-                    emphasize_geometry=True, from_anchor=use_anchor)
-                geometry_refusal = await budget_refusal(
-                    tenant_id, video_id, quote, "this view's role-conformance retry")
-                role_retry_url = None
-                if geometry_refusal:
-                    _p(f"Segment {sc}, view {view_index}: {geometry_refusal} — "
-                       "keeping the first render unretried.")
-                else:
-                    res = await ic.generate_scene_image_gpt(
-                        geometry_prompt, generation_input, aspect_ratio=v["aspect"],
-                        allow_fallback=False, resolution="1K",
-                    )
-                    role_retry_url = (res or {}).get("url")
-                    if role_retry_url:
-                        await record_ledger_entry(
-                            tenant_id=tenant_id, video_id=video_id, stage="image",
-                            model="gpt-image-2", units=1, unit_cost=quote,
-                            actual_cost=quote,
-                        )
-                second_role_reason: list = []
-                role_retry_ok = False
-                if role_retry_url:
-                    role_retry_ok = await _view_role_confirms(
-                        tenant_id, role_retry_url, machine, view_plan,
-                        reason_out=second_role_reason,
-                    )
-                    if not role_retry_ok and second_role_reason:
-                        role_qa_events.append(("role", second_role_reason[0]))
-                style_retry_ok = role_retry_ok and await _passes_reconstruction_qa(
-                    role_retry_url, role_qa_events)
-                if role_retry_url and role_retry_ok and style_retry_ok:
-                    url = role_retry_url
-                    prompt = geometry_prompt
-                    qa_note += "[qa: role-conformance retry] "
-                else:
-                    await _park_reconstruction(
-                        role_retry_url or url,
-                        geometry_prompt if role_retry_url else prompt,
-                        qa_events=role_qa_events,
+                        url2 or url,
+                        retry_prompt if url2 else prompt,
+                        qa_events=qa_events,
                     )
                     return False
 

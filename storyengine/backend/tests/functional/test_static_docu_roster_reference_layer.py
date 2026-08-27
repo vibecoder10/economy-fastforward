@@ -658,6 +658,8 @@ async def test_roster_entry_matched_never_built_uses_verified_design_reference(
         ("photo", static_docu._machine_key("CVA-01")),
         ("photo", _cache_key_for(_CVA01_CLASS)),
         ("design", static_docu._machine_key("CVA-01")),
+        ("photo", static_docu._machine_key("CVA-01")),
+        ("photo", _cache_key_for(_CVA01_CLASS)),
     ]
     # The run only stops at the SAME budget-cap stub every other test here
     # uses — reference resolution is not the reason it stopped.
