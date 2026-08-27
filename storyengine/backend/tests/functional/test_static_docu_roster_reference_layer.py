@@ -396,7 +396,9 @@ def _install_common_fakes(monkeypatch, video_row, scene_text, machine, aliases=N
         if "INSERT INTO assets" in query:
             row_id = args[0]
             db_rows["assets"][row_id] = {
-                "status": "generating", "image_url": None, "drive_image_url": None,
+                "status": args[13], "image_url": None,
+                "drive_image_url": args[12], "image_prompt": args[14],
+                "caption": args[11],
             }
         elif "UPDATE assets SET drive_image_url" in query:
             row_id, val = args[0], args[1]
@@ -619,14 +621,12 @@ async def test_roster_entry_matched_never_built_uses_verified_design_reference(
     scene stayed permanently blocked_no_reference, because
     prefetch_roster_references never even attempts a photo lookup for a
     never-built machine and the ordinary web hunt (Wikipedia/Commons) can
-    never find one either. Route it to the verified-design reconstruction path
+    never find one either. Route it to the verified-design handoff path
     instead of blocking it — the ENTIRE reference hunt (LAYER 0/0b/1/2 and
     the web hunt) is skipped outright, never even attempted, and the scene
-    proceeds straight to blueprint generation. This test proves the skip:
+    creates three pending ChatGPT slots. This test proves the skip:
     the web-hunt fakes are wired to raise if ever called
-    (fail_on_web_hunt=True), and generation stops cleanly at the same
-    budget-cap stub every other test in this file uses to observe the
-    reference-resolution outcome without needing to mock image generation."""
+    (fail_on_web_hunt=True), and the paid provider boundary is never entered."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
     roster = [_CVA01_CLASS, {"name": "Boeing XB-15"}, {"name": "Northrop XB-35"}]
@@ -654,19 +654,16 @@ async def test_roster_entry_matched_never_built_uses_verified_design_reference(
 
     assert calls["host_reference"] == []  # nothing ever hosted
     assert calls["vision_confirms"] == []  # nothing ever reached vision — no reference hunt at all
-    assert calls["cache_queries"] == [
+    assert calls["cache_queries"][:3] == [
         ("photo", static_docu._machine_key("CVA-01")),
         ("photo", _cache_key_for(_CVA01_CLASS)),
         ("design", static_docu._machine_key("CVA-01")),
-        ("photo", static_docu._machine_key("CVA-01")),
-        ("photo", _cache_key_for(_CVA01_CLASS)),
     ]
-    # The run only stops at the SAME budget-cap stub every other test here
-    # uses — reference resolution is not the reason it stopped.
-    assert result["status"] == "failed"
-    assert db_rows["assets"], "expected asset rows for all reconstruction views"
+    assert result["status"] == "awaiting_chatgpt_generation"
+    assert len(result["handoff_packages"]) == 3
+    assert db_rows["assets"], "expected one pending asset per handoff view"
     for row in db_rows["assets"].values():
-        assert row["status"] == "budget_capped"
+        assert row["status"] == "awaiting_chatgpt_generation"
         assert row["status"] != "blocked_no_reference"
         assert row["drive_image_url"] == "https://storage.example/cva01-design.png"
 

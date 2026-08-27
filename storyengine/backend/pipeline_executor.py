@@ -17188,6 +17188,17 @@ scenes."""
             from static_docu import generate_static_images_for_video
             st = await generate_static_images_for_video(
                 video_id, self.tenant_id, only_scenes=only_scenes) or {}
+            if st.get("status") == "awaiting_chatgpt_generation":
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    st.get("message") or "Never-built view packages await ChatGPT generation",
+                )
+                return {
+                    **st,
+                    "status": "awaiting_chatgpt_generation",
+                    "diagnostic": "awaiting_chatgpt_generation",
+                    "video_id": video_id,
+                }
             if st.get("status") == "completed":
                 await execute(
                     "UPDATE videos SET status = 'ready_for_images', updated_at = now() "

@@ -74,6 +74,15 @@ def _environment(
         env["queries"].append(query)
         if "FROM videos" in query:
             return dict(video)
+        if "FROM assets" in query and args:
+            row = env["assets"].get(args[0])
+            if not row:
+                return None
+            if len(args) > 1 and row.get("tenant_id") != args[1]:
+                return None
+            if len(args) > 2 and row.get("video_id") != args[2]:
+                return None
+            return dict(row)
         if "FROM static_reference_cache" in query:
             requested_kind = "photo" if "reference_kind='photo'" in query else (
                 "design" if "reference_kind='design'" in query else None
@@ -109,9 +118,11 @@ def _environment(
         env["queries"].append(query)
         if "INSERT INTO assets" in query:
             env["assets"][args[0]] = {
-                "id": args[0], "status": "generating", "image_url": None,
+                "id": args[0], "status": args[13], "image_url": None,
                 "drive_image_url": args[12], "image_prompt": args[14],
                 "caption": args[11],
+                "tenant_id": args[1], "video_id": args[2], "scene": args[3],
+                "image_index": args[4], "generation_method": args[10],
             }
         elif "INSERT INTO static_reference_cache" in query:
             env["stored_reference"] = {
@@ -123,6 +134,12 @@ def _environment(
             env["assets"].setdefault(args[0], {})["drive_image_url"] = args[1]
         elif "UPDATE assets SET caption=$2" in query:
             env["assets"].setdefault(args[0], {})["caption"] = args[1]
+        elif "UPDATE assets SET image_url=$5" in query:
+            row = env["assets"].setdefault(args[0], {})
+            row.update(
+                image_url=args[4], drive_image_url=args[4], status="done",
+                caption=args[5],
+            )
         elif "UPDATE assets SET image_url=$2" in query:
             row = env["assets"].setdefault(args[0], {})
             row.update(status="done", image_url=args[1], drive_image_url=args[1],
@@ -286,29 +303,41 @@ def test_reconstruction_prompt_requires_full_size_photo_and_excludes_flat_media(
 
 
 @pytest.mark.asyncio
-async def test_never_built_generates_three_grounded_photoreal_reconstructions(monkeypatch):
-    env = _environment(monkeypatch, generated_urls=("gen://a", "gen://b", "gen://c"))
+async def test_never_built_creates_three_chatgpt_handoff_packages(monkeypatch):
+    env = _environment(monkeypatch, generated_urls=("gen://must-not-run",))
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
-    assert result["status"] == "completed"
+    assert result["status"] == "awaiting_chatgpt_generation"
+    packages = result["handoff_packages"]
+    assert len(packages) == 3
+    assert {package["view_role"] for package in packages} == {
+        "three_quarter", "side_profile", "top_planform"}
     rows = _rows_by_role(env)
     assert set(rows) == {"three_quarter", "side_profile", "top_planform"}
-    assert len(env["gen_calls"]) == 3
-    assert env["gen_calls"][0][1] == "https://storage.example/cva01-design.png"
-    assert env["gen_calls"][1][1] == rows["three_quarter"][0]["image_url"]
-    assert env["gen_calls"][2][1] == rows["three_quarter"][0]["image_url"]
-    assert all(ref for _, ref in env["gen_calls"])
-    assert len(env["geometry_checks"]) == 3
-    assert len(env["photoreal_checks"]) == 3
-    assert all(source == "https://storage.example/cva01-design.png"
-               for source, _render in env["geometry_checks"])
+    assert env["gen_calls"] == []
+    assert env["ledger"] == []
+    assert env["geometry_checks"] == []
+    assert env["photoreal_checks"] == []
+    assert env["role_checks"] == []
+    for package in packages:
+        assert package["slot_id"] in env["assets"]
+        assert package["video_id"] == env["video_id"]
+        assert package["scene"] == 1
+        assert package["machine"] == "CVA-01 class"
+        assert package["prompt"]
+        assert package["design_reference_url"] == "https://storage.example/cva01-design.png"
+        assert package["design_source_url"] == "https://source.example/cva01-three-view.png"
+        assert package["status"] == "awaiting_chatgpt_generation"
+        assert package["marker"] == "Design study — never built"
+        assert package["reconstruction_style"] == "photorealistic"
     for row, caption in rows.values():
-        assert row["image_url"] != "https://storage.example/cva01-design.png"
+        assert row["status"] == "awaiting_chatgpt_generation"
+        assert row["image_url"] is None
         assert caption["design_study"] is True
         assert caption["reconstruction_style"] == "photorealistic"
         assert caption["sub"].startswith("Design study — never built")
-        assert "[never-built: photoreal-reconstruction]" in row["image_prompt"]
+        assert "[never-built: chatgpt-handoff]" in row["image_prompt"]
 
 
 @pytest.mark.parametrize("design_candidate,design_verified", [
@@ -329,24 +358,6 @@ async def test_missing_or_unverified_design_blocks_before_generation(
 
 
 @pytest.mark.asyncio
-async def test_photoreal_qa_gets_one_retry_then_parks_paid_result(monkeypatch):
-    env = _environment(
-        monkeypatch,
-        generated_urls=("gen://bad-1", "gen://bad-2", "gen://good-remaining", "gen://good-last"),
-        photoreal_verdicts=(False, False, True, True),
-    )
-    result = await static_docu.generate_static_images_for_video(env["video_id"], env["tenant_id"])
-    # Generic scene recovery still accepts two approved views; later batch
-    # readiness enforces the three-view target.
-    assert result["status"] == "completed"
-    assert len(env["gen_calls"]) == 4
-    parked = [row for row in env["assets"].values() if row.get("status") == "qa_rejected"]
-    assert len(parked) == 1
-    assert parked[0]["image_url"] is None
-    assert parked[0]["drive_image_url"] is not None
-    assert not any("DELETE FROM assets WHERE id=" in q for q in env["queries"])
-
-
 @pytest.mark.asyncio
 async def test_old_blueprint_captions_are_stale_and_regenerated(monkeypatch):
     old = []
@@ -357,11 +368,11 @@ async def test_old_blueprint_captions_are_stale_and_regenerated(monkeypatch):
         })
     env = _environment(
         monkeypatch, existing_assets=old,
-        generated_urls=("gen://new-a", "gen://new-b", "gen://new-c"),
+        generated_urls=("gen://must-not-run",),
     )
     result = await static_docu.generate_static_images_for_video(env["video_id"], env["tenant_id"])
-    assert result["status"] == "completed"
-    assert len(env["gen_calls"]) == 3
+    assert result["status"] == "awaiting_chatgpt_generation"
+    assert env["gen_calls"] == []
 
 
 @pytest.mark.asyncio
@@ -469,12 +480,10 @@ async def test_all_qa_shares_one_paid_retry_ceiling(monkeypatch):
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
-    assert result["status"] == "completed"  # generic 2-view recovery
-    assert len(env["gen_calls"]) == 4
-    assert len(env["ledger"]) == 4
-    parked = [row for row in env["assets"].values() if row.get("status") == "qa_rejected"]
-    assert len(parked) == 1
-    assert "wrong angle" in parked[0]["image_prompt"]
+    assert result["status"] == "awaiting_chatgpt_generation"
+    assert env["gen_calls"] == []
+    assert env["ledger"] == []
+    assert env["role_checks"] == []
 
 
 @pytest.mark.asyncio
@@ -491,9 +500,9 @@ async def test_unusable_article_design_falls_back_to_valid_commons_design(monkey
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
-    assert result["status"] == "completed"
+    assert result["status"] == "awaiting_chatgpt_generation"
     assert [call[2] for call in env["design_checks"]] == [article[1], commons[1]]
-    assert len(env["gen_calls"]) == 3
+    assert env["gen_calls"] == []
 
 
 @pytest.mark.asyncio
@@ -633,9 +642,12 @@ async def test_rejected_late_roster_photo_keeps_verified_design(monkeypatch):
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
-    assert result["status"] == "completed"
-    assert env["gen_calls"][0][1] == design
-    assert all(ref != late_photo for _prompt, ref in env["gen_calls"])
+    assert result["status"] == "awaiting_chatgpt_generation"
+    assert env["gen_calls"] == []
+    assert all(
+        package["design_reference_url"] == design
+        for package in result["handoff_packages"]
+    )
     assert len(identity_calls) == 1
     call = identity_calls[0]
     assert call["trusted_source"] is True
@@ -687,10 +699,136 @@ async def test_rejected_late_roster_photo_verdict_is_stable_within_scene(monkeyp
     result = await static_docu.generate_static_images_for_video(
         env["video_id"], env["tenant_id"])
 
-    assert result["status"] == "completed"
+    assert result["status"] == "awaiting_chatgpt_generation"
     assert len(identity_calls) == 1
     assert identity_calls[0][0] == late_photo
-    assert env["gen_calls"][0][1] == "https://storage.example/cva01-design.png"
-    assert all(ref != late_photo for _prompt, ref in env["gen_calls"])
+    assert env["gen_calls"] == []
+    assert all(
+        package["design_reference_url"] == "https://storage.example/cva01-design.png"
+        for package in result["handoff_packages"]
+    )
     for _row, caption in _rows_by_role(env).values():
         assert caption["design_study"] is True
+
+
+@pytest.mark.asyncio
+async def test_handoff_resume_reuses_same_slots_without_generation(monkeypatch):
+    env = _environment(monkeypatch, generated_urls=("gen://must-not-run",))
+    first = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    first_ids = {package["view_role"]: package["slot_id"]
+                 for package in first["handoff_packages"]}
+
+    second = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    second_ids = {package["view_role"]: package["slot_id"]
+                  for package in second["handoff_packages"]}
+
+    assert first["status"] == second["status"] == "awaiting_chatgpt_generation"
+    assert second_ids == first_ids
+    assert len(env["assets"]) == 3
+    assert env["gen_calls"] == []
+    assert env["ledger"] == []
+
+
+@pytest.mark.asyncio
+async def test_secure_handoff_import_completes_three_view_unit(monkeypatch):
+    env = _environment(monkeypatch, generated_urls=("gen://must-not-run",))
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    for package in pending["handoff_packages"]:
+        imported = await static_docu.import_never_built_handoff_image(
+            tenant_id=env["tenant_id"],
+            video_id=env["video_id"],
+            scene=1,
+            slot_id=package["slot_id"],
+            view_role=package["view_role"],
+            hosted_image_url=f"https://storage.example/imported-{package['view_role']}.png",
+        )
+        assert imported["status"] == "imported"
+
+    completed = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    assert completed["status"] == "completed"
+    assert completed["views_generated"] == 3
+    assert completed.get("handoff_packages") == []
+    assert env["gen_calls"] == []
+    for row, caption in _rows_by_role(env).values():
+        assert row["status"] == "done"
+        assert row["image_url"]
+        assert caption["generation_source"] == "chatgpt_thread"
+        assert caption["design_study"] is True
+        assert caption["reconstruction_style"] == "photorealistic"
+
+
+@pytest.mark.asyncio
+async def test_handoff_import_rejects_wrong_owner_role_and_duplicate(monkeypatch):
+    env = _environment(monkeypatch)
+    pending = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+    package = pending["handoff_packages"][0]
+
+    wrong_owner = await static_docu.import_never_built_handoff_image(
+        tenant_id=str(uuid.uuid4()), video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/result.png",
+    )
+    wrong_role = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role="side_profile",
+        hosted_image_url="https://storage.example/result.png",
+    )
+    assert wrong_owner["status"] == "rejected"
+    assert wrong_role["status"] == "rejected"
+
+    accepted = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/result.png",
+    )
+    duplicate = await static_docu.import_never_built_handoff_image(
+        tenant_id=env["tenant_id"], video_id=env["video_id"], scene=1,
+        slot_id=package["slot_id"], view_role=package["view_role"],
+        hosted_image_url="https://storage.example/result-2.png",
+    )
+    assert accepted["status"] == "imported"
+    assert duplicate["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_returns_handoff_packages_without_marking_failure(monkeypatch):
+    video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
+    packages = [{"slot_id": "slot-1", "view_role": "three_quarter"}]
+    activity = []
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = tenant_id
+
+    async def initialized():
+        return None
+
+    async def video(_video_id):
+        return {"id": video_id, "render_mode": "static_docu", "skip_voice": True}
+
+    async def log_activity(*args):
+        activity.append(args)
+
+    async def handoff(*args, **kwargs):
+        return {
+            "status": "awaiting_chatgpt_generation",
+            "diagnostic": "awaiting_chatgpt_generation",
+            "handoff_packages": packages,
+            "views_generated": 0,
+        }
+
+    monkeypatch.setattr(executor, "_ensure_initialized", initialized)
+    monkeypatch.setattr(executor, "_get_video", video)
+    monkeypatch.setattr(executor, "_log_activity", log_activity)
+    monkeypatch.setattr(static_docu, "generate_static_images_for_video", handoff)
+
+    result = await executor.run_coverage_stage(video_id)
+
+    assert result["status"] == "awaiting_chatgpt_generation"
+    assert result["diagnostic"] == "awaiting_chatgpt_generation"
+    assert result["handoff_packages"] == packages
+    assert not any(call[2] == "failed" for call in activity)
