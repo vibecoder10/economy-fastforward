@@ -3242,13 +3242,39 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         "AND reference_kind='photo'",
                         tenant_id, mkey,
                     )
+                    winner = None
                     if late_photo:
-                        break
-                    await execute(
-                        _reference_cache_upsert_sql("design"),
-                        tenant_id, mkey, machine[:200], hosted, candidate_url,
-                    )
-                    ref_url, ref_src = hosted, candidate_url
+                        winner = {**late_photo, "reference_kind": "photo"}
+                    else:
+                        await execute(
+                            _reference_cache_upsert_sql("design"),
+                            tenant_id, mkey, machine[:200], hosted, candidate_url,
+                        )
+                        # The guarded upsert may have lost to a concurrent
+                        # photo insert. Never assume our design candidate won;
+                        # the stored row is the authority for both kind and URL.
+                        winner = await fetch_one(
+                            "SELECT reference_kind, hosted_url, source_url "
+                            "FROM static_reference_cache "
+                            "WHERE tenant_id=$1 AND machine_key=$2",
+                            tenant_id, mkey,
+                        )
+                    if not winner:
+                        continue
+                    ref_url, ref_src = winner["hosted_url"], winner.get("source_url")
+                    if winner.get("reference_kind") == "photo":
+                        # Classification changed after the first placeholder
+                        # was inserted. Route through the ordinary photo path
+                        # and remove design-study metadata from that row;
+                        # later placeholders read the now-false flag directly.
+                        never_built = False
+                        await execute(
+                            "UPDATE assets SET caption=$2 WHERE id=$1",
+                            row_id, json.dumps(_caption(first_plan)),
+                        )
+                    elif winner.get("reference_kind") != "design":
+                        ref_url = ref_src = None
+                        continue
                     break
             if not ref_url:
                 _p(f"Segment {sc}: no verified design reference found for the "

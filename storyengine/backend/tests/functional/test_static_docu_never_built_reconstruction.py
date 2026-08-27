@@ -50,6 +50,7 @@ def _environment(
         "photoreal_checks": [],
         "uploads": [],
         "ledger": [],
+        "stored_reference": None,
     }
 
     cache_row = None
@@ -70,6 +71,8 @@ def _environment(
             )
             if cache_row and requested_kind == cache_row["reference_kind"]:
                 return dict(cache_row)
+            if env["stored_reference"] and requested_kind is None:
+                return dict(env["stored_reference"])
             return None
         return None
 
@@ -101,8 +104,16 @@ def _environment(
                 "drive_image_url": args[12], "image_prompt": args[14],
                 "caption": args[11],
             }
+        elif "INSERT INTO static_reference_cache" in query:
+            env["stored_reference"] = {
+                "reference_kind": "design",
+                "hosted_url": args[3],
+                "source_url": args[4],
+            }
         elif "UPDATE assets SET drive_image_url" in query:
             env["assets"].setdefault(args[0], {})["drive_image_url"] = args[1]
+        elif "UPDATE assets SET caption=$2" in query:
+            env["assets"].setdefault(args[0], {})["caption"] = args[1]
         elif "UPDATE assets SET image_url=$2" in query:
             row = env["assets"].setdefault(args[0], {})
             row.update(status="done", image_url=args[1], drive_image_url=args[1],
@@ -221,6 +232,7 @@ def _environment(
     monkeypatch.setattr(generation_ledger, "record_ledger_entry", fake_ledger)
     monkeypatch.setattr(kie_unified, "get_text_client_for_tenant", fake_get_text_client_for_tenant)
     monkeypatch.setattr(vault, "get_secret", fake_secret)
+    env["fake_fetch_one"] = fake_fetch_one
     return env
 
 
@@ -370,3 +382,55 @@ def test_photo_upsert_may_replace_stale_design():
     sql = static_docu._reference_cache_upsert_sql("photo")
     assert "reference_kind = 'photo'" in sql
     assert "WHERE static_reference_cache.reference_kind = 'design'" not in sql
+
+
+async def _install_photo_race(monkeypatch, env, interleaving):
+    photo = {
+        "reference_kind": "photo",
+        "hosted_url": "https://storage.example/race-winning-photo.jpg",
+        "source_url": "https://source.example/race-winning-photo",
+    }
+    original_fetch_one = env["fake_fetch_one"]
+    photo_reads = 0
+
+    async def racing_fetch_one(query, *args):
+        nonlocal photo_reads
+        if "FROM static_reference_cache" in query:
+            if "reference_kind='photo'" in query:
+                photo_reads += 1
+                # Direct key, roster key, then the pre-upsert re-read.
+                if interleaving == "before_upsert" and photo_reads == 3:
+                    return dict(photo)
+            elif "SELECT reference_kind, hosted_url, source_url" in query:
+                assert interleaving == "during_upsert"
+                return dict(photo)
+        return await original_fetch_one(query, *args)
+
+    async def photo_render_matches(*args, reason_out=None, **kwargs):
+        if reason_out is not None:
+            reason_out.append("same machine")
+        return True
+
+    monkeypatch.setattr(static_docu, "fetch_one", racing_fetch_one)
+    monkeypatch.setattr(static_docu, "_render_matches_reference", photo_render_matches)
+    return photo
+
+
+@pytest.mark.parametrize("interleaving", ["before_upsert", "during_upsert"])
+@pytest.mark.asyncio
+async def test_photo_winner_during_design_verification_routes_to_photo_path(
+    monkeypatch, interleaving,
+):
+    env = _environment(monkeypatch, generated_urls=("gen://a", "gen://b", "gen://c"))
+    photo = await _install_photo_race(monkeypatch, env, interleaving)
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert len(env["gen_calls"]) == 3
+    assert env["gen_calls"][0][1] == photo["hosted_url"]
+    assert env["gen_calls"][0][1] != "https://storage.example/cva01-design.png"
+    for _row, caption in _rows_by_role(env).values():
+        assert "design_study" not in caption
+        assert "reconstruction_style" not in caption
