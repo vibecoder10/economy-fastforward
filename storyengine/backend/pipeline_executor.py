@@ -7114,6 +7114,30 @@ def _roster_status_built_wording_but_zero_completed(item: Any) -> bool:
     return bool(_BUILT_COUNT_ZERO_RE.search(built_count))
 
 
+_UNFINISHED_BUILD_RE = re.compile(
+    r"\b(?:planned|on\s+order|under\s+construction|construction\s+expected)\b",
+    re.IGNORECASE,
+)
+
+
+def _roster_entry_not_actually_built(item: Any) -> bool:
+    """Return True when structured roster facts contradict an "ever built" title.
+
+    Completed prototypes and conversions remain valid.  A cancelled entry with
+    no completed hardware, or a class entry that reaches forward into planned,
+    ordered, or still-under-construction units, does not.
+    """
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    built_count = str(item.get("built_count") or "").strip()
+    if _BUILT_COUNT_ZERO_RE.search(built_count):
+        return True
+    if status == "cancelled":
+        return True
+    return bool(_UNFINISHED_BUILD_RE.search(built_count))
+
+
 def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
     """Same gate as _machine_documentary_hold_roster (same 3-40 bound, same
     static-docu machine-marker requirement), but returns each roster item as
@@ -7325,6 +7349,25 @@ def _roster_validation(
     is_review_ready = "review_ready" in lower
     contract_norm = contract.strip().lower()
     is_incomplete = contract_norm.startswith("incomplete") and not is_review_ready
+
+    if "ever built" in str(title or "").lower():
+        not_built = [
+            _unit_display_name(item)
+            for item in (roster_raw or [])
+            if _roster_entry_not_actually_built(item)
+        ]
+        not_built = [name for name in not_built if name]
+        if not_built:
+            shown = not_built[:8]
+            more = len(not_built) - len(shown)
+            _warn(
+                "An 'ever built' title cannot include machines that were not actually built: "
+                + ", ".join(shown)
+                + (f" (+{more} more)" if more > 0 else "")
+                + ". Exclude cancelled, merely planned, on-order, and unfinished entries; "
+                "split mixed class ranges so only completed or launched machines remain.",
+                hard=True,
+            )
 
     # C5 contract-triangle repair warning (2026-07-29): flag a roster item
     # whose `status` and `built_count` contradict each other for the

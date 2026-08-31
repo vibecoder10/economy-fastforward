@@ -212,3 +212,35 @@ def test_a_genuinely_broken_roster_still_fails():
     gate = pe._live_roster_gate(video, payload)
     assert gate["passed"] is False, "an empty roster is a hard failure, not a nitpick"
     assert gate["hard_warnings"], "a hard failure must be reported as hard"
+
+
+def test_ever_built_title_rejects_cancelled_and_unfinished_entries():
+    """An "ever built" roster cannot redefine ordered or cancelled as built."""
+    video, payload = _video()
+    invalid = [
+        {
+            "name": "USS United States",
+            "designation": "CVA-58",
+            "status": "cancelled",
+            "built_count": "0 ships built; keel laid for five days before cancellation",
+        },
+        {
+            "name": "Gerald R. Ford-class",
+            "designation": "CVN-78 through CVN-83",
+            "status": "production",
+            "built_count": "6 ships planned; later hulls are under construction or on order",
+        },
+    ]
+    payload["unit_roster"].extend(invalid)
+    payload["recommended_final_roster"] = list(payload["unit_roster"])
+    payload["machine_discovery_buckets"]["core_roster"].extend(invalid)
+
+    gate = pe._live_roster_gate(video, payload)
+
+    assert gate["passed"] is False
+    assert any(
+        "not actually built" in warning
+        and "CVA-58 USS United States" in warning
+        and "CVN-78 through CVN-83 Gerald R. Ford-class" in warning
+        for warning in gate["hard_warnings"]
+    )
