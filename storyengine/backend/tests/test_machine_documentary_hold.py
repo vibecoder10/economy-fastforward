@@ -7665,6 +7665,59 @@ def test_research_hold_bulk_uses_verified_one_machine_path_for_each_missing_card
     assert result["unit_research_hold_validation"]["passed"] is True
 
 
+def test_research_hold_bulk_continues_after_one_machine_fails(monkeypatch):
+    roster = ["Boeing XB-15", "Boeing B-17", "Convair B-36"]
+    payload = {"unit_roster": roster, "unit_research_cards": []}
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": object()})()
+
+    async def fake_load_cards(_video_id, current_payload, _roster, target_machine=None):
+        return current_payload
+
+    target_calls = []
+    failed_calls = []
+
+    async def fake_target(_video_id, _title, current_payload, current_roster, target_machine=None):
+        target_calls.append(target_machine)
+        passed = target_machine != roster[1]
+        if not passed:
+            failed_calls.append(target_machine)
+        cards = list(current_payload.get("unit_research_cards") or [])
+        cards.append({"unit": target_machine})
+        current_payload["unit_research_cards"] = cards
+        current_payload["unit_research_hold_validation"] = {
+            "passed": not failed_calls and len(cards) == len(current_roster),
+            "target_machine": target_machine,
+            "target_machine_passed": passed,
+            "units": [
+                {
+                    "machine": machine,
+                    "passed": machine in target_calls and machine != roster[1],
+                    "warnings": [] if machine != roster[1] else ["saved card needs repair"],
+                }
+                for machine in current_roster
+            ],
+        }
+        return current_payload
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load_cards)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_target)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+
+    result = asyncio.run(
+        pe.PipelineExecutor._run_unit_research_hold(
+            executor, "video-test", "Designed vs Used", payload, roster,
+        )
+    )
+
+    assert target_calls == roster
+    assert result["unit_research_hold_validation"]["passed"] is False
+
+
 def test_research_hold_bulk_free_conforms_saved_card_then_continues_remaining_roster(monkeypatch):
     """A paid card saved with only deterministic bookkeeping failures must
     not trigger the old human-one-card stop; repair it free and continue with

@@ -12266,6 +12266,7 @@ class PipelineExecutor:
                     "running",
                     f"Automated verified research: {len(missing_cards)} machine card(s) remaining",
                 )
+                failed_machines: list[str] = []
                 for machine in missing_cards:
                     payload = await self._run_unit_research_hold(
                         video_id,
@@ -12276,7 +12277,20 @@ class PipelineExecutor:
                     )
                     target_validation = payload.get("unit_research_hold_validation") or {}
                     if not target_validation.get("target_machine_passed"):
-                        return payload
+                        failed_machines.append(machine)
+                        await self._log_activity(
+                            bot_name,
+                            video_id,
+                            "running",
+                            f"Saved failed research checkpoint for {machine}; continuing locked roster",
+                        )
+                if failed_machines:
+                    await self._log_activity(
+                        bot_name,
+                        video_id,
+                        "running",
+                        "Completed roster pass; repair still needed for: " + ", ".join(failed_machines),
+                    )
                 return payload
 
         if target_code:
