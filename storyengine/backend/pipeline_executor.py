@@ -9948,6 +9948,27 @@ class PipelineExecutor:
             if not topic:
                 return {"status": "failed", "error": "No topic found for video"}
 
+            existing_payload = video.get("research_payload") or {}
+            if isinstance(existing_payload, str):
+                import json as _json_existing_research
+                try:
+                    existing_payload = _json_existing_research.loads(existing_payload)
+                except (TypeError, ValueError):
+                    existing_payload = {}
+            existing_roster = _machine_documentary_hold_roster(video)
+            if (
+                existing_roster
+                and isinstance(existing_payload, dict)
+                and _live_roster_gate(video, existing_payload).get("passed")
+            ):
+                await self._log_activity(
+                    bot_name,
+                    video_id,
+                    "started",
+                    f"Continuing verified research for {len(existing_roster)} locked machines",
+                )
+                return await self.run_unit_research(video_id)
+
             await self._log_activity(bot_name, video_id, "started", f"Researching: {topic}")
 
             # Load system prompt overrides (tenant + per-video)
