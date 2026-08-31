@@ -24,6 +24,7 @@ Run:
     cd storyengine/backend && ./venv/bin/python -m pytest \
         tests/functional/test_ship_roster_shapes.py -q
 """
+import copy
 import os
 import sys
 from pathlib import Path
@@ -380,6 +381,44 @@ def test_roster_validation_ship_roster_passes_soft_only_and_needs_review():
         "with zero hard warnings here it should equal soft_warnings exactly."
     )
     assert result["needs_review"] is True
+
+
+def test_roster_validation_does_not_confuse_planned_sister_ships_with_built_lead_ship():
+    payload = copy.deepcopy(_ship_roster_validation_payload())
+    payload["unit_roster"][0] = {"name": "USS Enterprise", "designation": "CVN-65"}
+    display_names = [pe._unit_display_name(e) for e in payload["unit_roster"]]
+    payload["machine_discovery_buckets"]["core_roster"] = display_names
+    payload["recommended_final_roster"] = display_names
+    payload["roster_audit"]["excluded_candidates"] = [
+        {
+            "name": "CVN-65 Enterprise class (5 additional ships)",
+            "reason": "Five planned sister ships were cancelled; only CVN-65 was built.",
+        }
+    ]
+
+    result = pe._roster_validation(SHIP_TITLE, payload, video_length_minutes=20)
+
+    assert result["passed"] is True
+    assert not any("appears in both" in warning for warning in result["hard_warnings"])
+
+
+def test_roster_validation_still_blocks_the_same_ship_listed_as_excluded():
+    payload = copy.deepcopy(_ship_roster_validation_payload())
+    payload["unit_roster"][0] = {"name": "USS Enterprise", "designation": "CVN-65"}
+    display_names = [pe._unit_display_name(e) for e in payload["unit_roster"]]
+    payload["machine_discovery_buckets"]["core_roster"] = display_names
+    payload["recommended_final_roster"] = display_names
+    payload["roster_audit"]["excluded_candidates"] = [
+        {
+            "name": "CVN-65 USS Enterprise",
+            "reason": "This exact ship was excluded from the final roster.",
+        }
+    ]
+
+    result = pe._roster_validation(SHIP_TITLE, payload, video_length_minutes=20)
+
+    assert result["passed"] is False
+    assert any("appears in both" in warning for warning in result["hard_warnings"])
 
 
 # ---------------------------------------------------------------------------

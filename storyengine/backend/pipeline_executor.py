@@ -7547,13 +7547,34 @@ def _roster_validation(
                 hard=False,
             )
 
-        excluded_codes: dict[str, str] = {}
+        excluded_codes: dict[str, list[tuple[str, bool]]] = {}
         for item in audit_excluded:
             name = _unit_display_name(item)
             code = _unit_code(name)
             if code:
-                excluded_codes[code] = name
-        overlap = [name for name, code in zip(roster, roster_codes) if code in excluded_codes]
+                exclusion_text = _payload_blob(item).lower()
+                refers_to_related_units = any(marker in exclusion_text for marker in (
+                    "additional ship",
+                    "sister ship",
+                    "other planned",
+                    "remaining planned",
+                    "follow-on ship",
+                ))
+                excluded_codes.setdefault(code, []).append((name, refers_to_related_units))
+
+        def is_same_excluded_candidate(roster_name: str, code: str) -> bool:
+            import re as _re_roster_identity
+            roster_identity = _re_roster_identity.sub(r"[^a-z0-9]", "", roster_name.lower())
+            for excluded_name, refers_to_related_units in excluded_codes.get(code, []):
+                excluded_identity = _re_roster_identity.sub(r"[^a-z0-9]", "", excluded_name.lower())
+                if excluded_identity == roster_identity or not refers_to_related_units:
+                    return True
+            return False
+
+        overlap = [
+            name for name, code in zip(roster, roster_codes)
+            if is_same_excluded_candidate(name, code)
+        ]
         if overlap:
             _warn(
                 "Roster is internally inconsistent: candidate appears in both unit_roster and excluded_candidates: "
