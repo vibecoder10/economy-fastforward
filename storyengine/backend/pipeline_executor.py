@@ -9999,11 +9999,7 @@ class PipelineExecutor:
                 except (TypeError, ValueError):
                     existing_payload = {}
             existing_roster = _machine_documentary_hold_roster(video)
-            if (
-                existing_roster
-                and isinstance(existing_payload, dict)
-                and _live_roster_gate(video, existing_payload).get("passed")
-            ):
+            if existing_roster:
                 await self._log_activity(
                     bot_name,
                     video_id,

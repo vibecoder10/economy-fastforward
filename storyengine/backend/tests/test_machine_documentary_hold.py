@@ -8282,6 +8282,47 @@ def test_run_research_preserves_locked_roster_and_continues_machine_cards(monkey
     assert payload["unit_roster"] == roster_names
 
 
+def test_run_research_never_replaces_a_locked_roster_when_live_gate_fails(monkeypatch):
+    """A repairable gate error must not fall through to destructive discovery."""
+    roster_names = ["CV-1 USS Langley", "CV-2 USS Lexington", "CV-3 USS Saratoga"]
+    payload = _live_gate_passing_research_payload(roster_names)
+    payload["recommended_final_roster"] = roster_names[:-1]
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    continuation_calls = []
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return {
+            "video_title": "Every US Aircraft Carrier Ever Built",
+            "headline": "Every US Aircraft Carrier Ever Built",
+            "status": "idea_logged",
+            "render_mode": "static_docu",
+            "video_length_minutes": 20,
+            "research_payload": copy.deepcopy(payload),
+        }
+
+    async def fake_continue(video_id):
+        continuation_calls.append(video_id)
+        return {"status": "failed", "video_id": video_id, "error": "locked roster needs repair"}
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "run_unit_research", fake_continue)
+    monkeypatch.setattr(executor, "_log_activity", fake_log)
+
+    result = asyncio.run(executor.run_research("video-test"))
+
+    assert result["error"] == "locked roster needs repair"
+    assert continuation_calls == ["video-test"]
+    assert payload["unit_roster"] == roster_names
+
+
 def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
     import sys
     import types
