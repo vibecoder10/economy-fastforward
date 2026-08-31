@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2, Ban, Info } from "lucide-react";
+import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2, Ban, Info, Trash2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useToast } from "@/components/ui/toast";
@@ -9,10 +9,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import {
   recheckRosterReferences,
+  removeRosterUnit,
   seedRosterReference,
   type RosterDashboard,
 } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/confirm";
 
 interface RosterStagePanelProps {
   videoId: string;
@@ -35,11 +37,13 @@ interface RosterStagePanelProps {
  */
 export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefresh, taskWatcher }: RosterStagePanelProps) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const queryClient = useQueryClient();
   const [taskRunning, setTaskRunning] = useState(false);
   const [rechecking, setRechecking] = useState(false);
   const [pendingUrl, setPendingUrl] = useState<Record<string, string>>({});
   const [seeding, setSeeding] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<Record<string, string>>({});
   const [manualOverride, setManualOverride] = useState<Record<string, boolean>>({});
 
@@ -144,6 +148,26 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
       setSeedError((prev) => ({ ...prev, [machine]: (err as Error).message || "Couldn't check that URL." }));
     } finally {
       setSeeding(null);
+    }
+  };
+
+  const handleRemove = async (machine: string) => {
+    const confirmed = await confirmDialog({
+      title: "Remove this machine from the roster?",
+      message: `${machine} will be removed from this video's locked roster.`,
+    });
+    if (!confirmed) return;
+
+    setRemoving(machine);
+    try {
+      await removeRosterUnit(videoId, machine);
+      toast.success(`${machine} removed from the roster.`);
+      await queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
+      onRefresh();
+    } catch (err) {
+      toast.error(`Couldn't remove ${machine}: ${(err as Error).message}`);
+    } finally {
+      setRemoving(null);
     }
   };
 
@@ -266,9 +290,10 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={u.machine}>
                   {u.machine}
                 </p>
+                <div className="flex items-center gap-1.5 shrink-0">
                 {verified ? (
                   <span
-                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
                     style={{ color: "var(--green)", border: "1px solid var(--green)" }}
                   >
                     <CheckCircle2 size={11} /> verified
@@ -302,6 +327,18 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                     <XCircle size={11} /> missing
                   </span>
                 )}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${u.machine} from roster`}
+                    title="Remove from roster"
+                    onClick={() => handleRemove(u.machine)}
+                    disabled={removing !== null || showRunning}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded-md disabled:opacity-40 hover:bg-red-500/10"
+                    style={{ color: "var(--red)", border: "1px solid color-mix(in srgb, var(--red) 45%, transparent)" }}
+                  >
+                    {removing === u.machine ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                  </button>
+                </div>
               </div>
 
               {/* C8: WHY this machine is missing — absent for a unit that

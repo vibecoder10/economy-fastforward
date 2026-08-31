@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from auth import get_tenant_id
 from database import fetch_one, fetch_all, execute
 from error_utils import humanize_error, USER_FACING_PREFIX
-from pipeline_executor import PipelineExecutor
+from pipeline_executor import PipelineExecutor, _unit_display_name
 from status_map import (
     to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage,
     stage_enabled_in_plan, friendly_state, parse_stage_plan, normalize_stage_plan,
@@ -88,6 +88,50 @@ class RosterOrchestratorRequest(BaseModel):
     budget_usd: float = 5.0
     allow_full_rerun: bool = True
     confirmed_paid_run: bool = False
+
+
+class RemoveRosterUnitRequest(BaseModel):
+    machine: str
+
+
+def _remove_roster_unit_from_payload(payload: dict, machine: str) -> dict:
+    """Return a copy of a research payload without one locked roster unit."""
+    updated = json.loads(json.dumps(payload or {}))
+    roster = updated.get("unit_roster")
+    if not isinstance(roster, list):
+        raise ValueError("This video does not have a machine roster.")
+
+    target = str(machine or "").strip().casefold()
+    matched = next(
+        (item for item in roster if _unit_display_name(item).strip().casefold() == target),
+        None,
+    )
+    if matched is None:
+        raise ValueError("That machine is not in this video's roster.")
+
+    updated["unit_roster"] = [item for item in roster if item is not matched]
+
+    recommended = updated.get("recommended_final_roster")
+    if isinstance(recommended, list):
+        designation = ""
+        name = ""
+        if isinstance(matched, dict):
+            designation = str(matched.get("designation") or matched.get("code") or "").strip().casefold()
+            name = str(matched.get("name") or matched.get("title") or "").strip().casefold()
+        else:
+            name = str(matched).strip().casefold()
+
+        def keep_recommendation(item: object) -> bool:
+            text = str(item or "").casefold()
+            if designation:
+                return designation not in text
+            return text.strip() != name
+
+        updated["recommended_final_roster"] = [
+            item for item in recommended if keep_recommendation(item)
+        ]
+
+    return updated
 
 
 class PipelineStatus(BaseModel):
@@ -1191,6 +1235,50 @@ async def get_roster_dashboard(
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Roster dashboard failed")
     return result
+
+
+@router.post("/roster-remove/{video_id}")
+async def remove_roster_unit(
+    video_id: str,
+    body: RemoveRosterUnitRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Remove one operator-selected machine from a static-documentary roster."""
+    video = await fetch_one(
+        "SELECT id, render_mode, research_payload FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id,
+        tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if (video.get("render_mode") or "") != "static_docu":
+        raise HTTPException(status_code=400, detail="Roster removal only applies to static-documentary videos")
+
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="This video's roster data is invalid") from exc
+
+    machine = (body.machine or "").strip()
+    try:
+        updated = _remove_roster_unit_from_payload(payload, machine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await execute(
+        "UPDATE videos SET research_payload = $1::jsonb, updated_at = now() "
+        "WHERE id = $2 AND tenant_id = $3",
+        json.dumps(updated),
+        video_id,
+        tenant_id,
+    )
+    return {
+        "status": "removed",
+        "machine": machine,
+        "total": len(updated.get("unit_roster") or []),
+    }
 
 
 class SeedReferenceRequest(BaseModel):

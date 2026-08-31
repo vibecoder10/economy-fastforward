@@ -1124,6 +1124,15 @@ export const seedRosterReference = (videoId: string, machine: string, url: strin
     body: JSON.stringify({ machine, url }),
   });
 
+export const removeRosterUnit = (videoId: string, machine: string) =>
+  fetchApi<{ status: "removed"; machine: string; total: number }>(
+    `/api/pipeline/roster-remove/${videoId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ machine }),
+    },
+  );
+
 /** Re-run reference prefetch for this video's roster (the "Re-check"
  * button). Free, background-task-tracked like every other pipeline stage —
  * skips machines already verified, only retries ones still missing. */
