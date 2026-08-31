@@ -12210,6 +12210,28 @@ class PipelineExecutor:
                 cards_by_code[code] = card
 
         if not target_code:
+            # A previous paid attempt may have saved a truthful card whose
+            # only failures are deterministic source bookkeeping (canonical
+            # ids, slot assignment, or a grounded visual field). Repair those
+            # for free before deciding the roster needs human one-card work.
+            # Fabricated, missing, or otherwise ungrounded cards remain
+            # invalid because _conform_card_to_verified_package refuses to
+            # synthesize evidence or fill an absent required beat.
+            for card in existing_cards:
+                if not isinstance(card, dict):
+                    continue
+                raw_unit = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
+                machine_name = next(
+                    (
+                        roster_machine for roster_machine in roster
+                        if _normalized_unit_code(roster_machine)
+                        == _normalized_unit_code(_unit_display_name(raw_unit) or str(raw_unit))
+                    ),
+                    str(raw_unit or ""),
+                )
+                package = _verified_source_package_for_machine(payload, machine_name)
+                _conform_card_to_verified_package(card, package, machine_name)
+            payload["unit_research_cards"] = existing_cards
             validation_units, _existing_hold_passed = _full_research_validation(existing_cards)
             missing_cards = [
                 str(unit.get("machine") or "")
