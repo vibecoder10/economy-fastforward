@@ -1,5 +1,35 @@
 # System State — Economy FastForward
 
+## EverBee MCP connector + Etsy product-hunt skill (2026-08-31)
+
+- New `.mcp.json` at repo root (first one in this repo) registering the
+  OFFICIAL EverBee research MCP server: `https://research-mcp.everbee.com/mcp`,
+  streamable-HTTP transport. Documented at https://everbee.io/mcp. Project
+  scope, so every session in this checkout sees it — no per-machine re-add.
+- Auth is OAuth 2.1, NOT an API key: the server advertises
+  `.well-known/oauth-authorization-server` with dynamic client registration
+  (`/register`), PKCE S256, and a single `products:read` scope. Nothing to put
+  in `.env`, and nothing secret lands in the repo — tokens are stored per
+  machine by the MCP client. Each user authenticates once via `/mcp` →
+  `everbee` → Authenticate. Read-only connector.
+- `.claude/settings.json` gains `enabledMcpjsonServers: ["everbee"]` so the
+  project server is pre-approved instead of prompting on first use. The
+  existing `Stop` hooks block is untouched.
+- New skill `.claude/skills/etsy-product-hunt/SKILL.md` — a 4-stage screening
+  funnel (frame → cast wide on keywords → screen listings → verify via shops)
+  producing a ranked shortlist with a named deciding signal per candidate.
+  It resolves the `mcp__everbee__*` tool names at RUNTIME rather than
+  hardcoding them: the tool list could not be read at authoring time (OAuth is
+  interactive and could not be completed from a headless container), so
+  hardcoded names would have been unverified guesses. Thresholds are framed as
+  heuristics to calibrate per category, not fixed cutoffs.
+- Caveat for cloud/web sessions: containers are ephemeral and OAuth tokens are
+  machine-local, so the connector must be re-authenticated per fresh container.
+  On a local machine it is a one-time step.
+- Scope note: EverBee is Etsy/e-commerce research — unrelated to the YouTube
+  video pipeline. It is a standalone research capability, wired to touch no
+  pipeline code.
+
 ## S7: ACTION stage-direction authoring channel (2026-08-06)
 
 - Real incident (evidence case): tenant PocoAPoco video

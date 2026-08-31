@@ -4,6 +4,29 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ✓ DONE — 2026-08-31 — EverBee MCP wired for Etsy product research
+
+Official EverBee research MCP server registered project-wide in a new root
+`.mcp.json`: `https://research-mcp.everbee.com/mcp` (streamable HTTP, docs at
+https://everbee.io/mcp). Verified live before wiring — the endpoint returns
+401 + `WWW-Authenticate: Bearer` and serves a valid
+`.well-known/oauth-authorization-server` (dynamic client registration, PKCE
+S256, single `products:read` scope). Auth is OAuth, not an API key, so there
+is no new env var and no secret in the repo.
+
+`.claude/settings.json` gains `enabledMcpjsonServers: ["everbee"]` (Stop hooks
+untouched). New skill `.claude/skills/etsy-product-hunt/SKILL.md` drives the
+connector through a 4-stage funnel (frame -> keyword sweep -> listing screen ->
+shop verification) to a ranked shortlist; it resolves `mcp__everbee__*` tool
+names at runtime rather than hardcoding unverified guesses.
+
+### Handoff — one interactive step remains
+OAuth could NOT be completed from this headless cloud container (the flow needs
+a browser). Ryan must run `/mcp` -> `everbee` -> Authenticate once on his own
+machine, then confirm `mcp__everbee__*` tools appear. Until that happens the
+connector is configured but carries no data. Cloud/web sessions need re-auth
+per container (tokens are machine-local); local machines are one-time.
+
 ## ✓ DONE — 2026-08-04 — Render verb no longer refuses render-ready static documentaries
 
 Live repro (video d2e37cd6-521a-43aa-a14d-ce096a783c1e, tenant 561b872d,

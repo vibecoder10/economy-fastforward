@@ -15,5 +15,8 @@
         ]
       }
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "everbee"
+  ]
 }

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "everbee": {
+      "type": "http",
+      "url": "https://research-mcp.everbee.com/mcp"
+    }
+  }
+}
