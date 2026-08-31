@@ -11949,16 +11949,23 @@ class PipelineExecutor:
 
         if not target_code:
             validation_units, _existing_hold_passed = _full_research_validation(existing_cards)
-            invalid_or_missing = [
+            missing_cards = [
                 str(unit.get("machine") or "")
                 for unit in validation_units
                 if not unit.get("passed")
+                and unit.get("warnings") == ["missing saved one-machine research card"]
             ]
-            if invalid_or_missing:
+            invalid_existing_cards = [
+                str(unit.get("machine") or "")
+                for unit in validation_units
+                if not unit.get("passed")
+                and unit.get("warnings") != ["missing saved one-machine research card"]
+            ]
+            if invalid_existing_cards:
                 msg = (
                     "Bulk DVsU machine-card generation is disabled for hallucination safety. "
                     "Run verified one-machine research for a single locked machine first: "
-                    + ", ".join(invalid_or_missing[:6])
+                    + ", ".join(invalid_existing_cards[:6])
                 )
                 payload["unit_research_hold_validation"] = {
                     "passed": False,
@@ -11967,6 +11974,25 @@ class PipelineExecutor:
                     "warnings": [msg],
                 }
                 await self._log_activity(bot_name, video_id, "failed", msg)
+                return payload
+            if missing_cards:
+                await self._log_activity(
+                    bot_name,
+                    video_id,
+                    "running",
+                    f"Automated verified research: {len(missing_cards)} machine card(s) remaining",
+                )
+                for machine in missing_cards:
+                    payload = await self._run_unit_research_hold(
+                        video_id,
+                        title,
+                        payload,
+                        roster,
+                        target_machine=machine,
+                    )
+                    target_validation = payload.get("unit_research_hold_validation") or {}
+                    if not target_validation.get("target_machine_passed"):
+                        return payload
                 return payload
 
         if target_code:

@@ -7582,7 +7582,7 @@ def test_static_resplit_voice_lookup_is_tenant_scoped(monkeypatch):
     assert insert_rows[0][-1] == "voice-existing"
 
 
-def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeypatch):
+def test_research_hold_bulk_uses_verified_one_machine_path_for_each_missing_card(monkeypatch):
     structured_roster = [
         {"unit": "Boeing XB-15", "include": True},
         {"unit": "Boeing B-17", "include": True},
@@ -7601,7 +7601,7 @@ def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeyp
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
-            raise AssertionError("bulk missing-card research must not spend an LLM call")
+            raise AssertionError("bulk coordinator must delegate to the verified one-machine path")
 
     fake_anthropic = FakeAnthropic()
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
@@ -7620,19 +7620,49 @@ def test_research_hold_refuses_bulk_generation_for_missing_machine_cards(monkeyp
     async def fake_log(*_args, **_kwargs):
         return None
 
+    async def fake_load_cards(_video_id, current_payload, _roster, target_machine=None):
+        assert target_machine is None
+        return current_payload
+
+    target_calls = []
+
+    async def fake_verified_one_machine(
+        _video_id, _title, current_payload, current_roster, target_machine=None,
+    ):
+        assert target_machine in current_roster
+        target_calls.append(target_machine)
+        cards = list(current_payload.get("unit_research_cards") or [])
+        cards.append({"unit": target_machine})
+        current_payload["unit_research_cards"] = cards
+        current_payload["unit_research_hold_validation"] = {
+            "passed": len(cards) == len(current_roster),
+            "in_progress": len(cards) < len(current_roster),
+            "target_machine": target_machine,
+            "target_machine_passed": True,
+            "units": [
+                {"machine": machine, "passed": machine in target_calls, "warnings": []}
+                for machine in current_roster
+            ],
+        }
+        return current_payload
+
     monkeypatch.setattr(pe, "execute", fake_execute)
     monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(executor, "_load_machine_research_cards", fake_load_cards)
+    monkeypatch.setattr(executor, "_run_unit_research_hold", fake_verified_one_machine)
 
     result = asyncio.run(
-        executor._run_unit_research_hold("video-test", "Designed vs Used", payload, roster_names)
+        pe.PipelineExecutor._run_unit_research_hold(
+            executor, "video-test", "Designed vs Used", payload, roster_names
+        )
     )
 
     assert fake_anthropic.prompts == []
     assert writes == []
+    assert target_calls == roster_names
     assert result["unit_roster"] == original_roster
-    assert result["unit_research_hold_validation"]["passed"] is False
-    assert "Bulk DVsU machine-card generation is disabled" in result["unit_research_hold_validation"]["warnings"][0]
+    assert result["unit_research_hold_validation"]["passed"] is True
 
 
 def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(monkeypatch):
