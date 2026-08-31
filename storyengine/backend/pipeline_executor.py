@@ -12245,7 +12245,7 @@ class PipelineExecutor:
                 if not unit.get("passed")
                 and unit.get("warnings") != ["missing saved one-machine research card"]
             ]
-            if invalid_existing_cards:
+            if invalid_existing_cards and not missing_cards:
                 msg = (
                     "Bulk DVsU machine-card generation is disabled for hallucination safety. "
                     "Run verified one-machine research for a single locked machine first: "
@@ -12260,6 +12260,14 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "failed", msg)
                 return payload
             if missing_cards:
+                if invalid_existing_cards:
+                    await self._log_activity(
+                        bot_name,
+                        video_id,
+                        "running",
+                        "Continuing unresearched roster entries; saved cards still needing repair: "
+                        + ", ".join(invalid_existing_cards),
+                    )
                 await self._log_activity(
                     bot_name,
                     video_id,
