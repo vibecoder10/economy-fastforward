@@ -401,6 +401,84 @@ def test_g14_fabricated_excerpt_still_fails_even_with_tier_floor_advisory():
     assert pe._blocking_warnings(unit["warnings"]) != []
 
 
+def test_clamp_canonicalizes_mismatched_excerpt_identity_from_verified_locator():
+    """A model can copy the right verified row but return the wrong row id.
+    Canonical provenance is deterministic bookkeeping and must be corrected
+    before a paid repair is considered."""
+    segments = _base_segments()
+    package = pe._verified_machine_source_package_with_anton_metadata(_base_package(segments), MACHINE)
+    card = _base_card(segments)
+    problem = card["evidence_segments"][0]
+    problem["source_excerpt_id"] = "STALE-99"
+
+    pe._clamp_card_excerpts_to_verified_sources(card, package)
+
+    assert problem["source_excerpt_id"] == "S1-E1"
+    assert problem["locator"] == "S1-E1"
+
+
+def test_free_conformance_repairs_duplicate_required_slot_sources_without_model_call():
+    """When two required beats cite the same raw row, select the package's
+    already-verified distinct assignment instead of paying the model to reshuffle ids."""
+    segments = _base_segments()
+    package = pe._verified_machine_source_package_with_anton_metadata(_base_package(segments), MACHINE)
+    card = _base_card(segments)
+    decision = card["evidence_segments"][1]
+    problem = card["evidence_segments"][0]
+    decision.update({
+        "source_excerpt": problem["source_excerpt"],
+        "source_excerpt_id": "S1-E1",
+        "source_url": problem["source_url"],
+        "source_title": problem["source_title"],
+        "locator": "S1-E1",
+    })
+    assert any(
+        "distinct raw source excerpts" in warning
+        for warning in pe._research_card_contract_warnings(
+            MACHINE, card, package, require_source_package=True,
+        )
+    )
+
+    pe._conform_card_to_verified_package(card, package, MACHINE)
+
+    assert pe._blocking_warnings(
+        pe._research_card_contract_warnings(MACHINE, card, package, require_source_package=True)
+    ) == []
+
+
+def test_free_conformance_rebuilds_weak_ship_visual_identity_from_grounded_feature():
+    """A source-backed photo caption with only a date/view is not enough for
+    the image brief; reuse a concrete feature already present in verified card evidence."""
+    machine = "CV-1 USS Langley"
+    segments = _base_segments()
+    for segment in segments:
+        segment["claim"] = segment["claim"].replace(MACHINE, machine)
+        segment["source_excerpt"] = segment["source_excerpt"].replace(MACHINE, machine)
+    segments[1]["claim"] = "The hull of CV-1 USS Langley had previously served as USS Jupiter."
+    segments[1]["source_excerpt"] = segments[1]["claim"]
+    package = _base_package(segments)
+    package["machine"] = machine
+    package["machine_key"] = pe._normalized_unit_code(machine)
+    package = pe._verified_machine_source_package_with_anton_metadata(package, machine)
+    card = _base_card(segments)
+    card["unit"] = machine
+    card["visual_identity"] = "CV-1 USS Langley during conversion at Norfolk Navy Yard in May 1921."
+    card["visual_identity_evidence_ids"] = ["E-DECISION"]
+
+    pe._conform_card_to_verified_package(card, package, machine)
+
+    assert "hull" in card["visual_identity"].lower()
+    assert card["visual_identity_evidence_ids"] == ["E-DECISION"]
+    warnings = pe._research_card_contract_warnings(machine, card, package, require_source_package=True)
+    assert pe._VISUAL_IDENTITY_CONTENT_RULE not in warnings
+
+
+def test_carrier_elevators_are_recognized_as_visible_machine_features():
+    assert pe._VISUAL_IDENTITY_FEATURE_PATTERN.search(
+        "CV-3 USS Saratoga had two hydraulically powered elevators on her centerline."
+    )
+
+
 def test_g14_structured_repair_feedback_demotes_tier_four_only_to_optional_improvement():
     """The G2 structured repair feedback used to name 'required beats never
     on Tier-4 rows' as a must-fix NAMED FIX rule - G14 demotes it to a

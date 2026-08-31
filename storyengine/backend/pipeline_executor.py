@@ -2082,16 +2082,19 @@ def _clamp_card_excerpts_to_verified_sources(card: dict, package: Optional[dict]
     ]
     if not candidates:
         return card
-    by_locator = {
-        str(candidate.get("locator") or candidate.get("excerpt_id") or "").strip(): candidate
-        for candidate in candidates
-    }
+    by_locator = {}
+    for candidate in candidates:
+        for identity in (candidate.get("locator"), candidate.get("excerpt_id")):
+            identity = str(identity or "").strip()
+            if identity:
+                by_locator[identity] = candidate
     for segment in card.get("evidence_segments") or []:
         if not isinstance(segment, dict):
             continue
         locator = str(segment.get("locator") or "").strip()
+        excerpt_id = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip()
         source_url = str(segment.get("source_url") or "").strip()
-        candidate = by_locator.get(locator)
+        candidate = by_locator.get(locator) or by_locator.get(excerpt_id)
         if candidate is None and locator:
             candidate = next(
                 (
@@ -2102,11 +2105,36 @@ def _clamp_card_excerpts_to_verified_sources(card: dict, package: Optional[dict]
                 None,
             )
         if candidate is None:
+            wanted_excerpt = _normalized_source_text(str(segment.get("source_excerpt") or "")).strip()
+            if wanted_excerpt:
+                candidate = next(
+                    (
+                        item for item in candidates
+                        if wanted_excerpt in _normalized_source_text(str(item.get("text") or ""))
+                        and (
+                            not source_url
+                            or str(item.get("source_url") or "").strip() == source_url
+                        )
+                    ),
+                    None,
+                )
+                if candidate is None:
+                    candidate = next(
+                        (
+                            item for item in candidates
+                            if wanted_excerpt in _normalized_source_text(str(item.get("text") or ""))
+                        ),
+                        None,
+                    )
+        if candidate is None:
             continue
         segment["source_excerpt"] = str(candidate.get("text") or "").strip()
+        segment["source_excerpt_id"] = str(candidate.get("excerpt_id") or excerpt_id).strip()
         segment["source_url"] = str(candidate.get("source_url") or segment.get("source_url") or "").strip()
         segment["source_title"] = str(candidate.get("source_title") or segment.get("source_title") or "").strip()
-        segment["locator"] = str(candidate.get("locator") or locator).strip()
+        segment["locator"] = str(candidate.get("locator") or candidate.get("excerpt_id") or locator).strip()
+        if candidate.get("source_id"):
+            segment["source_id"] = candidate.get("source_id")
     return card
 
 
@@ -3260,7 +3288,8 @@ _VISUAL_IDENTITY_FEATURE_WORDS = (
     "deck", "decks", "hull", "bow", "stern", "island", "mast", "masts",
     "funnel", "funnels", "superstructure", "bridge", "keel", "catapult",
     "catapults", "palisades", "derrick", "derricks", "crane", "cranes",
-    "hangar", "ramp",
+    "hangar", "ramp", "elevator", "elevators", "flight deck",
+    "arresting gear", "sponson", "sponsons", "centerline", "carrier configuration",
     # helicopter
     "rotor", "rotors", "tailboom", "skids",
     # armor / ground vehicle
@@ -4148,6 +4177,178 @@ def _promoted_evidence_segment(candidate: dict, kind: str, machine: str, existin
     if source_id:
         segment["source_id"] = source_id
     return segment
+
+
+def _conform_card_to_verified_package(card: dict, package: Optional[dict], machine: str) -> dict:
+    """Apply source-backed fixes that never need another model call.
+
+    The source package already knows the canonical row identities and a
+    distinct, traceable excerpt assignment for the four required Anton beats.
+    Treating those as writing decisions caused paid repair loops to fail on
+    bookkeeping. This pass only copies verified rows; it never invents facts.
+    """
+    if not isinstance(card, dict) or not _verified_machine_source_package_ready(package):
+        return card
+
+    _clamp_card_excerpts_to_verified_sources(card, package)
+    segments = card.get("evidence_segments")
+    if not isinstance(segments, list):
+        return card
+
+    required_slots = [
+        role for role, _accepted_kinds, _job in _ANTON_SLOT_SPECS
+        if role in _ANTON_REQUIRED_SLOT_ROLES
+    ]
+    initial_required_roles = {
+        _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+        for segment in segments if isinstance(segment, dict)
+    } & _ANTON_REQUIRED_SLOT_ROLES
+    slot_conformance_safe = initial_required_roles == set(required_slots)
+    if slot_conformance_safe:
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+            if role not in _ANTON_REQUIRED_SLOT_ROLES:
+                continue
+            identity = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip() \
+                or str(segment.get("locator") or "").strip()
+            candidate = _find_candidate_excerpt(package, identity)
+            if candidate is None or not _verified_source_candidate_traceable(candidate):
+                slot_conformance_safe = False
+                break
+    coverage_by_slot: dict[str, list[str]] = {role: [] for role in required_slots}
+    excerpt_text_by_id: dict[str, str] = {}
+    segment_rows_by_role: dict[str, list[tuple[int, str]]] = {role: [] for role in required_slots}
+    all_segment_indices_by_role: dict[str, list[int]] = {role: [] for role in required_slots}
+
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        role = _anton_slot_role_for_kind(str(segment.get("kind") or ""))
+        if role not in _ANTON_REQUIRED_SLOT_ROLES:
+            continue
+        if not slot_conformance_safe:
+            continue
+        identity = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip() \
+            or str(segment.get("locator") or "").strip()
+        candidate = _find_candidate_excerpt(package, identity)
+        if candidate is None or not _verified_source_candidate_traceable(candidate):
+            all_segment_indices_by_role[role].append(index)
+            continue
+        hints_list = [
+            str(h or "").strip() for h in (candidate.get("anton_slot_hints") or [])
+            if str(h or "").strip()
+        ]
+        hints = set(hints_list)
+        if hints and role not in hints:
+            # Preserve the verified excerpt and move it to the role its source
+            # actually supports; the distinct-assignment step below backfills
+            # the vacated required role from another verified row.
+            role = hints_list[0]
+            segment["kind"] = role
+        if role not in _ANTON_REQUIRED_SLOT_ROLES:
+            continue
+        all_segment_indices_by_role[role].append(index)
+        excerpt_id = str(candidate.get("excerpt_id") or candidate.get("locator") or "").strip()
+        if not excerpt_id:
+            continue
+        coverage_by_slot[role].append(excerpt_id)
+        excerpt_text_by_id[excerpt_id] = str(candidate.get("text") or "")
+        segment_rows_by_role[role].append((index, excerpt_id))
+
+    ranked_candidates = sorted(
+        (
+            candidate for candidate in (package or {}).get("candidate_excerpts") or []
+            if isinstance(candidate, dict)
+            and _verified_source_candidate_traceable(candidate)
+            and _mentions_machine(str(candidate.get("text") or ""), machine)
+        ),
+        key=lambda candidate: (
+            _source_tier_number(candidate),
+            str(candidate.get("excerpt_id") or candidate.get("locator") or ""),
+        ),
+    )
+    for candidate in ranked_candidates:
+        excerpt_id = str(candidate.get("excerpt_id") or candidate.get("locator") or "").strip()
+        if not excerpt_id:
+            continue
+        excerpt_text_by_id[excerpt_id] = str(candidate.get("text") or "")
+        for role in candidate.get("anton_slot_hints") or []:
+            role = str(role or "").strip()
+            if role in coverage_by_slot and excerpt_id not in coverage_by_slot[role]:
+                coverage_by_slot[role].append(excerpt_id)
+
+    assignment = _distinct_anton_slot_assignment(
+        coverage_by_slot, required_slots, excerpt_text_by_id, machine,
+    )
+    if slot_conformance_safe and len(assignment) == len(required_slots):
+        cited_field_ids = {
+            str(evidence_id).strip()
+            for field in ("timeframe_evidence_ids", "visual_identity_evidence_ids")
+            for evidence_id in (card.get(field) if isinstance(card.get(field), list) else [])
+            if str(evidence_id).strip()
+        }
+        existing_evidence_ids = {
+            str(segment.get("evidence_id") or "").strip()
+            for segment in segments if isinstance(segment, dict)
+        }
+        for role in required_slots:
+            assigned_id = assignment.get(role)
+            if not assigned_id or any(
+                excerpt_id == assigned_id for _index, excerpt_id in segment_rows_by_role.get(role, [])
+            ):
+                continue
+            candidate = _find_candidate_excerpt(package, assigned_id)
+            if candidate is None:
+                continue
+            promoted = _promoted_evidence_segment(candidate, role, machine, existing_evidence_ids)
+            existing_evidence_ids.add(str(promoted.get("evidence_id") or ""))
+            replaceable = [
+                index for index, _excerpt_id in segment_rows_by_role.get(role, [])
+                if str(segments[index].get("evidence_id") or "").strip() not in cited_field_ids
+            ]
+            role_rows = segment_rows_by_role.get(role, [])
+            any_role_rows = all_segment_indices_by_role.get(role, [])
+            if replaceable or role_rows or any_role_rows:
+                replace_index = (
+                    replaceable[0] if replaceable else
+                    role_rows[0][0] if role_rows else
+                    any_role_rows[0]
+                )
+                segments[replace_index] = promoted
+            else:
+                segments.append(promoted)
+
+    visual_identity = str(card.get("visual_identity") or "")
+    visual_warnings = _visual_identity_warnings(
+        machine,
+        visual_identity,
+        segments,
+        card.get("visual_identity_evidence_ids"),
+    )
+    if _VISUAL_IDENTITY_CONTENT_RULE in visual_warnings:
+        feature_rows: list[tuple[int, dict, str]] = []
+        for segment in segments:
+            if not isinstance(segment, dict) or not str(segment.get("evidence_id") or "").strip():
+                continue
+            claim = " ".join(str(segment.get("claim") or "").split())
+            excerpt = " ".join(str(segment.get("source_excerpt") or "").split())
+            basis = claim if _VISUAL_IDENTITY_FEATURE_PATTERN.search(claim.lower()) else excerpt
+            if not basis or not _VISUAL_IDENTITY_FEATURE_PATTERN.search(basis.lower()):
+                continue
+            feature_rows.append((_source_tier_number(segment), segment, basis))
+        if feature_rows:
+            _tier, segment, basis = sorted(
+                feature_rows,
+                key=lambda row: (row[0] if row[0] > 0 else 99, len(row[2])),
+            )[0]
+            card["visual_identity"] = f"{machine} visible features: {basis}"
+            card["visual_identity_evidence_ids"] = [str(segment.get("evidence_id") or "").strip()]
+
+    _clamp_card_excerpts_to_verified_sources(card, package)
+    _normalize_card_field_citations(card, machine)
+    return card
 
 
 def _merge_card_into_review_cards(existing_cards: list, card: dict, machine: str) -> list:
@@ -11764,6 +11965,7 @@ class PipelineExecutor:
             if not isinstance(target_card, dict):
                 return target_card
             _reanchor_card_citations_by_text(target_card, package)
+            _conform_card_to_verified_package(target_card, package, machine_name)
             grounding_text = _all_segments_grounding_text(target_card.get("evidence_segments") or [])
             for field, stopwords in (
                 ("timeframe", _TIMEFRAME_EXTRA_STOPWORDS),
@@ -12276,8 +12478,7 @@ class PipelineExecutor:
                     import re as _re_uh
                     text = _re_uh.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh.I | _re_uh.S).strip()
                 card = _hydrate_compatibility_fields(_json_uh.loads(text))
-                card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
-                card = _normalize_card_field_citations(card, machine)
+                card = _conform_card_to_verified_package(card, verified_source_package, machine)
                 warnings = _card_warnings(machine, card, verified_source_package if target_code else _verified_source_package_for_machine(payload, machine), require_source_package=True)
             except Exception as e:
                 warnings = [f"invalid JSON research card: {str(e)[:120]}"]
@@ -12366,8 +12567,7 @@ class PipelineExecutor:
                         import re as _re_uh2
                         text = _re_uh2.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re_uh2.I | _re_uh2.S).strip()
                     card = _hydrate_compatibility_fields(_json_uh.loads(text))
-                    card = _clamp_card_excerpts_to_verified_sources(card, verified_source_package)
-                    card = _normalize_card_field_citations(card, machine)
+                    card = _conform_card_to_verified_package(card, verified_source_package, machine)
                     warnings = _card_warnings(machine, card, verified_source_package if target_code else _verified_source_package_for_machine(payload, machine), require_source_package=True)
                 except Exception as e:
                     card = {"unit": machine, "validation": {"passed": False}, "raw_output": str(raw or "")[:4000]}
