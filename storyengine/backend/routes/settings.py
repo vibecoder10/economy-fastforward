@@ -177,9 +177,31 @@ async def set_api_key(
     if not request.value or not request.value.strip():
         raise HTTPException(status_code=400, detail="Value cannot be empty")
 
+    candidate = request.value.strip()
+    # These two credentials authorize the paid narration path. Validate the
+    # candidate before saving it so a typo/revoked key cannot make a future
+    # production run discover the problem one scene at a time. Both probes
+    # are read-only/free (voices listing or Kie credit lookup).
+    if key_name in {"elevenlabs_api_key", "kie_ai_api_key"}:
+        try:
+            validation = await asyncio.wait_for(
+                test_api_key(key_name, tenant_id, value_override=candidate),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=400,
+                detail="The provider did not respond, so this key was not saved. Try again.",
+            )
+        if not validation.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=validation.get("message") or "The provider rejected this key. It was not saved.",
+            )
+
     success = await set_secret(
         name=key_name,
-        value=request.value.strip(),
+        value=candidate,
         tenant_id=tenant_id,
         description=f"API key for {key_name}",
     )

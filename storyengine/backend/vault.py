@@ -451,7 +451,12 @@ def _extract_upstream_error(resp, path):
     return str(node) if node else None
 
 
-async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
+async def test_api_key(
+    name: str,
+    tenant_id: Optional[str] = None,
+    *,
+    value_override: Optional[str] = None,
+) -> dict:
     """Test if an API key is valid by making a simple API call.
 
     Args:
@@ -463,7 +468,9 @@ async def test_api_key(name: str, tenant_id: Optional[str] = None) -> dict:
     """
     import httpx
 
-    value = await get_secret(name, tenant_id)
+    # Save-time validation passes the candidate directly so a bad value is
+    # rejected before it replaces the existing vault secret.
+    value = value_override if value_override is not None else await get_secret(name, tenant_id)
     if not value:
         return {"success": False, "message": "API key not configured"}
 
