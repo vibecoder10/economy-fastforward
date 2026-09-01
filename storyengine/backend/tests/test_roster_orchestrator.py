@@ -263,6 +263,20 @@ def test_hold_validation_unit_verdict_update():
     assert updated["passed"] is False
 
 
+def test_compact_card_rows_reconcile_the_overall_research_gate_by_roster_index():
+    roster = ["CV-3 USS Saratoga", "CV-60 USS Saratoga"]
+    rows = [
+        {"roster_index": 1, "validation": {"passed": True, "warnings": []}},
+        {"roster_index": 2, "validation": {"passed": True, "warnings": ["advisory only"]}},
+    ]
+
+    validation = pe._hold_validation_from_compact_rows(roster, rows)
+
+    assert validation["passed"] is True
+    assert [unit["machine"] for unit in validation["units"]] == roster
+    assert all(unit["passed"] for unit in validation["units"])
+
+
 # ---------------------------------------------------------------------------
 # timeframe promotable rows mirror the prompt hints
 # ---------------------------------------------------------------------------

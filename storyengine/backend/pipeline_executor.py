@@ -4449,6 +4449,29 @@ def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: li
     return validation
 
 
+def _hold_validation_from_compact_rows(roster: list[str], rows: list[dict]) -> dict:
+    """Rebuild the payload gate from the dashboard's authoritative card rows."""
+    by_index = {
+        row.get("roster_index"): _card_readiness_from_validation(row.get("validation"))
+        for row in rows or []
+        if isinstance(row, dict) and isinstance(row.get("roster_index"), int)
+    }
+    units: list[dict] = []
+    for index, machine in enumerate(roster or [], start=1):
+        readiness = by_index.get(index) or {}
+        units.append({
+            "machine": machine,
+            "passed": bool(readiness.get("passed")),
+            "warnings": list(readiness.get("warnings") or []),
+        })
+    return {
+        "passed": bool(units) and all(unit["passed"] for unit in units),
+        "in_progress": False,
+        "units": units,
+        "warnings": [],
+    }
+
+
 def _warning_targets_field(warning: str, field: str) -> bool:
     return field in str(warning or "")
 
@@ -11439,6 +11462,7 @@ class PipelineExecutor:
         # roster entries can share a machine_key, and a machine_key-keyed
         # dict would collapse them onto one verdict.
         ready_count = 0
+        reconciled_validation: Optional[dict] = None
         try:
             rows = await fetch_all(
                 "SELECT roster_index, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
@@ -11452,6 +11476,7 @@ class PipelineExecutor:
                 1 for index, _item in enumerate(roster, start=1)
                 if (verdicts_by_index.get(index) or {}).get("passed")
             )
+            reconciled_validation = _hold_validation_from_compact_rows(roster, rows)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("[orchestrator] readiness recount unavailable: %s", str(exc)[:150])
         report = {
@@ -11492,11 +11517,18 @@ class PipelineExecutor:
             }
             await execute(
                 """UPDATE videos SET research_payload = jsonb_set(
-                       COALESCE(research_payload::jsonb, '{}'::jsonb),
-                       '{roster_orchestrator_report}', $1::jsonb, true
-                   ), updated_at = now()
+                       jsonb_set(
+                         COALESCE(research_payload::jsonb, '{}'::jsonb),
+                         '{roster_orchestrator_report}', $1::jsonb, true
+                       ),
+                       '{unit_research_hold_validation}', $4::jsonb, true
+                   ),
+                   status = CASE WHEN $5::boolean THEN 'ready_for_scripting' ELSE status END,
+                   updated_at = now()
                    WHERE id = $2 AND tenant_id = $3""",
                 _json_orch.dumps(stored), video_id, self.tenant_id,
+                _json_orch.dumps(reconciled_validation or payload.get("unit_research_hold_validation") or {}),
+                bool(reconciled_validation and reconciled_validation.get("passed")),
             )
             report["est_spend_usd_total"] = stored["est_spend_usd_total"]
         except Exception as exc:  # noqa: BLE001
