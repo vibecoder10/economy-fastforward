@@ -4492,6 +4492,28 @@ def test_story_paragraph_validator_blocks_fact_heavy_final_synthesis():
     assert not any("paragraph introduced unsupported numerical detail" in warning for warning in pe._blocking_warnings(warnings))
 
 
+def test_story_paragraph_validator_keeps_new_closer_number_advisory_only():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    old_final = bundle["formula_sentences"][-1]
+    new_final = "One lifetime bridged the design promise and service reality."
+    bundle["formula_sentences"][-1] = new_final
+    bundle["paragraph"] = bundle["paragraph"].replace(old_final, new_final)
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert any(
+        warning.startswith(pe._ADVISORY_PREFIX)
+        and "closer introduces number(s) not in the body: one" in warning
+        for warning in warnings
+    )
+    assert not any(
+        "paragraph introduced unsupported numerical detail" in warning
+        for warning in pe._blocking_warnings(warnings)
+    )
+
+
 def test_story_paragraph_validator_blocks_new_named_entity_in_final_synthesis():
     payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
     plan = pe._machine_story_plan(payload, "B-52")
@@ -5439,6 +5461,21 @@ def test_story_sentence_resplit_preserves_person_initials():
         "The second Gerald R. Ford-class carrier entered construction.",
         "CVN-79 retained the Ford-class design.",
     ]
+
+
+def test_story_validator_does_not_split_claim_span_at_person_initial():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    original = bundle["formula_sentences"][0]
+    updated = original.replace("B-52", "B-52 Gerald R. Ford", 1)
+    bundle["formula_sentences"][0] = updated
+    bundle["claim_map"][0]["span"] = updated
+
+    _paragraph, warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+
+    assert not any("must map inside one formula sentence" in warning for warning in warnings)
+    assert not any("paragraph runs 6 counted sentences" in warning for warning in warnings)
 
 
 def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):

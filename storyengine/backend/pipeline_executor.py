@@ -6104,7 +6104,7 @@ def _validate_machine_story_sentences(
     if not isinstance(formula_sentences, list):
         formula_sentences = []
     formula_sentences = [" ".join(str(item or "").split()) for item in formula_sentences if str(item or "").strip()]
-    sentence_parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    sentence_parts = _resplit_story_sentences(paragraph)
     sentence_count = len(sentence_parts)
     opening_assignment = str(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("opening_assignment") or "")
     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_assignment))
@@ -6439,11 +6439,20 @@ def _validate_machine_story_sentences(
         warnings.append("paragraph must use evidence from at least four Anton slots")
 
     # LAW: designations are identifiers, never numbers. QL-19: paragraph
-    # numbers ground against ALL locked evidence; QD-3 keeps row-accepted
-    # hedged rounds legal here too.
+    # factual numbers ground against ALL locked evidence; QD-3 keeps
+    # row-accepted hedged rounds legal here too. The paragraph-derived closer
+    # is intentionally excluded from this hard evidence check: B1 below owns
+    # closer numbers and makes a new number alone advisory, escalating only
+    # when it is paired with a new entity.
     paragraph_numbers = _numeric_mentions_from_text(_strip_designations_for_numbers(paragraph, machine))
+    claim_backed_text = " ".join(
+        str(detail.get("span") or "") for detail in claim_span_details
+    )
+    claim_backed_numbers = _numeric_mentions_from_text(
+        _strip_designations_for_numbers(claim_backed_text, machine)
+    )
     unsupported_numbers = [
-        mention["raw"] for mention in paragraph_numbers
+        mention["raw"] for mention in claim_backed_numbers
         if mention["key"] not in all_locked_number_keys
         and mention["key"] not in hedged_rounded_keys
     ]
