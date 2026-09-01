@@ -181,9 +181,109 @@ async def test_auto_sweep_task_type_is_visible_through_the_db_fallback_status_re
         return None
 
     monkeypatch.setattr(pipeline_routes, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pipeline_routes._time, "time", lambda: 150.0)
 
     task = await pipeline_routes._get_task_status_async(video_id, tenant_id)
 
     assert task is not None
     assert task["status"] == "running"
     assert task["task_type"] == "roster_prefetch"
+
+
+@pytest.mark.asyncio
+async def test_queue_terminal_row_clears_stale_in_memory_running_status(monkeypatch):
+    import importlib
+
+    pipeline_routes = importlib.import_module("routes.pipeline")
+    video_id, tenant_id = "vid-terminal", "tenant-terminal"
+    key = (tenant_id, video_id)
+    pipeline_routes._running_tasks[key] = {
+        "status": "running",
+        "message": "Script generation in progress",
+        "error": None,
+        "lane": "main",
+        "task_type": "pipeline",
+        "queue_dispatched": True,
+        "started_at": 100.0,
+    }
+
+    async def fake_fetch_one(query, *args):
+        if "completed_at >= to_timestamp" in query:
+            assert args == (video_id, tenant_id, 100.0)
+            return {"status": "completed", "completed_at": "later"}
+        if "status IN ('pending', 'running')" in query:
+            return None
+        raise AssertionError(query)
+
+    monkeypatch.setattr(pipeline_routes, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pipeline_routes._time, "time", lambda: 150.0)
+
+    task = await pipeline_routes._get_task_status_async(video_id, tenant_id)
+
+    assert task is None
+    assert key not in pipeline_routes._running_tasks
+
+
+@pytest.mark.asyncio
+async def test_terminal_queue_row_unblocks_next_stage_without_restart(monkeypatch):
+    import importlib
+    from unittest.mock import AsyncMock
+
+    pipeline_routes = importlib.import_module("routes.pipeline")
+    video_id, tenant_id = "vid-next", "tenant-next"
+    key = (tenant_id, video_id)
+    pipeline_routes._running_tasks[key] = {
+        "status": "running",
+        "message": "Script generation in progress",
+        "error": None,
+        "lane": "main",
+        "task_type": "pipeline",
+        "queue_dispatched": True,
+        "started_at": 200.0,
+    }
+
+    async def fake_fetch_one(query, *args):
+        assert "completed_at >= to_timestamp" in query
+        return {"status": "failed", "completed_at": "later"}
+
+    monkeypatch.setattr(pipeline_routes, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pipeline_routes._time, "time", lambda: 250.0)
+    monkeypatch.setattr(
+        pipeline_routes.generation_claims,
+        "is_blocked",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        pipeline_routes.drain_mode,
+        "assert_accepting_new_work",
+        AsyncMock(return_value=None),
+    )
+
+    assert await pipeline_routes._is_task_active(video_id, tenant_id) is False
+    assert key not in pipeline_routes._running_tasks
+
+
+def test_new_run_gets_a_fresh_in_memory_start_time(monkeypatch):
+    import importlib
+
+    pipeline_routes = importlib.import_module("routes.pipeline")
+    video_id, tenant_id = "vid-fresh", "tenant-fresh"
+    key = (tenant_id, video_id)
+    pipeline_routes._running_tasks[key] = {
+        "status": "failed",
+        "message": "old run failed",
+        "error": "old run failed",
+        "lane": "main",
+        "task_type": "pipeline",
+        "started_at": 10.0,
+    }
+    monkeypatch.setattr(pipeline_routes._time, "time", lambda: 20.0)
+
+    pipeline_routes._set_task_status(
+        video_id,
+        "running",
+        "new run",
+        tenant_id=tenant_id,
+    )
+
+    assert pipeline_routes._running_tasks[key]["started_at"] == 20.0

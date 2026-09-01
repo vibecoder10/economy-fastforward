@@ -491,6 +491,9 @@ def _set_task_status(
         resolved_error = humanize_error(resolved_error)
     key = (tenant_id, video_id)
     previous = _running_tasks.get(key)
+    starts_new_run = normalized == "running" and (
+        not previous or previous.get("status") not in ("running", "pending")
+    )
     _running_tasks[key] = {
         "status": normalized,
         "message": resolved_message,
@@ -503,7 +506,7 @@ def _set_task_status(
         # every pre-existing caller that doesn't pass task_type (defaults to
         # "pipeline" below), so this changes nothing for them.
         "task_type": task_type,
-        "started_at": (previous or {}).get("started_at", _time.time()),
+        "started_at": _time.time() if starts_new_run else (previous or {}).get("started_at", _time.time()),
     }
 
     # A run is STARTING (no live entry before): consume any stale cancel
@@ -594,7 +597,11 @@ async def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> 
     for l, t0 in list(lanes.items()):
         if now - t0 > _STALE_TASK_SECONDS:
             lanes.pop(l, None)  # a killed worker must never wedge the video
-    task = _get_task_status(video_id, tenant_id)
+    task = await _reconcile_terminal_queue_task(
+        video_id,
+        tenant_id,
+        _get_task_status(video_id, tenant_id),
+    )
     main_running = bool(
         task and task.get("status") in ("running", "pending")
         and task.get("lane", "main") == "main"
@@ -621,7 +628,11 @@ async def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> 
 
 async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict]:
     """Async version: check in-memory dict first, then DB for queue jobs."""
-    task = _get_task_status(video_id, tenant_id)
+    task = await _reconcile_terminal_queue_task(
+        video_id,
+        tenant_id,
+        _get_task_status(video_id, tenant_id),
+    )
     if task:
         return task
 
@@ -646,6 +657,50 @@ async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict
             "error": row.get("error_message"),
             "task_type": row.get("task_type"),
         }
+    return None
+
+
+async def _reconcile_terminal_queue_task(
+    video_id: str,
+    tenant_id: str,
+    task: Optional[dict],
+) -> Optional[dict]:
+    """Drop an optimistic API-process marker once its queued worker is done.
+
+    Queue workers run in a separate process, so they close the durable
+    background_tasks row but cannot mutate this process's _running_tasks
+    dictionary. Without this reconciliation, a finished stage remains
+    "running" for ten minutes and blocks the next automatic stage.
+    """
+    if (
+        not task
+        or task.get("status") not in ("running", "pending")
+        or task.get("queue_dispatched") is not True
+    ):
+        return task
+    started_at = float(task.get("started_at") or 0)
+    if started_at <= 0:
+        return task
+    terminal = await fetch_one(
+        "SELECT status, completed_at FROM background_tasks "
+        "WHERE video_id = $1 AND tenant_id = $2 "
+        "  AND status IN ('completed', 'failed', 'cancelled') "
+        "  AND completed_at >= to_timestamp($3) "
+        "ORDER BY completed_at DESC LIMIT 1",
+        video_id,
+        tenant_id,
+        started_at,
+    )
+    if not terminal:
+        return task
+    key = (tenant_id, video_id)
+    current = _running_tasks.get(key)
+    if current is task or (
+        current
+        and current.get("status") in ("running", "pending")
+        and float(current.get("started_at") or 0) == started_at
+    ):
+        _running_tasks.pop(key, None)
     return None
 
 
@@ -786,6 +841,12 @@ async def _enqueue_or_fallback(
                     message=f"{stage} queued — job_id={job_id}",
                     job_id=job_id, attempt=attempt,
                 )
+                # The worker runs in another process and cannot update this
+                # process-local optimistic marker. Tag it so status reads and
+                # start guards reconcile it against the durable terminal row.
+                queued_marker = _running_tasks.get((tenant_id, video_id))
+                if queued_marker and queued_marker.get("status") in ("running", "pending"):
+                    queued_marker["queue_dispatched"] = True
                 return
             # arq refused: a job already exists for this EXACT (stage, video_id,
             # attempt) key (in flight, or completed within the keep_result
