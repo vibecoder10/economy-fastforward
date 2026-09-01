@@ -323,6 +323,7 @@ def test_verified_machine_source_queries_naval_machine_uses_naval_vocabulary():
     assert "armament" in joined
     assert "beam" in joined
     assert "commissioned" in joined
+    assert "design tradeoff limitation compromise" in joined
     assert "naval-history.net" in joined
     assert "uboat.net" in joined
     assert "discovery.nationalarchives.gov.uk" in joined
@@ -3732,7 +3733,6 @@ def test_designations_are_identifiers_never_numbers_in_script_checks():
     ]
     _paragraph, warnings = pe._validate_machine_story_sentences("Boeing XB-15", plan, bundle)
     assert pe._blocking_warnings(warnings) == []
-
     # ...while a real raw digit in a sentence still fails the number checks,
     # and no check ever names the designation's "15".
     digit_bundle = pe._parse_machine_story_sentences(_story_bundle("Boeing XB-15", 19))
@@ -3747,6 +3747,12 @@ def test_designations_are_identifiers_never_numbers_in_script_checks():
     assert any("raw numeric digit" in warning and "87" in warning for warning in digit_warnings)
     assert any("unsupported numerical detail(s): 87" in warning for warning in digit_warnings)
     assert not any(": 15" in warning or " 15," in warning for warning in digit_warnings)
+
+
+def test_numeric_mentions_normalize_markup_split_decade_suffix():
+    assert pe._numeric_mentions_from_text("decommissioned during the 1990 s .") == [
+        {"raw": "1990s", "key": "1990s"},
+    ]
 
 
 def test_softener_never_hedges_designation_digits():

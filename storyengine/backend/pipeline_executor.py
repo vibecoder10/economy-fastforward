@@ -1740,7 +1740,7 @@ def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str
     naval sources never satisfy."""
     return list(dict.fromkeys([
         f'"{machine}" official history commissioned',
-        f'"{machine}" class battleship displacement armament beam launched',
+        f'"{machine}" class displacement armament beam launched design tradeoff limitation compromise',
         f'"{machine}" naval-history.net',
         f'"{machine}" uboat.net',
         f'"{machine}" service history war record engagement',
@@ -2308,6 +2308,10 @@ def _numeric_token_key(token: Any) -> str:
 def _numeric_mentions_from_text(text: str) -> list[dict[str, str]]:
     """Extract numeric mentions with raw text and a canonical comparison key."""
     lower = str(text or "").lower()
+    # Fetched pages sometimes split a decade suffix with markup whitespace
+    # ("1990 s"). It is the same sourced number as "1990s", not an invented
+    # claim detail.
+    lower = re.sub(r"\b(\d{3,4})\s+s\b", r"\1s", lower)
     mentions = [
         {"raw": token, "key": _numeric_token_key(token)}
         for token in re.findall(_NUMERIC_DIGIT_PATTERN, lower)
@@ -4338,6 +4342,28 @@ def _conform_card_to_verified_package(card: dict, package: Optional[dict], machi
             if not basis or not _VISUAL_IDENTITY_FEATURE_PATTERN.search(basis.lower()):
                 continue
             feature_rows.append((_source_tier_number(segment), segment, basis))
+        if not feature_rows:
+            existing_evidence_ids = {
+                str(segment.get("evidence_id") or "").strip()
+                for segment in segments if isinstance(segment, dict)
+            }
+            for candidate in sorted(
+                (
+                    row for row in (package or {}).get("candidate_excerpts") or []
+                    if isinstance(row, dict)
+                    and _verified_source_candidate_traceable(row)
+                    and _mentions_machine(str(row.get("text") or ""), machine)
+                    and _VISUAL_IDENTITY_FEATURE_PATTERN.search(str(row.get("text") or "").lower())
+                ),
+                key=lambda row: (_source_tier_number(row) or 99, len(str(row.get("text") or ""))),
+            ):
+                promoted = _promoted_evidence_segment(
+                    candidate, "visual_identity", machine, existing_evidence_ids,
+                )
+                segments.append(promoted)
+                basis = " ".join(str(promoted.get("source_excerpt") or "").split())
+                feature_rows.append((_source_tier_number(promoted), promoted, basis))
+                break
         if feature_rows:
             _tier, segment, basis = sorted(
                 feature_rows,
@@ -5036,6 +5062,18 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
     # 7. Field-level prose warnings: single-field LLM rewrite.
     for field in _REWRITABLE_CARD_FIELDS:
         if any(_warning_targets_field(warning, field) for warning in warnings):
+            if field == "visual_identity" and not any(
+                isinstance(item, dict)
+                and _verified_source_candidate_traceable(item)
+                and _mentions_machine(str(item.get("text") or ""), machine)
+                and _VISUAL_IDENTITY_FEATURE_PATTERN.search(str(item.get("text") or "").lower())
+                for item in (package.get("candidate_excerpts") or [])
+            ):
+                actions.append({
+                    "verb": "targeted_fetch",
+                    "focus": "visual",
+                    "reason": "package has no verified visible-feature excerpt to support visual_identity",
+                })
             actions.append({
                 "verb": "rewrite_field",
                 "field": field,
@@ -10855,6 +10893,12 @@ class PipelineExecutor:
                 f'"{machine_name}" service history operational use combat',
                 f'"{machine_name}" converted redesignated retired scrapped fate',
                 f'"{machine_name}" transport cargo missions wartime',
+            ]
+        elif focus == "visual":
+            queries = [
+                f'"{machine_name}" flight deck island elevators catapults configuration',
+                f'"{machine_name}" specifications aviation facilities profile',
+                f'"{machine_name}" photo caption underway visible features',
             ]
         else:  # slot coverage gaps
             queries = [

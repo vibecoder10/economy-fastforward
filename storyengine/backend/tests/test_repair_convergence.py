@@ -579,6 +579,43 @@ def test_free_conformance_rebuilds_weak_ship_visual_identity_from_grounded_featu
     assert pe._VISUAL_IDENTITY_CONTENT_RULE not in warnings
 
 
+def test_free_conformance_promotes_an_unselected_verified_visual_excerpt():
+    machine = "CV-67 USS John F. Kennedy"
+    segments = _base_segments()
+    for segment in segments:
+        segment["claim"] = segment["claim"].replace(MACHINE, machine)
+        segment["source_excerpt"] = segment["source_excerpt"].replace(MACHINE, machine)
+    segments[1]["claim"] = segments[1]["source_excerpt"] = (
+        f"{machine} used a conventional propulsion configuration."
+    )
+    package = _base_package(segments)
+    package["machine"] = machine
+    package["machine_key"] = pe._normalized_unit_code(machine)
+    visual_row = copy.deepcopy(package["candidate_excerpts"][0])
+    visual_row.update({
+        "excerpt_id": "S9-E1",
+        "source_id": "S9",
+        "locator": "S9-E1",
+        "text": f"{machine} underway with aircraft visible across the flight deck.",
+        "source_url": "https://example.org/cv67-photo",
+        "source_tier": 1,
+    })
+    package["candidate_excerpts"].append(visual_row)
+    package = pe._verified_machine_source_package_with_anton_metadata(package, machine)
+    card = _base_card(segments)
+    card["unit"] = machine
+    card["visual_identity"] = f"{machine} was a conventionally powered aircraft carrier."
+    card["visual_identity_evidence_ids"] = ["E-DECISION"]
+
+    pe._conform_card_to_verified_package(card, package, machine)
+
+    assert "flight deck" in card["visual_identity"].lower()
+    visual_id = card["visual_identity_evidence_ids"][0]
+    promoted = next(row for row in card["evidence_segments"] if row["evidence_id"] == visual_id)
+    assert promoted["source_excerpt_id"] == "S9-E1"
+    assert promoted["promoted_from_package"] is True
+
+
 def test_carrier_elevators_are_recognized_as_visible_machine_features():
     assert pe._VISUAL_IDENTITY_FEATURE_PATTERN.search(
         "CV-3 USS Saratoga had two hydraulically powered elevators on her centerline."
