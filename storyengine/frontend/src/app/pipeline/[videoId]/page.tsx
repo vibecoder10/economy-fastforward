@@ -33,7 +33,12 @@ import { SoundTab } from "@/components/production/SoundTab";
 import { CostLedgerChip } from "@/components/video-detail/cost-ledger-chip";
 import { RosterStagePanel } from "@/components/production/RosterStagePanel";
 import { ImagesStagePanel } from "@/components/production/ImagesStagePanel";
-import { StaticDocuStageRail, type StaticDocuStageKey } from "@/components/production/StaticDocuStageRail";
+import {
+  resolveStaticDocuStage,
+  STATIC_DOCU_STAGE_TO_TAB,
+  type StaticDocuStageKey,
+} from "@/lib/static-docu-navigation";
+import { StaticDocuStageRail } from "@/components/production/StaticDocuStageRail";
 import { StageRail } from "@/components/production/StageRail";
 
 const container = {
@@ -123,15 +128,6 @@ const STATIC_DOCU_TABS = [
 /** Maps a StaticDocuStageRail stage key to the tab id that shows its
  * content — Script and Voice share the ScriptVoiceTab, same as the general
  * workspace already combines them into one "script-voice" tab. */
-const STATIC_STAGE_TO_TAB: Record<StaticDocuStageKey, string> = {
-  roster: "roster",
-  research: "research",
-  script: "script-voice",
-  voice: "script-voice",
-  pictures: "pictures",
-  video: "video",
-};
-
 function getDefaultTabStatic(status: string): string {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx <= 2) return "roster";
@@ -309,6 +305,7 @@ export default function VideoDetailPage() {
   const planStages = (video?.pipeline_stages as string[] | null) ?? null;
   const visibleTabs = isStaticDocu ? STATIC_DOCU_TABS : TABS.filter((t) => tabVisible(t.id, planStages));
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [activeStaticStage, setActiveStaticStage] = useState<StaticDocuStageKey | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
   // SSE for live pipeline updates (filtered to this video)
@@ -808,9 +805,12 @@ export default function VideoDetailPage() {
             rosterDashboard={rosterDashboard}
             assets={costAssets}
             activeStage={
-              (Object.entries(STATIC_STAGE_TO_TAB).find(([, tab]) => tab === currentTab)?.[0] as StaticDocuStageKey) || "roster"
+              resolveStaticDocuStage(currentTab, activeStaticStage)
             }
-            onSelectStage={(stage) => setActiveTab(STATIC_STAGE_TO_TAB[stage])}
+            onSelectStage={(stage) => {
+              setActiveStaticStage(stage);
+              setActiveTab(STATIC_DOCU_STAGE_TO_TAB[stage]);
+            }}
             taskWatcher={taskWatcher}
           />
         ) : productionGuide ? (
@@ -930,7 +930,13 @@ export default function VideoDetailPage() {
         {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab(isStaticDocu ? "pictures" : "scenes")} taskWatcher={taskWatcher} />}
         {/* C6: the roster-style grid of generated segment images — its own
             gated stage between Voice and Video for this format. */}
-        {currentTab === "pictures" && <ImagesStagePanel videoId={videoId} taskWatcher={taskWatcher} />}
+        {currentTab === "pictures" && <ImagesStagePanel
+          videoId={videoId}
+          taskWatcher={taskWatcher}
+          roster={Array.isArray((videoForTabs.research_payload as any)?.unit_roster)
+            ? (videoForTabs.research_payload as any).unit_roster
+            : []}
+        />}
         {/* C3c: static-documentary "Video" stage — thumbnail + render stacked
             (no separate animate stage for this format, so the two existing
             tabs' own quote->confirm flows just sit one above the other). */}

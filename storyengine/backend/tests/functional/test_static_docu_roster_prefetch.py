@@ -46,6 +46,23 @@ import static_docu  # noqa: E402
 import research_ingest  # noqa: E402
 
 
+def test_reference_storage_path_is_content_addressed_and_immutable():
+    first = static_docu._immutable_reference_path(
+        "video-1", "roster09_0", b"essex-carrier-pixels", "jpg"
+    )
+    same = static_docu._immutable_reference_path(
+        "video-1", "roster09_0", b"essex-carrier-pixels", "jpg"
+    )
+    replacement = static_docu._immutable_reference_path(
+        "video-1", "roster09_0", b"lighthouse-pixels", "jpg"
+    )
+
+    assert first == same
+    assert first != replacement
+    assert first.startswith("video-1/static/ref_roster09_0_")
+    assert first.endswith(".jpg")
+
+
 class _FakeResp:
     def __init__(self, body):
         self._body = body

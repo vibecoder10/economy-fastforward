@@ -15,6 +15,7 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
 """
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -900,12 +901,18 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
                 return None
             ext = "png" if url.lower().endswith(".png") else "jpg"
             return await upload_bytes(
-                data, f"{video_id}/static/ref_{tag}.{ext}",
+                data, _immutable_reference_path(video_id, tag, data, ext),
                 "image/png" if ext == "png" else "image/jpeg", tenant_id)
         except Exception:  # noqa: BLE001
             if attempt < 2:
                 await _asyncio.sleep(4 * (attempt + 1))
     return None
+
+
+def _immutable_reference_path(video_id: str, tag: str, data: bytes, ext: str) -> str:
+    """Content-address a cached reference so another sweep cannot overwrite it."""
+    digest = hashlib.sha256(data).hexdigest()[:16]
+    return f"{video_id}/static/ref_{tag}_{digest}.{ext}"
 
 
 def _url_file_title(url: str) -> str:

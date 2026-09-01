@@ -8141,6 +8141,15 @@ def _live_roster_gate(video: dict, payload: dict) -> dict:
     )
 
 
+def with_live_roster_validation(video: dict, payload: Any) -> Any:
+    """Return a UI payload whose roster verdict reflects today's data/rules."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("unit_roster"), list):
+        return payload
+    refreshed = dict(payload)
+    refreshed["unit_roster_validation"] = _live_roster_gate(video, payload)
+    return refreshed
+
+
 def resolve_prompt(
     per_video: Optional[str],
     tenant: Optional[str],

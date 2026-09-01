@@ -177,6 +177,19 @@ def test_recomputed_gate_ignores_the_stored_copy_entirely():
     )
 
 
+def test_video_detail_payload_replaces_stale_roster_verdict_for_the_ui():
+    """The API must expose the live verdict, not the historical snapshot."""
+    video, payload = _video()
+    assert payload["unit_roster_validation"]["passed"] is False
+
+    refreshed = pe.with_live_roster_validation(video, payload)
+
+    assert refreshed is not payload
+    assert refreshed["unit_roster_validation"]["passed"] is True
+    assert refreshed["unit_roster_validation"]["needs_review"] is True
+    assert payload["unit_roster_validation"]["passed"] is False
+
+
 def test_missing_stored_verdict_is_not_an_error():
     """A payload that never had a verdict recomputes the same way."""
     video, payload = _video()

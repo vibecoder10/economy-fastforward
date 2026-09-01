@@ -16,10 +16,12 @@ import {
   getStaticDocuReadiness, parseStaticDocuCaption, staticDocuViewLabel,
 } from "@/lib/static-docu";
 import { toDisplayImageUrl } from "@/lib/utils";
+import { staticDocuPictureTitle } from "@/lib/static-docu-navigation";
 
 interface ImagesStagePanelProps {
   videoId: string;
   taskWatcher: TaskWatcherBridge;
+  roster?: unknown[];
 }
 
 type CardStatus = "done" | "generating" | "qa_rejected" | "blocked_no_reference" | "missing" | "other";
@@ -176,7 +178,7 @@ function AircraftViewCarousel({
  * so Redraw goes through the same two-step chat quote->confirm chat.py already
  * uses for every other paid door, instead of a direct REST call.
  */
-export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps) {
+export function ImagesStagePanel({ videoId, taskWatcher, roster = [] }: ImagesStagePanelProps) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const queryClient = useQueryClient();
@@ -332,7 +334,7 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
                 ? "qa_rejected"
                 : "missing";
           const meta = STATUS_META[status];
-          const title = caption?.title || scriptRow?.scene_text?.slice(0, 60) || `Scene ${scene}`;
+          const title = staticDocuPictureTitle(caption?.title, roster[scene - 1], scene);
           const sub = caption?.sub;
           const specs = caption?.specs ?? [];
           const busy = redrawingScene === scene;

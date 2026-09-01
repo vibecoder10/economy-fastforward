@@ -753,10 +753,11 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     # Attach each research card's STORED referee verdict as card.readiness so the
     # Research and Script tabs read one backend-owned readiness (no client recompute,
     # failed cards never dropped). Single helper shared by every research_payload path.
-    from pipeline_executor import enrich_research_payload_readiness
+    from pipeline_executor import enrich_research_payload_readiness, with_live_roster_validation
     research_payload = await enrich_research_payload_readiness(
         tenant_id, video_id, _parse_json_field(r.get("research_payload"))
     )
+    research_payload = with_live_roster_validation(dict(r), research_payload)
     custom_film_plan = None
     if r.get("custom_film_plan_id"):
         from custom_film_contract import load_current_plan
