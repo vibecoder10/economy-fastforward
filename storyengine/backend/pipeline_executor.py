@@ -504,6 +504,176 @@ def _dvsu_thumbnail_series_warning(title: str, thumbnail_text: str) -> Optional[
             return None
     return None
 
+
+_THUMBNAIL_VISUAL_WORDS = {
+    "supercarrier": 18,
+    "next-generation": 14,
+    "nuclear": 12,
+    "stealth": 12,
+    "supersonic": 10,
+    "largest": 10,
+    "massive": 8,
+    "giant": 8,
+    "modern": 7,
+    "futuristic": 7,
+    "angular": 5,
+    "swept": 5,
+    "twin": 4,
+}
+_THUMBNAIL_VIEW_SCORES = {
+    "three_quarter": 30,
+    "top_oblique": 24,
+    "side_profile": 18,
+    "detail": 8,
+}
+
+
+def _thumbnail_caption(value: Any) -> dict:
+    """Return a caption dict without letting malformed legacy JSON escape."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = __import__("json").loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _select_static_thumbnail_subject(rows: list[dict], roster: list[Any]) -> Optional[dict]:
+    """Choose the strongest approved roster machine and its best generated view.
+
+    Static-documentary rows arrive in scene order, which made scene one the
+    thumbnail subject forever.  This selection is deliberately based on the
+    locked roster plus the approved render's own visual metadata instead.
+    """
+    roster_entries = [
+        (item, _unit_display_name(item)) for item in (roster or [])
+        if _unit_display_name(item)
+    ]
+    candidates: dict[str, list[dict]] = {}
+    for row in rows or []:
+        if (
+            row.get("status") != "done"
+            or row.get("generation_method") != "static_docu"
+            or not str(row.get("image_url") or "").strip()
+        ):
+            continue
+        caption = _thumbnail_caption(row.get("caption"))
+        if caption.get("design_study"):
+            continue
+        title = str(caption.get("title") or "").strip()
+        if not title:
+            continue
+        title_key = re.sub(r"[^a-z0-9]", "", title.lower())
+        locked_name = None
+        for roster_item, roster_name in roster_entries:
+            aliases = [roster_name, *_unit_roster_aliases(roster_item)]
+            if any(
+                len(alias_key) >= 5
+                and (alias_key in title_key or title_key in alias_key)
+                for alias_key in (
+                    re.sub(r"[^a-z0-9]", "", str(alias).lower())
+                    for alias in aliases
+                    if str(alias or "").strip()
+                )
+            ):
+                locked_name = roster_name
+                break
+        if not locked_name:
+            continue
+        item = dict(row)
+        item["caption_data"] = caption
+        item["title"] = title
+        candidates.setdefault(locked_name, []).append(item)
+
+    best: Optional[tuple[int, int, int, dict]] = None
+    for locked_index, (_locked_name, views) in enumerate(candidates.items()):
+        view = max(
+            views,
+            key=lambda item: (
+                _THUMBNAIL_VIEW_SCORES.get(
+                    str(item["caption_data"].get("view_role") or "").lower(), 0
+                ),
+                -int(item.get("image_index") or 99),
+            ),
+        )
+        caption = view["caption_data"]
+        visual_text = " ".join(
+            [
+                view["title"],
+                str(caption.get("sub") or ""),
+                " ".join(str(spec) for spec in (caption.get("specs") or [])),
+            ]
+        ).lower()
+        subject_score = sum(
+            weight for word, weight in _THUMBNAIL_VISUAL_WORDS.items()
+            if word in visual_text
+        )
+        # Caption `sub` begins with the machine's build/commission/service
+        # entry year.  Use its FIRST year only: later years in specs commonly
+        # describe retirement or scrapping (for example Independence in 2018)
+        # and say nothing about how modern the pictured design is.
+        entry_year = re.search(
+            r"\b((?:18|19|20)\d{2})\b", str(caption.get("sub") or "")
+        )
+        if entry_year:
+            subject_score += max(0, int(entry_year.group(1)) - 1900) // 4
+        # Prefer one unmistakable machine over an administrative class/range
+        # when their visual descriptions otherwise tie.
+        if " through " not in visual_text and " class" not in visual_text:
+            subject_score += 3
+        view_score = _THUMBNAIL_VIEW_SCORES.get(
+            str(caption.get("view_role") or "").lower(), 0
+        )
+        ranked = (subject_score, view_score, -locked_index, view)
+        if best is None or ranked[:3] > best[:3]:
+            best = ranked
+    return best[3] if best else None
+
+
+def _usable_thumbnail_copy(title: str, candidate: str) -> str:
+    """Return concise, grammatical channel-formula copy tied to the title."""
+    title_text = str(title or "")
+    series = re.match(
+        r"^\s*every\s+(.+?)\s+ever\s+built(?:\s*\([^)]*\))?\s*$",
+        title_text,
+        re.IGNORECASE,
+    )
+    if series:
+        core = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", series.group(1))
+        # Four core words + EVER BUILT keeps this formula within six words.
+        if core:
+            return " ".join([*core[:4], "EVER", "BUILT"]).upper()
+
+    clean = " ".join(str(candidate or "").strip().strip('"\'').split())
+    words = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", clean)
+    stop = {
+        "a", "an", "the", "how", "why", "what", "when", "where", "who",
+        "that", "this", "these", "those", "changed", "made", "became",
+        "is", "are", "was", "were", "did", "does", "do", "can", "could",
+        "we", "you", "nearly", "got",
+    }
+    title_words = {
+        word.lower() for word in re.findall(r"[A-Za-z0-9]+", title_text)
+        if word.lower() not in stop
+    }
+    copy_words = {word.lower() for word in words if word.lower() not in stop}
+    broken = bool(
+        re.search(r"\b(?:every|all)\s+built\b", clean, re.IGNORECASE)
+        or re.fullmatch(r"\s*ever\s+built\s*", clean, re.IGNORECASE)
+    )
+    title_related = bool(copy_words & title_words)
+    if 1 <= len(words) <= 6 and not broken and title_related:
+        return clean.upper()
+
+    fallback = [
+        word for word in re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", title_text)
+        if word.lower() not in stop and not re.fullmatch(r"\d{4}", word)
+    ]
+    return " ".join(fallback[:6]).upper() or "UNTOLD STORY"
+
 # B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
 # place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
 # never blocking. Curated for the military-history domain; extend as needed.
@@ -19514,24 +19684,32 @@ scenes."""
             pass
         hexbg = await self._measure_channel_thumb_bg()
 
-        # This video's REAL subject(s): the machines from the static segments.
+        # This video's REAL subject: choose the most visually compelling built
+        # machine from the locked roster, then seed with its strongest approved
+        # generated view.  Scene order is narrative order, not thumbnail merit.
         subjects = ""
         seed = None
         try:
             rows = await fetch_all(
-                "SELECT image_url, caption FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                "SELECT image_url, caption, scene, image_index, status, generation_method "
+                "FROM assets WHERE video_id=$1 AND tenant_id=$2 "
                 "AND image_url IS NOT NULL AND generation_method='static_docu' "
-                "ORDER BY scene", video_id, self.tenant_id)
-            names = []
-            for r in rows:
-                cap = r.get("caption")
-                if isinstance(cap, str):
-                    cap = _json_cf.loads(cap)
-                if isinstance(cap, dict) and cap.get("title"):
-                    names.append(cap["title"])
-            subjects = ", ".join(names[:5])
-            if rows:
-                seed = rows[0].get("image_url")
+                "AND status='done' ORDER BY scene, image_index", video_id, self.tenant_id)
+            payload = video.get("research_payload") or {}
+            if isinstance(payload, str):
+                payload = _json_cf.loads(payload)
+            roster = payload.get("unit_roster") if isinstance(payload, dict) else []
+            selected = _select_static_thumbnail_subject(rows, roster or [])
+            if selected:
+                cap = selected["caption_data"]
+                details = " • ".join(
+                    part for part in (
+                        str(cap.get("sub") or "").strip(),
+                        ", ".join(str(spec) for spec in (cap.get("specs") or [])),
+                    ) if part
+                )
+                subjects = selected["title"] + (f" — {details}" if details else "")
+                seed = selected.get("image_url")
         except Exception:  # noqa: BLE001
             pass
 
@@ -19558,22 +19736,35 @@ scenes."""
                 creds, blueprint, consensus, hexbg,
                 video.get("video_title") or "", subjects)
         if spec is not None:
+            raw_primary = str(
+                ((spec.get("text") or {}).get("primary_text") or {}).get("content") or ""
+            ).strip()
+            primary_text = _usable_thumbnail_copy(
+                video.get("video_title") or "", raw_primary
+            )
+            text_spec = spec.setdefault("text", {})
+            primary_spec = text_spec.setdefault("primary_text", {})
+            primary_spec["content"] = primary_text
             gen_prompt = (spec.get("prompt") or "").strip()
+            if raw_primary and raw_primary != primary_text:
+                gen_prompt = re.sub(
+                    re.escape(raw_primary), primary_text, gen_prompt,
+                    flags=re.IGNORECASE,
+                )
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    f"Replaced unusable thumbnail copy {raw_primary!r} with {primary_text!r}",
+                )
+            gen_prompt += (
+                f'\n\nTHUMBNAIL COPY (exact and non-negotiable): "{primary_text}". '
+                "Render every one of these words; do not shorten them or drop the subject."
+            )
             neg = (spec.get("negative_prompt") or "").strip()
             if neg:
                 gen_prompt += f"\n\nAvoid (negative prompt): {neg}"
             bg = ((spec.get("color_palette") or {}).get("background") or "").strip()
             if bg:
                 gen_prompt += f"\n\nBACKGROUND (exact, non-negotiable): {bg}."
-            # QL-66 (OR-9 ruled, checklist C46e): advisory only - log, never
-            # block a live thumbnail generation on a locked-phrase deviation.
-            # bot_activity.status is a hard-CHECK'd enum (started/running/
-            # completed/failed, no "warning") - "running" is the legal
-            # non-terminal status other advisory logs in this file already use.
-            primary_text = str(((spec.get("text") or {}).get("primary_text") or {}).get("content") or "")
-            ql66_warning = _dvsu_thumbnail_series_warning(video.get("video_title") or "", primary_text)
-            if ql66_warning:
-                await self._log_activity(bot_name, video_id, "running", ql66_warning)
         if not gen_prompt:
             return None
         # What the creator sees/edits in the UI prompt box: the full spec.
@@ -19729,8 +19920,14 @@ scenes."""
             "- Every field detailed and concrete (positions, sizes as % of frame, exact hexes).\n"
             "- The subject is the REAL machine named above — accurate configuration, and "
             "ABSOLUTELY NO invented text/stencils/markings on the vehicle.\n"
+            "- Make that machine the dominant, largest object in frame; use the supplied "
+            "approved generated view as its exact visual reference.\n"
             "- color_palette.background must be the measured hex verbatim when given.\n"
-            "- Text uses the channel's split-color treatment from the formula.\n"
+            "- primary_text is a natural, grammatical 1-6 word condensation of the title, "
+            "using its concrete subject words. For 'Every <core> Ever Built', it must be "
+            "'<core> EVER BUILT' with the leading 'Every' and any parenthetical year removed. "
+            "Never output subjectless fragments such as 'EVERY BUILT' or 'EVER BUILT'. "
+            "Text uses the channel's split-color treatment.\n"
             "- The 'prompt' field must restate the background hex and the no-invented-text rule."
         )
         try:
