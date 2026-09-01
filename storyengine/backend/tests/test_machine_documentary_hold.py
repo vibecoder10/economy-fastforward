@@ -278,6 +278,25 @@ def test_verified_machine_source_queries_cover_anton_research_slots():
     assert "pilot crew memoir oral history official inquiry unusual fact" in joined
 
 
+def test_source_excerpt_cap_reserves_a_late_tradeoff_window():
+    machine = "CV-63 USS Kitty Hawk"
+    filler = " ".join(
+        f"{machine} completed routine deployment number {index}."
+        for index in range(1, 13)
+    )
+    source = (
+        filler
+        + f" {machine} suffered an engine-room fuel fire."
+        + " Three propulsion systems had to shut down, forcing the crew to balance the ship."
+    )
+
+    excerpts = pe._sentence_candidates_from_source(source, machine, limit=10)
+
+    assert len(excerpts) == 10
+    assert any("tradeoff" in pe._anton_source_slot_hints(row) for row in excerpts)
+    assert any("propulsion systems had to shut down" in row for row in excerpts)
+
+
 def test_verified_machine_source_queries_aircraft_snapshot_byte_identical():
     """G13, 2026-07-31: the naval branch must never alter the aircraft query
     set - this is the exact 8-string output frozen before G13's naval branch

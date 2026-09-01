@@ -961,6 +961,7 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
         if " ".join(sentence.split()).strip()
     ]
     candidates: list[str] = []
+    slot_candidates: dict[str, str] = {}
     seen: set[str] = set()
     for span in (1, 2, 3):
         for index, sentence in enumerate(raw_sentences):
@@ -973,10 +974,32 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
             if key in seen:
                 continue
             seen.add(key)
-            candidates.append(window)
-            if len(candidates) >= limit:
-                return candidates
-    return candidates
+            if len(candidates) < limit:
+                candidates.append(window)
+            for slot in _ANTON_REQUIRED_SLOT_ROLES:
+                if slot not in slot_candidates and slot in _anton_source_slot_hints(window):
+                    slot_candidates[slot] = window
+    # Long history pages often mention the machine in ten introductory
+    # sentences before reaching the actual limitation or service consequence.
+    # Reserve one exact window per required beat, then fill remaining space in
+    # source order, so the hard ten-excerpt cap cannot erase a later tradeoff.
+    selected: list[str] = []
+    selected_keys: set[str] = set()
+    for slot in ("original_problem", "engineering_decision", "tradeoff", "reality"):
+        window = slot_candidates.get(slot)
+        key = _normalized_source_text(window or "")
+        if window and key not in selected_keys:
+            selected.append(window)
+            selected_keys.add(key)
+    for window in candidates:
+        key = _normalized_source_text(window)
+        if key in selected_keys:
+            continue
+        selected.append(window)
+        selected_keys.add(key)
+        if len(selected) >= limit:
+            break
+    return selected[:limit]
 
 
 def _machine_source_variant_score(excerpts: list[str], machine: str) -> tuple[int, int, int]:
@@ -1179,6 +1202,7 @@ def _anton_source_slot_hints(text: str) -> set[str]:
             r"\b(?:limitation|limited|underpowered|slow|sluggish|obsolete|problem|failed|failure)\b",
             r"\b(?:could not|couldn['’]?t|unable|too\s+(?:slow|heavy|large|expensive|costly))\b",
             r"\b(?:sacrificed|compromise|drawback|despite|but|however|stranded|cancelled|canceled)\b",
+            r"\b(?:had to|forced to|required to)\b.{0,100}\b(?:shut down|redesign|remove|reduce|limit|balance)\b",
         ),
         "reality": (
             r"\breality\b",
