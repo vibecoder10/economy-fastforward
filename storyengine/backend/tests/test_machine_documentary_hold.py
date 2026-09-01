@@ -5296,6 +5296,12 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     async def fake_validate(_video_id):
         return {"passed": True}
 
+    checkpoints = []
+
+    async def fake_save_machine_script_block(**kwargs):
+        checkpoints.append(kwargs)
+        return {"saved": True}
+
     def passed_quality_audit(*_args, **_kwargs):
         return _passing_quality_audit()
 
@@ -5306,6 +5312,7 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
     monkeypatch.setattr(executor, "_update_video_status", fake_update_status)
     monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+    monkeypatch.setattr(executor, "_save_machine_script_block", fake_save_machine_script_block)
 
     result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
 
@@ -5319,6 +5326,8 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     assert len(staged_rows) == len(roster)
     assert full_script == "\n\n".join(row["scene_text"] for row in staged_rows)
     assert full_script.count("\n\n") == len(roster) - 1
+    assert [item["script_block"]["machine"] for item in checkpoints] == roster
+    assert all(item["advance_status"] is False for item in checkpoints)
     assert "in conclusion" not in full_script.lower()
     assert "to summarize" not in full_script.lower()
     assert "what have we learned" not in full_script.lower()
@@ -5327,6 +5336,78 @@ def test_script_hold_full_script_writes_only_unit_paragraphs_no_summary(monkeypa
     # prompt is now prompts[2], not prompts[1].
     assert "OPENING ASSIGNMENT: A machine-name opening is allowed here" in fake_anthropic.prompts[0]
     assert "OPENING ASSIGNMENT: Do NOT open with the machine name" in fake_anthropic.prompts[2]
+
+
+def test_script_hold_resume_reuses_saved_machine_without_provider_call(monkeypatch):
+    machine = "Boeing XB-15"
+    paragraph = "Previously paid and validated paragraph that must be reused on resume."
+    roster = [machine]
+    video = {
+        "video_title": "Every US Strategic Bomber Ever Built",
+        "render_mode": "static_docu",
+        "status": "ready_for_scripting",
+        "research_payload": {
+            "unit_roster": roster,
+            "unit_research_cards": [_valid_research_card(machine, _evidence_segments())],
+            "machine_raw_source_packages": {
+                pe._verified_source_cache_key(machine): _verified_package_for_segments(machine, _evidence_segments()),
+            },
+        },
+        "script_validation": {
+            "machine_script_blocks": {
+                machine: {
+                    "machine": machine,
+                    "scene": 1,
+                    "paragraph": paragraph,
+                    "word_count": 9,
+                    "research_source": "compact_editorial_brief",
+                    "passed": True,
+                    "warnings": [],
+                }
+            }
+        },
+    }
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("resume must not repay for a saved passing paragraph")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": ForbiddenAnthropic(), "script_system_prompt": "ANTON TENANT SCRIPT CONTRACT"},
+    )()
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "INSERT 0 1"
+
+    async def fake_fetch_all(_query, *_args):
+        return []
+
+    async def fake_validate(_video_id):
+        return {"passed": True}
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_validate_static_script_roster", fake_validate)
+    monkeypatch.setattr(executor, "_update_video_status", noop)
+    monkeypatch.setattr(executor, "_log_transition", noop)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+    monkeypatch.setattr(executor, "_skip_disabled_next", lambda _video, status: status)
+    monkeypatch.setattr("drive_workspace.sync_video_workspace_fail_soft", noop)
+
+    result = asyncio.run(executor._run_static_script_hold("video-test", video, roster))
+
+    assert result["status"] == "ready_for_voice"
+    final_write = next((args for query, args in writes if "jsonb_to_recordset" in query), None)
+    assert final_write is not None
+    assert json.loads(final_write[2]) == [{"scene": 1, "scene_text": paragraph}]
 
 
 def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):
@@ -7438,8 +7519,10 @@ def test_machine_script_block_save_updates_one_scene_and_progress(monkeypatch):
     executor.tenant_id = "tenant-test"
 
     async def fake_fetch_all(query, *args):
-        assert "FROM scripts" in query
         assert args == ("video-test", "tenant-test")
+        if "FROM videos" in query:
+            return []
+        assert "FROM scripts" in query
         return [{"scene": 1, "scene_text": "Existing XB-15 paragraph."}]
 
     writes = []

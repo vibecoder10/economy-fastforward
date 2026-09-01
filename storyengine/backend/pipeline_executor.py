@@ -13519,10 +13519,53 @@ class PipelineExecutor:
         dvsu_rule_overrides = await self._load_dvsu_rule_overrides(video)
 
         # Stage every replacement paragraph in memory. Existing script rows remain
-        # untouched unless the complete roster validates successfully.
+        # checkpointed one machine at a time so a later failure can resume
+        # without paying to regenerate paragraphs that already passed.
         paragraphs: list[str] = []
         validation_units: list[dict] = []
+        failed_machines: list[str] = []
+        existing_validation = video.get("script_validation")
+        try:
+            existing_validation = (
+                _json_sh.loads(existing_validation)
+                if isinstance(existing_validation, str) and existing_validation.strip()
+                else (existing_validation or {})
+            )
+        except Exception:
+            existing_validation = {}
+        saved_blocks = (
+            existing_validation.get("machine_script_blocks")
+            if isinstance(existing_validation, dict) and isinstance(existing_validation.get("machine_script_blocks"), dict)
+            else {}
+        )
         for i, machine in selected_units:
+            saved_block = saved_blocks.get(machine)
+            if not isinstance(saved_block, dict):
+                saved_block = next((
+                    block for saved_machine, block in saved_blocks.items()
+                    if isinstance(block, dict)
+                    and _normalized_unit_code(str(saved_machine)) == _normalized_unit_code(machine)
+                ), None)
+            if (
+                not target_machine
+                and isinstance(saved_block, dict)
+                and saved_block.get("passed") is True
+                and int(saved_block.get("scene") or 0) == i
+                and str(saved_block.get("paragraph") or "").strip()
+            ):
+                paragraphs.append(" ".join(str(saved_block["paragraph"]).split()))
+                validation_units.append({
+                    key: saved_block.get(key)
+                    for key in (
+                        "scene", "machine", "word_count", "research_source", "passed", "warnings",
+                        "opener_type", "twist_type", "quality_audit", "polished", "pre_polish_paragraph",
+                    )
+                })
+                await self._log_activity(
+                    bot_name, video_id, "started",
+                    f"Script-hold paragraph {i}/{len(roster)} reused from checkpoint: {machine}",
+                )
+                continue
             prev_machine = roster[i - 2] if i > 1 else "None"
             next_machine = roster[i] if i < len(roster) else "None"
             machine_scope_line = (
@@ -14102,10 +14145,18 @@ class PipelineExecutor:
                     "research_payload": response_research_payload,
                 }
             if not preview_passed:
-                validation = {"script_hold": {"passed": False, "units": validation_units}}
                 await execute(
-                    "UPDATE videos SET script_validation = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
-                    _json_sh.dumps(validation), video_id, self.tenant_id,
+                    """UPDATE videos SET script_validation = jsonb_set(
+                           COALESCE(script_validation::jsonb, '{}'::jsonb),
+                           '{script_hold}', $1::jsonb, true
+                       ), updated_at = now() WHERE id = $2 AND tenant_id = $3""",
+                    _json_sh.dumps({
+                        "passed": False,
+                        "in_progress": True,
+                        "completed_count": sum(1 for unit in validation_units if unit.get("passed") is True),
+                        "total_count": len(roster),
+                        "units": validation_units,
+                    }), video_id, self.tenant_id,
                 )
                 # G24a/G24b: after the line above, which OVERWRITES
                 # script_validation wholesale - ours must be the last write
@@ -14117,14 +14168,40 @@ class PipelineExecutor:
                     _review_messages(warnings) or [str((quality_audit or {}).get("summary") or "Anton quality audit needs review")]
                 )
                 await self._log_activity(bot_name, video_id, "failed", msg[:900])
-                return {"status": "failed", "error": msg, "video_id": video_id}
+                failed_machines.append(machine)
+                continue
 
             paragraph = " ".join(paragraph.split())
+            if not target_machine:
+                checkpoint_block = {
+                    "machine": machine,
+                    "scene": i,
+                    "paragraph": paragraph,
+                    "word_count": _spoken_word_count(paragraph),
+                    "passed": True,
+                    "warnings": warnings,
+                    "onscreen_label": str((bundle or {}).get("onscreen_label") or "") if isinstance(bundle, dict) else "",
+                    "research_source": research_source_kind,
+                    "story_plan": story_plan,
+                    "claim_bundle": bundle if isinstance(bundle, dict) else {},
+                    "opener_type": opener_type,
+                    "twist_type": twist_type_label,
+                    "quality_audit": quality_audit,
+                    "polished": polished,
+                    "pre_polish_paragraph": pre_polish_paragraph,
+                }
+                await self._save_machine_script_block(
+                    video_id=video_id,
+                    video=video,
+                    roster=roster,
+                    script_block=checkpoint_block,
+                    title=title,
+                    voice_id=voice_id,
+                    advance_status=False,
+                )
             paragraphs.append(paragraph)
-            # Persist only hold/progress metadata after each machine. Script rows
-            # remain atomic and are replaced only after every paragraph passes.
-            # The UI can therefore show real machine-level progress without a
-            # failed run ever exposing or replacing a partial documentary script.
+            # Keep the aggregate hold metadata current after the durable
+            # per-machine script-row checkpoint above.
             progress_hold = {
                 "passed": False,
                 "in_progress": True,
@@ -14148,8 +14225,23 @@ class PipelineExecutor:
             await self._persist_machine_script_attempt_state(video_id, machine, [], True)
             await self._log_activity(bot_name, video_id, "started", f"Script-hold paragraph {i}/{len(roster)} passed: {machine}")
 
+        if failed_machines:
+            return {
+                "status": "failed",
+                "video_id": video_id,
+                "error": "Script-hold needs retry for: " + ", ".join(failed_machines),
+            }
+
         full_script = "\n\n".join(paragraphs)
-        existing = video.get("script_validation")
+        # Every passing paragraph above updated machine_script_blocks in the
+        # database. Read that current value before the final all-pass write so
+        # the original request snapshot cannot erase those checkpoints.
+        final_rows = await fetch_all(
+            "SELECT status, script_validation FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id, self.tenant_id,
+        )
+        final_video = {**video, **final_rows[0]} if final_rows else video
+        existing = final_video.get("script_validation")
         try:
             validation = _json_sh.loads(existing) if isinstance(existing, str) and existing.strip() else (existing or {})
         except Exception:
@@ -14932,9 +15024,17 @@ scenes."""
         script_block: dict,
         title: str,
         voice_id: str,
+        advance_status: bool = True,
     ) -> dict:
         """Persist one validated machine paragraph as its real script scene."""
         import json as _json_block
+
+        current_rows = await fetch_all(
+            "SELECT status, script_validation FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id, self.tenant_id,
+        )
+        if current_rows:
+            video = {**video, **current_rows[0]}
 
         scene = int(script_block.get("scene") or 0)
         machine = str(script_block.get("machine") or "").strip()
@@ -15012,7 +15112,7 @@ scenes."""
         validation["machine_script_blocks"] = blocks
 
         new_status = None
-        if all_passed:
+        if all_passed and advance_status:
             new_status = self._skip_disabled_next(video, "ready_for_voice")
 
         if new_status:
