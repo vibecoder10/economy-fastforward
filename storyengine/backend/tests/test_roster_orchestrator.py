@@ -167,6 +167,10 @@ def test_classifier_extends_a_failed_package_before_rebuilding_the_card():
     assert actions[0]["focus"] == "slot:tradeoff"
     assert actions[-1]["verb"] == "full_rerun"
 
+    package["appended_fetches"] = [{"focus": "slot:tradeoff"}]
+    repeated = pe._classify_repair_actions(_MACHINES["XB19"], None, package)
+    assert [action["verb"] for action in repeated] == ["full_rerun"]
+
 
 def test_classifier_empty_plan_for_passing_card():
     machine = _MACHINES["XB19"]

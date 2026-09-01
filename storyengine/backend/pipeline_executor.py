@@ -4564,7 +4564,7 @@ def _segment_surgery_plan(card: Optional[dict], package: Optional[dict], machine
 _SLOT_FETCH_QUERY_TERMS = {
     "original_problem": "requirement program specification designed to need",
     "engineering_decision": "design engineering configuration engine wing development",
-    "tradeoff": "limitation problem compromise drawback lessons learned",
+    "tradeoff": "limitation problem compromise drawback propulsion fuel endurance maintenance cost delay lessons learned",
     "reality": "service history operational use combat fate",
 }
 
@@ -4575,6 +4575,15 @@ def _package_gap_hunt_already_ran(package: Optional[dict]) -> bool:
         return False
     return any(
         isinstance(entry, dict) and str(entry.get("focus") or "") == "reality"
+        for entry in package.get("appended_fetches") or []
+    )
+
+
+def _package_focus_fetch_already_ran(package: Optional[dict], focus: str) -> bool:
+    if not isinstance(package, dict):
+        return False
+    return any(
+        isinstance(entry, dict) and str(entry.get("focus") or "") == str(focus or "")
         for entry in package.get("appended_fetches") or []
     )
 
@@ -4924,11 +4933,12 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
                 if str(slot).strip()
             ]
             focus = f"slot:{missing_slots[0]}" if missing_slots else "slots"
-            actions.append({
-                "verb": "targeted_fetch",
-                "focus": focus,
-                "reason": "extend the existing source package before paying to rebuild the card",
-            })
+            if not _package_focus_fetch_already_ran(package, focus):
+                actions.append({
+                    "verb": "targeted_fetch",
+                    "focus": focus,
+                    "reason": "extend the existing source package before paying to rebuild the card",
+                })
         actions.append({
             "verb": "full_rerun",
             "reason": "no verified source package exists; only a full one-machine research run can create one",
