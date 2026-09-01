@@ -674,6 +674,38 @@ def _usable_thumbnail_copy(title: str, candidate: str) -> str:
     ]
     return " ".join(fallback[:6]).upper() or "UNTOLD STORY"
 
+
+def _thumbnail_spec_matches_subject(value: Any, subject: str) -> bool:
+    """Whether a cached thumbnail spec/prompt actually names the selected unit."""
+    try:
+        if isinstance(value, dict):
+            scene = value.get("scene") if isinstance(value.get("scene"), dict) else {}
+            objects = value.get("objects") if isinstance(value.get("objects"), list) else []
+            focal_blob = __import__("json").dumps({
+                "focal_point": scene.get("focal_point"),
+                "objects": objects,
+            })
+            prompt_blob = str(value.get("prompt") or "")
+        else:
+            focal_blob = prompt_blob = str(value or "")
+    except (TypeError, ValueError):
+        return False
+    code = _unit_code(subject)
+    normalized_code = re.sub(r"[^a-z0-9]", "", code.lower())
+    if normalized_code and any(char.isdigit() for char in normalized_code):
+        return all(
+            normalized_code in re.sub(r"[^a-z0-9]", "", blob.lower())
+            for blob in (focal_blob, prompt_blob)
+        )
+    words = [
+        word.lower() for word in re.findall(r"[A-Za-z0-9]+", str(subject or ""))
+        if len(word) >= 4 and word.lower() not in {"class", "through", "built"}
+    ]
+    return bool(words) and all(
+        all(word in blob.lower() for word in words)
+        for blob in (focal_blob, prompt_blob)
+    )
+
 # B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
 # place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
 # never blocking. Curated for the military-history domain; extend as needed.
@@ -19689,6 +19721,7 @@ scenes."""
         # generated view.  Scene order is narrative order, not thumbnail merit.
         subjects = ""
         seed = None
+        selected = None
         try:
             rows = await fetch_all(
                 "SELECT image_url, caption, scene, image_index, status, generation_method "
@@ -19731,6 +19764,15 @@ scenes."""
                     gen_prompt = saved
             else:
                 gen_prompt = saved
+        if selected and (spec is not None or gen_prompt is not None):
+            cached_value = spec if spec is not None else gen_prompt
+            if not _thumbnail_spec_matches_subject(cached_value, selected["title"]):
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    "Cached thumbnail spec named a different roster machine; rebuilding it",
+                )
+                spec = None
+                gen_prompt = None
         if spec is None and gen_prompt is None:
             spec = await self._transform_channel_thumbnail_spec(
                 creds, blueprint, consensus, hexbg,
@@ -19755,6 +19797,9 @@ scenes."""
                     bot_name, video_id, "running",
                     f"Replaced unusable thumbnail copy {raw_primary!r} with {primary_text!r}",
                 )
+            # Persist the corrected base prompt too. Otherwise the next force
+            # regeneration reloads the pre-correction words from the JSON spec.
+            spec["prompt"] = gen_prompt
             gen_prompt += (
                 f'\n\nTHUMBNAIL COPY (exact and non-negotiable): "{primary_text}". '
                 "Render every one of these words; do not shorten them or drop the subject."
