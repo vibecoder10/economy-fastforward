@@ -682,7 +682,8 @@ async def _reconcile_terminal_queue_task(
     if started_at <= 0:
         return task
     terminal = await fetch_one(
-        "SELECT status, completed_at FROM background_tasks "
+        "SELECT status, message, error_message, task_type, completed_at "
+        "FROM background_tasks "
         "WHERE video_id = $1 AND tenant_id = $2 "
         "  AND status IN ('completed', 'failed', 'cancelled') "
         "  AND completed_at >= to_timestamp($3) "
@@ -701,7 +702,12 @@ async def _reconcile_terminal_queue_task(
         and float(current.get("started_at") or 0) == started_at
     ):
         _running_tasks.pop(key, None)
-    return None
+    return {
+        "status": terminal["status"],
+        "message": terminal.get("message"),
+        "error": terminal.get("error_message"),
+        "task_type": terminal.get("task_type"),
+    }
 
 
 def _clear_task_status(video_id: str, tenant_id: str):

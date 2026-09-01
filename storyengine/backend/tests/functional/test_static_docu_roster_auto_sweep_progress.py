@@ -210,7 +210,13 @@ async def test_queue_terminal_row_clears_stale_in_memory_running_status(monkeypa
     async def fake_fetch_one(query, *args):
         if "completed_at >= to_timestamp" in query:
             assert args == (video_id, tenant_id, 100.0)
-            return {"status": "completed", "completed_at": "later"}
+            return {
+                "status": "completed",
+                "message": "Voice generated",
+                "error_message": None,
+                "task_type": "voice",
+                "completed_at": "later",
+            }
         if "status IN ('pending', 'running')" in query:
             return None
         raise AssertionError(query)
@@ -220,7 +226,12 @@ async def test_queue_terminal_row_clears_stale_in_memory_running_status(monkeypa
 
     task = await pipeline_routes._get_task_status_async(video_id, tenant_id)
 
-    assert task is None
+    assert task == {
+        "status": "completed",
+        "message": "Voice generated",
+        "error": None,
+        "task_type": "voice",
+    }
     assert key not in pipeline_routes._running_tasks
 
 
@@ -244,7 +255,13 @@ async def test_terminal_queue_row_unblocks_next_stage_without_restart(monkeypatc
 
     async def fake_fetch_one(query, *args):
         assert "completed_at >= to_timestamp" in query
-        return {"status": "failed", "completed_at": "later"}
+        return {
+            "status": "failed",
+            "message": None,
+            "error_message": "Voice provider rejected the key",
+            "task_type": "voice",
+            "completed_at": "later",
+        }
 
     monkeypatch.setattr(pipeline_routes, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(pipeline_routes._time, "time", lambda: 250.0)

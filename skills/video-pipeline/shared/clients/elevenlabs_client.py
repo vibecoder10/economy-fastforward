@@ -83,6 +83,10 @@ class ElevenLabsClient:
             or os.getenv("WAVESPEED_API_KEY")
         )
         kie_key = os.getenv("KIE_AI_API_KEY")
+        # Keep the tenant's Kie key available even when a direct ElevenLabs
+        # key wins initially. A revoked/expired direct key must not strand a
+        # tenant whose required all-in-one provider is still healthy.
+        self._kie_fallback_key = kie_key
         self._kie_mode = False
         if direct_key:
             self.api_key = direct_key
@@ -329,6 +333,23 @@ class ElevenLabsClient:
                 json=payload,
                 timeout=120.0,
             )
+            if getattr(response, "status_code", None) in (401, 403) and self._kie_fallback_key:
+                print(
+                    "    Direct ElevenLabs key was rejected — continuing through Kie.ai voice",
+                    flush=True,
+                )
+                self.api_key = self._kie_fallback_key
+                self._kie_mode = True
+                return await self._generate_via_kie(
+                    text,
+                    self.KIE_FALLBACK_VOICE,
+                    stability,
+                    similarity_boost,
+                    style=style,
+                    speed=speed,
+                    task_id_callback=task_id_callback,
+                    fail_info_out=fail_info_out,
+                )
             response.raise_for_status()
 
             # ElevenLabs returns raw audio bytes
