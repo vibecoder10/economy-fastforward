@@ -4915,10 +4915,25 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
     evidence). Returns [] when the card already passes the referee."""
     package_ready = _verified_machine_source_package_ready(package)
     if not package_ready:
-        return [{
+        actions: list[dict] = []
+        if isinstance(package, dict) and isinstance(package.get("candidate_excerpts"), list):
+            coverage = package.get("traceable_source_slot_coverage")
+            coverage = coverage if isinstance(coverage, dict) else package.get("source_slot_coverage")
+            missing_slots = [
+                str(slot).strip() for slot in ((coverage or {}).get("missing_slots") or [])
+                if str(slot).strip()
+            ]
+            focus = f"slot:{missing_slots[0]}" if missing_slots else "slots"
+            actions.append({
+                "verb": "targeted_fetch",
+                "focus": focus,
+                "reason": "extend the existing source package before paying to rebuild the card",
+            })
+        actions.append({
             "verb": "full_rerun",
             "reason": "no verified source package exists; only a full one-machine research run can create one",
-        }]
+        })
+        return actions
     package_errors = (
         _verified_machine_source_package_quality_errors(package, machine)
         + _verified_machine_source_package_identity_errors(package, machine)

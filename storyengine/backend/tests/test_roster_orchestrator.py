@@ -152,6 +152,22 @@ def test_classifier_full_rerun_only_when_no_package():
     assert [a["verb"] for a in actions] == ["full_rerun"]
 
 
+def test_classifier_extends_a_failed_package_before_rebuilding_the_card():
+    package = _package_for("XB19")
+    package["passed"] = False
+    package["errors"] = ["Verified source package needs exact excerpts plausibly covering Anton slot(s): tradeoff"]
+    package["traceable_source_slot_coverage"] = {
+        "missing_slots": ["tradeoff"],
+        "covered_slots": ["original_problem", "engineering_decision", "reality"],
+    }
+
+    actions = pe._classify_repair_actions(_MACHINES["XB19"], None, package)
+
+    assert actions[0]["verb"] == "targeted_fetch"
+    assert actions[0]["focus"] == "slot:tradeoff"
+    assert actions[-1]["verb"] == "full_rerun"
+
+
 def test_classifier_empty_plan_for_passing_card():
     machine = _MACHINES["XB19"]
     package = _package_for("XB19")
