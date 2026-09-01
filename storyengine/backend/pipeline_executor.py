@@ -17,6 +17,7 @@ import asyncio
 import uuid
 import re
 import hashlib
+import unicodedata
 from datetime import datetime, timezone
 from typing import Optional, Any
 from pathlib import Path
@@ -541,6 +542,42 @@ def _thumbnail_caption(value: Any) -> dict:
     return {}
 
 
+def _thumbnail_roster_title_matches(title: str, roster_item: Any) -> bool:
+    """Match reordered hull codes/parentheses without weakening unit identity."""
+    roster_name = _unit_display_name(roster_item)
+    title_code = _normalized_unit_code(title)
+    roster_code = _normalized_unit_code(roster_name)
+    generic = {"uss", "class", "through", "aircraft", "carrier", "ship", "navy"}
+
+    def name_tokens(value: str) -> set[str]:
+        without_codes = _AIRCRAFT_DESIGNATION_RE.sub(" ", str(value or ""))
+        return {
+            word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", without_codes)
+            if word.lower() not in generic
+        }
+
+    title_tokens = name_tokens(title)
+    roster_tokens = name_tokens(roster_name)
+    if (
+        title_code and roster_code
+        and any(char.isdigit() for char in title_code + roster_code)
+        and title_code == roster_code
+        and bool(title_tokens & roster_tokens)
+    ):
+        return True
+
+    title_key = re.sub(r"[^a-z0-9]", "", str(title or "").lower())
+    aliases = [roster_name, *_unit_roster_aliases(roster_item)]
+    return any(
+        len(alias_key) >= 5 and (alias_key in title_key or title_key in alias_key)
+        for alias_key in (
+            re.sub(r"[^a-z0-9]", "", str(alias).lower())
+            for alias in aliases
+            if str(alias or "").strip()
+        )
+    )
+
+
 def _select_static_thumbnail_subject(rows: list[dict], roster: list[Any]) -> Optional[dict]:
     """Choose the strongest approved roster machine and its best generated view.
 
@@ -566,19 +603,9 @@ def _select_static_thumbnail_subject(rows: list[dict], roster: list[Any]) -> Opt
         title = str(caption.get("title") or "").strip()
         if not title:
             continue
-        title_key = re.sub(r"[^a-z0-9]", "", title.lower())
         locked_name = None
         for roster_item, roster_name in roster_entries:
-            aliases = [roster_name, *_unit_roster_aliases(roster_item)]
-            if any(
-                len(alias_key) >= 5
-                and (alias_key in title_key or title_key in alias_key)
-                for alias_key in (
-                    re.sub(r"[^a-z0-9]", "", str(alias).lower())
-                    for alias in aliases
-                    if str(alias or "").strip()
-                )
-            ):
+            if _thumbnail_roster_title_matches(title, roster_item):
                 locked_name = roster_name
                 break
         if not locked_name:
@@ -635,7 +662,9 @@ def _select_static_thumbnail_subject(rows: list[dict], roster: list[Any]) -> Opt
 
 def _usable_thumbnail_copy(title: str, candidate: str) -> str:
     """Return concise, grammatical channel-formula copy tied to the title."""
-    title_text = str(title or "")
+    title_text = "".join(
+        char for char in str(title or "") if unicodedata.category(char) != "Cf"
+    ).strip()
     series = re.match(
         r"^\s*every\s+(.+?)\s+ever\s+built(?:\s*\([^)]*\))?\s*$",
         title_text,
@@ -705,6 +734,34 @@ def _thumbnail_spec_matches_subject(value: Any, subject: str) -> bool:
         all(word in blob.lower() for word in words)
         for blob in (focal_blob, prompt_blob)
     )
+
+
+def _deterministic_static_thumbnail_spec(
+    title: str, selected: dict, background: Optional[str]
+) -> dict:
+    """Safe local fallback after a stale subject spec has been rejected."""
+    subject = str(selected.get("title") or "").strip()
+    copy = _usable_thumbnail_copy(title, "")
+    bg = str(background or "#F5F5F2")
+    prompt = (
+        f"YouTube thumbnail, 16:9, clean uniform studio background {bg}. "
+        f"Use the supplied approved generated view of {subject} as the exact hero subject. "
+        "Show that same real machine and configuration as the dominant largest object, "
+        "three-quarter presentation when the reference supports it, with no invented markings. "
+        f'Render the headline exactly "{copy}" in large condensed uppercase channel typography.'
+    )
+    return {
+        "format": "youtube_thumbnail",
+        "aspect_ratio": "16:9",
+        "style": {"medium": "studio vehicle cutout", "look": "clean high contrast"},
+        "scene": {"setting": "studio", "focal_point": subject, "main_action": "hero display"},
+        "objects": [{"object": subject, "description": "exact supplied approved machine"}],
+        "composition": {"layout": "large hero machine with bold title text"},
+        "text": {"primary_text": {"content": copy, "placement": "upper left"}},
+        "color_palette": {"background": bg},
+        "prompt": prompt,
+        "negative_prompt": "wrong vehicle, invented markings, extra vehicles, malformed text",
+    }
 
 # B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
 # place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
@@ -19756,6 +19813,7 @@ scenes."""
         saved = (video.get("thumbnail_prompt") or "").strip()
         spec = None
         gen_prompt = None
+        stale_spec_invalidated = False
         if saved:
             if saved.startswith("{"):
                 try:
@@ -19771,12 +19829,24 @@ scenes."""
                     bot_name, video_id, "running",
                     "Cached thumbnail spec named a different roster machine; rebuilding it",
                 )
+                stale_spec_invalidated = True
                 spec = None
                 gen_prompt = None
         if spec is None and gen_prompt is None:
             spec = await self._transform_channel_thumbnail_spec(
                 creds, blueprint, consensus, hexbg,
                 video.get("video_title") or "", subjects)
+        if (
+            stale_spec_invalidated and selected
+            and spec is None and gen_prompt is None
+        ):
+            # A rejected cached subject must never leak into the legacy path,
+            # which reads videos.thumbnail_prompt again. Rebuild locally when
+            # the optional Claude transform is unavailable so the selected
+            # approved machine and deterministic title copy remain authoritative.
+            spec = _deterministic_static_thumbnail_spec(
+                video.get("video_title") or "", selected, hexbg
+            )
         if spec is not None:
             raw_primary = str(
                 ((spec.get("text") or {}).get("primary_text") or {}).get("content") or ""

@@ -106,18 +106,23 @@ def test_cached_langley_spec_is_rebuilt_for_selected_ford(monkeypatch):
         "negative_prompt": "",
     }
     video = {
-        "video_title": "Every US Aircraft Carrier Ever Built (2026)",
+        "video_title": "\u2060Every US Aircraft Carrier Ever Built (2026)",
         "thumbnail_prompt": json.dumps(stale),
         "aspect_ratio": "16:9",
         "research_payload": {"unit_roster": [
             {"designation": "CV-1", "name": "USS Langley"},
+            {"designation": "CV-66", "name": "USS America"},
             {"designation": "CVN-78", "name": "USS Gerald R. Ford"},
         ]},
     }
     rows = [
         _asset(1, "CV-1 USS Langley", "Converted • 1 ship • 1922", "https://img/langley.png"),
         _asset(
-            24, "CVN-78 USS Gerald R. Ford", "U.S. Navy • 2017–present",
+            20, "CV-66 USS America", "U.S. Navy • 1965–1996",
+            "https://img/america-three-quarter.png", role="three_quarter",
+        ),
+        _asset(
+            24, "USS Gerald R. Ford (CVN-78)", "U.S. Navy • 2017–present",
             "https://img/ford-three-quarter.png", role="three_quarter",
         ),
     ]
@@ -141,14 +146,8 @@ def test_cached_langley_spec_is_rebuilt_for_selected_ford(monkeypatch):
             stored["prompt"] = json.loads(args[1])
 
     async def fake_transform(creds, blueprint, consensus, hexbg, title, subjects):
-        assert "CVN-78 USS Gerald R. Ford" in subjects
-        return {
-            "text": {"primary_text": {"content": "EVERY"}},
-            "scene": {"focal_point": "CVN-78 USS Gerald R. Ford"},
-            "objects": [{"object": "CVN-78 USS Gerald R. Ford"}],
-            "prompt": "Studio thumbnail of CVN-78 USS Gerald R. Ford with EVERY",
-            "negative_prompt": "",
-        }
+        assert "USS Gerald R. Ford (CVN-78)" in subjects
+        return None
 
     class FakeImageClient:
         async def generate_thumbnail_gpt2(self, prompt, refs, **kwargs):
@@ -183,8 +182,9 @@ def test_cached_langley_spec_is_rebuilt_for_selected_ford(monkeypatch):
     result = asyncio.run(executor._run_channel_formula_thumbnail("video-1", video))
 
     assert result["status"] == "completed"
-    assert stored["prompt"]["scene"]["focal_point"] == "CVN-78 USS Gerald R. Ford"
+    assert stored["prompt"]["scene"]["focal_point"] == "USS Gerald R. Ford (CVN-78)"
     assert stored["prompt"]["text"]["primary_text"]["content"] == "US AIRCRAFT CARRIER EVER BUILT"
     assert generated["refs"] == ["https://img/ford-three-quarter.png"]
     assert "US AIRCRAFT CARRIER EVER BUILT" in generated["prompt"]
     assert "USS Langley" not in generated["prompt"]
+    assert '"EVERY"' not in generated["prompt"]
