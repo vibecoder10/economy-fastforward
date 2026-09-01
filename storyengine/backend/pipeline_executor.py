@@ -2259,6 +2259,18 @@ _NUMBER_SCALE_WORDS = {
     "million": 1000000,
 }
 
+_NUMBER_ORDINAL_UNIT_WORDS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+}
+
 
 _INDEFINITE_NUMBER_SCALE_WORDS = {"hundreds", "thousands", "millions"}
 _NUMBER_WORD_VOCABULARY = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS | {"and"}
@@ -2340,7 +2352,49 @@ def _numeric_mentions_from_text(text: str) -> list[dict[str, str]]:
         {"raw": token, "key": _numeric_token_key(token)}
         for token in re.findall(_NUMERIC_DIGIT_PATTERN, lower)
     ]
-    tokens = re.findall(r"\b[a-z]+\b", lower.replace("-", " "))
+    word_scan = lower
+
+    # Spoken decimals are one numeric claim. Without this, a sourced
+    # "$5.1 billion" rendered for voice as "five-point-one billion" was
+    # falsely graded as separate unsupported five and one claims.
+    digit_word_pattern = "|".join(
+        sorted((word for word, value in _NUMBER_TOKEN_WORDS.items() if int(value) < 10), key=len, reverse=True)
+    )
+    cardinal_word_pattern = "|".join(sorted(_NUMBER_TOKEN_WORDS, key=len, reverse=True))
+    decimal_pattern = re.compile(
+        rf"\b({cardinal_word_pattern})(?:-|\s)+point((?:-|\s)+(?:{digit_word_pattern}))+\b"
+    )
+    for match in list(decimal_pattern.finditer(word_scan)):
+        left = _parse_number_word_phrase([match.group(1)])
+        decimal_words = re.findall(rf"\b(?:{digit_word_pattern})\b", match.group(2))
+        if left is None or not decimal_words:
+            continue
+        decimal_digits = "".join(_NUMBER_TOKEN_WORDS[word] for word in decimal_words)
+        mentions.append({
+            "raw": " ".join([match.group(1), "point", *decimal_words]),
+            "key": f"{left}.{decimal_digits}",
+        })
+        word_scan = word_scan[:match.start()] + (" " * (match.end() - match.start())) + word_scan[match.end():]
+
+    # Preserve spoken compound ordinals such as "twenty-second" as the
+    # same claim as sourced digit token 22, instead of misreading it as 20.
+    tens_words = {
+        word: int(value)
+        for word, value in _NUMBER_TOKEN_WORDS.items()
+        if int(value) >= 20 and int(value) % 10 == 0
+    }
+    ordinal_pattern = re.compile(
+        rf"\b({'|'.join(sorted(tens_words, key=len, reverse=True))})(?:-|\s)+"
+        rf"({'|'.join(_NUMBER_ORDINAL_UNIT_WORDS)})\b"
+    )
+    for match in list(ordinal_pattern.finditer(word_scan)):
+        mentions.append({
+            "raw": f"{match.group(1)} {match.group(2)}",
+            "key": str(tens_words[match.group(1)] + _NUMBER_ORDINAL_UNIT_WORDS[match.group(2)]),
+        })
+        word_scan = word_scan[:match.start()] + (" " * (match.end() - match.start())) + word_scan[match.end():]
+
+    tokens = re.findall(r"\b[a-z]+\b", word_scan.replace("-", " "))
     number_terms = set(_NUMBER_TOKEN_WORDS) | set(_NUMBER_SCALE_WORDS) | _INDEFINITE_NUMBER_SCALE_WORDS
     i = 0
     while i < len(tokens):
@@ -5509,7 +5563,16 @@ def _assemble_story_paragraph_from_sentences(bundle: dict) -> dict:
 
 def _resplit_story_sentences(paragraph: str) -> list[str]:
     """Re-derive formula_sentences after a code edit to the assembled paragraph."""
-    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", str(paragraph or "").strip()) if part.strip()]
+    protected = re.sub(
+        r"\b([A-Z])\.(?=\s+[A-Z])",
+        r"\1<story-initial-dot>",
+        str(paragraph or "").strip(),
+    )
+    return [
+        part.replace("<story-initial-dot>", ".").strip()
+        for part in re.split(r"(?<=[.!?])\s+", protected)
+        if part.strip()
+    ]
 
 
 # G23a: manual machine-paragraph submission (the hand-edit door). The Anton

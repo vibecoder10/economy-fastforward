@@ -5410,6 +5410,37 @@ def test_script_hold_resume_reuses_saved_machine_without_provider_call(monkeypat
     assert json.loads(final_write[2]) == [{"scene": 1, "scene_text": paragraph}]
 
 
+def test_spoken_decimal_is_one_supported_numeric_mention():
+    mentions = pe._numeric_mentions_from_text(
+        "a five-point-one billion dollar contract"
+    )
+
+    assert mentions == [{"raw": "five point one", "key": "5.1"}]
+
+
+def test_spoken_compound_ordinal_matches_its_digit_value():
+    mentions = pe._numeric_mentions_from_text(
+        "laid down on August twenty-second, 2015"
+    )
+
+    assert mentions == [
+        {"raw": "2015", "key": "2015"},
+        {"raw": "twenty second", "key": "22"},
+    ]
+
+
+def test_story_sentence_resplit_preserves_person_initials():
+    paragraph = (
+        "The second Gerald R. Ford-class carrier entered construction. "
+        "CVN-79 retained the Ford-class design."
+    )
+
+    assert pe._resplit_story_sentences(paragraph) == [
+        "The second Gerald R. Ford-class carrier entered construction.",
+        "CVN-79 retained the Ford-class design.",
+    ]
+
+
 def test_full_script_replacement_is_video_update_gated_and_refuses_zero_row_save(monkeypatch):
     roster = ["Boeing XB-15"]
     segments = _evidence_segments()
