@@ -180,6 +180,7 @@ async def run(pipeline) -> dict:
     # done" check above), so re-running after a fix only retries the
     # failures, it does not re-pay for scenes that already succeeded.
     failures: list[dict] = []
+    provider_auth_failed = False
     for script in scripts:
         if await _cancelled():
             print("  🛑 Stop requested — halting voice generation")
@@ -237,6 +238,19 @@ async def run(pipeline) -> dict:
             reason = ((fail_info[-1] or {}).get("failMsg") if fail_info else None) or "voice synthesis failed"
             print(f"  ❌ Scene {scene_number}: {reason}")
             failures.append({"scene": scene_number, "error": reason})
+            # Authentication is account-wide, not scene-specific. Retrying
+            # the same rejected credential for every remaining scene cannot
+            # recover and only hides the one repair the operator must make.
+            reason_lower = str(reason).lower()
+            if (
+                "unauthorized" in reason_lower
+                or "authentication failed" in reason_lower
+                or "invalid api key" in reason_lower
+                or "invalid_api_key" in reason_lower
+            ):
+                provider_auth_failed = True
+                print("  🛑 Voice provider rejected its credentials — stopping before later scenes")
+                break
 
     # UPDATE STATUS (skip if targeted run)
     if cancelled:
@@ -265,6 +279,23 @@ async def run(pipeline) -> dict:
         # image/sound spend happen on a video with no narration. Scenes that
         # DID succeed above are already marked finished in Supabase, so a
         # re-run of Voice only retries what's in `failures`.
+        if provider_auth_failed:
+            error_msg = (
+                "Voice provider authentication failed. Update either the ElevenLabs "
+                "or Kie.ai key in Settings → API Keys, then run Voice again. "
+                "No later scenes were attempted."
+            )
+            print(f"  ❌ {error_msg}")
+            return {
+                "bot": "Voice Bot",
+                "video_title": pipeline.video_title,
+                "voice_count": voice_count,
+                "total_chars": total_chars,
+                "error": error_msg,
+                "provider_auth_failed": True,
+                "failed_scenes": [f["scene"] for f in failures],
+            }
+
         scenes_failed = ", ".join(str(f["scene"]) for f in failures)
         reasons = "; ".join(f"scene {f['scene']}: {f['error']}" for f in failures)
         error_msg = (

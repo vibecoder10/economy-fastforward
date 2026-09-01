@@ -173,6 +173,25 @@ def test_all_scenes_fail_does_not_advance_and_surfaces_error():
     print("test_all_scenes_fail_does_not_advance_and_surfaces_error OK")
 
 
+def test_provider_auth_failure_stops_after_first_scene():
+    """An invalid account is global, not scene-specific. Do not hammer the
+    same rejected credential once per scene before admitting the stage is
+    blocked."""
+    scripts = _scripts(24)
+    pipeline = FakePipeline(scripts, outcomes={i: False for i in range(1, 25)})
+    pipeline.elevenlabs.fail_message = (
+        "Kie TTS createTask failed: Unauthorized - Authentication failed"
+    )
+
+    result = asyncio.run(run(pipeline))
+
+    assert result.get("error")
+    assert "Settings" in result["error"]
+    assert result.get("provider_auth_failed") is True
+    assert len(pipeline.elevenlabs.calls) == 1
+    assert pipeline.status_updates == []
+
+
 def test_partial_failure_does_not_advance_status():
     """Partial-success rule: even ONE missing scene stops the run and
     reports it, rather than silently rendering a film with gaps."""
