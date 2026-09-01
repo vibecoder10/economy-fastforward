@@ -506,6 +506,52 @@ def test_auto_repair_persists_free_conformance_before_any_paid_action():
     assert state["persisted"] == [("conform_verified_package", [])]
 
 
+def test_auto_repair_syncs_an_already_passing_payload_card_to_dashboard_row():
+    """A passing payload card is not enough when the compact dashboard row is stale."""
+    segments = _base_segments()
+    package = pe._verified_machine_source_package_with_anton_metadata(_base_package(segments), MACHINE)
+    card = _base_card(segments)
+    pe._conform_card_to_verified_package(card, package, MACHINE)
+    pe._stamp_card_segment_provenance(card, package)
+    state = {"persisted": []}
+    executor = pe.PipelineExecutor("tenant-test")
+    executor._initialized = True
+
+    async def load_context(_video_id, _machine):
+        return {
+            "payload": {"unit_research_cards": [copy.deepcopy(card)]},
+            "roster": [MACHINE],
+            "machine": MACHINE,
+            "code": pe._normalized_unit_code(MACHINE),
+            "snapshot": "[]",
+            "package": copy.deepcopy(package),
+            "card": copy.deepcopy(card),
+            "roster_index": 1,
+        }
+
+    async def persist(_video_id, _ctx, _card, warnings, verb):
+        state["persisted"].append((verb, list(warnings)))
+        return ""
+
+    async def enrich(_tenant_id, _video_id, payload):
+        return payload
+
+    executor._load_machine_repair_context = load_context
+    executor._persist_repaired_card = persist
+    with mock.patch.object(pe, "enrich_research_payload_readiness", side_effect=enrich):
+        result = asyncio.run(executor.repair_machine_auto("video-test", MACHINE))
+
+    assert result["passed"] is True
+    assert result["est_spend_usd"] == 0.0
+    assert result["actions"] == [{
+        "verb": "sync_verified_card",
+        "status": "completed",
+        "detail": "",
+        "est_cost_usd": 0.0,
+    }]
+    assert state["persisted"] == [("sync_verified_card", [])]
+
+
 def test_free_conformance_rebuilds_weak_ship_visual_identity_from_grounded_feature():
     """A source-backed photo caption with only a date/view is not enough for
     the image brief; reuse a concrete feature already present in verified card evidence."""

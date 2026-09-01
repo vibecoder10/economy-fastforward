@@ -11209,12 +11209,22 @@ class PipelineExecutor:
                     if persist_error or not warnings:
                         break
             if card is not None:
-                warnings = _blocking_warnings(
-                    _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
+                all_warnings = _research_card_contract_warnings(
+                    ctx["machine"], card, package, require_source_package=True,
                 )
+                warnings = _blocking_warnings(all_warnings)
             else:
                 warnings = ["missing saved one-machine research card"]
             if not warnings:
+                persist_error = await self._persist_repaired_card(
+                    video_id, ctx, card, all_warnings, "sync_verified_card",
+                )
+                actions_log.append({
+                    "verb": "sync_verified_card",
+                    "status": "failed" if persist_error else "completed",
+                    "detail": persist_error,
+                    "est_cost_usd": 0.0,
+                })
                 break
             # Seen-keys carry a state fingerprint so a FREE deterministic verb
             # may run again after another verb changed the card or package
