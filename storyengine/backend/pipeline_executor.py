@@ -10527,12 +10527,6 @@ class PipelineExecutor:
             hold_video["research_payload"] = payload
             roster_names = _machine_documentary_hold_roster(hold_video)
             if passed_roster_gate and roster_names:
-                # This format already verifies and self-hosts one authentic
-                # historical photo per locked roster entry before script or
-                # voice spend. Prefer those real photographs for the final
-                # Ken Burns documentary instead of paying an image model to
-                # invent alternate angles of historical machines.
-                payload["image_strategy"] = "verified_reference_only"
                 payload = await self._run_unit_research_hold(video_id, topic, payload, roster_names)
                 hold_validation = payload.get("unit_research_hold_validation") if isinstance(payload, dict) else None
                 passed_unit_research_hold = bool(

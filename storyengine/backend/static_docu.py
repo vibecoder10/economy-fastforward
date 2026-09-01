@@ -2664,91 +2664,6 @@ async def _scene_subjects(
     return out, unparseable
 
 
-async def _import_verified_roster_photos(
-    video_id: str,
-    tenant_id: str,
-    video_title: str,
-    aspect_ratio: str,
-    scenes: list[dict],
-    roster_entries: list[dict],
-) -> Optional[dict]:
-    """Use the locked roster's real photos as render-ready documentary art.
-
-    This is deliberately all-or-nothing: every requested scene must map by
-    its locked roster position to an already verified, self-hosted photo
-    before any asset row is replaced. That makes the cheapest and most
-    historically faithful path the default for machine documentaries while
-    preserving the generated multi-view path when even one reference is
-    missing.
-    """
-    if not scenes or not roster_entries:
-        return None
-
-    resolved: list[tuple[dict, dict, dict]] = []
-    for scene in scenes:
-        scene_number = int(scene.get("scene") or 0)
-        if scene_number < 1 or scene_number > len(roster_entries):
-            return None
-        entry = roster_entries[scene_number - 1]
-        name = str(entry.get("name") or "").strip()
-        if not name:
-            return None
-        photo = await fetch_one(
-            "SELECT hosted_url, source_url FROM static_reference_cache "
-            "WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'",
-            tenant_id,
-            _machine_key(name),
-        )
-        if not photo or not photo.get("hosted_url"):
-            return None
-        resolved.append((scene, entry, photo))
-
-    await execute(
-        "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-        "AND generation_method=$3",
-        video_id,
-        tenant_id,
-        STATIC_RENDER_MODE,
-    )
-    for scene, entry, photo in resolved:
-        scene_number = int(scene["scene"])
-        name = str(entry["name"]).strip()
-        source_url = str(photo.get("source_url") or "").strip()
-        caption = {
-            "title": name,
-            "sub": "Verified historical photograph",
-            "specs": [],
-            "view_role": "verified_reference",
-            "view_label": "Verified historical photograph",
-            "target_views": 1,
-            "minimum_views": 1,
-            "historical_reference": True,
-            "source_url": source_url or None,
-        }
-        await execute(
-            "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
-            "sentence_index, sentence_text, image_url, drive_image_url, status, "
-            "hero_shot, generation_method, video_title, aspect_ratio, image_prompt, caption) "
-            "VALUES ($1,$2,$3,$4,1,1,$5,$6,$6,'done',true,$7,$8,$9,$10,$11)",
-            str(uuid.uuid4()),
-            tenant_id,
-            video_id,
-            scene_number,
-            (scene.get("scene_text") or "")[:500],
-            photo["hosted_url"],
-            STATIC_RENDER_MODE,
-            video_title,
-            aspect_ratio,
-            f"[verified historical photo: {source_url}]" if source_url else "[verified historical photo]",
-            json.dumps(caption),
-        )
-    return {
-        "status": "completed",
-        "views_generated": len(resolved),
-        "segments_ready": len(resolved),
-    }
-
-
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                            progress=None,
                                            only_scenes: Optional[set] = None,
@@ -2826,26 +2741,6 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     # seed_reference_from_url's own lazy imports of this function.
     from pipeline_executor import _machine_documentary_hold_roster_entries
     roster_entries = _machine_documentary_hold_roster_entries(v)
-
-    verified_photo_result = None
-    if (
-        isinstance(rp, dict)
-        and rp.get("image_strategy") == "verified_reference_only"
-    ):
-        verified_photo_result = await _import_verified_roster_photos(
-            video_id,
-            tenant_id,
-            v["video_title"],
-            v["aspect"],
-            scenes,
-            roster_entries,
-        )
-    if verified_photo_result:
-        _p(
-            f"Reused {verified_photo_result['views_generated']} verified historical "
-            "photographs — no generated-image spend required."
-        )
-        return verified_photo_result
 
     # Fetched once, shared by the planner's card-facts grounding (G25) and
     # `_one_scene`'s `blueprint_override` operator-metadata check (G27,
