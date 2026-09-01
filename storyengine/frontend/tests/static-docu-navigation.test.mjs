@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveStaticDocuStage,
+  staticDocuRunAllPreflight,
   staticDocuPictureTitle,
 } from "../src/lib/static-docu-navigation.ts";
 
@@ -21,4 +22,12 @@ test("a missing picture uses the locked roster name, never narration text", () =
     staticDocuPictureTitle("Generated Essex view", { name: "Essex class" }, 9),
     "Generated Essex view",
   );
+});
+
+test("Run All can start a brand-new video before a roster exists", () => {
+  assert.deepEqual(staticDocuRunAllPreflight(0, 0), {
+    allowed: true,
+    note: "Research will discover and verify the roster automatically.",
+  });
+  assert.equal(staticDocuRunAllPreflight(24, 20).allowed, true);
 });

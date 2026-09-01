@@ -38,3 +38,22 @@ export function staticDocuPictureTitle(
 ): string {
   return captionTitle?.trim() || rosterLabel(rosterItem) || `Scene ${scene}`;
 }
+
+export function staticDocuRunAllPreflight(total: number, verified: number): {
+  allowed: true;
+  note: string;
+} {
+  if (total <= 0) {
+    return {
+      allowed: true,
+      note: "Research will discover and verify the roster automatically.",
+    };
+  }
+  const missing = Math.max(0, total - verified);
+  return {
+    allowed: true,
+    note: missing > 0
+      ? `${missing} missing reference photo${missing === 1 ? "" : "s"} will be recovered automatically before pictures.`
+      : "The roster and reference photos are ready.",
+  };
+}

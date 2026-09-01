@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
+import { staticDocuRunAllPreflight } from "@/lib/static-docu-navigation";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import {
   runPipelineStage, runBuild, getRosterDashboard, clearStaleTask,
@@ -309,22 +310,12 @@ export function StaticDocuStageRail({
     }
     const total = freshRoster?.total ?? 0;
     const verified = (freshRoster?.units ?? []).filter((u) => u.reference?.status === "verified").length;
-    if (total === 0) {
-      setRunAllError({ stage: "roster", message: "No machine roster yet. Run All can't start until Research discovers the roster." });
-      return;
-    }
-    if (verified < total) {
-      setRunAllError({
-        stage: "roster",
-        message: `${total - verified} machine(s) still need a verified reference photo. Fix the Roster stage, then run Run All again.`,
-      });
-      return;
-    }
+    const rosterPreflight = staticDocuRunAllPreflight(total, verified);
     const buildInfo = costFor("build");
     const costLine = buildInfo?.cost_text ? ` Estimated: ${buildInfo.cost_text}${video.render_mode === "static_docu" ? " (picture cost is approximate for this format)" : ""}.` : "";
     const ok = await confirmDialog({
       title: "Run All",
-      message: `Runs the whole pipeline automatically — research (if needed), script, voice, pictures, thumbnail, and render — stopping the moment anything fails.${costLine} Continue?`,
+      message: `Runs the whole pipeline automatically — research (if needed), script, voice, pictures, thumbnail, and render — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
     });
     if (!ok) return;
     setRunAllActive(true);
