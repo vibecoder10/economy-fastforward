@@ -446,6 +446,66 @@ def test_free_conformance_repairs_duplicate_required_slot_sources_without_model_
     ) == []
 
 
+def test_auto_repair_persists_free_conformance_before_any_paid_action():
+    """The orchestrator must save deterministic fixes into the compact card row.
+
+    Otherwise the dashboard reloads the stale row and every later run sees the
+    same failure, even though the in-memory payload was already corrected.
+    """
+    segments = _base_segments()
+    package = pe._verified_machine_source_package_with_anton_metadata(_base_package(segments), MACHINE)
+    stale_card = _base_card(segments)
+    stale_card["evidence_segments"][1].update({
+        "source_excerpt": stale_card["evidence_segments"][0]["source_excerpt"],
+        "source_excerpt_id": "S1-E1",
+        "source_url": stale_card["evidence_segments"][0]["source_url"],
+        "source_title": stale_card["evidence_segments"][0]["source_title"],
+        "locator": "S1-E1",
+    })
+    state = {"card": stale_card, "persisted": []}
+    executor = pe.PipelineExecutor("tenant-test")
+    executor._initialized = True
+
+    async def load_context(_video_id, _machine):
+        return {
+            "payload": {"unit_research_cards": [copy.deepcopy(state["card"])]},
+            "roster": [MACHINE],
+            "machine": MACHINE,
+            "code": pe._normalized_unit_code(MACHINE),
+            "snapshot": "[]",
+            "package": copy.deepcopy(package),
+            "card": copy.deepcopy(state["card"]),
+            "roster_index": 1,
+        }
+
+    async def persist(_video_id, _ctx, card, warnings, verb):
+        state["card"] = copy.deepcopy(card)
+        state["persisted"].append((verb, list(warnings)))
+        return ""
+
+    async def forbidden_paid_action(*_args, **_kwargs):
+        raise AssertionError("free conformance should clear this card before any repair action")
+
+    async def enrich(_tenant_id, _video_id, payload):
+        return payload
+
+    executor._load_machine_repair_context = load_context
+    executor._persist_repaired_card = persist
+    executor._execute_repair_action = forbidden_paid_action
+    with mock.patch.object(pe, "enrich_research_payload_readiness", side_effect=enrich):
+        result = asyncio.run(executor.repair_machine_auto("video-test", MACHINE))
+
+    assert result["passed"] is True
+    assert result["est_spend_usd"] == 0.0
+    assert result["actions"] == [{
+        "verb": "conform_verified_package",
+        "status": "completed",
+        "detail": "",
+        "est_cost_usd": 0.0,
+    }]
+    assert state["persisted"] == [("conform_verified_package", [])]
+
+
 def test_free_conformance_rebuilds_weak_ship_visual_identity_from_grounded_feature():
     """A source-backed photo caption with only a date/view is not enough for
     the image brief; reuse a concrete feature already present in verified card evidence."""

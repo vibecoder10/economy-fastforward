@@ -11185,6 +11185,29 @@ class PipelineExecutor:
             if ctx.get("error"):
                 return {"status": "failed", "error": ctx["error"], "actions": actions_log}
             card, package = ctx["card"], ctx["package"]
+            if card is not None and package is not None:
+                import json as _json_conform
+
+                before_conformance = _json_conform.dumps(card, sort_keys=True, ensure_ascii=False)
+                _conform_card_to_verified_package(card, package, ctx["machine"])
+                _stamp_card_segment_provenance(card, package)
+                after_conformance = _json_conform.dumps(card, sort_keys=True, ensure_ascii=False)
+                if after_conformance != before_conformance:
+                    all_warnings = _research_card_contract_warnings(
+                        ctx["machine"], card, package, require_source_package=True,
+                    )
+                    persist_error = await self._persist_repaired_card(
+                        video_id, ctx, card, all_warnings, "conform_verified_package",
+                    )
+                    actions_log.append({
+                        "verb": "conform_verified_package",
+                        "status": "failed" if persist_error else "completed",
+                        "detail": persist_error,
+                        "est_cost_usd": 0.0,
+                    })
+                    warnings = _blocking_warnings(all_warnings)
+                    if persist_error or not warnings:
+                        break
             if card is not None:
                 warnings = _blocking_warnings(
                     _research_card_contract_warnings(ctx["machine"], card, package, require_source_package=True)
