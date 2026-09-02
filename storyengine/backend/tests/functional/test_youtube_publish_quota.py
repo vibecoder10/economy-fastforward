@@ -132,9 +132,11 @@ def test_sdk_adapter_reports_real_thumbnail_set_success_and_failure(
     thumbnail = tmp_path / "thumb.jpg"
     thumbnail.write_bytes(b"fake-jpeg")
 
+    credential_args = []
+
     class FakeCredentials:
         def __init__(self, **kwargs):
-            pass
+            credential_args.append(kwargs)
 
         def refresh(self, request):
             pass
@@ -190,8 +192,10 @@ def test_sdk_adapter_reports_real_thumbnail_set_success_and_failure(
     monkeypatch.setitem(sys.modules, "google.oauth2.credentials", credentials_module)
     monkeypatch.setitem(sys.modules, "google.auth.transport.requests", requests_module)
     monkeypatch.setitem(sys.modules, "googleapiclient.http", http_module)
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "youtube-client")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "youtube-secret")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
 
     def run(should_fail):
         discovery_module = types.ModuleType("googleapiclient.discovery")
@@ -217,6 +221,8 @@ def test_sdk_adapter_reports_real_thumbnail_set_success_and_failure(
 
     assert run(False)["thumbnail_succeeded"] is True
     assert run(True)["thumbnail_succeeded"] is False
+    assert {args["client_id"] for args in credential_args} == {"youtube-client"}
+    assert {args["client_secret"] for args in credential_args} == {"youtube-secret"}
 
 
 def test_no_videos_insert_attempt_releases_entire_reservation(monkeypatch):

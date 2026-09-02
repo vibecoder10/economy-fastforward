@@ -39,9 +39,12 @@ def patched_env(values: dict[str, str | None]):
                 os.environ[k] = v
 
 
-def test_youtube_connect_url_uses_expected_callback_and_readonly_scopes():
+def test_youtube_connect_prefers_dedicated_client_and_requests_only_read_and_upload():
     with patched_env({
-        "GOOGLE_OAUTH_CLIENT_ID": "client-123.apps.googleusercontent.com",
+        "YOUTUBE_OAUTH_CLIENT_ID": "youtube-client.apps.googleusercontent.com",
+        "YOUTUBE_OAUTH_CLIENT_SECRET": "youtube-secret",
+        "GOOGLE_OAUTH_CLIENT_ID": "google-client.apps.googleusercontent.com",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "google-secret",
         "FRONTEND_URL": "https://storyengine.dev",
         "YOUTUBE_REDIRECT_URI": None,
     }):
@@ -54,25 +57,59 @@ def test_youtube_connect_url_uses_expected_callback_and_readonly_scopes():
 
     assert parsed.scheme == "https"
     assert parsed.netloc == "accounts.google.com"
-    assert qs["client_id"] == ["client-123.apps.googleusercontent.com"]
+    assert qs["client_id"] == ["youtube-client.apps.googleusercontent.com"]
     assert qs["redirect_uri"] == ["https://storyengine.dev/settings/youtube-callback"]
     assert qs["response_type"] == ["code"]
     assert qs["access_type"] == ["offline"]
     assert qs["prompt"] == ["consent"]
     assert qs["state"] == [str(tenant_id)]
 
-    # Scopes deliberately include youtube.upload (commit e24c6908) — read-only
-    # channel/analytics access plus upload, not force-ssl.
+    # StoryEngine reads channel/video data and uploads videos. It has no direct
+    # YouTube Analytics API call, so that sensitive scope must stay absent.
     scope = qs["scope"][0]
     assert "https://www.googleapis.com/auth/youtube.readonly" in scope
-    assert "https://www.googleapis.com/auth/yt-analytics.readonly" in scope
     assert "https://www.googleapis.com/auth/youtube.upload" in scope
+    assert "https://www.googleapis.com/auth/yt-analytics.readonly" not in scope
     assert "youtube.force-ssl" not in scope
-    print("✅ test_youtube_connect_url_uses_expected_callback_and_readonly_scopes")
+    print("✅ test_youtube_connect_prefers_dedicated_client_and_requests_only_read_and_upload")
+
+
+def test_youtube_connect_falls_back_to_legacy_google_oauth_pair():
+    with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": None,
+        "YOUTUBE_OAUTH_CLIENT_SECRET": None,
+        "GOOGLE_OAUTH_CLIENT_ID": "legacy-client.apps.googleusercontent.com",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "legacy-secret",
+    }):
+        result = asyncio.run(google_auth.youtube_connect(
+            tenant=uuid.UUID("11111111-1111-1111-1111-111111111111")
+        ))
+
+    assert parse_qs(urlparse(result["auth_url"]).query)["client_id"] == [
+        "legacy-client.apps.googleusercontent.com"
+    ]
+
+
+def test_drive_connect_stays_on_google_oauth_client():
+    with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": "youtube-client.apps.googleusercontent.com",
+        "YOUTUBE_OAUTH_CLIENT_SECRET": "youtube-secret",
+        "GOOGLE_OAUTH_CLIENT_ID": "drive-client.apps.googleusercontent.com",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "drive-secret",
+    }):
+        result = asyncio.run(google_auth.google_drive_connect(
+            tenant=uuid.UUID("11111111-1111-1111-1111-111111111111")
+        ))
+
+    assert parse_qs(urlparse(result["auth_url"]).query)["client_id"] == [
+        "drive-client.apps.googleusercontent.com"
+    ]
 
 
 def test_youtube_oauth_diagnostics_reports_missing_config_without_secret_values():
     with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": None,
+        "YOUTUBE_OAUTH_CLIENT_SECRET": None,
         "GOOGLE_OAUTH_CLIENT_ID": None,
         "GOOGLE_OAUTH_CLIENT_SECRET": None,
         "FRONTEND_URL": "https://storyengine.dev",
@@ -83,19 +120,66 @@ def test_youtube_oauth_diagnostics_reports_missing_config_without_secret_values(
 
     assert result["ready"] is False
     assert result["redirect_uri"] == "https://storyengine.dev/settings/youtube-callback"
-    assert "GOOGLE_OAUTH_CLIENT_ID" in result["missing_env"]
-    assert "GOOGLE_OAUTH_CLIENT_SECRET" in result["missing_env"]
-    assert result["scope_mode"] == "read_only_channel_and_analytics"
+    assert "YOUTUBE_OAUTH_CLIENT_ID" in result["missing_env"]
+    assert "YOUTUBE_OAUTH_CLIENT_SECRET" in result["missing_env"]
+    assert result["credential_source"] == "missing"
+    assert result["scope_mode"] == "youtube_read_and_upload"
     assert result["requires_google_verification"] is True
     text = repr(result)
     assert "client-" not in text
-    assert "secret" not in text.lower().replace("GOOGLE_OAUTH_CLIENT_SECRET".lower(), "")
+    assert "secret" not in text.lower().replace("YOUTUBE_OAUTH_CLIENT_SECRET".lower(), "")
     print("✅ test_youtube_oauth_diagnostics_reports_missing_config_without_secret_values")
 
 
+def test_youtube_oauth_diagnostics_reports_dedicated_and_legacy_sources():
+    user = AuthUser(id="user-1", email="creator@example.com", tenant_id="tenant-123")
+    with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": "youtube-client",
+        "YOUTUBE_OAUTH_CLIENT_SECRET": "youtube-secret-value",
+        "GOOGLE_OAUTH_CLIENT_ID": "google-client",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "google-secret-value",
+    }):
+        dedicated = asyncio.run(google_auth.youtube_oauth_diagnostics(user=user))
+    assert dedicated["ready"] is True
+    assert dedicated["credential_source"] == "youtube_specific"
+    assert dedicated["missing_env"] == []
+    assert "youtube-client" not in repr(dedicated)
+    assert "youtube-secret-value" not in repr(dedicated)
+
+    with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": None,
+        "YOUTUBE_OAUTH_CLIENT_SECRET": None,
+        "GOOGLE_OAUTH_CLIENT_ID": "google-client",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "google-secret-value",
+    }):
+        legacy = asyncio.run(google_auth.youtube_oauth_diagnostics(user=user))
+    assert legacy["ready"] is True
+    assert legacy["credential_source"] == "legacy_google_oauth"
+    assert legacy["missing_env"] == []
+
+
+def test_partial_youtube_specific_pair_fails_closed_instead_of_mixing_clients():
+    user = AuthUser(id="user-1", email="creator@example.com", tenant_id="tenant-123")
+    with patched_env({
+        "YOUTUBE_OAUTH_CLIENT_ID": "youtube-client",
+        "YOUTUBE_OAUTH_CLIENT_SECRET": None,
+        "GOOGLE_OAUTH_CLIENT_ID": "google-client",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "google-secret-value",
+    }):
+        result = asyncio.run(google_auth.youtube_oauth_diagnostics(user=user))
+
+    assert result["ready"] is False
+    assert result["credential_source"] == "youtube_specific"
+    assert result["missing_env"] == ["YOUTUBE_OAUTH_CLIENT_SECRET"]
+
+
 def main():
-    test_youtube_connect_url_uses_expected_callback_and_readonly_scopes()
+    test_youtube_connect_prefers_dedicated_client_and_requests_only_read_and_upload()
+    test_youtube_connect_falls_back_to_legacy_google_oauth_pair()
+    test_drive_connect_stays_on_google_oauth_client()
     test_youtube_oauth_diagnostics_reports_missing_config_without_secret_values()
+    test_youtube_oauth_diagnostics_reports_dedicated_and_legacy_sources()
+    test_partial_youtube_specific_pair_fails_closed_instead_of_mixing_clients()
     print("\nAll YouTube OAuth diagnostic tests passed.")
 
 

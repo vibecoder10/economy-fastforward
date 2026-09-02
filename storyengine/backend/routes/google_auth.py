@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from auth import verify_token, AuthUser, get_tenant_id
 from database import fetch_one, execute
 from email_service import send_welcome_email, send_reset_email, send_verification_email
+from youtube_oauth_config import get_youtube_oauth_credentials
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -829,7 +830,7 @@ async def google_drive_access_token(tenant: uuid.UUID = Depends(get_tenant_id)):
 # YouTube OAuth — server-side flow for per-user YouTube analytics access
 # ---------------------------------------------------------------------------
 
-YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly"
+YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 
 
 @router.get("/youtube/connect")
@@ -839,9 +840,13 @@ async def youtube_connect(tenant: uuid.UUID = Depends(get_tenant_id)):
     Returns the authorization URL. Frontend redirects the user there.
     Google redirects back to /settings/youtube-callback with an auth code.
     """
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    if not client_id:
-        raise HTTPException(status_code=500, detail="GOOGLE_OAUTH_CLIENT_ID not configured")
+    oauth = get_youtube_oauth_credentials()
+    if oauth.missing_env:
+        raise HTTPException(
+            status_code=500,
+            detail=f"YouTube OAuth credentials not configured: {', '.join(oauth.missing_env)}",
+        )
+    client_id = oauth.client_id
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
     redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")
@@ -867,23 +872,20 @@ async def youtube_oauth_diagnostics(user: AuthUser = Depends(verify_token)):
 
     Support/onboarding tool: lets a tenant admin (or us, debugging a stuck
     connect flow) see WHICH required env vars are missing instead of just a
-    500 from /youtube/connect — while never echoing the actual
-    GOOGLE_OAUTH_CLIENT_ID/SECRET values back in the response.
+    500 from /youtube/connect — while never echoing actual client values back
+    in the response.
     """
-    missing_env = [
-        name
-        for name in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET")
-        if not os.getenv(name)
-    ]
+    oauth = get_youtube_oauth_credentials()
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
     redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")
 
     return {
-        "ready": not missing_env,
+        "ready": not oauth.missing_env,
         "redirect_uri": redirect_uri,
-        "missing_env": missing_env,
-        "scope_mode": "read_only_channel_and_analytics",
+        "missing_env": oauth.missing_env,
+        "credential_source": oauth.source,
+        "scope_mode": "youtube_read_and_upload",
         "requires_google_verification": True,
     }
 
@@ -904,10 +906,11 @@ async def youtube_callback(
     2. Fetch the user's YouTube channel info (name, description, subscriber count)
     3. Store refresh token + channel info on channel_profiles
     """
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        raise HTTPException(status_code=500, detail="Google OAuth credentials not configured")
+    oauth = get_youtube_oauth_credentials()
+    client_id = oauth.client_id
+    client_secret = oauth.client_secret
+    if oauth.missing_env:
+        raise HTTPException(status_code=500, detail="YouTube OAuth credentials not configured")
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
     redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")

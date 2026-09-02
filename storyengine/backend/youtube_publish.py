@@ -6,8 +6,8 @@ which hardcoded the "Power Doctrine" geopolitics channel and a single shared
   * SEO is driven ONLY by the video's own title + script and the tenant's real
     channel brand — no hardcoded niche, hashtags, or subscribe link.
   * Upload authenticates with the creator's OWN connected channel
-    (channel_profiles.youtube_refresh_token), using the same GOOGLE_OAUTH_CLIENT_*
-    that minted that token.
+    (channel_profiles.youtube_refresh_token), using the dedicated YouTube OAuth
+    client (or the legacy shared Google OAuth pair during migration).
 SEO output is stored on the videos table (seo_description / seo_tags / seo_hashtags).
 """
 import asyncio
@@ -24,6 +24,7 @@ from youtube_quota import (
     release_upload_reservation,
     reserve_upload,
 )
+from youtube_oauth_config import get_youtube_oauth_credentials
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from actions import claude_model_for_direct_client
 
@@ -198,10 +199,11 @@ def _do_youtube_upload_impl(
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        raise RuntimeError("GOOGLE_OAUTH_CLIENT_ID/SECRET not configured")
+    oauth = get_youtube_oauth_credentials()
+    client_id = oauth.client_id
+    client_secret = oauth.client_secret
+    if oauth.missing_env:
+        raise RuntimeError("YouTube OAuth client credentials not configured")
     creds = Credentials(
         token=None, refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",

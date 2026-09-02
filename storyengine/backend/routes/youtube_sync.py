@@ -114,7 +114,6 @@ def _parse_ts(value) -> datetime | None:
 async def _run_sync(tenant_id: str):
     """Background task: mirror the connected YouTube channel into the DB."""
     try:
-        import os
         import httpx
         from vault import get_secret
         from youtube_owner_api import (
@@ -123,6 +122,7 @@ async def _run_sync(tenant_id: str):
             fetch_video_details,
             refresh_access_token,
         )
+        from youtube_oauth_config import get_youtube_oauth_credentials
 
         # Try YouTube OAuth token from channel_profiles first (per-user OAuth flow)
         yt_row = await fetch_one(
@@ -132,8 +132,9 @@ async def _run_sync(tenant_id: str):
         yt_refresh = yt_row.get("youtube_refresh_token") if yt_row else None
 
         if yt_refresh:
-            client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-            client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+            oauth = get_youtube_oauth_credentials()
+            client_id = oauth.client_id
+            client_secret = oauth.client_secret
             refresh_token = yt_refresh
         else:
             # Fallback: legacy vault-based credentials

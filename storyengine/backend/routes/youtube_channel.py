@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -36,6 +35,7 @@ from youtube_owner_api import (
     fetch_playlist_video_ids as _fetch_playlist_video_ids,
     fetch_video_details as _fetch_video_details,
 )
+from youtube_oauth_config import get_youtube_oauth_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +77,10 @@ async def my_videos(
     if not refresh_token:
         raise HTTPException(status_code=404, detail="YouTube not connected")
 
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not client_id or not client_secret:
+    oauth = get_youtube_oauth_credentials()
+    client_id = oauth.client_id
+    client_secret = oauth.client_secret
+    if oauth.missing_env:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
 
     access_token = await _refresh_access_token(client_id, client_secret, refresh_token)
@@ -290,9 +291,10 @@ async def learn_voice(tenant_id: str = Depends(get_tenant_id)):
             detail="Anthropic API key required. Configure it in Settings > API Keys.",
         )
 
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not client_id or not client_secret:
+    oauth = get_youtube_oauth_credentials()
+    client_id = oauth.client_id
+    client_secret = oauth.client_secret
+    if oauth.missing_env:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
 
     access_token = await _refresh_access_token(client_id, client_secret, refresh_token)
