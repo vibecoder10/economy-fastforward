@@ -180,6 +180,38 @@ def test_100th_upload_allowed_and_101st_blocked(monkeypatch):
     assert "midnight Pacific" in msg
 
 
+def test_upload_reservation_explicitly_types_asyncpg_parameters(monkeypatch):
+    """The INSERT/WHERE reuse must not leave PostgreSQL to infer $2 twice.
+
+    In production asyncpg prepares the statement before binding values.  An
+    untyped ``$2`` used both as an INSERT value and in ``$2 <= $3`` was
+    inferred as integer in one context and text in the other, so the atomic
+    reservation failed before reaching YouTube.
+    """
+    day = date(2026, 7, 19)
+
+    async def postgres_shaped_fetch(query, *args):
+        required_casts = ("$1::date", "$2::integer", "$3::integer", "$4::integer")
+        if not all(cast in query for cast in required_casts):
+            raise RuntimeError(
+                "inconsistent types deduced for parameter $2: text versus integer"
+            )
+        assert args == (day, 50, 9000, 100)
+        return {
+            "units_used": 50,
+            "video_uploads_used": 1,
+            "search_calls_used": 0,
+        }
+
+    monkeypatch.setattr(youtube_quota, "fetch_one", postgres_shaped_fetch)
+    monkeypatch.setattr(youtube_quota, "_pt_today", lambda: day)
+
+    ok, status = asyncio.run(youtube_quota.reserve_upload(True))
+
+    assert ok is True
+    assert status["reservation"]["tracked"] is True
+
+
 def test_search_exhaustion_does_not_block_upload_bucket(monkeypatch):
     fake = _FakeQuotaDB()
     _install(monkeypatch, fake)

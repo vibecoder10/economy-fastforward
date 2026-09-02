@@ -230,14 +230,14 @@ async def reserve_upload(has_thumbnail: bool) -> tuple[bool, dict]:
         row = await fetch_one(
             """INSERT INTO youtube_quota_usage
                  (day, units_used, video_uploads_used, search_calls_used, updated_at)
-               SELECT $1, $2, 1, 0, now()
-               WHERE $2 <= $3 AND 1 <= $4
+               SELECT $1::date, $2::integer, 1, 0, now()
+               WHERE $2::integer <= $3::integer AND 1 <= $4::integer
                ON CONFLICT (day) DO UPDATE SET
                  units_used = youtube_quota_usage.units_used + EXCLUDED.units_used,
                  video_uploads_used = youtube_quota_usage.video_uploads_used + 1,
                  updated_at = now()
-               WHERE youtube_quota_usage.units_used + EXCLUDED.units_used <= $3
-                 AND youtube_quota_usage.video_uploads_used + 1 <= $4
+               WHERE youtube_quota_usage.units_used + EXCLUDED.units_used <= $3::integer
+                 AND youtube_quota_usage.video_uploads_used + 1 <= $4::integer
                RETURNING units_used, video_uploads_used, search_calls_used""",
             day,
             general_units,
