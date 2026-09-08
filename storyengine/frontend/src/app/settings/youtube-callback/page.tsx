@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { youtubeOAuthCallback } from "@/lib/api";
@@ -12,9 +12,31 @@ export default function YouTubeCallbackPage() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [channelName, setChannelName] = useState("");
   const [error, setError] = useState("");
+  const started = useRef(false);
+  const isInvite = (searchParams.get("state") || "").startsWith("ytinvite.");
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     const code = searchParams.get("code");
+    if (isInvite) {
+      fetch("/api/auth/youtube/invite-callback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code || "", state: searchParams.get("state"), error: searchParams.get("error") || undefined }),
+      }).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "We couldn't connect your channel.");
+        setChannelName(data.channel_name || "Designed vs Used");
+        setStatus("success");
+        window.history.replaceState(null, "", window.location.pathname + "?state=ytinvite.complete");
+      }).catch((err) => {
+        setError(err instanceof Error ? err.message : "We couldn't connect your channel.");
+        setStatus("error");
+      });
+      return;
+    }
     if (!code) {
       setStatus("error");
       setError("No authorization code received from Google.");
@@ -42,7 +64,7 @@ export default function YouTubeCallbackPage() {
         setStatus("error");
         setError(humanizeError(err, "We couldn't connect YouTube. Try again."));
       });
-  }, [searchParams, router]);
+  }, [searchParams, router, isInvite]);
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-void)" }}>
@@ -70,7 +92,7 @@ export default function YouTubeCallbackPage() {
               </p>
             )}
             <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-              Redirecting...
+              {isInvite ? "Your channel is connected to StoryEngine. You can close this page and let Ryan know." : "Redirecting..."}
             </p>
           </>
         )}
@@ -83,13 +105,13 @@ export default function YouTubeCallbackPage() {
             <p className="text-xs mt-2" style={{ color: "var(--text-tertiary)" }}>
               {error}
             </p>
-            <button
+            {isInvite ? <p className="text-xs mt-4">Please reopen the invitation link to try again, or ask Ryan for a new link.</p> : <button
               onClick={() => router.replace("/settings")}
               className="mt-4 px-4 py-2 rounded-lg text-xs font-medium"
               style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
             >
               Back to Settings
-            </button>
+            </button>}
           </>
         )}
       </div>

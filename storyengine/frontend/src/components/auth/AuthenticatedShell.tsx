@@ -56,7 +56,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   // render <Sidebar> or <main>, so the value just goes unused there.
   const { collapsed, setCollapsed, hidden, setHidden } = useSidebarCollapsed();
 
-  const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isPublicPath = pathname === "/settings/youtube-callback" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const isHome = pathname === "/";
 
   useEffect(() => {

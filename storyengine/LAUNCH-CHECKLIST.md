@@ -1,5 +1,19 @@
 # StoryEngine — Launch Checklist (the parts only Ryan can do)
 
+## DVSU customer YouTube connection — 2026-09-08
+
+Outcome: allow the supplied customer email to authorize DVSU and provide a usable customer handoff.
+Status: implementing customer invitation route. Updated: 2026-09-08.
+Current step / next action: provide a customer authorization invitation bound to the DVSU workspace; existing callback requires a signed-in tenant.
+Blocker: existing callback requires a StoryEngine tenant session; a raw Google URL is not a verified customer invitation.
+Authority: Ryan supplied the customer email for this previously approved connection; do not send a message or authorize the customer's Google account.
+Definition of done: saved test-user readback and a verified customer connection route.
+
+- [x] Add customer test user. **Done when:** Google Cloud lists the supplied email in the dedicated project's audience. **Evidence:** Chrome Audience page for `storyengine-youtube-prod` shows saved row `howtotonys@gmail.com` on 2026-09-08.
+- [ ] Provide customer connection handoff. **Done when:** the customer can authorize into the intended DVSU workspace without Ryan sharing his login.
+  - [ ] Implement expiring invitation, browser-bound OAuth state and exact channel match. **Done when:** valid connection saves only intended tenant; expired/replayed/wrong-channel attempts fail.
+  - [ ] Deploy and create customer link. **Done when:** live unauthenticated landing displays DVSU and Google authorization uses dedicated client; give Ryan message/link. Customer consent remains an external step.
+
 All the CODE-level launch blockers are fixed and tested (see `CHANGELOG.md` /
 `LAUNCH-READINESS.md`). These remaining items need your accounts, your domain,
 or a live-prod action, so they're yours. Do them in order; nothing here needs

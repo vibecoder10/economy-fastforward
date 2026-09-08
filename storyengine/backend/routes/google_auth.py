@@ -28,6 +28,8 @@ from email_service import send_welcome_email, send_reset_email, send_verificatio
 from youtube_oauth_config import get_youtube_oauth_credentials
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+from routes.youtube_invites import router as youtube_invites_router
+router.include_router(youtube_invites_router)
 
 SESSION_SECRET_ENV = "SESSION_SECRET"
 GOOGLE_CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
