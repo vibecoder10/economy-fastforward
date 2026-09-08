@@ -73,6 +73,7 @@ async def test_landing_does_not_consume_invite_and_sets_secure_cookie(monkeypatc
     result = await mod.invite_landing("randomtoken")
     assert result.headers["cache-control"] == "no-store"
     assert result.headers["referrer-policy"] == "no-referrer"
+    assert "form-action 'self' https://accounts.google.com;" in result.headers["content-security-policy"]
     assert "HttpOnly" in result.headers["set-cookie"] and "Secure" in result.headers["set-cookie"]
     assert b"Connect with Google" in result.body
     assert b"Designed &amp; Used &lt;DVSU&gt;" in result.body

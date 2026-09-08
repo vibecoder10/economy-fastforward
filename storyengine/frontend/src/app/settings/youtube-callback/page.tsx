@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { youtubeOAuthCallback } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
 
 export default function YouTubeCallbackPage() {
+  return <Suspense fallback={<p>Connecting YouTube...</p>}><YouTubeCallbackContent /></Suspense>;
+}
+
+function YouTubeCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");

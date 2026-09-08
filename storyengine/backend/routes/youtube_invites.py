@@ -80,7 +80,7 @@ async def invite_landing(token: str):
       <p><small>Channel ID: {html.escape(row['expected_channel_id'])}</small></p>
       <form method="post" action="/api/auth/youtube/invite/{html.escape(token)}/start"><input type="hidden" name="nonce" value="{nonce}"><button style="padding:14px 24px;font-size:18px">Connect with Google</button></form>
       <p>You can revoke access in your Google Account settings at any time. This invitation expires after 48 hours and can be used once.</p>
-      <p><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Service</a></p></body></html>""", headers={**HEADERS, "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"})
+      <p><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Service</a></p></body></html>""", headers={**HEADERS, "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'"})
     response.set_cookie(COOKIE, nonce, max_age=900, secure=True, httponly=True, samesite="lax", path=COOKIE_PATH)
     return response
 
