@@ -259,6 +259,25 @@ def test_thumbnail_general_units_record_only_when_succeeded(monkeypatch):
     }
 
 
+def test_thumbnail_only_reservation_does_not_require_or_increment_upload_bucket(monkeypatch):
+    captured = {}
+
+    async def fake_fetch_one(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+        return {"units_used": 50, "video_uploads_used": 100, "search_calls_used": 0}
+
+    monkeypatch.setattr(youtube_quota, "fetch_one", fake_fetch_one)
+
+    ok, status = asyncio.run(youtube_quota.reserve_thumbnail())
+
+    assert ok is True
+    assert status["reservation"]["general_units"] == 50
+    assert status["reservation"]["video_uploads"] == 0
+    assert "video_uploads_used = youtube_quota_usage.video_uploads_used + 1" not in captured["query"]
+    assert captured["args"] == (youtube_quota._pt_today(), 50, youtube_quota._ceiling())
+
+
 def test_concurrent_upload_reservations_at_99_allow_exactly_one(monkeypatch):
     fake = _FakeQuotaDB()
     _install(monkeypatch, fake)

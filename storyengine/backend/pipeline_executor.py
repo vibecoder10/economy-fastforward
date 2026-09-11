@@ -20788,7 +20788,8 @@ scenes."""
 
             existing_url = (video.get("youtube_url") or "").strip()
             existing_id = (video.get("youtube_video_id") or "").strip()
-            if not force and (existing_url or existing_id):
+            thumbnail_retry = video.get("upload_status") == "thumbnail_failed"
+            if not force and (existing_url or existing_id) and not thumbnail_retry:
                 msg = f"Already uploaded to YouTube — skipping (existing draft: {existing_url or existing_id})."
                 await self._log_activity(bot_name, video_id, "completed", msg)
                 return {"status": "completed", "video_id": video_id,
@@ -20808,16 +20809,30 @@ scenes."""
                 from youtube_publish import generate_and_store_seo, upload_video_to_youtube
                 # Only auto-generate when there's no SEO yet — never clobber the
                 # creator's edited/saved description+tags.
-                if not (video.get("seo_description") or "").strip():
+                if not thumbnail_retry and not (video.get("seo_description") or "").strip():
                     seo = await generate_and_store_seo(video_id, self.tenant_id)
                     if seo.get("error"):
                         raise Exception(seo["error"])
-                up = await upload_video_to_youtube(video_id, self.tenant_id)
+                up = await upload_video_to_youtube(
+                    video_id, self.tenant_id, force_new_upload=force
+                )
                 if up.get("error"):
                     raise Exception(up["error"])
+                if up.get("partial_error"):
+                    error_msg = up["partial_error"]
+                    await self._log_activity(bot_name, video_id, "failed", error_msg)
+                    return {
+                        "status": "failed",
+                        "video_id": video_id,
+                        "video_url": up.get("youtube_url"),
+                        "youtube_video_id": up.get("youtube_video_id"),
+                        "error": error_msg,
+                    }
                 await self._log_activity(
                     bot_name, video_id, "completed",
-                    f"Uploaded to YouTube ({up.get('channel') or 'your channel'}) as an unlisted draft")
+                    ("Applied thumbnail to the existing YouTube draft"
+                     if thumbnail_retry else
+                     f"Uploaded to YouTube ({up.get('channel') or 'your channel'}) as an unlisted draft"))
                 return {"status": "uploaded_draft", "video_id": video_id,
                         "video_url": up.get("youtube_url")}
 

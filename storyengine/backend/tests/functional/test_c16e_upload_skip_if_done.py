@@ -65,7 +65,7 @@ def _video_row(**over):
     base = {
         "id": VIDEO, "status": "rendered", "youtube_url": None,
         "youtube_video_id": None, "seo_description": "Some SEO already saved.",
-        "video_title": "Test Video",
+        "video_title": "Test Video", "upload_status": None,
     }
     base.update(over)
     return base
@@ -146,6 +146,53 @@ def test_skip_if_done_default_youtube_video_id_already_set(monkeypatch):
     assert result["youtube_video_id"] == "abc12345678"
 
 
+def test_partial_thumbnail_failure_retries_existing_video_instead_of_skipping(monkeypatch):
+    video_row = _video_row(
+        youtube_video_id="abc12345678",
+        youtube_url="https://www.youtube.com/watch?v=abc12345678",
+        upload_status="thumbnail_failed",
+    )
+    executor, activity_calls = _make_executor(monkeypatch, video_row, has_channel=True)
+    fake_upload = AsyncMock(return_value={
+        "youtube_video_id": "abc12345678",
+        "youtube_url": "https://www.youtube.com/watch?v=abc12345678",
+        "thumbnail_succeeded": True,
+        "channel": "Test Channel",
+    })
+    monkeypatch.setattr(youtube_publish, "upload_video_to_youtube", fake_upload)
+
+    result = asyncio.run(executor.run_upload(VIDEO))
+
+    assert result["status"] == "uploaded_draft"
+    assert not result.get("skipped")
+    fake_upload.assert_awaited_once()
+    assert any("thumbnail" in (call[3] or "").lower() for call in activity_calls)
+
+
+def test_partial_thumbnail_result_is_failed_but_keeps_existing_video_reference(monkeypatch):
+    video_row = _video_row(
+        youtube_video_id="abc12345678",
+        youtube_url="https://www.youtube.com/watch?v=abc12345678",
+        upload_status="thumbnail_failed",
+    )
+    executor, activity_calls = _make_executor(monkeypatch, video_row, has_channel=True)
+    fake_upload = AsyncMock(return_value={
+        "youtube_video_id": "abc12345678",
+        "youtube_url": "https://www.youtube.com/watch?v=abc12345678",
+        "thumbnail_succeeded": False,
+        "partial_error": "Thumbnail rejected; retry Upload.",
+        "channel": "Test Channel",
+    })
+    monkeypatch.setattr(youtube_publish, "upload_video_to_youtube", fake_upload)
+
+    result = asyncio.run(executor.run_upload(VIDEO))
+
+    assert result["status"] == "failed"
+    assert result["youtube_video_id"] == "abc12345678"
+    assert "retry Upload" in result["error"]
+    assert any(call[2] == "failed" for call in activity_calls)
+
+
 def test_no_skip_when_neither_id_nor_url_set(monkeypatch):
     """force=False but neither column is set: the guard checks EXISTENCE, not
     force alone — the real upload path proceeds normally."""
@@ -203,7 +250,7 @@ def test_force_true_bypasses_guard_even_with_existing_youtube_id(monkeypatch):
 
     assert not result.get("skipped")
     assert result["status"] == "uploaded_draft"
-    fake_upload.assert_awaited_once()
+    fake_upload.assert_awaited_once_with(VIDEO, TENANT, force_new_upload=True)
 
 
 def test_video_not_found_short_circuits_before_the_guard(monkeypatch):

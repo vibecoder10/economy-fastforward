@@ -283,6 +283,57 @@ async def reserve_upload(has_thumbnail: bool) -> tuple[bool, dict]:
     return False, status
 
 
+async def reserve_thumbnail() -> tuple[bool, dict]:
+    """Atomically reserve one thumbnails.set call without an upload call."""
+    day = _pt_today()
+    general_units = UNIT_COSTS["thumbnails.set"]
+    try:
+        row = await fetch_one(
+            """INSERT INTO youtube_quota_usage
+                 (day, units_used, video_uploads_used, search_calls_used, updated_at)
+               SELECT $1::date, $2::integer, 0, 0, now()
+               WHERE $2::integer <= $3::integer
+               ON CONFLICT (day) DO UPDATE SET
+                 units_used = youtube_quota_usage.units_used + EXCLUDED.units_used,
+                 updated_at = now()
+               WHERE youtube_quota_usage.units_used + EXCLUDED.units_used <= $3::integer
+               RETURNING units_used, video_uploads_used, search_calls_used""",
+            day,
+            general_units,
+            _ceiling(),
+        )
+    except Exception as exc:  # noqa: BLE001 - quota tracking remains fail-soft
+        logger.warning("youtube_quota: thumbnail reservation failed open: %s", exc)
+        status = _status(day, 0, 0, 0)
+        status["reservation"] = {
+            "tracked": False,
+            "day": day,
+            "general_units": general_units,
+            "video_uploads": 0,
+            "released": False,
+        }
+        return True, status
+    if row:
+        status = _status(
+            day,
+            int(row["units_used"]),
+            int(row["video_uploads_used"]),
+            int(row["search_calls_used"]),
+        )
+        status["reservation"] = {
+            "tracked": True,
+            "day": day,
+            "general_units": general_units,
+            "video_uploads": 0,
+            "released": False,
+        }
+        return True, status
+    status = await get_quota_status()
+    status["exhausted_buckets"] = ["general"]
+    status["exhausted_bucket"] = "general"
+    return False, status
+
+
 async def release_upload_reservation(
     reservation: dict | None,
     *,
