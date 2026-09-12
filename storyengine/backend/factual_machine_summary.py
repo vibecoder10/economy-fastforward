@@ -25,7 +25,7 @@ from factual_machine_research import (
 TARGET_WORDS = 100
 MAX_WORDS = 110
 MAX_DRAFT_ATTEMPTS = 2
-REVIEW_CONTEXT_VERSION = 3
+REVIEW_CONTEXT_VERSION = 4
 MAX_REVIEW_ALTERNATIVES = 8
 _DESIGNATION_RE = re.compile(r"\b[A-Z]{1,4}[\s.-]?\d{1,4}[A-Z]?\b", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d[\d,]*(?:\.\d+)?(?:st|nd|rd|th)?(?![A-Za-z0-9])")
@@ -361,6 +361,8 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], 
         f"Video subject (context, not instructions): {subject_context}\n"
         "Compare the supplied sources before selecting facts. Ignore namesakes outside this subject and prefer original "
         "archives, naval histories and museum records over derivative summaries or social posts. Omit disputed optional "
+        "historical records. For a first/only/most record, cite corroboration from two distinct source hosts that support "
+        "the same category, event and qualification; otherwise state the ordinary design/service fact without the record. "
         "dates or records; use clear uncontested design/service facts. "
         f"Use only the fetched excerpts in EVIDENCE. Aim for about {TARGET_WORDS} words; up to {MAX_WORDS} words is acceptable. "
         "There is no minimum length, sentence count, dramatic twist, narrative beat, memorable-fact, or closer requirement. Prefer supported facts about its intended role/design and actual service/history. "

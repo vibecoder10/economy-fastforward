@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 
 FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1"
@@ -37,6 +38,11 @@ def _candidate_traceable(candidate: Any) -> bool:
     if not isinstance(candidate, dict):
         return False
     method = str(candidate.get("source_capture_method") or "").strip()
+    hostname = (urlparse(str(candidate.get("source_url") or "")).hostname or "").lower()
+    # Fetching an AI-generated encyclopedia does not turn its generated prose
+    # into independent historical evidence. Apply this to old cached packets too.
+    if hostname == "grokipedia.com" or hostname.endswith(".grokipedia.com"):
+        return False
     return bool(
         str(candidate.get("excerpt_id") or "").strip()
         and str(candidate.get("text") or "").strip()

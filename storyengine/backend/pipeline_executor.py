@@ -2052,7 +2052,7 @@ def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str
 # a page nobody can ever read. These Commonwealth/naval institutions fetch
 # cleanly and are the simulator's proven anchors for a ship-roster
 # documentary whose best official museum (IWM) is unreachable by automation.
-_BLOCKED_AUTOMATION_SOURCE_DOMAINS = ["iwm.org.uk", "www.iwm.org.uk"]
+_BLOCKED_AUTOMATION_SOURCE_DOMAINS = ["iwm.org.uk", "www.iwm.org.uk", "grokipedia.com", "www.grokipedia.com"]
 _PREFERRED_NAVAL_SOURCE_DOMAINS = [
     "awm.gov.au", "rmg.co.uk", "gov.uk",
     "naval-encyclopedia.com", "naval-history.net", "uboat.net",

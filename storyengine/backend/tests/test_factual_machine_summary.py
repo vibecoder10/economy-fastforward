@@ -5,6 +5,7 @@ import json
 import pytest
 
 from factual_machine_summary import (
+    REVIEW_CONTEXT_VERSION,
     generate_factual_machine_summary,
     review_existing_factual_summary,
 )
@@ -148,7 +149,7 @@ async def test_valid_plain_factual_summary_passes_without_dramatic_twist():
     result = await generate_factual_machine_summary(MACHINE, package, client)
 
     assert result["passed"] is True
-    assert result["review_context_version"] == 3
+    assert result["review_context_version"] == REVIEW_CONTEXT_VERSION
     assert result["paragraph"] == paragraph
     assert result["word_count"] == 14
     assert result["warnings"] == []
@@ -239,7 +240,7 @@ async def test_writer_and_review_see_source_disagreement_before_selecting_claims
 
     assert result["passed"] is True
     assert result["paragraph"] == corrected
-    assert result["review_context_version"] == 3
+    assert result["review_context_version"] == REVIEW_CONTEXT_VERSION
     assert wiki_quote in client.calls[0]["prompt"]
     assert wiki_quote in client.calls[1]["prompt"]
     assert hansard_quote in client.calls[1]["prompt"]
@@ -261,7 +262,7 @@ async def test_existing_summary_gets_one_version_two_review_without_draft_call()
 
     assert result["passed"] is True
     assert result["paragraph"] == sentence
-    assert result["review_context_version"] == 3
+    assert result["review_context_version"] == REVIEW_CONTEXT_VERSION
     assert len(client.calls) == 1
     assert "Independently fact-check" in client.calls[0]["prompt"]
 
@@ -364,7 +365,7 @@ async def test_carrier_title_rejects_real_but_wrong_majestic_battleship_namesake
     good_client = ScriptedClient(json.dumps({'passed': True, 'issues': []}))
     good = await review_existing_factual_summary(machine, package, good_client, _draft(right, [(right, 'C1', right)]), subject_context='Every British Aircraft Carrier Class Ever Built')
     assert good['passed']
-    assert good['review_context_version'] == 3
+    assert good['review_context_version'] == REVIEW_CONTEXT_VERSION
     assert good['subject_context'] == 'Every British Aircraft Carrier Class Ever Built'
 
 @pytest.mark.asyncio
@@ -378,3 +379,39 @@ async def test_wrong_subject_repair_discards_namesake_instead_of_preserving_its_
     assert result['passed']
     assert 'Discard that draft' in client.calls[0]['prompt']
     assert 'Keep only uncontested facts already in the previous draft' not in client.calls[0]['prompt']
+
+
+@pytest.mark.asyncio
+async def test_cached_ai_encyclopedia_cannot_validate_historical_record():
+    machine = "91 Ark Royal (1938)"
+    bad = "HMS Ark Royal was the first purpose-built aircraft carrier for the Royal Navy."
+    good = "HMS Ark Royal was an aircraft carrier commissioned in 1938."
+    package = _package(bad, good)
+    package["machine"] = machine
+    package["sources"] = []
+    package["candidate_excerpts"][0]["source_url"] = "https://grokipedia.com/page/HMS_Ark_Royal_(91)"
+    draft = _draft(bad, [(bad, "S1-E1", bad)])
+    client = ScriptedClient()
+    result = await review_existing_factual_summary(machine, package, client, draft,
+        subject_context="Every British Aircraft Carrier Class Ever Built (2026)")
+    assert result["passed"] is False
+    assert any("unknown or wrong-machine excerpt" in warning for warning in result["warnings"])
+    assert not client.calls
+
+
+@pytest.mark.asyncio
+async def test_repair_uses_historical_sources_without_ai_encyclopedia():
+    machine = "91 Ark Royal (1938)"
+    bad = "HMS Ark Royal was the first purpose-built aircraft carrier for the Royal Navy."
+    good = "HMS Ark Royal was an aircraft carrier commissioned in 1938."
+    package = _package(bad, good)
+    package["machine"] = machine
+    package["sources"] = []
+    package["candidate_excerpts"][0]["source_url"] = "https://www.grokipedia.com/page/HMS_Ark_Royal_(91)"
+    draft = _draft(good, [(good, "S1-E2", good)])
+    client = ScriptedClient(draft, {"passed": True, "issues": []})
+    result = await generate_factual_machine_summary(machine, package, client,
+        subject_context="Every British Aircraft Carrier Class Ever Built (2026)")
+    assert result["passed"] is True
+    assert bad not in client.calls[0]["prompt"]
+    assert result["sources"][0]["source_url"] == URL
