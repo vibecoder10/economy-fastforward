@@ -183,9 +183,48 @@ async def test_reconcile_projects_render_and_terminal_task_outcomes(monkeypatch)
     assert "COALESCE(v.queue_delivery_receipt->>'status' = 'verified', false)" in execute.await_args_list[1].args[0]
     assert "ELSE 'failed'" in execute.await_args_list[1].args[0]
     assert "q.attempt_count < 3" in execute.await_args_list[1].args[0]
+    assert execute.await_args_list[1].args[3:] == (
+        queue.QUEUE_QUALITY_ERROR_PATTERN,
+        queue.QUEUE_TRANSIENT_ERROR_PATTERN,
+    )
     assert "b.created_at >= q.launched_at" in execute.await_args_list[1].args[0]
     assert "status IN ('launched', 'dispatching')" in execute.await_args_list[2].args[0]
     assert "status IN ('pending', 'running')" in execute.await_args_list[2].args[0]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Research gate failed; not advancing to scripting: Roster validation failed",
+        (
+            "Research found a roster coverage or scope issue, so production stopped "
+            "before scripting. Review the research roster, correct the issue, and retry."
+        ),
+        (
+            "Research for one or more roster entries did not meet the source requirements, "
+            "so production stopped before scripting. Review the blocked research entries and retry."
+        ),
+        "Roster source validation failed because source provider unavailable; retry.",
+        "Quality gate failed; retry after correcting the evidence.",
+        "Please retry after editorial review.",
+        "Anthropic credit balance is too low; retry after adding funds.",
+    ],
+)
+def test_quality_provider_and_advisory_retry_messages_are_not_transient(message):
+    assert queue._queue_failure_is_transient(message) is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Worker interrupted while acknowledging the durable job",
+        "Redis connection reset during dispatch",
+        "Upstream service temporarily unavailable",
+        "Task timed out after 1800 seconds",
+    ],
+)
+def test_infrastructure_failures_remain_transient(message):
+    assert queue._queue_failure_is_transient(message) is True
 
 
 @pytest.mark.asyncio

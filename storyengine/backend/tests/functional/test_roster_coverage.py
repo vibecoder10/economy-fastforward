@@ -12,6 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "skills/video-pipel
 from roster_coverage import audit_roster_coverage, coverage_is_current
 
 
+@pytest.fixture(autouse=True)
+def no_external_fetch(monkeypatch):
+    monkeypatch.setattr("roster_sources.fetch_scope_sources", AsyncMock(return_value=[]))
+
+
 def _review(**overrides):
     value = {"passed": True, "scope": "British carrier designs including exports",
              "findings": [], "summary": "Complete against indexes",
@@ -89,3 +94,14 @@ def test_locked_policy_reaches_review_and_invalidates_old_cached_pass():
 def test_other_title_scopes_are_not_replaced_with_british_design_default(title):
     from roster_coverage import title_scope_policy
     assert title_scope_policy(title) == ""
+
+
+
+def test_retrieved_evidence_reaches_reviewer_and_is_saved(monkeypatch):
+    packet = [{"url": "https://archive.example/classes", "available": True, "excerpt": "Two ships; separate one-off class."}]
+    monkeypatch.setattr("roster_sources.fetch_scope_sources", AsyncMock(return_value=packet))
+    payload = _payload()
+    client = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(_review(scope_conforms=True))))
+    asyncio.run(audit_roster_coverage(client, "Every British Aircraft Carrier Class Ever Built", payload))
+    assert payload["coverage_source_packet"] == packet
+    assert json.dumps(packet) in client.generate.call_args.kwargs["prompt"]

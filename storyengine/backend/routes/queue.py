@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -26,7 +27,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one, get_pool
-from queue_controls import PROVIDER_ERROR_PATTERN, sync_provider_pause
+from queue_controls import PROVIDER_ERROR_PATTERN, provider_blocker, sync_provider_pause
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,30 @@ router = APIRouter(prefix="/api/queue", tags=["queue"])
 # needs-approval pauses do NOT count as terminal — a parked video is still
 # in flight (the queue waits; see the locked-cast phase for the real unblock).
 TERMINAL_STATUSES = ("rendered", "uploaded", "uploaded_draft", "done", "published", "failed")
+
+# These PostgreSQL-compatible patterns are also used by the pure classifier
+# below. Quality gates remain stopped even when their safe copy tells a person
+# to retry after correction or mentions an unavailable research source.
+QUEUE_TRANSIENT_ERROR_PATTERN = (
+    r"timeout|timed out|temporar|unavailable|connection|worker|redis|interrupt"
+)
+QUEUE_QUALITY_ERROR_PATTERN = (
+    r"research gate failed|roster (coverage|scope|validation)|unit research-hold|"
+    r"source requirements|source provider unavailable|"
+    r"(source|evidence) (quality|coverage|validation|verification)|"
+    r"quality (gate|review|validation|failure)|validation failed"
+)
+
+
+def _queue_failure_is_transient(error: str) -> bool:
+    """Return whether a failed continuous item gets a bounded same-video retry."""
+    message = str(error or "")
+    return bool(
+        message
+        and provider_blocker(message) is None
+        and not re.search(QUEUE_QUALITY_ERROR_PATTERN, message, re.I)
+        and re.search(QUEUE_TRANSIENT_ERROR_PATTERN, message, re.I)
+    )
 
 
 class QueueItemIn(BaseModel):
@@ -333,8 +358,9 @@ async def _reconcile_queue_items(tenant_id: str) -> None:
                SET status = CASE
                        WHEN t.status = 'failed' AND q.continuous AND q.attempt_count < 3
                         AND NOT (COALESCE(t.error_message, t.message, '') ~* $2)
+                        AND NOT (COALESCE(t.error_message, t.message, '') ~* $3)
                         AND COALESCE(t.error_message, t.message, '') ~*
-                            '(timeout|timed out|temporar|unavailable|connection|worker|redis|interrupt|retry)'
+                            $4
                        THEN 'queued' ELSE 'failed' END,
                    last_error = COALESCE(t.error_message, t.message,
                        'Run All stopped before producing a rendered video'), updated_at = now()
@@ -357,7 +383,8 @@ async def _reconcile_queue_items(tenant_id: str) -> None:
                           AND COALESCE(v.queue_delivery_receipt->>'privacy' = 'unlisted', false)
                       ))
                  )""",
-            tenant_id, PROVIDER_ERROR_PATTERN,
+            tenant_id, PROVIDER_ERROR_PATTERN, QUEUE_QUALITY_ERROR_PATTERN,
+            QUEUE_TRANSIENT_ERROR_PATTERN,
         )
         # A process can die after reserving the video but before enqueueing. Make
         # that same linked video claimable again; never create a replacement.
