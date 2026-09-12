@@ -46,6 +46,15 @@ if str(_PIPELINE_ROOT) not in sys.path:
 import static_docu  # noqa: E402
 import pipeline_executor  # noqa: E402
 
+@pytest.fixture(autouse=True)
+def _empty_historical_reference_cache(monkeypatch):
+    # These cases exercise web discovery; cross-key cache recovery has its
+    # own strict-identity and fallback suite.
+    async def empty(*args, **kwargs):
+        return []
+    monkeypatch.setattr(static_docu, "fetch_all", empty)
+
+
 
 # ---------------------------------------------------------------------------
 # C8: miss-reason classification + clearing

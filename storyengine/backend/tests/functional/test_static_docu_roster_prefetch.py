@@ -45,6 +45,15 @@ if str(_PIPELINE_ROOT) not in sys.path:
 import static_docu  # noqa: E402
 import research_ingest  # noqa: E402
 
+@pytest.fixture(autouse=True)
+def _empty_historical_reference_cache(monkeypatch):
+    # These cases exercise web discovery; cross-key cache recovery has its
+    # own strict-identity and fallback suite.
+    async def empty(*args, **kwargs):
+        return []
+    monkeypatch.setattr(static_docu, "fetch_all", empty)
+
+
 
 def test_reference_storage_path_is_content_addressed_and_immutable():
     first = static_docu._immutable_reference_path(
@@ -765,3 +774,13 @@ async def test_accept_submitted_research_dispatch_noop_for_non_static_video(monk
 
     assert result["accepted"] is True
     assert scheduled == [], "non-static video must never schedule a prefetch task"
+
+@pytest.mark.asyncio
+async def test_archive_thumbnail_lookup_strips_tracking_from_file_title():
+    c = _BatchWMClient()
+    raw = _BatchWMClient.RAW['C'] + '?utm_source=commons.wikimedia.org&utm_content=original#fragment'
+    result = await static_docu._api_issued_thumbs_batch(c, [raw])
+    assert '420px-C.jpg' in result[raw]
+    assert all(call['titles'] == 'File:C.jpg' for call in c.calls)
+    assert static_docu._url_file_title(raw) == 'C.jpg'
+    assert static_docu._url_file_title('https://upload.wikimedia.org/a/Ship%3F.jpg?tracking=1') == 'Ship?.jpg'

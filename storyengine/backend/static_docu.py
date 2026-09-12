@@ -511,7 +511,7 @@ async def _api_issued_thumbs_batch(c: httpx.AsyncClient, raw_urls: list) -> dict
     for u in raw_urls:
         out.setdefault(u, None)
         try:
-            fname = unquote(u.rsplit("/", 1)[1])
+            fname = _url_file_title(u)
         except Exception:  # noqa: BLE001
             continue
         key = _file_title_to_key(fname)
@@ -751,60 +751,73 @@ async def find_article_images(names: list, limit: int = 5) -> list[dict]:
     images, LAYER 1). A rare prototype's lead image is sometimes a diagram or
     simply missing, but the article usually embeds one or more period
     photographs further down the page. Trusted with the same provenance
-    guarantee as LAYER 1: the file appears ON the machine's own article, so
-    there's no search ambiguity to resolve. Tries the designation then each
-    alias, uses the FIRST name that resolves to a real article, and returns
-    every qualifying photo from THAT article (best-effort, single article —
-    not a merge across names, so a stale alias article can't smuggle in a
-    lookalike's photos)."""
+    guarantee as LAYER 1: the file appears ON one of the exact articles
+    resolved from the machine name or its declared aliases, so there is no
+    free-form search ambiguity. Resolves at most four names and inspects at
+    most four distinct articles. Results are selected round-robin across
+    those articles so one article cannot consume the whole bounded result
+    set before a later exact alias contributes a usable photograph."""
     out: list[dict] = []
-    seen: set = set()
+    seen_urls: set = set()
     try:
         async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA) as c:
-            title = None
+            titles: list[str] = []
+            seen_titles: set[str] = set()
             for name in [n for n in names if n][:4]:
                 title = await _resolve_article_title(c, name)
-                if title:
-                    break
-            if not title:
+                title_key = str(title or "").strip().casefold()
+                if title and title_key not in seen_titles:
+                    seen_titles.add(title_key)
+                    titles.append(title)
+            if not titles:
                 return []
-            r = await _wm_get(c, _WIKIPEDIA_API, params={
-                "action": "query", "titles": title,
-                "generator": "images", "gimlimit": 40,
-                "prop": "imageinfo", "iiprop": "url|size", "format": "json"})
-            r.raise_for_status()
-            pages = ((r.json().get("query") or {}).get("pages") or {}).values()
-            # First pass: collect every eligible (raw_url, file_title)
-            # candidate with the SAME filters as before, but don't resolve
-            # thumbs yet — resolving them ALL in one batched call (C3b)
-            # instead of one call per file per width rung is the whole
-            # point; up to 40 candidates here would otherwise cost up to
-            # 40 * len(_THUMB_WIDTH_LADDER) individual requests.
-            candidates: list[tuple] = []  # (raw_url, file_title)
-            for p in pages:
-                ftitle = p.get("title") or ""
-                low = ftitle.lower()
-                if not low.endswith((".jpg", ".jpeg", ".png")):
-                    continue  # drop .svg maps/flags/coats-of-arms outright
-                if any(b in low for b in _NON_PHOTO_FILE_KEYWORDS):
-                    continue
-                for ii in p.get("imageinfo") or []:
-                    w, h = ii.get("width") or 0, ii.get("height") or 0
-                    if w < 500 or h < 300:
-                        continue  # icon/thumbnail-sized, not a real photo
-                    raw = ii.get("url") or ""
-                    if not raw or raw in seen:
+            # Keep at most `limit` eligible files per article. Across the
+            # four-article ceiling that bounds thumbnail resolution to
+            # 4 * limit raw URLs, independent of unusually image-heavy pages.
+            candidates_by_article: list[list[tuple[str, str, str]]] = []
+            for title in titles[:4]:
+                r = await _wm_get(c, _WIKIPEDIA_API, params={
+                    "action": "query", "titles": title,
+                    "generator": "images", "gimlimit": 40,
+                    "prop": "imageinfo", "iiprop": "url|size", "format": "json"})
+                r.raise_for_status()
+                pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+                article_candidates: list[tuple[str, str, str]] = []
+                for p in pages:
+                    ftitle = p.get("title") or ""
+                    low = ftitle.lower()
+                    if not low.endswith((".jpg", ".jpeg", ".png")):
+                        continue  # drop .svg maps/flags/coats-of-arms outright
+                    if any(b in low for b in _NON_PHOTO_FILE_KEYWORDS):
                         continue
-                    seen.add(raw)
-                    candidates.append((raw, ftitle))
-            thumbs = await _api_issued_thumbs_batch(c, [raw for raw, _ in candidates])
-            for raw, ftitle in candidates:
-                thumb = thumbs.get(raw)
-                if not thumb:
-                    continue
-                out.append({"url": thumb, "page": title, "file_title": ftitle})
-                if len(out) >= limit:
-                    break
+                    for ii in p.get("imageinfo") or []:
+                        w, h = ii.get("width") or 0, ii.get("height") or 0
+                        if w < 500 or h < 300:
+                            continue  # icon/thumbnail-sized, not a real photo
+                        raw = ii.get("url") or ""
+                        if not raw or raw in seen_urls:
+                            continue
+                        seen_urls.add(raw)
+                        article_candidates.append((raw, ftitle, title))
+                        if len(article_candidates) >= limit:
+                            break
+                    if len(article_candidates) >= limit:
+                        break
+                candidates_by_article.append(article_candidates)
+
+            candidates = [item for group in candidates_by_article for item in group]
+            thumbs = await _api_issued_thumbs_batch(c, [raw for raw, _, _ in candidates])
+            for candidate_index in range(limit):
+                for group in candidates_by_article:
+                    if candidate_index >= len(group):
+                        continue
+                    raw, ftitle, title = group[candidate_index]
+                    thumb = thumbs.get(raw)
+                    if not thumb:
+                        continue
+                    out.append({"url": thumb, "page": title, "file_title": ftitle})
+                    if len(out) >= limit:
+                        return out
     except Exception:  # noqa: BLE001
         pass
     return out[:limit]
@@ -923,13 +936,14 @@ def _url_file_title(url: str) -> str:
     second-to-last path segment (``.../thumb/a/b/XB-35.jpg/1024px-XB-35.jpg``
     — the last segment is the WIDTH-prefixed thumb name, not the file); a
     raw (non-thumb) URL's filename is simply the last segment."""
-    from urllib.parse import unquote
+    from urllib.parse import unquote, urlsplit
 
     try:
-        parts = (url or "").rstrip("/").split("/")
+        path = urlsplit(url or "").path
+        parts = path.rstrip("/").split("/")
         if not parts:
             return ""
-        if "/thumb/" in url and len(parts) >= 2:
+        if "/thumb/" in path and len(parts) >= 2:
             return unquote(parts[-2])
         return unquote(parts[-1])
     except Exception:  # noqa: BLE001
@@ -958,7 +972,18 @@ async def _gather_reference_candidates(machine: str, aliases: Optional[list],
     trust from a loose page-title/word overlap.
 
     Returns ``[(url, trusted), ...]``, de-duplicated by url."""
-    names = [machine] + list(aliases or [])
+    # A roster display prefix ("I36 HMS Vindictive (1918)") is not an
+    # article title. Preserve its disambiguating year while removing only
+    # the leading naval pennant; a bare "HMS Vindictive" resolves to a
+    # different ship. Put this exact, specific name before loose aliases.
+    names = []
+    for name in [machine] + list(aliases or []):
+        name = str(name or "").strip()
+        normalized = re.sub(r"^[A-Za-z]?\d+\s+(?=(?:HMS|HMAS|HMCS|USS)\b)", "", name)
+        if normalized and normalized not in names:
+            names.append(normalized)
+    # Specific year aliases disambiguate names reused by different ships.
+    names.sort(key=lambda name: 0 if re.search(r"\((?:18|19|20)\d{2}\)", name) else 1)
     entries: list[dict] = []  # {"url", "trusted", "token"}
     seen: set = set()
 
@@ -1825,8 +1850,7 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         treats identically to a transport exception), or None specifically
         when NO provider key is configured at all — a workspace config gap,
         not a transport symptom, so the caller treats it differently
-        (unchanged fail-open, since there's no live evidence this ever fires
-        in practice and retrying can't help a missing key)."""
+        (unverified configuration gap; retrying cannot supply a key)."""
         img = await _download_image_b64(image_url)
         if img is None:
             return ""  # download/size failure this attempt — caller retries
@@ -1893,7 +1917,8 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         # empty reply — loop again for the one allowed retry
 
     if no_key:
-        return True  # config gap, not a transport failure — unchanged behavior
+        _logger.warning("_vision_confirms: no configured vision provider; reference remains unverified")
+        return False
     if not txt:
         # Every attempt raised, failed to download, or came back empty —
         # FAIL CLOSED: this candidate is treated as unverified/rejected (the
@@ -4357,6 +4382,56 @@ async def import_never_built_handoff_image(
 # mechanism.
 
 
+async def _recover_cached_roster_reference(tenant_id: str, video_id: str,
+                                          machine: str, aliases: Optional[list],
+                                          facts: Optional[dict]) -> bool:
+    """Old display names are search hints, never identity approval.
+
+    Recheck a bounded set of this tenant's historical photos against the
+    current roster before adopting one under its current key. This covers
+    reordered pennants and declared class members without trusting a fuzzy
+    name match or an old verification for a different configuration.
+    """
+    words = set()
+    for name in [machine] + list(aliases or []):
+        for word in re.findall(r"[a-z0-9]+", str(name or "").lower()):
+            if (len(word) >= 4 and word not in _GENERIC_MACHINE_WORDS) or (
+                    re.fullmatch(r"[a-z]+\d+[a-z0-9]*", word)):
+                words.add(word)
+    if not words:
+        return False
+    rows = await fetch_all(
+        "SELECT machine, hosted_url, source_url FROM static_reference_cache "
+        "WHERE tenant_id=$1 AND reference_kind='photo' "
+        "AND lower(machine) LIKE ANY($2::text[]) "
+        "ORDER BY verified_at DESC LIMIT 30",
+        tenant_id, [f"%{word}%" for word in sorted(words)[:16]])
+    seen = set()
+    checked = 0
+    for row in rows:
+        if not _page_matches(machine, aliases, row.get("machine") or ""):
+            continue
+        hosted, source = row.get("hosted_url"), row.get("source_url")
+        identity = source or hosted
+        if not hosted or identity in seen:
+            continue
+        seen.add(identity)
+        checked += 1
+        # A historical class display name can list several sister ships.
+        # Supply the photograph's own filename, not that ambiguous label.
+        label = _url_file_title(source or "") or row.get("machine")
+        if await _vision_confirms(
+                tenant_id, hosted, machine, aliases, trusted_source=False,
+                facts=facts, source_label=label):
+            await execute(_reference_cache_upsert_sql("photo"), tenant_id,
+                          _machine_key(machine), machine[:200], hosted, source)
+            await _clear_reference_miss(tenant_id, video_id, machine)
+            return True
+        if checked >= 6:
+            break
+    return False
+
+
 async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                                 roster_index: int,
                                 aliases: Optional[list] = None,
@@ -4388,7 +4463,18 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
     This now classifies which of those happened and persists it via
     _record_reference_miss (see static_reference_misses) before returning
     False, and clears any prior miss the instant a machine verifies."""
-    candidates = await _gather_reference_candidates(machine, aliases, machine)
+    if await _recover_cached_roster_reference(tenant_id, video_id, machine, aliases, facts):
+        return True
+    lookup_aliases = list(aliases or [])
+    naval_name = re.sub(r"^[A-Za-z]?\d+\s+", "", machine).strip()
+    if re.match(r"^(?:HMS|HMAS|HMCS|USS)\s+", naval_name) and not re.search(r"\(\d{4}\)", naval_name):
+        # The roster often omits a ship's launch-year article suffix. Use
+        # its own first two distinct historical dates as bounded lookup
+        # hints. They do not alter identity facts or grant provenance.
+        years = re.findall(r"\b(?:18|19|20)\d{2}\b", str((facts or {}).get("years") or "").split("[")[0])
+        for year in list(dict.fromkeys(years))[:2]:
+            lookup_aliases.append(f"{naval_name} ({year})")
+    candidates = await _gather_reference_candidates(machine, lookup_aliases or aliases, machine)
     # Naval class names and reused ship names often resolve to a battleship,
     # cruiser, or a namesake from another century. Expand the candidate search
     # with carrier-qualified aliases, while retaining the same vision gate.

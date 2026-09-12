@@ -126,6 +126,10 @@ async def test_prefetch_one_machine_threads_facts_and_filename(monkeypatch):
     into the vision call — not just the signature existing."""
     seen = {}
 
+    async def empty_cache(*args):
+        return []
+    monkeypatch.setattr(static_docu, "fetch_all", empty_cache)
+
     async def fake_gather(machine, aliases, query):
         return [("https://commons.example/HMS_Glory_SLV_Green_1946.jpg", False)]
 

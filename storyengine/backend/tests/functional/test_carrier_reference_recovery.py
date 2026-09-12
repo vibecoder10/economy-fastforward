@@ -13,7 +13,8 @@ def _run(initial, alternatives, accepts):
     vision = AsyncMock(side_effect=accepts)
     write = AsyncMock()
     misses = AsyncMock()
-    with patch.object(sd, "_gather_reference_candidates", AsyncMock(return_value=initial)), \
+    with patch.object(sd, "fetch_all", AsyncMock(return_value=[])), \
+         patch.object(sd, "_gather_reference_candidates", AsyncMock(return_value=initial)), \
          patch.object(sd, "find_commons_photos", search), \
          patch.object(sd, "_host_reference", AsyncMock(side_effect=lambda url, *_a: url)), \
          patch.object(sd, "_vision_confirms", vision), \
