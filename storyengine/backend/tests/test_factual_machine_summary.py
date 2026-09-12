@@ -163,7 +163,8 @@ async def test_valid_plain_factual_summary_passes_without_dramatic_twist():
     }]
     assert len(result["claim_map"]) == 2
     assert len(client.calls) == 2
-    assert all("model" not in call for call in client.calls)
+    assert "opus" in client.calls[0]["model"]
+    assert "opus" in client.calls[1]["model"]
 
 
 @pytest.mark.asyncio
@@ -176,7 +177,7 @@ async def test_provider_failure_is_propagated():
 
 
 @pytest.mark.asyncio
-async def test_review_uses_full_package_alternatives_then_writer_drops_overclaim():
+async def test_writer_and_review_see_source_disagreement_before_selecting_claims():
     machine = "HMS Ark Royal"
     groki_quote = (
         "HMS Ark Royal's cost exceeded £3 million, making her the most expensive "
@@ -239,7 +240,7 @@ async def test_review_uses_full_package_alternatives_then_writer_drops_overclaim
     assert result["passed"] is True
     assert result["paragraph"] == corrected
     assert result["review_context_version"] == 2
-    assert wiki_quote not in client.calls[0]["prompt"]
+    assert wiki_quote in client.calls[0]["prompt"]
     assert wiki_quote in client.calls[1]["prompt"]
     assert hansard_quote in client.calls[1]["prompt"]
     assert "untrusted source text" in client.calls[1]["prompt"].lower()
@@ -298,3 +299,24 @@ async def test_pruning_cannot_bypass_second_review_failure():
     result = await review_existing_factual_summary(MACHINE, _package(good, disputed), client, summary, allow_sentence_removal=True)
     assert result['passed'] is False
     assert len(client.calls) == 2
+
+@pytest.mark.asyncio
+async def test_excerpt_id_only_citation_attaches_original_source_text():
+    sentence = 'I-49 HMS Argus served as a training ship.'
+    summary = {'paragraph': sentence, 'claim_map': [{'sentence': sentence, 'citations': [{'excerpt_id': 'S1-E1'}]}]}
+    client = ScriptedClient(json.dumps({'passed': True, 'issues': []}))
+    result = await review_existing_factual_summary(MACHINE, _package(sentence), client, summary)
+    assert result['passed']
+    assert result['sources'][0]['quote'] == sentence
+    assert result['sources'][0]['source_url'] == URL
+    assert 'opus' in client.calls[0]['model']
+
+@pytest.mark.asyncio
+async def test_video_subject_reaches_writer_and_review_for_namesake_disambiguation():
+    sentence = 'I-49 HMS Argus served as a training ship.'
+    draft = {'paragraph': sentence, 'claim_map': [{'sentence': sentence, 'citations': [{'excerpt_id': 'S1-E1'}]}]}
+    client = ScriptedClient(json.dumps(draft), json.dumps({'passed': True, 'issues': []}))
+    context = 'Every British Aircraft Carrier Class Ever Built'
+    result = await generate_factual_machine_summary(MACHINE, _package(sentence), client, subject_context=context)
+    assert result['passed']
+    assert all(context in call['prompt'] for call in client.calls)

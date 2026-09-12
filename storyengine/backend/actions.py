@@ -16,6 +16,7 @@ circular imports (routes/pipeline.py imports this module at module level).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import re
@@ -1961,8 +1962,21 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                             "check the notes and tell me to redo it, or say \"use it anyway\" "
                             "to keep going as-is."
                         )
+                        contract_payload = video.get("research_payload") or {}
+                        if isinstance(contract_payload, str):
+                            try:
+                                contract_payload = json.loads(contract_payload)
+                            except (TypeError, ValueError):
+                                contract_payload = {}
+                        factual_batch = (
+                            isinstance(contract_payload, dict)
+                            and contract_payload.get("machine_script_contract") == "factual_100_v1"
+                        )
                         _set_task_status(
-                            video_id, "needs_review", review_msg, tenant_id=tenant_id,
+                            video_id,
+                            "failed" if factual_batch else "needs_review",
+                            review_msg,
+                            tenant_id=tenant_id,
                         )
                         # Job 4 (surface plan, 2026-07-28): "the run correctly
                         # stopped... he never saw it. From his seat the app

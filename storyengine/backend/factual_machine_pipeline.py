@@ -39,6 +39,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         'SELECT voice_id FROM scripts WHERE video_id=$1 AND tenant_id=$2 LIMIT 1', video_id, ex.tenant_id,
     )
     voice_id = (rows[0].get('voice_id') if rows else None) or '1SM7GgM6IMuvQlz2BwM3'
+    subject_context = str(video.get('video_title') or video.get('headline') or '')
     failures = []
     results = []
     for scene, machine in selected:
@@ -74,12 +75,12 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
                 continue
             # Retain the exact saved prose when broader source review passes;
             # a review upgrade must not pay to rewrite every passed section.
-            reviewed = await review_existing_factual_summary(machine, package, client, saved, allow_sentence_removal=True)
+            reviewed = await review_existing_factual_summary(machine, package, client, saved, allow_sentence_removal=True, subject_context=subject_context)
             if reviewed.get('passed'):
                 summary = reviewed
         await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (100-word maximum)')
         if summary is None:
-            summary = await generate_factual_machine_summary(machine, package, client)
+            summary = await generate_factual_machine_summary(machine, package, client, subject_context=subject_context)
         block = {**summary, 'machine': machine, 'scene': scene,
                  'machine_script_contract': CONTRACT, 'source_fingerprint': fingerprint,
                  'research_source': 'verified_machine_sources', 'saved': False}

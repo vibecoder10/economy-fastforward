@@ -386,9 +386,15 @@ def test_autobuild_posts_script_review_chat_message_on_needs_review():
     async def _fast_sleep(*_a, **_k):
         return None
 
+    fake_gc = types.ModuleType("generation_claims")
+    fake_gc.release = AsyncMock(return_value=None)
+
+    async def _no_queue(*_a, **_k):
+        return None
+
     with patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp,
-                                   "routes.chat": fake_rc}):
-        with patch("asyncio.sleep", _fast_sleep):
+                                   "routes.chat": fake_rc, "generation_claims": fake_gc}):
+        with patch("asyncio.sleep", _fast_sleep), patch.object(actions, "fetch_one", _no_queue):
             step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
             asyncio.run(step())
 
@@ -399,6 +405,60 @@ def test_autobuild_posts_script_review_chat_message_on_needs_review():
     terminal = [c for c in set_calls if c["status"] != "running"]
     assert terminal[0]["status"] == "needs_review"
     print("✅ test_autobuild_posts_script_review_chat_message_on_needs_review")
+
+
+def test_factual_batch_needs_review_is_a_failed_terminal_with_actual_reason():
+    review_reason = "I49 HMS Argus: service-date claim is not supported by the cited excerpt"
+
+    class _FakeFactualExecutorNeedsReview:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def _get_video(self, video_id):
+            return {
+                "status": "ready_for_scripting",
+                "render_mode": "static_docu",
+                "max_spend": None,
+                "research_payload": {"machine_script_contract": "factual_100_v1"},
+            }
+
+        async def run_script(self, video_id, progress_callback=None):
+            return {"status": "needs_review", "video_id": video_id, "error": review_reason}
+
+    fake_pe = types.ModuleType("pipeline_executor")
+    fake_pe.PipelineExecutor = _FakeFactualExecutorNeedsReview
+    set_calls = []
+
+    def _fake_set_task_status(video_id, status, message=None, error=None, *, tenant_id, task_type="pipeline"):
+        set_calls.append({"status": status, "message": message, "error": error})
+
+    fake_rp = types.ModuleType("routes.pipeline")
+    fake_rp._set_task_status = _fake_set_task_status
+    fake_rp._clear_task_status = lambda *a, **k: None
+
+    fake_rc = types.ModuleType("routes.chat")
+    fake_rc._post_script_review_message = AsyncMock(return_value=None)
+    fake_gc = types.ModuleType("generation_claims")
+    fake_gc.release = AsyncMock(return_value=None)
+
+    async def _fast_sleep(*_a, **_k):
+        return None
+
+    async def _no_queue(*_a, **_k):
+        return None
+
+    with patch.dict(sys.modules, {
+        "pipeline_executor": fake_pe,
+        "routes.pipeline": fake_rp,
+        "routes.chat": fake_rc,
+        "generation_claims": fake_gc,
+    }):
+        with patch("asyncio.sleep", _fast_sleep), patch.object(actions, "fetch_one", _no_queue):
+            step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
+            asyncio.run(step())
+
+    terminal = [call for call in set_calls if call["status"] != "running"]
+    assert terminal == [{"status": "failed", "message": review_reason, "error": None}]
 
 
 def test_autobuild_chat_post_failure_does_not_fail_the_build():
@@ -434,9 +494,15 @@ def test_autobuild_chat_post_failure_does_not_fail_the_build():
     async def _fast_sleep(*_a, **_k):
         return None
 
+    fake_gc = types.ModuleType("generation_claims")
+    fake_gc.release = AsyncMock(return_value=None)
+
+    async def _no_queue(*_a, **_k):
+        return None
+
     with patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp,
-                                   "routes.chat": fake_rc}):
-        with patch("asyncio.sleep", _fast_sleep):
+                                   "routes.chat": fake_rc, "generation_claims": fake_gc}):
+        with patch("asyncio.sleep", _fast_sleep), patch.object(actions, "fetch_one", _no_queue):
             step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
             asyncio.run(step())  # must not raise
 
