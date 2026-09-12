@@ -62,3 +62,30 @@ def test_gateway_without_search_does_not_claim_independent_verification():
     with pytest.raises(ValueError, match="cannot execute web search"):
         asyncio.run(audit_roster_coverage(client, "Every British carrier", _payload()))
     client.generate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("conforms", [None, False, "true"])
+def test_positive_review_cannot_accept_unconfirmed_locked_scope(conforms):
+    client = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(_review(scope_conforms=conforms))))
+    audit = asyncio.run(audit_roster_coverage(client, "Every British Aircraft Carrier Class Ever Built", _payload()))
+    assert not audit["passed"]
+
+
+def test_locked_policy_reaches_review_and_invalidates_old_cached_pass():
+    from roster_coverage import title_scope_policy
+    title = "Every British Aircraft Carrier Class Ever Built (2026)"
+    payload = _payload()
+    payload["independent_coverage_audit"] = {"version": 2, "passed": True}
+    client = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(_review(scope_conforms=True))))
+    audit = asyncio.run(audit_roster_coverage(client, title, payload))
+    assert audit["passed"]
+    policy = title_scope_policy(title)
+    assert policy == payload["inclusion_policy"] == audit["scope_policy"]
+    assert policy in client.generate.call_args.kwargs["prompt"]
+    assert coverage_is_current(title, payload)
+
+
+@pytest.mark.parametrize("title", ["Every Royal Navy Aircraft Carrier Ever Operated", "Every British Seaplane Carrier", "British Aircraft Carriers Never Built", "Every US Aircraft Carrier"])
+def test_other_title_scopes_are_not_replaced_with_british_design_default(title):
+    from roster_coverage import title_scope_policy
+    assert title_scope_policy(title) == ""

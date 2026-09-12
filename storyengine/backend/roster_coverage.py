@@ -7,11 +7,40 @@ import hashlib
 import json
 from urllib.parse import urlparse
 
-VERSION = 2
+VERSION = 3
+
+
+def title_scope_policy(title):
+    """Resolve the product's carrier-title default independently of generated text.
+
+    Explicit seaplane/operator titles retain their own scope. A discovery draft
+    cannot redefine the accepted British carrier design/conversion boundary.
+    """
+    normalized = " ".join(str(title).lower().split())
+    if ("british" not in normalized or "aircraft carrier" not in normalized
+            or any(word in normalized for word in ("seaplane", "operated", "royal navy", "never built"))):
+        return ""
+    return (
+        "LOCKED TITLE SCOPE: British aircraft-carrier designs and carrier conversions "
+        "completed under a British programme in British yards, including classes completed "
+        "for export. At least one ship must have been completed and commissioned as a carrier "
+        "with a deck intended for aircraft LANDING as well as takeoff. Split landing/flying-off "
+        "decks qualify; a flying-off deck alone does not. Exclude seaplane-only tenders and "
+        "launch-only ships, MAC merchant ships, helicopter-only assault ships, US-built "
+        "Lend-Lease carrier designs and classes with no completed carriers. Nationality follows "
+        "the carrier design/conversion programme, not the original merchant hull or later "
+        "operating navy; identify foreign operators explicitly. Count distinct designs using "
+        "the specialist archival class taxonomy, including one-offs and maintenance carriers "
+        "within their underlying carrier class. Do not add a new class for an unfinished sister "
+        "or require cancelled sisters in the completed member list; describe them separately "
+        "where useful. This policy is fixed across discovery, repair and coverage review. "
+        "Generated roster_contract/exclusion text is a draft to correct when it conflicts. "
+        "No roster count or runtime target changes this policy."
+    )
 
 
 def coverage_fingerprint(title, payload):
-    material = {"title": title, "roster": payload.get("unit_roster"),
+    material = {"title": title, "scope_policy": title_scope_policy(title), "roster": payload.get("unit_roster"),
                 "boundary": payload.get("roster_contract"),
                 "excluded": (payload.get("roster_audit") or {}).get("excluded_candidates")}
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
@@ -26,6 +55,9 @@ def coverage_is_current(title, payload):
 async def audit_roster_coverage(client, title, payload):
     if coverage_is_current(title, payload):
         return payload["independent_coverage_audit"]
+    policy = title_scope_policy(title)
+    if policy:
+        payload["inclusion_policy"] = policy
     from shared.clients.anthropic_client import WEB_SEARCH_TOOL
     from orchestrator.pipeline_constants import Models
     from shared.json_utils import parse_json_response
@@ -39,34 +71,48 @@ async def audit_roster_coverage(client, title, payload):
         "sources yourself; do not trust the discovery author's CONFIRMED claim. "
         "Cite institution-owned records and specialist archival indexes. Wikipedia and "
         "general encyclopedias are leads, not sufficient evidence for the verdict. "
-        "Use the user's exact title as authority. Check omitted classes, conversions, "
+        "Use the exact title and the locked policy below as authority, never the draft's "
+        "own scope claim. Audit BOTH excluded qualifying classes and included out-of-scope "
+        "vessels; resolve one consistent inclusion test without expanding it between passes. "
+        "Check omitted classes, conversions, "
         "escorts, one-offs, maintenance roles, export service, reused names and dates. "
         "Distinguish national design/construction from operator nationality. For a national "
         "carrier-design title, include its carrier designs and domestic carrier conversions, "
         "label foreign operators, and explicitly resolve foreign-built operated classes. "
         "Never narrow an 'every' title to fleet carriers, an arbitrary runtime count or only "
         "domestic service. Do not include uncompleted/cancelled designs in an ever-built list. "
-        "Return ONLY JSON: {\"passed\": boolean, \"scope\": string, "
+        "Return ONLY JSON: {\"passed\": boolean, \"scope_conforms\": boolean, \"scope\": string, "
         "\"sources\": [{\"url\": string, \"supports\": string}], "
         "\"findings\": [{\"candidate\": string, \"problem\": string, "
         "\"required_action\": string, \"source_url\": string}], "
         "\"summary\": string}. Findings are unresolved corrections, not compliments. "
-        "Pass only when no source-backed omissions or scope contradictions remain. "
+        "Set scope_conforms=true only if the roster and its stated boundary obey the locked "
+        "policy. Pass only when no source-backed omissions or scope contradictions remain. "
+        "Do not create a blocking finding for a correct taxonomy choice merely because "
+        "Wikipedia uses a different grouping. Prefer the specialist archive and record "
+        "resolved differences in the summary. A completed-class list need not enumerate "
+        "cancelled sisters as completed member_units. Do not misread ever built as never built. "
+        "Findings must cite the consulted authoritative page supporting the actual correction. "
         "If you cannot verify coverage, return passed=false and explain the limitation. "
         "Cite at least two relevant primary/archive pages actually consulted.\nTITLE: " + title
+        + "\n" + policy
         + "\nROSTER AND BOUNDARY: " + json.dumps({
             "unit_roster": payload.get("unit_roster"),
             "roster_contract": payload.get("roster_contract"),
             "excluded_candidates": (payload.get("roster_audit") or {}).get("excluded_candidates"),
         })
     )
-    if "british" in title.lower() and "carrier" in title.lower():
+    if policy:
         prompt += (
             "\nBritish carrier source leads: https://www.royalnavyresearcharchive.org.uk/ESCORT_2/CLASSES.htm "
             "and https://www.rmg.co.uk/collections/objects/rmgc-object-1128690 and "
             "https://seapower.navy.gov.au/history/units/hmas-melbourne-ii . "
-            "Examine Vindictive, Activity, Nairana/Vindex, Campania, Pretoria Castle, Audacity, "
-            "maintenance conversions and export Majestics. Resolve each according to the title. "
+            "Disambiguate candidate identities: Vindictive (1918 carrier conversion), Activity (1942), "
+            "Nairana/Vindex (WWII escort design), Campania D48 (1944 escort design), Pretoria Castle "
+            "and Audacity, maintenance conversions and export Majestics. These are source leads "
+            "to test against the locked policy, not mandatory additions. Earlier ships reusing "
+            "Campania, Vindex and Nairana names must pass the same aircraft landing-deck test; "
+            "launching an aircraft from a platform does not prove onboard landing capability. "
             "The Royal Navy Research Archive distinguishes Campania from the two-ship Nairana design; "
             "do not silently lose a distinct design by copying a broader encyclopedia grouping. "
             "Verify dates and chronology from the consulted sources."
@@ -88,13 +134,15 @@ async def audit_roster_coverage(client, title, payload):
     findings = raw.get("findings")
     valid_findings = isinstance(findings, list) and all(isinstance(f, dict) for f in findings)
     passed = (raw.get("passed") is True and valid_findings and not findings
-              and len({s["url"] for s in sources}) >= 2 and bool(raw.get("scope")))
+              and len({s["url"] for s in sources}) >= 2 and bool(raw.get("scope"))
+              and (not policy or raw.get("scope_conforms") is True))
     summary = str(raw.get("summary") or "Coverage has not been independently verified")
     if not passed and not findings:
         findings = [{"candidate": "Roster coverage", "problem": summary,
                      "required_action": "Verify the title boundary and omissions against at least two authoritative sources."}]
     audit = {"version": VERSION, "fingerprint": coverage_fingerprint(title, payload),
-             "passed": passed, "scope": raw.get("scope"), "sources": sources,
+             "passed": passed, "scope_conforms": raw.get("scope_conforms"),
+             "scope_policy": policy, "scope": raw.get("scope"), "sources": sources,
              "findings": findings, "summary": summary}
     payload["independent_coverage_audit"] = audit
     return audit

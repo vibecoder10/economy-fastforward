@@ -353,8 +353,8 @@ def test_roster_validation_ship_roster_passes_soft_only_and_needs_review():
     assert result["hard_warnings"] == []
     pacing_warning = (
         "Broad complete-roster final roster is larger than the runtime target plus reserve: "
-        "23 final items vs target around 20 for a 20-minute video. Tighten the roster to fit "
-        "the requested runtime, or prove that the title requires the larger count."
+        "23 final items vs target around 20 for a 20-minute video. Preserve every title-qualified "
+        "class and adjust pacing or duration; remove only source-proven out-of-scope entries."
     )
     stuffing_warning = (
         "designation holds a comma-separated member-ship/unit list instead of a short "

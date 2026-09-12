@@ -8137,8 +8137,8 @@ def _roster_validation(
         _warn(
             "Broad complete-roster final roster is larger than the runtime target plus reserve: "
             f"{len(roster)} final items vs target around {pacing_targets['expected_final_roster']} "
-            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Tighten the roster to fit the requested runtime, "
-            "or prove that the title requires the larger count.",
+            f"for a {pacing_targets['video_length_minutes']:g}-minute video. Preserve every title-qualified "
+            "class and adjust pacing or duration; remove only source-proven out-of-scope entries.",
             hard=False,
         )
     if _title_is_broad_machine_roster(title):
@@ -10682,7 +10682,12 @@ class PipelineExecutor:
             existing_roster = _machine_documentary_hold_roster(video)
             coverage_required = video.get("render_mode") == "static_docu" and _title_needs_complete_roster(topic)
 
+            from roster_coverage import title_scope_policy
+            locked_scope = title_scope_policy(topic) if coverage_required else ""
+
             async def checked_roster(payload):
+                if locked_scope:
+                    payload["inclusion_policy"] = locked_scope
                 check = _roster_validation(topic, payload, video_length_minutes=video.get("video_length_minutes"))
                 if coverage_required and check.get("passed"):
                     from roster_coverage import audit_roster_coverage
@@ -10741,6 +10746,9 @@ class PipelineExecutor:
             except Exception:  # noqa: BLE001 — context is a bonus, never a blocker
                 pass
 
+            if locked_scope:
+                research_context = (research_context or "") + "\n\n" + locked_scope
+
             if existing_roster:
                 # An invalid saved roster needs corrective discovery, not the
                 # locked-roster hold that rejects it again without doing work.
@@ -10768,6 +10776,13 @@ class PipelineExecutor:
                 )
                 research_context = (research_context + "\n\n" if research_context else "") + pacing_context
 
+            research_prompt_override = getattr(self._pipeline, "research_system_prompt", None)
+            if locked_scope:
+                if not research_prompt_override:
+                    from research.agent import RESEARCH_SYSTEM_PROMPT
+                    research_prompt_override = RESEARCH_SYSTEM_PROMPT
+                research_prompt_override += "\n\n" + locked_scope
+
             # Run research. record_id MUST be this video — without it the
             # adapter creates a brand-new idea row (a stray duplicate video
             # appeared in the workspace, seen live on DVU 2026-07-02).
@@ -10777,7 +10792,7 @@ class PipelineExecutor:
                 context=research_context,
                 airtable_client=self._pipeline.airtable,
                 record_id=video_id,
-                system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
+                system_prompt_override=research_prompt_override,
             )
 
             if not payload:
@@ -10822,7 +10837,7 @@ class PipelineExecutor:
                     context=repair_context,
                     airtable_client=self._pipeline.airtable,
                     record_id=video_id,
-                    system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
+                    system_prompt_override=research_prompt_override,
                 )
                 if repair_payload:
                     repair_check = await checked_roster(repair_payload)

@@ -31,6 +31,18 @@ logger = logging.getLogger(__name__)
 # Wrapping such copy with user_facing() lets it survive the funnel verbatim.
 USER_FACING_PREFIX = "[[user-facing]] "
 
+_SAFE_RESEARCH_GATE_MESSAGES = {
+    "research gate failed; not advancing to scripting: roster validation failed": (
+        "Research found a roster coverage or scope issue, so production stopped "
+        "before scripting. Review the research roster, correct the issue, and retry."
+    ),
+    "research gate failed; not advancing to scripting: unit research-hold failed": (
+        "Research for one or more roster entries did not meet the source requirements, "
+        "so production stopped before scripting. Review the blocked research entries "
+        "and retry."
+    ),
+}
+
 
 def user_facing(message: str) -> str:
     """Mark a message as already-safe user copy (survives humanize_error)."""
@@ -91,6 +103,13 @@ def humanize_error(
         return f"{context}. Please try again."
 
     lowered = raw.lower()
+
+    # These two pipeline gates are deliberate quality stops rather than opaque
+    # exceptions. Match the complete known string so appended database/provider
+    # details can never hitch a ride into customer-visible copy.
+    safe_research_gate = _SAFE_RESEARCH_GATE_MESSAGES.get(lowered.strip())
+    if safe_research_gate:
+        return safe_research_gate
 
     # Kie.ai account blocked / out of credit. Kie is the single upstream for
     # text+image+video+voice, so a banned or credit-exhausted key kills every

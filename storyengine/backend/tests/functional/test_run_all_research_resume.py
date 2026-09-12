@@ -54,6 +54,7 @@ def test_invalid_saved_roster_reaches_corrective_discovery():
     discover = AsyncMock(return_value=None)
     module = types.ModuleType("research.agent")
     module.run_research = discover
+    module.RESEARCH_SYSTEM_PROMPT = "Default research system"
     with patch.dict(sys.modules, {"research.agent": module}), patch.object(pe, "fetch_one", AsyncMock(return_value=None)):
         result = asyncio.run(ex.run_research("video"))
     assert result["status"] == "failed"  # empty discovery must not be accepted
@@ -71,6 +72,7 @@ def test_structurally_valid_but_incomplete_roster_is_corrected_before_cards():
     discover = AsyncMock(return_value=None)
     module = types.ModuleType("research.agent")
     module.run_research = discover
+    module.RESEARCH_SYSTEM_PROMPT = "Default research system"
     coverage = AsyncMock(return_value={"passed": False, "findings": [{"candidate": "Activity", "problem": "Missing escort"}]})
     with patch.dict(sys.modules, {"research.agent": module}), \
          patch.object(pe, "fetch_one", AsyncMock(return_value=None)), \
@@ -119,3 +121,32 @@ def test_resume_persists_current_gate_and_bootstraps_missing_hold():
     assert persisted["unit_roster_validation"]["passed"] is True
     assert len(persisted["unit_research_hold_validation"]["units"]) == 3
     assert saved.call_args.args[2] == "idea_logged"
+
+
+
+def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair():
+    from roster_coverage import title_scope_policy
+    video = _video()
+    video["video_title"] = "Every British aircraft carrier ever built"
+    ex = _executor(video)
+    ex.run_unit_research = AsyncMock()
+    discover = AsyncMock(side_effect=[copy.deepcopy(video["research_payload"]), ValueError("stop after repair dispatch")])
+    module = types.ModuleType("research.agent")
+    module.run_research = discover
+    module.RESEARCH_SYSTEM_PROMPT = "Default research system"
+    coverage = AsyncMock(return_value={"passed": False, "findings": [{"candidate": "Campania", "problem": "Fix exact era and landing-deck qualification"}]})
+    with patch.dict(sys.modules, {"research.agent": module}), \
+         patch.object(pe, "fetch_one", AsyncMock(return_value=None)), \
+         patch.object(pe, "_roster_validation", return_value={"passed": True, "complete_title": True, "warnings": []}), \
+         patch("roster_coverage.audit_roster_coverage", coverage):
+        result = asyncio.run(ex.run_research("video"))
+    assert result["status"] == "failed"
+    assert discover.await_count == 2
+    policy = title_scope_policy(video["video_title"])
+    for call in discover.await_args_list:
+        assert policy in call.kwargs["context"]
+        assert policy in call.kwargs["system_prompt_override"]
+        assert call.kwargs["system_prompt_override"].startswith("Default research system")
+    for call in coverage.await_args_list:
+        assert call.args[2]["inclusion_policy"] == policy
+    ex.run_unit_research.assert_not_awaited()

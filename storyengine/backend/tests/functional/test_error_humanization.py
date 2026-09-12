@@ -77,6 +77,30 @@ def test_anthropic_credit_balance_pattern_mapped():
     print("✅ test_anthropic_credit_balance_pattern_mapped")
 
 
+def test_known_research_quality_gates_are_actionable_without_raw_details():
+    roster = humanize_error(
+        "Research gate failed; not advancing to scripting: Roster validation failed"
+    )
+    assert "roster coverage or scope" in roster.lower()
+    assert "stopped before scripting" in roster.lower()
+
+    unit_hold = humanize_error(
+        "Research gate failed; not advancing to scripting: Unit research-hold failed"
+    )
+    assert "source requirements" in unit_hold.lower()
+    assert "blocked research entries" in unit_hold.lower()
+
+
+def test_research_like_unknown_error_still_uses_sanitized_fallback():
+    raw = (
+        "Research gate failed; not advancing to scripting: "
+        "postgres password=PRIVATE_DATABASE_SECRET"
+    )
+    out = humanize_error(raw)
+    assert out == "Something went wrong. Please try again."
+    assert "PRIVATE_DATABASE_SECRET" not in out
+
+
 def test_unknown_error_uses_fallback():
     out = humanize_error("some totally unknown error string xyz")
     assert "something went wrong" in out.lower() or "try again" in out.lower()
@@ -179,6 +203,7 @@ def test_set_task_status_humanizes_failure_errors():
         class _Stub:
             def __init__(self, *a, **kw): pass
         pe.PipelineExecutor = _Stub
+        pe._unit_display_name = lambda item: str(item)
         _sys.modules["pipeline_executor"] = pe
     # status_map is pure (stdlib only) — let routes.pipeline import the real one.
     # The old incomplete stub broke that import and poisoned other tests.
