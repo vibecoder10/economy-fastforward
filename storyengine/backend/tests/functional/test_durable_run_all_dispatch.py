@@ -246,11 +246,20 @@ async def test_worker_resumes_same_target_without_overwriting_inner_terminal_sta
 
     persist = AsyncMock()
     execute = AsyncMock(return_value="UPDATE 1")
-    fetch_terminal = AsyncMock(return_value={
-        "status": "failed",
-        "message": None,
-        "error_message": "inner build failed",
-    })
+    fetch_terminal = AsyncMock(side_effect=[
+        {
+            "job_id": "autobuild:video-1:2",
+            "attempt": 2,
+            "status": "running",
+            "message": "Finishing the video…",
+            "error_message": None,
+        },
+        {
+            "status": "failed",
+            "message": None,
+            "error_message": "inner build failed",
+        },
+    ])
     monkeypatch.setattr(worker, "make_job_id", lambda *args: "autobuild:video-1:2")
     monkeypatch.setattr("actions.make_autobuild_step", make_step)
     monkeypatch.setattr("generation_claims.is_claim_owner", AsyncMock(return_value=True))
@@ -322,9 +331,16 @@ async def test_worker_retry_reopens_exact_failed_job_before_resuming(monkeypatch
     )
     execute = AsyncMock(return_value="UPDATE 1")
     monkeypatch.setattr("database.execute", execute)
-    monkeypatch.setattr("database.fetch_one", AsyncMock(return_value={
-        "status": "completed", "message": "rendered", "error_message": None,
-    }))
+    monkeypatch.setattr("database.fetch_one", AsyncMock(side_effect=[
+        {
+            "job_id": "autobuild:video-1:3",
+            "attempt": 3,
+            "status": "failed",
+            "message": None,
+            "error_message": "worker interrupted",
+        },
+        {"status": "completed", "message": "rendered", "error_message": None},
+    ]))
     persist = AsyncMock()
     monkeypatch.setattr("task_store.db_persist_task", persist)
 

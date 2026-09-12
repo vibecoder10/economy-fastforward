@@ -11041,6 +11041,25 @@ class PipelineExecutor:
         if package is not None:
             package = _verified_machine_source_package_with_anton_metadata(package, matched)
         card = _research_card_for_machine(payload, matched)
+        if card is None:
+            # The production loader intentionally excludes rejected compact
+            # rows. A repair needs that rejected draft, not a new full research
+            # run. Recover it only for this exact locked slot, as untrusted
+            # repair input; normal script/readiness loaders stay unchanged.
+            target_index = roster.index(matched) + 1
+            row = await fetch_one(
+                "SELECT machine_name, roster_index, card FROM machine_research_cards "
+                "WHERE tenant_id=$1 AND video_id=$2 AND roster_index=$3",
+                self.tenant_id, video_id, target_index,
+            )
+            draft = row.get("card") if isinstance(row, dict) else None
+            if isinstance(draft, dict):
+                identity = (draft.get("unit") or draft.get("machine")
+                            or draft.get("name") or draft.get("designation") or "")
+                if (row.get("roster_index") == target_index
+                        and _normalized_unit_code(row.get("machine_name") or "") == _normalized_unit_code(matched)
+                        and _roster_index_for_identity(roster, identity) == target_index):
+                    card = draft
         return {
             "video": video,
             "payload": payload,

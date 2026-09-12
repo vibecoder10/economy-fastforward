@@ -334,6 +334,45 @@ async def arq_run_autobuild(
     from task_store import db_persist_task
 
     job_id = make_job_id("autobuild", video_id, attempt)
+    # ARQ may retry an old Redis job long after a newer Run All attempt has
+    # become authoritative. Check durable task history before touching the
+    # main claim or any task row: an older retry must never resume paid work,
+    # overwrite the newer attempt, or release a claim it does not own.
+    latest = await fetch_one(
+        "SELECT job_id, attempt, status, message, error_message "
+        "FROM background_tasks WHERE tenant_id = $1 AND video_id = $2 "
+        "AND task_type = 'autobuild' "
+        "ORDER BY attempt DESC, created_at DESC LIMIT 1",
+        tenant_id,
+        video_id,
+    )
+    latest_job_id = str((latest or {}).get("job_id") or "")
+    try:
+        latest_attempt = int((latest or {}).get("attempt"))
+    except (TypeError, ValueError):
+        latest_attempt = 0
+    if not latest or latest_attempt != attempt or latest_job_id != job_id:
+        logger.warning(
+            "[autobuild] refusing superseded/unknown job video=%s job_id=%s "
+            "latest_job_id=%s latest_attempt=%s",
+            video_id,
+            job_id,
+            latest_job_id or "none",
+            latest_attempt or "none",
+        )
+        return {
+            "status": "cancelled",
+            "message": "Superseded Run All job did not start.",
+            "target": target,
+            "superseded": True,
+        }
+    if latest.get("status") in {"completed", "cancelled"}:
+        return {
+            "status": latest["status"],
+            "message": latest.get("message"),
+            "error": latest.get("error_message"),
+            "target": target,
+        }
     if target not in {"pictures", "finish"} or delivery_mode not in {"render_only", "youtube_unlisted"} or (
         delivery_mode == "youtube_unlisted" and (target != "finish" or not expected_channel_id)
     ):
