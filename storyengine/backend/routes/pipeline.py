@@ -11,10 +11,12 @@ Task tracking uses a dual-layer approach:
 import asyncio
 import json
 import logging
+import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from arq.jobs import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ from status_map import (
     stage_enabled_in_plan, friendly_state, parse_stage_plan, normalize_stage_plan,
     render_path_plays_sfx, render_path_sfx_block_reason,
 )
-from job_queue import enqueue_stage
+from job_queue import enqueue_stage, make_job_id
 from task_store import db_persist_task
 import actions
 import drain_mode
@@ -376,13 +378,19 @@ async def _db_persist_task(
 
 
 async def recover_stale_tasks() -> int:
-    """Mark any tasks stuck in 'running' as failed. Called on server startup."""
+    """Mark interrupted in-process tasks failed when the API starts.
+
+    Queue-owned autobuilds run in the separate ARQ worker and survive an API
+    restart, so their running rows must remain untouched. The worker closes
+    its exact row after the existing autobuild chainer reaches a terminal
+    status.
+    """
     try:
         result = await execute(
             "UPDATE background_tasks SET status = 'failed', "
             "error_message = 'Server restarted — task interrupted', "
             "completed_at = now() "
-            "WHERE status = 'running'"
+            "WHERE status = 'running' AND task_type <> 'autobuild'"
         )
         # asyncpg returns "UPDATE N" string
         count = int(result.split()[-1]) if result else 0
@@ -799,6 +807,7 @@ async def _enqueue_or_fallback(
     video_id: str,
     tenant_id: str,
     fallback_fn,
+    durable_only: bool = False,
     **stage_kwargs,
 ):
     """Enqueue to arq queue if available, otherwise fall back to BackgroundTasks.
@@ -833,6 +842,7 @@ async def _enqueue_or_fallback(
     await drain_mode.assert_accepting_new_work()
     arq_pool = _get_arq_pool(request)
     if arq_pool:
+        expected_job_id = None
         try:
             prior = await fetch_one(
                 "SELECT COALESCE(MAX(attempt), 0) AS n FROM background_tasks "
@@ -840,6 +850,7 @@ async def _enqueue_or_fallback(
                 video_id, tenant_id, stage,
             )
             attempt = int((prior or {}).get("n") or 0) + 1
+            expected_job_id = make_job_id(stage, video_id, attempt)
             job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt, **stage_kwargs)
             if job_id:
                 await db_persist_task(
@@ -863,10 +874,76 @@ async def _enqueue_or_fallback(
             raise
         except Exception as e:
             logger.warning(
-                "arq enqueue failed for %s/%s, falling back to BackgroundTasks: %s",
-                stage, video_id, e,
+                "arq enqueue failed for %s/%s%s: %s",
+                stage,
+                video_id,
+                " (durable queue required)" if durable_only else "",
+                e,
             )
+            if durable_only:
+                # A Redis timeout can happen after enqueue_job committed. Check
+                # the deterministic ARQ key before claiming nothing started or
+                # releasing the paid-work claim. A found key means dispatch won
+                # the race even though its acknowledgement was lost.
+                if expected_job_id:
+                    try:
+                        queue_status = await Job(expected_job_id, arq_pool).status()
+                        if queue_status != JobStatus.not_found:
+                            if queue_status == JobStatus.complete:
+                                terminal = await fetch_one(
+                                    "SELECT status FROM background_tasks "
+                                    "WHERE video_id = $1 AND tenant_id = $2 AND job_id = $3 "
+                                    "AND status IN ('completed', 'failed', 'cancelled')",
+                                    video_id, tenant_id, expected_job_id,
+                                )
+                                if not terminal:
+                                    await db_persist_task(
+                                        tenant_id, video_id, stage, "pending",
+                                        message=f"{stage} result reconciliation",
+                                        job_id=expected_job_id, attempt=attempt,
+                                    )
+                                    await db_persist_task(
+                                        tenant_id, video_id, stage, "failed",
+                                        error=(
+                                            "Run All worker finished without a durable terminal result; "
+                                            "completed work is saved."
+                                        ),
+                                        job_id=expected_job_id, attempt=attempt,
+                                    )
+                            else:
+                                await db_persist_task(
+                                    tenant_id, video_id, stage, "pending",
+                                    message=f"{stage} queued — job_id={expected_job_id}",
+                                    job_id=expected_job_id, attempt=attempt,
+                                )
+                            return
+                    except Exception as reconcile_exc:
+                        uncertain = HTTPException(
+                            status_code=503,
+                            detail=(
+                                "The durable queue response is uncertain. StoryEngine kept "
+                                "the Run All reservation to prevent a duplicate; check activity "
+                                "before retrying."
+                            ),
+                        )
+                        uncertain.dispatch_uncertain = True
+                        raise uncertain from reconcile_exc
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "The durable worker queue is unavailable. Nothing was started; "
+                        "retry Run All when the queue is healthy."
+                    ),
+                ) from e
             # fall through to BackgroundTasks below
+    elif durable_only:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The durable worker queue is unavailable. Nothing was started; "
+                "retry Run All when the queue is healthy."
+            ),
+        )
     # Redis not available or enqueue failed — fall back to in-process BackgroundTasks
     background_tasks.add_task(fallback_fn)
 
@@ -2931,6 +3008,7 @@ class BuildRequest(BaseModel):
 @router.post("/build/{video_id}", response_model=PipelineResponse)
 async def run_build(
     video_id: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     body: Optional[BuildRequest] = None,
     tenant_id: str = Depends(get_tenant_id),
@@ -2964,8 +3042,43 @@ async def run_build(
                if will_research else "Building to the pictures checkpoint (script, pictures)")
     else:
         msg = "Finishing the video (voice, clips, thumbnail, render)"
-    background_tasks.add_task(actions.make_autobuild_step(
-        tenant_id, video_id, target=target, start_msg=f"{msg}…"))
+    if _get_arq_pool(request) is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The durable worker queue is unavailable. Nothing was started; "
+                "retry Run All when the queue is healthy."
+            ),
+        )
+    # Run All spans multiple paid stages, so it must outlive the API process.
+    # Reserve the same exclusive main-lane claim used by chat autobuild before
+    # enqueueing. actions.make_autobuild_step owns the normal release when the
+    # worker runs; this route only releases its exact reservation when durable
+    # dispatch fails before a worker can own it.
+    claim_owner = f"pipeline:build:{target}:{uuid.uuid4()}"
+    if not await generation_claims.acquire(
+        tenant_id, video_id, "main", claimed_by=claim_owner
+    ):
+        raise HTTPException(status_code=409, detail="Task already running")
+    try:
+        await _enqueue_or_fallback(
+            request,
+            background_tasks,
+            "autobuild",
+            video_id,
+            tenant_id,
+            None,
+            durable_only=True,
+            target=target,
+            start_msg=f"{msg}…",
+            claim_owner=claim_owner,
+        )
+    except Exception as exc:
+        if not getattr(exc, "dispatch_uncertain", False):
+            await generation_claims.release_owned(
+                tenant_id, video_id, "main", claim_owner
+            )
+        raise
     return PipelineResponse(video_id=video_id, status="running", message=msg)
 
 

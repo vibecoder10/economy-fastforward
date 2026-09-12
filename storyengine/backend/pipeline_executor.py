@@ -7761,6 +7761,13 @@ _UNFINISHED_BUILD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Completion must be explicit: "6 ships planned" is not evidence of six builds.
+_COMPLETED_BUILD_COUNT_RE = re.compile(
+    r"\b([1-9]\d*)\s+(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|examples?)"
+    r"\s+(?:(?:were|was)\s+)?(?:actually\s+)?(?:completed|built|converted|commissioned|delivered)\b",
+    re.IGNORECASE,
+)
+
 
 def _roster_entry_not_actually_built(item: Any) -> bool:
     """Return True when structured roster facts contradict an "ever built" title.
@@ -7777,6 +7784,14 @@ def _roster_entry_not_actually_built(item: Any) -> bool:
         return True
     if status == "cancelled":
         return True
+    completed = _COMPLETED_BUILD_COUNT_RE.search(built_count)
+    if completed:
+        # A class can have completed members AND cancelled orders. Only reject
+        # when its explicit membership still includes more than were completed.
+        members = item.get("member_units")
+        if isinstance(members, list) and len(members) > int(completed.group(1)):
+            return True
+        return False
     return bool(_UNFINISHED_BUILD_RE.search(built_count))
 
 
@@ -10628,6 +10643,8 @@ class PipelineExecutor:
         Returns:
             Dict with status and result
         """
+        import json
+
         await self._ensure_initialized()
         bot_name = "Research Agent"
 
@@ -10650,7 +10667,7 @@ class PipelineExecutor:
                 except (TypeError, ValueError):
                     existing_payload = {}
             existing_roster = _machine_documentary_hold_roster(video)
-            if existing_roster:
+            if existing_roster and _live_roster_gate(video, existing_payload).get("passed"):
                 await self._log_activity(
                     bot_name,
                     video_id,
@@ -10691,6 +10708,16 @@ class PipelineExecutor:
                     )
             except Exception:  # noqa: BLE001 — context is a bonus, never a blocker
                 pass
+
+            if existing_roster:
+                # An invalid saved roster needs corrective discovery, not the
+                # locked-roster hold that rejects it again without doing work.
+                research_context = (research_context or "") + (
+                    "\nCORRECT THE EXISTING ROSTER against the current title. Preserve valid identities; "
+                    "resolve these current gate warnings with source-backed research:\n- "
+                    + "\n- ".join(_live_roster_gate(video, existing_payload).get("warnings") or [])
+                    + "\nExisting roster: " + json.dumps(existing_payload.get("unit_roster") or [])
+                )
 
             pacing_targets = _roster_pacing_targets(video.get("video_length_minutes"))
             if pacing_targets and _title_is_broad_machine_roster(topic):
@@ -12045,6 +12072,10 @@ class PipelineExecutor:
             roster_gate = _live_roster_gate(video, payload)
             if not roster_gate.get("passed"):
                 return {"status": "failed", "error": "Lock and approve the machine roster before running machine research"}
+
+            # The autobuild continuation reads this checkpoint. Persist the
+            # current verdict, including after a rule fix, with the hold result.
+            payload["unit_roster_validation"] = roster_gate
 
             roster = _machine_documentary_hold_roster(video)
             if not roster:

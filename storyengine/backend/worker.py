@@ -309,6 +309,136 @@ async def arq_run_upload(
     )
 
 
+async def arq_run_autobuild(
+    ctx: dict,
+    video_id: str,
+    tenant_id: str,
+    attempt: int,
+    target: str,
+    start_msg: str,
+    claim_owner: str,
+) -> dict:
+    """Resume the saved pipeline state through the existing autobuild chainer.
+
+    The chainer owns terminal status and normal claim release. This wrapper
+    deliberately does not feed its ``None`` return through ``_run_stage``:
+    doing so would overwrite a chainer-recorded failure with a false completed
+    task. ARQ retries reclaim the same main lane before resuming from the
+    video's persisted status.
+    """
+    import actions
+    import generation_claims
+    from database import execute, fetch_one
+    from task_store import db_persist_task
+
+    job_id = make_job_id("autobuild", video_id, attempt)
+    if target not in {"pictures", "finish"}:
+        error = f"Invalid autobuild target: {target!r}"
+        await db_persist_task(
+            tenant_id, video_id, "autobuild", "failed",
+            error=error, job_id=job_id, attempt=attempt,
+        )
+        await generation_claims.release_owned(
+            tenant_id, video_id, "main", claim_owner
+        )
+        return {"status": "failed", "error": error, "target": target}
+
+    owns_claim = await generation_claims.is_claim_owner(
+        tenant_id, video_id, "main", claim_owner
+    )
+    if not owns_claim:
+        owns_claim = await generation_claims.acquire(
+            tenant_id, video_id, "main", claimed_by=claim_owner
+        )
+    if not owns_claim:
+        error = "Run All could not reserve the pipeline; no work was started."
+        await db_persist_task(
+            tenant_id, video_id, "autobuild", "failed",
+            error=error, job_id=job_id, attempt=attempt,
+        )
+        return {"status": "failed", "error": error, "target": target}
+
+    transitioned = await execute(
+        "UPDATE background_tasks SET status = 'running', message = $4, "
+        "error_message = NULL, completed_at = NULL, started_at = now() "
+        "WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3 "
+        "AND status IN ('pending', 'running', 'failed')",
+        tenant_id,
+        video_id,
+        job_id,
+        start_msg,
+    )
+    if not transitioned or str(transitioned).endswith(" 0"):
+        existing_terminal = await fetch_one(
+            "SELECT status, message, error_message FROM background_tasks "
+            "WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3 "
+            "AND status IN ('completed', 'cancelled')",
+            tenant_id,
+            video_id,
+            job_id,
+        )
+        if existing_terminal:
+            await generation_claims.release_owned(
+                tenant_id, video_id, "main", claim_owner
+            )
+            return {
+                "status": existing_terminal["status"],
+                "message": existing_terminal.get("message"),
+                "error": existing_terminal.get("error_message"),
+                "target": target,
+            }
+        await db_persist_task(
+            tenant_id,
+            video_id,
+            "autobuild",
+            "running",
+            message=start_msg,
+            job_id=job_id,
+            attempt=attempt,
+        )
+    try:
+        step = actions.make_autobuild_step(
+            tenant_id, video_id, target=target, start_msg=start_msg
+        )
+        await step()
+    except Exception as exc:
+        # Factory/setup failures can happen before the chainer reaches its own
+        # finally block. Persist and release here; ordinary inner failures are
+        # already caught and recorded by make_autobuild_step itself.
+        await db_persist_task(
+            tenant_id, video_id, "autobuild", "failed",
+            error=str(exc), job_id=job_id, attempt=attempt,
+        )
+        await generation_claims.release_owned(
+            tenant_id, video_id, "main", claim_owner
+        )
+        raise
+    terminal = await fetch_one(
+        "SELECT status, message, error_message FROM background_tasks "
+        "WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3 "
+        "AND status IN ('completed', 'failed', 'cancelled')",
+        tenant_id,
+        video_id,
+        job_id,
+    )
+    if terminal:
+        return {
+            "status": terminal["status"],
+            "message": terminal.get("message"),
+            "error": terminal.get("error_message"),
+            "target": target,
+        }
+
+    error = (
+        "Run All ended without a durable terminal result; completed work is saved."
+    )
+    await db_persist_task(
+        tenant_id, video_id, "autobuild", "failed",
+        error=error, job_id=job_id, attempt=attempt,
+    )
+    return {"status": "failed", "error": error, "target": target}
+
+
 async def arq_run_custom_film_runtime(
     ctx: dict,
     video_id: str,
@@ -511,6 +641,12 @@ class WorkerSettings:
             arq_run_render, name="arq_run_render", timeout=7200, max_tries=2
         ),  # long render
         func(arq_run_upload, name="arq_run_upload", timeout=1800, max_tries=3),
+        func(
+            arq_run_autobuild,
+            name="arq_run_autobuild",
+            timeout=7200,
+            max_tries=3,
+        ),
         func(
             arq_run_custom_film_runtime,
             name="arq_run_custom_film_runtime",

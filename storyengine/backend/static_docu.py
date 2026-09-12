@@ -4389,12 +4389,40 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
     _record_reference_miss (see static_reference_misses) before returning
     False, and clears any prior miss the instant a machine verifies."""
     candidates = await _gather_reference_candidates(machine, aliases, machine)
+    # Naval class names and reused ship names often resolve to a battleship,
+    # cruiser, or a namesake from another century. Expand the candidate search
+    # with carrier-qualified aliases, while retaining the same vision gate.
+    # This is bounded and deduplicated; a retry must not pay to judge the same
+    # rejected photograph again inside this sweep.
+    role = str((facts or {}).get("role") or "").lower()
+    carrier_queries = []
+    if "carrier" in role:
+        for name in list(aliases or []) + [machine]:
+            name = str(name or "").strip()
+            if len(re.sub(r"[^a-zA-Z]", "", name)) < 4:
+                continue
+            query = f"{name} aircraft carrier"
+            if query not in carrier_queries:
+                carrier_queries.append(query)
+            if len(carrier_queries) == 2:
+                break
     mkey = _machine_key(machine)
-    if not candidates:
-        await _record_reference_miss(tenant_id, video_id, machine, REASON_NO_CANDIDATES)
-        return False
     hosted_any = False
-    for idx, (cand, trusted) in enumerate(candidates):
+    seen = {url for url, _trusted in candidates}
+    idx = 0
+    # Search the next alternative only after existing candidates all fail.
+    while idx < len(candidates) or carrier_queries:
+        if idx >= len(candidates):
+            query = carrier_queries.pop(0)
+            for row in await find_commons_photos(query):
+                url = row.get("url")
+                if url and url not in seen:
+                    seen.add(url)
+                    candidates.append((url, False))
+            if idx >= len(candidates):
+                continue
+        cand, trusted = candidates[idx]
+        idx += 1
         hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
         if not hosted:
             continue
@@ -4414,7 +4442,8 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
             return True
     await _record_reference_miss(
         tenant_id, video_id, machine,
-        REASON_VISION_REJECTED if hosted_any else REASON_FETCH_FAILED)
+        REASON_NO_CANDIDATES if not candidates else
+        (REASON_VISION_REJECTED if hosted_any else REASON_FETCH_FAILED))
     return False
 
 

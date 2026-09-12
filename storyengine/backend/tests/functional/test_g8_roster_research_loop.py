@@ -52,10 +52,10 @@ properties, covered near the bottom of this file by
 test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound
 (a THREE-run scenario against a shared in-memory _FakeVideoDB, not the
 single-shot fakes above):
-  (f) a retried/resumed build never re-calls ex.run_research once the
-      persisted payload already shows a passed roster gate — it goes
-      straight to the per-machine loop, and only the still-pending machine(s)
-      get called (zero calls for already-passed machines).
+  (f) a retried/resumed build enters the executor's current-gate resume
+      path without rediscovering the saved roster. Only the still-pending
+      machine(s) get called (zero calls for already-passed machines).
+      test_run_all_research_resume.py tests that real executor boundary.
   (g) a machine that fails referee review twice across retries is blocked
       from further auto-research (research_payload.roster_loop_attempts) —
       parked by name with "needs manual one-machine research" instead of a
@@ -459,7 +459,8 @@ class _FakeStatefulExecutor:
 
     async def run_research(self, video_id):
         self.run_research_call_count += 1
-        self.db.seed_research_done()
+        if not self.db.row.get("research_payload"):
+            self.db.seed_research_done()
         return {
             "status": "failed",
             "error": "Research gate failed; not advancing to scripting: Unit research-hold failed",
@@ -550,10 +551,7 @@ def test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound(
 
     # --- run 2: a retry of the SAME video ------------------------------
     ex2, statuses2 = _run_autobuild_against_db(db, outcomes_b_always_fails)
-    assert ex2.run_research_call_count == 0, (
-        "a retry must NEVER re-call run_research once the roster already passed "
-        "(this is the double-spend blocker the independent review caught)"
-    )
+    assert ex2.run_research_call_count == 1, "resume must revalidate through the executor"
     assert ex2.machine_calls == ["Machine B"], (
         f"a retry must re-research ONLY the failed machine, zero calls for the "
         f"already-passed A/C, got {ex2.machine_calls}"
@@ -565,7 +563,7 @@ def test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound(
 
     # --- run 3: the attempt bound must now block Machine B entirely ---
     ex3, statuses3 = _run_autobuild_against_db(db, outcomes_b_always_fails)
-    assert ex3.run_research_call_count == 0
+    assert ex3.run_research_call_count == 1
     assert ex3.machine_calls == [], (
         f"the round guard must block Machine B WITHOUT calling run_one_machine_research "
         f"a 3rd time, got {ex3.machine_calls}"

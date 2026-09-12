@@ -1,5 +1,49 @@
 # StoryEngine — Launch Checklist (the parts only Ryan can do)
 
+## DVSU title-list channel automation — 2026-09-12
+
+Outcome: an operator supplies a list of titles once; StoryEngine researches the right machines, verifies coverage and evidence, creates script/voice/images/thumbnail/video, checks the result, and advances the list automatically with durable progress and bounded recovery.
+Definition of done: title-list intake and deduplicated durable queue; one representative real DVSU title passes the complete production path and output review; remaining items continue without stage-by-stage clicks; real blockers remain visible with saved work and an actionable reason. Use configured delivery visibility; public release/schedule is not invented.
+Status: executing gap audit and approved first release. Updated: 2026-09-12.
+Current step: deploy previously tested Run All repair while auditing list intake and production-stage gaps. Next action: verify deployed revision/worker and derive the smallest missing implementation from actual code and live state.
+Authority: Ryan explicitly approved deployment and execution of the channel-automation job in this task. Normal implementation, correction, required provider production and validation within this job are authorized; preserve completed videos and avoid duplicate paid jobs. Reuse existing configured providers. Current test title is Anton's British carrier video; no unrelated videos or random new titles.
+Scope default: interpret the existing carrier title as British carrier designs and British carrier conversions, including export service with the operating navy stated. Audit escort/conversion classes; do not invent a Royal-Navy-only restriction that would silently discard Majestic. No arbitrary runtime padding or removal of real classes to pass a gate.
+Blocker: none for current implementation/deploy/investigation.
+
+| Boundary | Current evidence | Gap / acceptance needed |
+| --- | --- | --- |
+| Title -> roster | 15-class British roster saved; five missing photos; false class rejection fixed locally | Source-backed scope and omission audit; complete corrected roster retained on resume |
+| Per-machine research -> script | Existing per-machine research/repair and quality laws | Prove required evidence clears without manual card-by-card operation; preserve passed cards |
+| Reference -> production image | Existing verified-reference cache and identity checks; alternative-search fix tested | Recover true reference misses and verify actual generated subject/era/views |
+| Voice/thumbnail/render | Existing generation and renderer; truthful thumbnail failure fix tested | A complete encoded audiovisual output from current title, no skipped required stage |
+| Run All durability | 217 local tests for current fixes | Approved release, exact-job live readback, actual continuation |
+| List -> successive videos | Audit pending of existing batch/autopilot paths | One input list, duplicate protection, durable serial progression, failed-item isolation |
+| Delivery / ongoing operation | DVSU channel connected; previous unlisted upload verified | Reuse configured destination, report completion and exact blockers; no invented public schedule |
+
+- [ ] Release the tested Run All repair. **Done when:** focused commit pushed/deployed, backend and worker match, API/queue healthy, original unrelated edits preserved.
+- [ ] Complete code/live gap audit and prioritize missing work. **Done when:** each missing boundary has a concrete owner/module and observable acceptance test; reuse existing paths instead of a parallel automation system.
+- [ ] Implement title-list intake and durable progression gaps. **Done when:** test list creates each intended video once, automatically queues/resumes the next item, and survives retries without duplicate spend or blocking unrelated items.
+- [ ] Repair source/roster and production-stage gaps on Anton's video. **Done when:** current-title roster is source-grounded, required evidence and correct references pass; script, voice, images and thumbnail complete through automated flow.
+- [ ] Prove representative audiovisual output and delivery. **Done when:** actual encoded movie is visually/audibly reviewed, claims and subject identity spot-checked against sources, saved completion/delivery readback verified.
+- [ ] Verify list progression and finish operating contract. **Done when:** list-level state advances from completion/failure correctly without stage clicks; quality/budget/provider blockers and next automatic action are visible; checklist/evidence and storage receipt complete.
+Execution evidence: reuse `tasks/dvsu-run-all-learning.json`; prior narrow repair details below.
+
+## DVSU Run All automation — 2026-09-12
+
+Outcome: verify Anton's new carrier video matches its title and repair Run All so required research and production stages continue automatically.
+Definition of done: exact live stop diagnosed; roster checked against independent historical sources; durable fixes pass affected positive/negative regressions; deployment and production proof recorded separately.
+Status: local implementation and integration checks complete; production proof pending. Updated: 2026-09-12.
+Current step: deployment approved; preparing focused commit. Next action: push verified main and use `scripts/se.sh deploy dvsu-run-all-automation`; verify backend/worker parity and live health, then continue expanded channel-automation checklist above. No frontend/Remotion changes in this first release.
+Blocker: none for approved deployment/execution. Live production proof pending.
+Boundaries: canonical checkout `/Users/ryanayler/economy-fastforward/storyengine`, main at `973caefc`; preserve existing dirty UI/docs and accepted video assets. No publication or duplicate paid generation.
+- [x] Diagnose exact video, title/roster accuracy and automation stop. **Done when:** live saved state and independent sources explain the mismatch/missing work. **Evidence:** `3f902e62-3ffa-4472-baf4-d0dfe9a20e49`, 15 roster entries, 10 verified photos/5 misses, zero research cards; saved pipeline failure rejects Illustrious/Audacious/Centaur because completed-count descriptions mention planned orders. Research memo documents missing British escort types and scope inconsistencies. Browser inspected all ten displayed references; Majestic image shows Australian HMAS Melbourne with US Midway behind it. Sources/readback in `tasks/dvsu-run-all-live-audit.json` and `tasks/dvsu-british-roster-audit.md`.
+- [x] Implement required automation repairs (local). **Done when:** Run All handles missing research/reference work and resumes valid completed stages without silently accepting incomplete artifacts. **Evidence:** completed-class detection; current-gate resume and invalid-roster corrective discovery; two bounded carrier-specific photo searches retaining identity checks; truthful stalled/review/thumbnail failures; durable ARQ Run All dispatch with exclusive claim, uncertain-enqueue reconciliation and exact-job terminal state; research prompt audits national scope and escort categories.
+- [x] Verify affected workflow (local). **Done when:** original failure and relevant negative cases pass meaningful regressions; remaining external dependencies are explicit. **Evidence:** parent integrated 217 tests passed, Python compilation and diff check passed; source fact audit and all ten visible photo thumbnails inspected. No production generation, worker-kill experiment or encoded-output review performed. Whole-build worker timeout 7200s/max 3 tries; forced death after retry exhaustion relies on existing 180-minute stale reaper and remains unproven live. Final roster completeness is not certified pending nationality boundary and corrected research.
+- [ ] Deploy and prove live continuation. **Done when:** authorized focused release and exact-video readback demonstrate continuation; no claim of full production completion without actual output review.
+Evidence/learning receipt: `tasks/dvsu-run-all-learning.json`.
+Local evidence: 217 integrated regression tests passed in `tasks/dvsu-run-all-learning.run-all-regressions.log`; original stop/unfinished negative cases, actual executor resume, reference alternative search/identity rejection, saved-thumbnail completion, explicit stalled-stage reporting and queue/recovery behavior covered. Existing Starlette deprecation warning only in this suite. Worker also observed an older separate C16d test collection issue (pre-existing stub lacks `_unit_display_name`); not counted as passing. Read-only provider checks: Anthropic/ElevenLabs/Kie valid; Kie reports 9608 credits, no generation proof implied. Learning receipt remains open through the pending production proof.
+Storage: no render/download batch. Internal available 19GiB; keep expensive media work off internal storage. Existing bounded caches retained: pytest 44KiB, functional bytecode 956KiB at measurement. Small audit/learning evidence retained (~36KiB before final log); completed remote provider-preflight script 649 bytes -> absent, verified by remote test; physical recovery below disk reporting precision. Zero media/source deletions, VPS free 141GiB.
+
 ## DVSU customer YouTube connection — 2026-09-08
 
 Outcome: allow the supplied customer email to authorize DVSU and provide a usable customer handoff.

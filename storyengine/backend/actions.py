@@ -1405,14 +1405,11 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                — it's parked by name ("needs manual one-machine research")
                instead, so a build that keeps getting retried can't spend on
                the same broken machine forever.
-            2. The caller (make_autobuild_step's static_docu branch, just below
-               this function) skips calling ex.run_research entirely once the
-               CURRENTLY PERSISTED payload already shows a passed roster gate —
-               this function is what a retry runs straight into instead. That
-               is what stops a retry from re-paying for roster DISCOVERY (a
-               full fresh AI pass that could come back differently shaped,
-               breaking the durable machine_research_cards identity match and
-               forcing already-passed machines back into "missing card").
+            2. The caller enters ex.run_research, which recomputes the current
+               gate and resumes valid saved roster research without rediscovery.
+               This supplies a missing hold checkpoint and replaces stale gate
+               verdicts before this loop selects only pending machines. Invalid
+               rosters can reach corrective discovery instead of dead-ending.
             """
             import json as _json_roster
 
@@ -1584,7 +1581,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     _set_task_status(video_id, "completed", "Your video is rendered — take a look!", tenant_id=tenant_id)
                     return
                 if status == last:  # no progress — never loop forever
-                    _set_task_status(video_id, "completed", f"Paused at {status}.", tenant_id=tenant_id)
+                    _set_task_status(video_id, "failed", f"Build stopped without advancing at {status}; completed work is saved.", tenant_id=tenant_id)
                     return
                 # C36 (checklist §3.3 item 3): the budget ceiling, checked before
                 # every remaining paid step in the chain — not just the
@@ -1617,44 +1614,15 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # verified research payload, and the factual gate depends on it.
                 if status in ("idea_logged", "approved"):
                     if (video.get("render_mode") or "") == "static_docu":
-                        # G8b: a RETRIED/resumed build must never re-pay for
-                        # roster DISCOVERY once the roster already passed
-                        # validation. run_research always overwrites
-                        # research_payload wholesale with a brand-new AI
-                        # research pass (pipeline_executor.py's own
-                        # "UPDATE videos SET research_payload = $1"); calling
-                        # it again here on every retry would both waste that
-                        # full paid call AND risk the fresh pass coming back a
-                        # DIFFERENTLY-SHAPED roster, breaking the durable
-                        # machine_research_cards identity match and forcing
-                        # already-PASSED machines back into "missing card"
-                        # (independent-verification finding against commit
-                        # dee6b6c8). So: read the CURRENTLY PERSISTED payload
-                        # (already on hand — `video` this iteration's own
-                        # ex._get_video fetch) and only call run_research when
-                        # it does NOT already show a passed roster gate.
-                        existing_payload = video.get("research_payload") or {}
-                        if isinstance(existing_payload, str):
-                            import json as _json_existing
-                            try:
-                                existing_payload = _json_existing.loads(existing_payload)
-                            except (ValueError, TypeError):
-                                existing_payload = {}
-                        existing_roster_check = (
-                            existing_payload.get("unit_roster_validation")
-                            if isinstance(existing_payload, dict) else None
-                        )
-                        roster_already_locked = bool(
-                            isinstance(existing_roster_check, dict) and existing_roster_check.get("passed")
-                        )
-                        r: dict = {}
-                        if not roster_already_locked:
-                            _set_task_status(video_id, "running",
-                                             "Researching the topic (real web search)…",
-                                             tenant_id=tenant_id)
-                            r = await ex.run_research(video_id) or {}
-                            if r.get("status") == "ready_for_scripting":
-                                continue
+                        # The executor revalidates today's roster, resumes valid
+                        # saved cards without rediscovery, and repairs invalid
+                        # rosters. A saved verdict alone is not current truth.
+                        _set_task_status(video_id, "running",
+                                         "Checking roster and continuing research…",
+                                         tenant_id=tenant_id)
+                        r = await ex.run_research(video_id) or {}
+                        if r.get("status") == "ready_for_scripting":
+                            continue
                         # G8: a multi-unit roster can pass discovery/validation
                         # while run_research's own untargeted bulk per-machine
                         # hold is refused by the hallucination-safety gate (no
@@ -1961,15 +1929,21 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         continue
                     if target == "finish" and status in ("ready_for_images", "ready_for_thumbnail"):
                         # A "finished" video includes its thumbnail — generate it
-                        # before passing the gate (previously the gate was passed
-                        # without ever running the thumbnail bot). Best-effort:
-                        # a thumbnail failure never blocks the render.
+                        # before passing the gate. DVSU Run All must not silently
+                        # skip a failed/missing required thumbnail.
                         if status == "ready_for_thumbnail" and not (video.get("thumbnail_url") or "").strip():
                             _set_task_status(video_id, "running", "Designing the thumbnail…", tenant_id=tenant_id)
                             try:
-                                await ex.run_thumbnail(video_id)
-                            except Exception:  # noqa: BLE001
-                                pass
+                                thumbnail_result = await ex.run_thumbnail(video_id) or {}
+                                if video.get("render_mode") == "static_docu":
+                                    thumbnail_video = await ex._get_video(video_id) or {}
+                                    if thumbnail_result.get("status") in {"failed", "needs_review"} or not thumbnail_video.get("thumbnail_url"):
+                                        _set_task_status(video_id, "failed", thumbnail_result.get("error") or "Thumbnail did not produce a saved image; render has not started.", tenant_id=tenant_id)
+                                        return
+                            except Exception as exc:  # noqa: BLE001
+                                if video.get("render_mode") == "static_docu":
+                                    _set_task_status(video_id, "failed", f"Thumbnail failed: {exc}", tenant_id=tenant_id)
+                                    return
                         nxt = get_next_status_supabase(status)  # already reviewed -> pass the gate
                         if nxt:
                             await _advance(nxt)
@@ -1977,17 +1951,17 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     msg = PICTURES_READY_MSG if status == "ready_for_images" else (result.get("message") or "Paused for your review.")
                     _set_task_status(video_id, "completed", msg, tenant_id=tenant_id)
                     return
-                if rs == "failed":
+                if rs in {"failed", "needs_review", "paused"}:
                     if status in ("idea_logged", "approved"):  # research is optional — keep going
                         await _advance("ready_for_scripting")
                         continue
-                    _set_task_status(video_id, "failed", result.get("error") or "A step failed.", tenant_id=tenant_id)
+                    _set_task_status(video_id, "failed", result.get("error") or result.get("message") or f"{status} needs attention.", tenant_id=tenant_id)
                     return
                 if rs == "idle":
                     _set_task_status(video_id, "completed", f"Reached {status}.", tenant_id=tenant_id)
                     return
                 # completed — the handler advanced the status; loop continues.
-            _set_task_status(video_id, "completed", "Build paused — say “keep going” to continue.", tenant_id=tenant_id)
+            _set_task_status(video_id, "failed", "Build reached its stage limit; completed work is saved.", tenant_id=tenant_id)
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:

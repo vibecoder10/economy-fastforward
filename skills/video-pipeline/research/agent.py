@@ -774,6 +774,17 @@ Rules:
   reason.
 - For each candidate, decide: core include, edge-case include, operator decision,
   exclude, or unresolved.
+- For a class-level "ever built" title, distinguish completed ships from the
+  original order: "4 ships completed out of 8 planned" is a built class. List
+  only completed members in member_units; do not count cancelled sister ships.
+- A national carrier title is not automatically a domestic-construction title.
+  State whether nationality means operator, designer or builder. Unless the
+  title or user explicitly says domestic-built/purpose-built/fleet-only, audit
+  foreign-built ships operated by that navy, escort carriers, merchant
+  conversions and maintenance carriers. Do not silently drop those categories.
+  Keep seaplane tenders and helicopter-only amphibious ships as explicit boundary
+  decisions. Check British escort groups such as Activity, Pretoria Castle,
+  Nairana, Avenger, Attacker and Ruler against authoritative naval sources.
 - `unit_roster` must be the recommended final documentary roster: one section per
   audience-facing machine/program, not every subvariant unless the subvariant is
   itself the machine viewers expect to see.

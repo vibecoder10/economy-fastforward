@@ -257,3 +257,28 @@ def test_ever_built_title_rejects_cancelled_and_unfinished_entries():
         and "CVN-78 through CVN-83 Gerald R. Ford-class" in warning
         for warning in gate["hard_warnings"]
     )
+
+
+def test_completed_british_classes_are_not_rejected_for_cancelled_orders():
+    # Exact build-count wording that stopped video 3f902e62 on 2026-09-12.
+    # Independent historical truth: four Illustrious, two Audacious, four Centaur.
+    for name, count in [
+        ("Illustrious class", "4 ships completed out of 6 planned [Wikipedia 2024]"),
+        ("Audacious class", "2 ships completed out of 4 planned: HMS Eagle and HMS Ark Royal"),
+        ("Centaur class", "4 ships completed out of 8 planned: HMS Centaur, Albion, Bulwark, Hermes"),
+    ]:
+        assert not pe._roster_entry_not_actually_built({
+            "name": name, "status": "production", "built_count": count,
+        }), name
+
+
+def test_completed_count_does_not_admit_unfinished_members_or_zero_builds():
+    for count, members in [
+        ("0 ships completed, 4 ships planned", []),
+        ("2 ships completed; 4 ships planned", ["Built A", "Built B", "Unfinished C"]),
+        ("6 ships planned; later hulls under construction", []),
+    ]:
+        assert pe._roster_entry_not_actually_built({
+            "name": "Carrier class", "status": "production",
+            "built_count": count, "member_units": members,
+        })

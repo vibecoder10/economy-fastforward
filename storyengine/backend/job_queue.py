@@ -32,6 +32,7 @@ _STAGE_HANDLERS: dict[str, str] = {
     "thumbnail":        "arq_run_thumbnail",
     "render":           "arq_run_render",
     "upload":           "arq_run_upload",
+    "autobuild":        "arq_run_autobuild",
     "custom_film_runtime": "arq_run_custom_film_runtime",
     "custom_film_director": "arq_run_custom_film_director",
     "scene_storyboards": "arq_run_scene_storyboards",
@@ -87,6 +88,13 @@ async def enqueue_stage(
         str(stage_kwargs.get("schedule_id") or "")
     ):
         raise ValueError("scene_storyboards requires its exact durable schedule identity")
+    if stage == "autobuild":
+        target = str(stage_kwargs.get("target") or "")
+        claim_owner = str(stage_kwargs.get("claim_owner") or "")
+        if target not in {"pictures", "finish"} or not claim_owner:
+            raise ValueError(
+                "autobuild requires target='pictures' or 'finish' and its claim owner"
+            )
 
     job_id = (
         f"custom-film-worker:{stage_kwargs['runtime_job_id']}:{attempt}"
