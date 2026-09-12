@@ -112,8 +112,8 @@ async def test_bad_citation_quote_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_over_100_words_is_rejected_without_truncation():
-    paragraph = "I-49 HMS Argus " + " ".join(["carrier"] * 99)
+async def test_single_sentence_over_110_words_is_rejected_without_truncation():
+    paragraph = "I-49 HMS Argus " + " ".join(["carrier"] * 109)
     quote = paragraph
     draft = _draft(paragraph, [(paragraph, "S1-E1", quote)])
     client = ScriptedClient(draft, draft)
@@ -121,9 +121,9 @@ async def test_over_100_words_is_rejected_without_truncation():
     result = await generate_factual_machine_summary(MACHINE, _package(quote), client)
 
     assert result["passed"] is False
-    assert result["word_count"] == 102
+    assert result["word_count"] == 112
     assert result["paragraph"] == paragraph
-    assert any("100-word" in warning for warning in result["warnings"])
+    assert any("110-word" in warning for warning in result["warnings"])
 
 
 @pytest.mark.asyncio
@@ -320,3 +320,29 @@ async def test_video_subject_reaches_writer_and_review_for_namesake_disambiguati
     result = await generate_factual_machine_summary(MACHINE, _package(sentence), client, subject_context=context)
     assert result['passed']
     assert all(context in call['prompt'] for call in client.calls)
+
+@pytest.mark.asyncio
+async def test_word_cap_drops_whole_sentence_and_still_requires_factual_review():
+    first = 'I-49 HMS Argus served as a training ship.'
+    last = 'I-49 HMS Argus ' + ' '.join(['carrier'] * 109) + '.'
+    draft = _draft(first + ' ' + last, [(first, 'S1-E1', first), (last, 'S1-E2', last)])
+    client = ScriptedClient(json.dumps({'passed': False, 'issues': ['Remaining sentence is unsupported.']}))
+    result = await review_existing_factual_summary(MACHINE, _package(first, last), client, draft)
+    assert result['paragraph'] == first
+    assert result['word_count'] <= 100
+    assert not result['passed']
+    assert len(result['sources']) == 1
+    assert len(client.calls) == 1
+    assert 'Remaining sentence' in result['warnings'][0]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('words', [101, 105, 110])
+async def test_ten_percent_tolerance_preserves_supported_paragraph(words):
+    paragraph = 'I-49 HMS Argus ' + ' '.join(['carrier'] * (words - 3))
+    draft = _draft(paragraph, [(paragraph, 'S1-E1', paragraph)])
+    client = ScriptedClient(json.dumps({'passed': True, 'issues': []}))
+    result = await review_existing_factual_summary(MACHINE, _package(paragraph), client, draft)
+    assert result['passed']
+    assert result['word_count'] == words
+    assert result['paragraph'] == paragraph
+    assert len(client.calls) == 1

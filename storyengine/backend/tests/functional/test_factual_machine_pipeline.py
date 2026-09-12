@@ -116,3 +116,39 @@ def test_rejected_old_pass_cannot_release_voice(state, monkeypatch):
     assert result['status']=='needs_review'
     assert video['status']=='ready_for_scripting'
     pe.execute.assert_not_awaited()
+
+
+def test_restart_reviews_persisted_failed_draft_without_rewriting(state, monkeypatch):
+    ex,video,machine,package,writer=state
+    failed={'passed':False,'paragraph':'HMS Argus served as an aircraft carrier.','warnings':['former word limit'],'word_count':8}
+    writer.return_value=failed
+    assert asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))['status']=='needs_review'
+    checkpoint=copy.deepcopy(ex._checkpoint_machine_script_preview.await_args.args[2])
+    video['research_payload']['machine_script_previews']={pe._verified_source_cache_key(machine):checkpoint}
+    # New pipeline object, with only the database checkpoint retained.
+    ex._pipeline=SimpleNamespace(anthropic=object(),should_cancel=AsyncMock(return_value=False))
+    import factual_machine_summary as fs
+    reviewer=AsyncMock(return_value={**failed,'passed':True,'warnings':[],'review_context_version':2})
+    monkeypatch.setattr(fs,'review_existing_factual_summary',reviewer)
+    writer.reset_mock()
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='completed'
+    writer.assert_not_awaited()
+    reviewer.assert_awaited_once()
+    assert reviewer.await_args.args[3]['paragraph']==failed['paragraph']
+
+
+def test_failed_checkpoint_from_changed_sources_is_not_reused(state, monkeypatch):
+    ex,video,machine,package,writer=state
+    failed={'passed':False,'paragraph':'HMS Argus served as an aircraft carrier.','warnings':['source conflict']}
+    writer.return_value=failed
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    checkpoint=copy.deepcopy(ex._checkpoint_machine_script_preview.await_args.args[2])
+    video['research_payload']['machine_script_previews']={pe._verified_source_cache_key(machine):checkpoint}
+    package['revision']=2
+    import factual_machine_summary as fs
+    reviewer=AsyncMock()
+    monkeypatch.setattr(fs,'review_existing_factual_summary',reviewer)
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    reviewer.assert_not_awaited()
+    assert writer.await_count==2

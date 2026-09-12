@@ -1,4 +1,4 @@
-"""The sourced, <=100-word machine path inside the existing script pipeline."""
+"""The sourced, approximately 100-word machine path inside the existing script pipeline."""
 from __future__ import annotations
 
 import hashlib
@@ -66,21 +66,34 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         validation = _object(fresh.get('script_validation'))
         saved = (validation.get('machine_script_blocks') or {}).get(machine) or {}
         summary = None
-        if (not target_machine and saved.get('passed') is True
+        prior_review = None
+        saved_matches = (saved.get('passed') is True
                 and saved.get('machine_script_contract') == CONTRACT
                 and saved.get('source_fingerprint') == fingerprint
-                and saved.get('scene') == scene and saved.get('paragraph')):
-            if saved.get('review_context_version') == 2:
-                results.append(saved)
-                continue
-            # Retain the exact saved prose when broader source review passes;
-            # a review upgrade must not pay to rewrite every passed section.
-            reviewed = await review_existing_factual_summary(machine, package, client, saved, allow_sentence_removal=True, subject_context=subject_context)
-            if reviewed.get('passed'):
-                summary = reviewed
-        await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (100-word maximum)')
+                and saved.get('scene') == scene and saved.get('paragraph'))
+        if not target_machine and saved_matches and saved.get('review_context_version') == 2:
+            results.append(saved)
+            continue
+        preview = (payload.get('machine_script_previews') or {}).get(_verified_source_cache_key(machine)) or {}
+        preview_matches = (preview.get('machine_script_contract') == CONTRACT
+                and preview.get('source_fingerprint') == fingerprint
+                and preview.get('scene') == scene and preview.get('paragraph'))
+        # A restarted worker consumes its last exact persisted draft, including
+        # a rejected one, instead of inventing a new story and losing the repair.
+        cached = preview if preview_matches else saved if saved_matches else None
+        if cached:
+            prior_review = await review_existing_factual_summary(
+                machine, package, client, cached, allow_sentence_removal=True,
+                subject_context=subject_context,
+            )
+            if prior_review.get('passed'):
+                summary = prior_review
+        await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (about 100 words, up to 110)')
         if summary is None:
-            summary = await generate_factual_machine_summary(machine, package, client, subject_context=subject_context)
+            summary = await generate_factual_machine_summary(
+                machine, package, client, subject_context=subject_context,
+                previous_summary=prior_review,
+            )
         block = {**summary, 'machine': machine, 'scene': scene,
                  'machine_script_contract': CONTRACT, 'source_fingerprint': fingerprint,
                  'research_source': 'verified_machine_sources', 'saved': False}
