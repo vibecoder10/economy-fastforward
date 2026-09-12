@@ -1220,6 +1220,154 @@ def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
     assert duplicate_audit_rows
 
 
+def test_naval_source_gathering_prioritizes_later_museum_result_before_excerpt_cap(monkeypatch):
+    """Six early derivative sources used to consume all 60 excerpt slots
+    before the later naval domain-steering result was fetched."""
+    import httpx
+
+    machine = "Majestic class"
+
+    def source_text(source_name: str) -> str:
+        return " ".join(
+            f"{machine} {source_name} documented distinct carrier history fact number {index} for this source."
+            for index in range(1, 11)
+        )
+
+    derivative_results = [
+        {
+            "url": f"https://naval-encyclopedia.com/majestic-derivative-{index}",
+            "title": f"Majestic derivative reference {index}",
+            "raw_content": source_text(f"derivative reference {index}"),
+        }
+        for index in range(1, 7)
+    ]
+    museum_result = {
+        "url": "https://www.rmg.co.uk/collections/majestic-class",
+        "title": "Royal Museums Greenwich Majestic class carrier record",
+        "raw_content": source_text("museum record"),
+    }
+    request_count = {"value": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, results):
+            self._results = results
+
+        def json(self):
+            return {"results": self._results}
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, json=None, **_kwargs):
+            request_count["value"] += 1
+            if request_count["value"] == 1:
+                return FakeResponse(derivative_results)
+            if json and json.get("include_domains") == ["awm.gov.au", "rmg.co.uk"]:
+                # Keep a duplicate to lock the existing URL-dedup audit while
+                # source priority changes around it.
+                return FakeResponse([museum_result, dict(museum_result)])
+            return FakeResponse([])
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return ""
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every British Aircraft Carrier Class Ever Built (2026)", machine, {}
+        )
+    )
+
+    assert len(result["candidate_excerpts"]) == 60
+    assert result["sources"][0]["url"] == museum_result["url"]
+    assert result["sources"][0]["source_tier"] == 2
+    museum_excerpts = [
+        row for row in result["candidate_excerpts"]
+        if row["source_url"] == museum_result["url"]
+    ]
+    assert [row["excerpt_id"] for row in museum_excerpts] == [f"S1-E{index}" for index in range(1, 11)]
+    assert derivative_results[-1]["url"] not in {row["url"] for row in result["sources"]}
+    assert any(
+        row.get("url") == museum_result["url"] and row.get("rejected_reason") == "duplicate_url"
+        for row in result["search_result_audit"]
+    )
+
+
+def test_non_naval_source_gathering_preserves_search_arrival_order(monkeypatch):
+    import httpx
+
+    machine = "Boeing XB-15"
+    derivative_url = "https://example-reference.test/xb-15"
+    official_url = "https://www.af.mil/xb-15"
+    source_text = (
+        "Boeing XB-15 was built to test a long-range bomber requirement, "
+        "and its large wing exposed the limits of available engines."
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "results": [
+                    {"url": derivative_url, "title": "XB-15 reference", "raw_content": source_text},
+                    {"url": official_url, "title": "XB-15 official history", "raw_content": source_text},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_fetch_source_text(_client, _url):
+        return ""
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(executor, "_fetch_source_text", fake_fetch_source_text)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", machine, {}
+        )
+    )
+
+    assert [row["url"] for row in result["sources"]] == [derivative_url, official_url]
+
+
 # --- GAP 1(a): tolerant per-excerpt normalizer -----------------------------
 # Each quirk below rejected a REAL excerpt in the DVsU research simulator
 # before being fixed there (tasks/evidence/dvsu-research-simulator/

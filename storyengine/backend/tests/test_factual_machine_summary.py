@@ -20,6 +20,7 @@ def _candidate(excerpt_id: str, text: str) -> dict:
         "excerpt_id": excerpt_id,
         "source_id": "S1",
         "source_title": "Naval history record",
+        "source_tier": 2,
         "source_url": URL,
         "locator": excerpt_id,
         "text": text,
@@ -211,6 +212,7 @@ async def test_writer_and_review_see_source_disagreement_before_selecting_claims
                 "excerpt_id": excerpt_id,
                 "source_id": source_id,
                 "source_title": source_id,
+                "source_tier": 2,
                 "source_url": url,
                 "locator": excerpt_id,
                 "text": text,
@@ -415,3 +417,60 @@ async def test_repair_uses_historical_sources_without_ai_encyclopedia():
     assert result["passed"] is True
     assert bad not in client.calls[0]["prompt"]
     assert result["sources"][0]["source_url"] == URL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claim", [
+    "I-49 HMS Argus was the first purpose-built aircraft carrier.",
+    "Four ships were laid down as part of the I-49 HMS Argus class.",
+    "Only four ships of the I-49 HMS Argus class were completed before the war ended.",
+    "I-49 HMS Argus was the largest aircraft carrier in the world.",
+])
+async def test_derivative_record_or_construction_count_needs_corroboration(claim):
+    package = _package(claim)
+    package["candidate_excerpts"][0]["source_tier"] = 3
+    client = ScriptedClient()
+    result = await review_existing_factual_summary(MACHINE, package, client,
+        _draft(claim, [(claim, "S1-E1", claim)]))
+    assert result["passed"] is False
+    assert any("lacks independent corroboration" in w for w in result["warnings"])
+    assert not client.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second_url,passed", [("https://independent.example/argus", True),
+    ("https://www.naval-history.example/another-page", False)])
+async def test_record_corroboration_requires_distinct_hosts_then_factual_review(second_url, passed):
+    claim = "I-49 HMS Argus was the largest aircraft carrier in the world."
+    package = _package(claim, claim)
+    package["sources"] = []
+    for row in package["candidate_excerpts"]:row["source_tier"] = 3
+    package["candidate_excerpts"][1]["source_url"] = second_url
+    draft = {"paragraph": claim, "claim_map": [{"sentence":claim,
+        "citations":[{"excerpt_id":"S1-E1"},{"excerpt_id":"S1-E2"}]}]}
+    client = ScriptedClient({"passed":True,"issues":[]})
+    result = await review_existing_factual_summary(MACHINE,package,client,draft)
+    assert result["passed"] is passed
+    assert len(client.calls) == int(passed)
+
+
+@pytest.mark.asyncio
+async def test_time_period_is_not_a_historical_record():
+    claim = "I-49 HMS Argus spent the first nine months of the war training pilots."
+    package = _package(claim)
+    package["candidate_excerpts"][0]["source_tier"] = 3
+    client = ScriptedClient({"passed":True,"issues":[]})
+    result = await review_existing_factual_summary(MACHINE,package,client,
+        _draft(claim,[(claim,"S1-E1",claim)]))
+    assert result["passed"] is True
+
+@pytest.mark.asyncio
+async def test_uncorroborated_record_repair_keeps_room_for_ordinary_sourced_facts():
+    good = 'I-49 HMS Argus served as a training aircraft carrier.'
+    previous = {'passed':False, 'paragraph':'I-49 HMS Argus was the largest carrier.',
+        'warnings':['claim_map row 1 historical record or class construction count lacks independent corroboration.']}
+    client = ScriptedClient(_draft(good,[(good,'S1-E1',good)]),{'passed':True,'issues':[]})
+    result = await generate_factual_machine_summary(MACHINE,_package(good),client,previous_summary=previous)
+    assert result['passed'] is True
+    assert 'You may add other ordinary facts from EVIDENCE' in client.calls[0]['prompt']
+    assert 'Do not replace a disputed record/count with another record/count' in client.calls[0]['prompt']

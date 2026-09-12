@@ -9754,7 +9754,24 @@ class PipelineExecutor:
                     if len(candidate_excerpts) >= 60:
                         break
 
-            for item in search_results:
+            # Naval domain-steering passes run after the broad searches, so
+            # processing raw arrival order lets six derivative sources fill
+            # the 60-excerpt cap before a later official or museum result is
+            # even fetched. Rank only the naval lane by the existing source
+            # hierarchy. Python's sort is stable, preserving arrival order
+            # within a tier; URL deduplication and each source's excerpt order
+            # remain owned by _process_search_result.
+            processing_results = search_results
+            if is_naval:
+                processing_results = sorted(
+                    search_results,
+                    key=lambda item: _source_tier_for_url(
+                        str(item.get("url") or ""),
+                        str(item.get("title") or item.get("url") or ""),
+                    )["tier"],
+                )
+
+            for item in processing_results:
                 if len(candidate_excerpts) >= 60:
                     break
                 await _process_search_result(item)
