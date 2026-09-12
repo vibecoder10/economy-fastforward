@@ -10,8 +10,11 @@ import actions
 def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
            initial_status="ready_for_thumbnail", voice_result=None, voice_saved=True,
            preloop_missing=False, delivery_mode="render_only", delivered_result=None,
-           continuous=False, kill_switch=False, script_result=None):
+           continuous=False, kill_switch=False, script_result=None, factual_script_current=None):
     video = {"status": initial_status, "render_mode": "static_docu", "thumbnail_url": None}
+    if factual_script_current is not None:
+        video["research_payload"] = {"machine_script_contract": "factual_100_v1"}
+        video["video_title"] = "Every British Aircraft Carrier Class Ever Built"
     statuses = []
     advances = []
     calls = []
@@ -55,11 +58,14 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     async def execute(query, *args):
         if "UPDATE videos SET status=" in query:
             advances.append(args[0])
-            video["status"] = "complete"
+            video["status"] = args[0] if factual_script_current is not None else "complete"
         return "UPDATE 1"
 
     pe = types.ModuleType("pipeline_executor")
     pe.PipelineExecutor = lambda _tenant: Executor()
+    pe._machine_documentary_hold_roster = lambda _v: ["Majestic class"]
+    factual = types.ModuleType("factual_machine_pipeline")
+    factual.factual_script_readiness = lambda _v, _r: factual_script_current
     route = types.ModuleType("routes.pipeline")
     route._set_task_status = lambda _id, status, msg, **_kw: statuses.append((status, msg))
     route._clear_task_status = lambda *_a: None
@@ -70,7 +76,7 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     dial = types.ModuleType("autopilot_dial")
     dial.get_autopilot_dial = AsyncMock(return_value=types.SimpleNamespace(kill_switch_tripped_at="now" if kill_switch else None))
     dial.check_weekly_budget = AsyncMock(return_value=(True, 0, None))
-    with patch.dict(sys.modules, {"pipeline_executor": pe, "routes.pipeline": route, "generation_claims": claims, "queue_delivery": delivery, "autopilot_dial": dial}), \
+    with patch.dict(sys.modules, {"pipeline_executor": pe, "routes.pipeline": route, "generation_claims": claims, "queue_delivery": delivery, "autopilot_dial": dial, "factual_machine_pipeline": factual}), \
          patch.object(actions, "fetch_one", fetch), patch.object(actions, "execute", execute), \
          patch("asyncio.sleep", AsyncMock()):
         asyncio.run(actions.make_autobuild_step("tenant", "video", target="finish",
@@ -190,3 +196,14 @@ def test_script_pause_keeps_the_specific_reason_and_saved_progress():
     })
     assert statuses[-1] == ("completed", "Video budget reached; completed sections are saved.")
     assert not advances
+
+
+def test_stale_factual_approval_returns_to_script_before_resumed_paid_work():
+    for status, missing in [('ready_for_voice', True), ('ready_for_render', False)]:
+        terminal, advances, next_calls = _build(
+            initial_status=status, preloop_missing=missing, factual_script_current=False,
+            voice_result=AssertionError('Stale topic approval must never reach narration'),
+        )
+        assert advances[0] == 'ready_for_scripting'
+        assert terminal[-1] == ('failed', 'Reached remaining script sections before voice')
+        assert next_calls == []

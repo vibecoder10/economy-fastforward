@@ -1330,6 +1330,23 @@ async def _pause_for_approval_gate(
     _set_task_status(video_id, "completed", wait_message, tenant_id=tenant_id)
 
 
+def _factual_script_recheck_needed(video: dict) -> bool:
+    """Prevent a resumed downstream job from trusting a stale factual approval."""
+    if not is_at_or_past_stage(video.get("status"), "ready_for_voice"):
+        return False
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    if not isinstance(payload, dict) or payload.get("machine_script_contract") != "factual_100_v1":
+        return False
+    from factual_machine_pipeline import factual_script_readiness
+    from pipeline_executor import _machine_documentary_hold_roster
+    return not factual_script_readiness(video, _machine_documentary_hold_roster(video))
+
+
 def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         start_msg: str = "Building your video…",
                         delivery_mode: str = "render_only",
@@ -1744,8 +1761,11 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         # a capped video can't spend on voice before the loop
                         # even gets a chance to look.
                         vrow = await fetch_one(
-                            "SELECT status, render_mode, max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                            "SELECT status, render_mode, max_spend, total_cost, research_payload, script_validation, video_title FROM videos WHERE id=$1 AND tenant_id=$2",
                             video_id, tenant_id)
+                        if vrow and _factual_script_recheck_needed(vrow):
+                            await _advance("ready_for_scripting")
+                            vrow["status"] = "ready_for_scripting"
                         # One saved section does not mean the roster script is complete.
                         # Match run_voice eligibility before this resume-only shortcut.
                         from status_map import is_at_or_past_stage
@@ -1777,6 +1797,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     _set_task_status(video_id, "failed", "Video not found", tenant_id=tenant_id)
                     return
                 status = video.get("status")
+                if _factual_script_recheck_needed(video):
+                    await _advance("ready_for_scripting")
+                    video["status"] = status = "ready_for_scripting"
+                    _set_task_status(video_id, "running", "Rechecking saved sections against the current video subject…", tenant_id=tenant_id)
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)

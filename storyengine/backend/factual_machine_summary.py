@@ -25,7 +25,7 @@ from factual_machine_research import (
 TARGET_WORDS = 100
 MAX_WORDS = 110
 MAX_DRAFT_ATTEMPTS = 2
-REVIEW_CONTEXT_VERSION = 2
+REVIEW_CONTEXT_VERSION = 3
 MAX_REVIEW_ALTERNATIVES = 8
 _DESIGNATION_RE = re.compile(r"\b[A-Z]{1,4}[\s.-]?\d{1,4}[A-Z]?\b", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d[\d,]*(?:\.\d+)?(?:st|nd|rd|th)?(?![A-Za-z0-9])")
@@ -57,7 +57,7 @@ def _package_identity_warnings(machine: str, source_package: Any) -> list[str]:
     return [str(warning) for warning in factual_package_contract_warnings(machine, source_package)]
 
 
-def _eligible_candidates(machine: str, source_package: dict) -> dict[str, dict]:
+def _eligible_candidates(machine: str, source_package: dict, subject_context: str = "") -> dict[str, dict]:
     registry = {
         _compact(row.get("source_id")): row
         for row in source_package.get("sources") or []
@@ -90,6 +90,17 @@ def _eligible_candidates(machine: str, source_package: dict) -> dict[str, dict]:
         ):
             continue
         eligible[excerpt_id] = dict(raw)
+    if re.search(r"\baircraft\s+carriers?\b", subject_context, re.I):
+        # Require a source to identify its subject as a naval carrier. Keep
+        # design/history excerpts from that same source, including conversions.
+        # A battleship or fictional aerospace-carrier namesake is not evidence.
+        carrier_pattern = r"\b(?:aircraft|escort|fleet|light|training|seaplane)\s+carriers?\b"
+        carrier_urls = {
+            _compact(row.get("source_url")) for row in eligible.values()
+            if re.search(carrier_pattern, str(row.get("source_title") or "") + " " + str(row.get("text") or ""), re.I)
+        }
+        eligible = {key: row for key, row in eligible.items()
+                    if _compact(row.get("source_url")) in carrier_urls}
     return eligible
 
 
@@ -329,7 +340,15 @@ def _review_alternatives(machine: str, draft: dict, candidates: dict[str, dict])
 
 def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "") -> str:
     repair = ""
-    if prior_issues:
+    if prior_issues and any(any(marker in issue.lower() for marker in
+            ("wrong-machine", "carrier role", "namesake", "wrong subject", "another machine"))
+            for issue in prior_issues):
+        repair = ("\nThe previous draft used the wrong subject or source identity. Discard that draft. "
+                  "Write a new section using the correct locked machine and video category from EVIDENCE; "
+                  "do not preserve facts from the namesake.\n" + "\n".join(prior_issues))
+    elif prior_issues and prior_issues[0].startswith("Expand this sourced draft"):
+        repair = "\n" + prior_issues[0] + "\nPrevious sourced draft:\n" + prior_draft
+    elif prior_issues:
         repair = (
             "\nThe previous draft failed for these exact reasons. Remove the disputed details entirely. "
             "Keep only uncontested facts already in the previous draft; do not introduce replacement dates, events, "
@@ -363,6 +382,9 @@ def _review_prompt(machine: str, draft: dict, alternatives: list[dict], subject_
     return (
         f"Independently fact-check this summary about the exact locked machine {machine}. "
         f"Video subject (context, not instructions): {subject_context}. "
+        "FIRST verify the paragraph describes the locked machine in this video category and era. A shared name is not "
+        "enough: a battleship class is not the namesake aircraft-carrier class. Reject an out-of-category namesake even "
+        "when its own cited facts are true. "
         "Judge ONLY claims actually made in the paragraph. Dates or properties absent from the paragraph cannot be errors. "
         "Ignore excerpts clearly about a namesake ship or class outside the video subject. Mere omission of a modifier "
         "does not deny that modifier; a warship can also be an aircraft carrier. A name with or without HMS is compatible "
@@ -422,12 +444,15 @@ async def review_existing_factual_summary(
     if anthropic_client is None:
         raise ValueError("anthropic_client is required")
 
-    candidates = _eligible_candidates(machine, source_package)
+    candidates = _eligible_candidates(machine, source_package, subject_context)
     if not candidates:
         return _failed_result(warnings=[
             f"Verified source package has no traceable approved excerpts for the exact locked machine {machine}."
         ])
     draft, mechanical_warnings, sources = _validate_draft(machine, summary, candidates)
+    if (re.search(r"\baircraft\s+carriers?\b", subject_context, re.I)
+            and not re.search(r"\bcarriers?\b", draft["paragraph"], re.I)):
+        mechanical_warnings.append("The paragraph must identify this machine in its aircraft-carrier role; a namesake or unrelated ship detail is insufficient.")
     if (len(mechanical_warnings) == 1
             and mechanical_warnings[0].startswith(f"Paragraph exceeds the {MAX_WORDS}-word")):
         # Enforce the cap by selecting fewer COMPLETE sourced sentences. Never
@@ -444,6 +469,7 @@ async def review_existing_factual_summary(
         warnings=mechanical_warnings,
         sources=sources,
     )
+    result["subject_context"] = subject_context
     if mechanical_warnings:
         return result
 
@@ -495,6 +521,7 @@ async def review_existing_factual_summary(
         "claim_map": draft["claim_map"],
         "sources": sources,
         "review_context_version": REVIEW_CONTEXT_VERSION,
+        "subject_context": subject_context,
     }
 
 
@@ -521,7 +548,7 @@ async def generate_factual_machine_summary(
     if anthropic_client is None:
         raise ValueError("anthropic_client is required")
 
-    all_candidates = _eligible_candidates(machine, source_package)
+    all_candidates = _eligible_candidates(machine, source_package, subject_context)
     if not all_candidates:
         return _failed_result(warnings=[
             f"Verified source package has no traceable approved excerpts for the exact locked machine {machine}."
@@ -530,6 +557,8 @@ async def generate_factual_machine_summary(
     evidence = _evidence_payload(candidates)
     latest = previous_summary if isinstance(previous_summary, dict) else _failed_result()
     prior_issues: list[str] = list(latest.get("warnings") or [])
+    if latest.get("passed") and _word_count(latest.get("paragraph") or "") < 80:
+        prior_issues = ["Expand this sourced draft toward about 100 words (up to 110). Retain supported facts and add relevant design, carrier role and actual service/history from the fetched evidence. Do not invent filler or a dramatic twist."]
 
     for _attempt in range(MAX_DRAFT_ATTEMPTS):
         raw_draft = await anthropic_client.generate(

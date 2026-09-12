@@ -148,7 +148,7 @@ async def test_valid_plain_factual_summary_passes_without_dramatic_twist():
     result = await generate_factual_machine_summary(MACHINE, package, client)
 
     assert result["passed"] is True
-    assert result["review_context_version"] == 2
+    assert result["review_context_version"] == 3
     assert result["paragraph"] == paragraph
     assert result["word_count"] == 14
     assert result["warnings"] == []
@@ -239,7 +239,7 @@ async def test_writer_and_review_see_source_disagreement_before_selecting_claims
 
     assert result["passed"] is True
     assert result["paragraph"] == corrected
-    assert result["review_context_version"] == 2
+    assert result["review_context_version"] == 3
     assert wiki_quote in client.calls[0]["prompt"]
     assert wiki_quote in client.calls[1]["prompt"]
     assert hansard_quote in client.calls[1]["prompt"]
@@ -261,7 +261,7 @@ async def test_existing_summary_gets_one_version_two_review_without_draft_call()
 
     assert result["passed"] is True
     assert result["paragraph"] == sentence
-    assert result["review_context_version"] == 2
+    assert result["review_context_version"] == 3
     assert len(client.calls) == 1
     assert "Independently fact-check" in client.calls[0]["prompt"]
 
@@ -313,7 +313,7 @@ async def test_excerpt_id_only_citation_attaches_original_source_text():
 
 @pytest.mark.asyncio
 async def test_video_subject_reaches_writer_and_review_for_namesake_disambiguation():
-    sentence = 'I-49 HMS Argus served as a training ship.'
+    sentence = 'I-49 HMS Argus served as a training carrier.'
     draft = {'paragraph': sentence, 'claim_map': [{'sentence': sentence, 'citations': [{'excerpt_id': 'S1-E1'}]}]}
     client = ScriptedClient(json.dumps(draft), json.dumps({'passed': True, 'issues': []}))
     context = 'Every British Aircraft Carrier Class Ever Built'
@@ -346,3 +346,35 @@ async def test_ten_percent_tolerance_preserves_supported_paragraph(words):
     assert result['word_count'] == words
     assert result['paragraph'] == paragraph
     assert len(client.calls) == 1
+
+@pytest.mark.asyncio
+async def test_carrier_title_rejects_real_but_wrong_majestic_battleship_namesake():
+    machine = 'Majestic class'
+    wrong = 'The Majestic-class battleship was a pre-dreadnought battleship of the Royal Navy.'
+    right = 'The Majestic class aircraft carriers were part of the 1942 Design Light Fleet Carrier programme.'
+    package = {'machine': machine, 'machine_key': 'MAJESTICCLASS', 'candidate_excerpts': [
+        {**_candidate('W1', wrong), 'source_url': 'https://en.wikipedia.org/wiki/Majestic-class_battleship'},
+        {**_candidate('C1', right), 'source_url': 'https://naval-encyclopedia.com/cold-war/uk/majestic-class-aircraft-carriers.php'}]}
+    draft = _draft(wrong, [(wrong, 'W1', wrong)])
+    client = ScriptedClient()
+    result = await review_existing_factual_summary(machine, package, client, draft, subject_context='Every British Aircraft Carrier Class Ever Built')
+    assert not result['passed']
+    assert any('wrong-machine' in warning or 'carrier role' in warning for warning in result['warnings'])
+    assert not client.calls
+    good_client = ScriptedClient(json.dumps({'passed': True, 'issues': []}))
+    good = await review_existing_factual_summary(machine, package, good_client, _draft(right, [(right, 'C1', right)]), subject_context='Every British Aircraft Carrier Class Ever Built')
+    assert good['passed']
+    assert good['review_context_version'] == 3
+    assert good['subject_context'] == 'Every British Aircraft Carrier Class Ever Built'
+
+@pytest.mark.asyncio
+async def test_wrong_subject_repair_discards_namesake_instead_of_preserving_its_facts():
+    sentence = 'I-49 HMS Argus served as a training carrier.'
+    draft = _draft(sentence, [(sentence, 'S1-E1', sentence)])
+    client = ScriptedClient(draft, json.dumps({'passed': True, 'issues': []}))
+    result = await generate_factual_machine_summary(MACHINE, _package(sentence), client,
+        subject_context='British aircraft carriers',
+        previous_summary={'passed': False, 'paragraph': 'A namesake was a battleship.', 'warnings': ['The paragraph must identify this machine in its aircraft-carrier role; a namesake is insufficient.']})
+    assert result['passed']
+    assert 'Discard that draft' in client.calls[0]['prompt']
+    assert 'Keep only uncontested facts already in the previous draft' not in client.calls[0]['prompt']

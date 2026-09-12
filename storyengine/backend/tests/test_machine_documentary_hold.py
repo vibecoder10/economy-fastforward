@@ -348,6 +348,46 @@ def test_verified_machine_source_queries_naval_machine_uses_naval_vocabulary():
     assert "discovery.nationalarchives.gov.uk" in joined
 
 
+def test_verified_machine_source_queries_scope_ambiguous_carrier_class_to_title_subject():
+    """A bare "Majestic class" query returned mostly 1890s battleships and
+    even fiction for the carrier-class video. Every query lane must carry the
+    title's exact carrier subject so broad, official, and archive searches
+    cannot silently drift to a namesake class."""
+    queries = pe._verified_machine_source_queries(
+        "Every British Aircraft Carrier Class Ever Built (2026)",
+        "Majestic class",
+    )
+
+    assert queries == [
+        '"Majestic class" "aircraft carrier" official history commissioned',
+        '"Majestic class" "aircraft carrier" class displacement armament beam launched design tradeoff limitation compromise',
+        '"Majestic class" "aircraft carrier" naval-history.net',
+        '"Majestic class" "aircraft carrier" uboat.net',
+        '"Majestic class" "aircraft carrier" service history war record engagement',
+        '"Majestic class" "aircraft carrier" loss damage board of enquiry discovery.nationalarchives.gov.uk',
+        '"Majestic class" "aircraft carrier" commissioned decommissioned scrapped fate',
+        '"Majestic class" "aircraft carrier" crew veteran memoir account officer',
+    ]
+
+
+def test_verified_machine_source_queries_do_not_add_carrier_scope_to_other_naval_titles():
+    queries = pe._verified_machine_source_queries(
+        "Every Royal Navy Battleship Ever Built",
+        "32 HMS Howe",
+    )
+
+    assert queries == [
+        '"32 HMS Howe" official history commissioned',
+        '"32 HMS Howe" class displacement armament beam launched design tradeoff limitation compromise',
+        '"32 HMS Howe" naval-history.net',
+        '"32 HMS Howe" uboat.net',
+        '"32 HMS Howe" service history war record engagement',
+        '"32 HMS Howe" loss damage board of enquiry discovery.nationalarchives.gov.uk',
+        '"32 HMS Howe" commissioned decommissioned scrapped fate',
+        '"32 HMS Howe" crew veteran memoir account officer',
+    ]
+
+
 def test_machine_mentions_use_designation_boundaries():
     assert pe._mentions_machine("The Northrop B-2 Spirit entered service as a stealth bomber.", "B-2")
     assert pe._mentions_machine("The B2 bomber appears without a hyphen in this source.", "B-2")

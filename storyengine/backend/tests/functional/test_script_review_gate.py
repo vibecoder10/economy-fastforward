@@ -630,3 +630,24 @@ if __name__ == "__main__":
             failed += 1
     print(f"\n{len(TESTS) - failed}/{len(TESTS)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_downstream_factual_resume_requires_current_topic_approval():
+    import pipeline_executor as pe
+    import factual_machine_pipeline as fp
+    from unittest.mock import patch
+    old = {'status': 'ready_for_voice', 'render_mode': 'static_docu',
+           'video_title': 'Every British Aircraft Carrier Class Ever Built',
+           'research_payload': {'machine_script_contract': 'factual_100_v1'},
+           'script_validation': {'machine_script_blocks': {'Majestic class': {
+               'passed': True, 'review_context_version': 2,
+               'paragraph': 'The Majestic class was a pre-dreadnought battleship class.'}}}}
+    with patch.object(pe, '_machine_documentary_hold_roster', return_value=['Majestic class']):
+        for status in ['ready_for_voice', 'ready_for_images', 'ready_for_render']:
+            old['status'] = status
+            assert actions._factual_script_recheck_needed(old)
+        old['status'] = 'ready_for_scripting'
+        assert not actions._factual_script_recheck_needed(old)
+        old['status'] = 'ready_for_voice'
+        old['research_payload'] = {}
+        assert not actions._factual_script_recheck_needed(old)

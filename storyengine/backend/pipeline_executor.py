@@ -2021,15 +2021,27 @@ def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str
     pattern that landed a Tier-1 National Archives hit for HMS Ark Royal -
     instead of aircraft-only vocabulary ("USAF fact sheet", "wingspan") that
     naval sources never satisfy."""
+    # A bare class name can denote a different kind of warship entirely
+    # (live failure: "Majestic class" mostly returned 1890s battleships and
+    # even fiction for an aircraft-carrier-class video). Bind every broad,
+    # official, domain, archive, lifecycle, and memoir query to the carrier
+    # subject declared by the title. Other naval topics retain the established
+    # byte-identical query set.
+    carrier_scope = (
+        ' "aircraft carrier"'
+        if re.search(r"\b(?:aircraft\s+)?carriers?\b", str(title or ""), re.IGNORECASE)
+        else ""
+    )
+    subject = f'"{machine}"{carrier_scope}'
     return list(dict.fromkeys([
-        f'"{machine}" official history commissioned',
-        f'"{machine}" class displacement armament beam launched design tradeoff limitation compromise',
-        f'"{machine}" naval-history.net',
-        f'"{machine}" uboat.net',
-        f'"{machine}" service history war record engagement',
-        f'"{machine}" loss damage board of enquiry discovery.nationalarchives.gov.uk',
-        f'"{machine}" commissioned decommissioned scrapped fate',
-        f'"{machine}" crew veteran memoir account officer',
+        f'{subject} official history commissioned',
+        f'{subject} class displacement armament beam launched design tradeoff limitation compromise',
+        f'{subject} naval-history.net',
+        f'{subject} uboat.net',
+        f'{subject} service history war record engagement',
+        f'{subject} loss damage board of enquiry discovery.nationalarchives.gov.uk',
+        f'{subject} commissioned decommissioned scrapped fate',
+        f'{subject} crew veteran memoir account officer',
     ]))[:8]
 
 
