@@ -2436,6 +2436,53 @@ def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
     )
 
 
+def test_target_machine_advisory_only_card_is_not_reported_stopped(monkeypatch):
+    roster = ["Boeing XB-15"]
+    segments = _tier3_only_evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    card = _valid_research_card("Boeing XB-15", segments)
+    payload = {"unit_roster": roster, "unit_research_cards": []}
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    activity = []
+
+    class FakeAnthropic:
+        async def generate(self, **_kwargs):
+            return json.dumps(card)
+
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": FakeAnthropic()})()
+
+    async def fake_gather(*_args, **_kwargs):
+        return package
+
+    async def updated(*_args, **_kwargs):
+        return "UPDATE 1"
+
+    async def log_activity(_bot, _video, status, message):
+        activity.append((status, message))
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(executor, "_gather_verified_machine_source_package", fake_gather)
+    monkeypatch.setattr(executor, "_checkpoint_machine_raw_source_package", updated)
+    monkeypatch.setattr(executor, "_checkpoint_one_machine_research_result", updated)
+    monkeypatch.setattr(executor, "_upsert_machine_research_card", noop)
+    monkeypatch.setattr(executor, "_log_activity", log_activity)
+
+    result = asyncio.run(executor._run_unit_research_hold(
+        "video-a", "Title", payload, roster, target_machine="Boeing XB-15",
+    ))
+
+    validation = result["unit_research_hold_validation"]
+    assert validation["target_machine_passed"] is True
+    assert any("tier_floor_advisory" in warning for warning in validation["units"][0]["warnings"])
+    assert not any(
+        status == "failed" and "Unit research-hold stopped" in message
+        for status, message in activity
+    )
+
+
 def test_full_research_validation_names_real_referee_rejection_not_missing_card(monkeypatch):
     """G13, 2026-07-31 (bonus fix): a machine whose card was saved and
     REJECTED by the referee (validation.passed=False, with specific, named

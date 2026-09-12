@@ -1494,6 +1494,42 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
             done = total - len(pending)
             failures: list[str] = []
+
+            def _raise_provider_failure(result: dict) -> None:
+                """Keep provider auth/credit failures visible to queue pause logic."""
+                from queue_controls import provider_blocker
+
+                parts = [result.get("error"), result.get("message")]
+                parts.extend(result.get("warnings") or [])
+                for action in (result.get("actions") or [])[:4]:
+                    if isinstance(action, dict):
+                        parts.extend((action.get("error"), action.get("detail")))
+                detail = "; ".join(str(part) for part in parts if str(part or "").strip())
+                if detail and provider_blocker(detail):
+                    raise RuntimeError(detail)
+
+            async def _saved_machine_passed(machine: str) -> bool:
+                """Read the repaired verdict back from the saved video payload."""
+                saved = await ex._get_video(video_id) or {}
+                saved_payload = saved.get("research_payload") or {}
+                if isinstance(saved_payload, str):
+                    try:
+                        saved_payload = _json_roster.loads(saved_payload)
+                    except (ValueError, TypeError):
+                        return False
+                validation = (
+                    saved_payload.get("unit_research_hold_validation")
+                    if isinstance(saved_payload, dict) else None
+                )
+                units = validation.get("units") if isinstance(validation, dict) else None
+                machine_key = machine.strip().casefold()
+                return any(
+                    isinstance(unit, dict)
+                    and str(unit.get("machine") or "").strip().casefold() == machine_key
+                    and bool(unit.get("passed"))
+                    for unit in (units or [])
+                )
+
             for position, machine in pending:
                 policy_error = await _queue_policy_error()
                 if policy_error:
@@ -1537,6 +1573,57 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 if result.get("status") == "completed":
                     done += 1
                     continue
+                _raise_provider_failure(result)
+
+                # The verified one-machine writer already made its two generic
+                # repair attempts. Give its saved evidence/card to the existing
+                # cheapest-first surgical ladder before parking the machine.
+                # Full research reruns stay disabled: targeted fetch, deterministic
+                # citation repair, and one-field rewrites are the only permitted
+                # actions, bounded by both the video's remaining cap and the
+                # ladder's own four-action/$1 ceiling.
+                repair_machine = getattr(ex, "repair_machine_auto", None)
+                if result.get("status") == "needs_review" and callable(repair_machine):
+                    policy_error = await _queue_policy_error()
+                    if policy_error:
+                        return {"status": "paused", "message": policy_error}
+                    repair_cap_row = await fetch_one(
+                        "SELECT max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                        video_id, tenant_id)
+                    repair_cap = (repair_cap_row or {}).get("max_spend")
+                    repair_spent = float((repair_cap_row or {}).get("total_cost") or 0)
+                    repair_budget = 1.0
+                    if repair_cap is not None:
+                        repair_budget = min(repair_budget, max(0.0, float(repair_cap) - repair_spent))
+                    if repair_budget <= 0:
+                        return {
+                            "status": "paused",
+                            "message": (
+                                f"Paused — {done}/{total} machines researched, "
+                                f"${repair_spent:.2f} spent against this video's ${float(repair_cap):.2f} cap. "
+                                "Raise the cap (or clear it) and say \"keep going\" to continue."
+                            ),
+                        }
+                    _set_task_status(
+                        video_id, "running",
+                        f"Repairing research for machine {position}/{total}: {machine}",
+                        tenant_id=tenant_id)
+                    repair_result = await repair_machine(
+                        video_id,
+                        machine,
+                        allow_full_rerun=False,
+                        budget_usd=repair_budget,
+                        max_actions=4,
+                    ) or {}
+                    _raise_provider_failure(repair_result)
+                    if await _saved_machine_passed(machine):
+                        done += 1
+                        continue
+                    # Prefer the surgical referee's final warnings in the one
+                    # terminal roster summary; the original card warning is
+                    # stale after any saved repair action.
+                    if repair_result.get("warnings") or repair_result.get("error"):
+                        result = repair_result
                 # needs_review or failed — keep walking the rest of the roster so
                 # one bad machine can't hide whether the others are fine too; the
                 # park message below then names every machine that needs a look

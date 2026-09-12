@@ -296,6 +296,143 @@ def test_machine_2_failure_does_not_abort_remaining_roster():
     print("✅ test_machine_2_failure_does_not_abort_remaining_roster")
 
 
+class _SurgicalRepairExecutor(_FakeExecutor):
+    def __init__(self, tenant_id, after_research_row, *, repair_passes=False,
+                 repair_error=None, nested_provider_error=None):
+        super().__init__(tenant_id, after_research_row, {
+            "Machine A": {"status": "needs_review", "warnings": ["missing required Anton slots for: tradeoff"]},
+        })
+        self.repair_passes = repair_passes
+        self.repair_error = repair_error
+        self.nested_provider_error = nested_provider_error
+        self.repair_calls = []
+
+    async def _get_video(self, video_id):
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "status": "idea_logged", "render_mode": "static_docu",
+                "max_spend": None, "total_cost": 0.0,
+            }
+        if self.calls <= 3:
+            return dict(self._after_research_row)
+        return {"status": "ready_for_images", "render_mode": "static_docu"}
+
+    async def repair_machine_auto(self, video_id, machine, **kwargs):
+        self.repair_calls.append((video_id, machine, kwargs))
+        if self.repair_error:
+            raise RuntimeError(self.repair_error)
+        if self.nested_provider_error:
+            return {
+                "status": "needs_review",
+                "passed": False,
+                "warnings": ["missing required Anton slots for: tradeoff"],
+                "actions": [{
+                    "verb": "targeted_fetch",
+                    "status": "failed",
+                    "detail": self.nested_provider_error,
+                }],
+            }
+        if self.repair_passes:
+            units = self._after_research_row["research_payload"]["unit_research_hold_validation"]["units"]
+            for unit in units:
+                if unit["machine"] == machine:
+                    unit["passed"] = True
+            return {"status": "completed", "passed": True, "warnings": []}
+        return {"status": "needs_review", "passed": False,
+                "warnings": ["missing required Anton slots for: tradeoff"]}
+
+
+def _run_surgical_repair(*, repair_passes=False, repair_error=None,
+                         nested_provider_error=None, max_spend=None,
+                         total_cost=0.0):
+    row = _video_after_research([{"machine": "Machine A", "passed": False}])
+    holder = []
+
+    def factory(tenant_id):
+        executor = _SurgicalRepairExecutor(
+            tenant_id, row, repair_passes=repair_passes, repair_error=repair_error,
+            nested_provider_error=nested_provider_error,
+        )
+        holder.append(executor)
+        return executor
+
+    fake_pe, fake_rp, statuses = _stub_pipeline_and_routes(factory)
+
+    async def fake_execute(query, *_args):
+        return "UPDATE 1"
+
+    async def fake_fetch_one(query, *_args):
+        if "pipeline_stages" in query:
+            return {"pipeline_stages": None}
+        if "SELECT status FROM videos" in query:
+            return {"status": "idea_logged"}
+        if "max_spend, total_cost" in query:
+            return {"max_spend": max_spend, "total_cost": total_cost}
+        return None
+
+    async def fast_sleep(*_args, **_kwargs):
+        return None
+
+    with patch.object(actions, "execute", fake_execute), \
+         patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+         patch("asyncio.sleep", fast_sleep):
+        asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+    return holder[0], statuses
+
+
+def test_needs_review_runs_bounded_surgical_repair_and_uses_saved_passed_verdict():
+    executor, statuses = _run_surgical_repair(repair_passes=True)
+
+    assert executor.machine_calls == ["Machine A"]
+    assert len(executor.repair_calls) == 1
+    _video, _machine, kwargs = executor.repair_calls[0]
+    assert kwargs == {
+        "allow_full_rerun": False,
+        "budget_usd": 1.0,
+        "max_actions": 4,
+    }
+    assert not any(status == "needs_review" for status, _message in statuses)
+
+
+def test_unresolved_surgical_repair_stays_blocked():
+    executor, statuses = _run_surgical_repair(repair_passes=False)
+
+    assert len(executor.repair_calls) == 1
+    parked = [(status, message) for status, message in statuses if status == "needs_review"]
+    assert parked and "Machine A" in parked[-1][1]
+    assert "missing required Anton slots" in parked[-1][1]
+
+
+def test_surgical_repair_provider_failure_propagates_to_terminal_task_error():
+    provider_error = "Anthropic credit balance is too low; purchase credits"
+    executor, statuses = _run_surgical_repair(repair_error=provider_error)
+
+    assert len(executor.repair_calls) == 1
+    failed = [(status, message) for status, message in statuses if status == "failed"]
+    assert failed and provider_error in failed[-1][1]
+
+
+def test_nested_surgical_action_provider_failure_propagates_to_terminal_task_error():
+    provider_error = "Anthropic insufficient credits during targeted fetch"
+    executor, statuses = _run_surgical_repair(nested_provider_error=provider_error)
+
+    assert len(executor.repair_calls) == 1
+    failed = [(status, message) for status, message in statuses if status == "failed"]
+    assert failed and provider_error in failed[-1][1]
+    assert not any(status == "needs_review" for status, _message in statuses)
+
+
+def test_surgical_repair_budget_is_capped_by_video_remaining_spend():
+    executor, _statuses = _run_surgical_repair(
+        repair_passes=True, max_spend=5.0, total_cost=4.75,
+    )
+
+    assert len(executor.repair_calls) == 1
+    assert executor.repair_calls[0][2]["budget_usd"] == 0.25
+
+
 # --- (c) budget cap reached after machine 1 ---------------------------------
 
 def test_budget_cap_reached_after_machine_one_stops_before_machine_two():

@@ -13334,7 +13334,7 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "failed", conflict)
                 return payload
             await self._upsert_machine_research_card(video_id, machine, i, card, validation_units[-1])
-            if warnings:
+            if blocking_warnings:
                 await self._log_activity(bot_name, video_id, "failed", f"Unit research-hold stopped at {machine}: " + "; ".join(warnings))
                 return payload
 
