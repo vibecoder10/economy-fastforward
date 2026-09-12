@@ -100,6 +100,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
             block = await ex._save_machine_script_block(
                 video_id=video_id, video=fresh, roster=roster, script_block=block,
                 title=video.get('video_title') or video.get('headline') or '', voice_id=voice_id,
+                advance_status=False,
             )
             readback = await ex._get_video(video_id) or {}
             stored = (_object(readback.get('script_validation')).get('machine_script_blocks') or {}).get(machine) or {}
@@ -112,8 +113,27 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
     if failures:
         return {'status': 'needs_review', 'error': ' | '.join(failures), 'units': results, 'video_id': video_id}
     final = await ex._get_video(video_id) or {}
-    hold = _object(final.get('script_validation')).get('script_hold') or {}
-    if not hold.get('passed') or hold.get('completed_count') != len(roster):
+    validation = _object(final.get('script_validation'))
+    blocks = validation.get('machine_script_blocks') or {}
+    payload = _object(final.get('research_payload'))
+    complete = all(
+        (blocks.get(machine) or {}).get('passed') is True
+        and (blocks.get(machine) or {}).get('review_context_version') == 2
+        and (blocks.get(machine) or {}).get('scene') == scene
+        and (blocks.get(machine) or {}).get('source_fingerprint') == source_fingerprint(
+            machine, _verified_source_package_for_machine(payload, machine))
+        for scene, machine in enumerate(roster, 1)
+    )
+    if not complete:
         return {'status': 'failed', 'error': 'Saved script completeness could not be verified', 'video_id': video_id}
+    # Partial old passes cannot release voice while another section failed its
+    # current review. Only this all-roster readback advances the factual lane.
+    new_status = ex._skip_disabled_next(final, 'ready_for_voice')
+    from pipeline_executor import execute
+    updated = await execute('UPDATE videos SET status=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3',
+                            new_status, video_id, ex.tenant_id)
+    if ex._db_write_missed(updated):
+        return {'status': 'failed', 'error': 'Script completion status was not saved', 'video_id': video_id}
+    await ex._log_transition(video_id, final.get('status'), new_status, 'api')
     return {'status': 'completed', 'video_id': video_id, 'units': results,
-            'script': final.get('script'), 'new_status': final.get('status')}
+            'script': final.get('script'), 'new_status': new_status}

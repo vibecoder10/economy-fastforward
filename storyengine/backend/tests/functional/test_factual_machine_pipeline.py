@@ -17,6 +17,8 @@ def state(monkeypatch):
     ex=SimpleNamespace(tenant_id='tenant',_pipeline=SimpleNamespace(anthropic=object(),should_cancel=AsyncMock(return_value=False)))
     ex._get_video=AsyncMock(side_effect=lambda _:copy.deepcopy(video))
     ex._log_activity=AsyncMock()
+    ex._log_transition=AsyncMock()
+    ex._skip_disabled_next=lambda _video,status:status
     ex._checkpoint_machine_script_preview=AsyncMock(return_value='UPDATE 1')
     ex._db_write_missed=pe.PipelineExecutor._db_write_missed
     async def save(**kwargs):
@@ -26,6 +28,7 @@ def state(monkeypatch):
         return block
     ex._save_machine_script_block=AsyncMock(side_effect=save)
     monkeypatch.setattr(pe,'fetch_all',AsyncMock(return_value=[]))
+    monkeypatch.setattr(pe,'execute',AsyncMock(return_value='UPDATE 1'))
     monkeypatch.setattr(pe,'_machine_documentary_hold_roster',lambda _: [machine])
     monkeypatch.setattr(pe,'_verified_source_package_for_machine',lambda *_:package)
     import factual_machine_summary as fs
@@ -43,6 +46,7 @@ def test_saved_factual_section_resumes_without_another_model_call(state):
     assert again['status']=='completed'
     assert writer.await_count==1
     assert ex._save_machine_script_block.await_count==1
+    assert ex._save_machine_script_block.await_args.kwargs['advance_status'] is False
 
 
 def test_changed_sources_invalidate_saved_summary(state):
@@ -96,3 +100,19 @@ def test_saved_summary_review_upgrade_does_not_rewrite_passed_prose(state, monke
     assert writer.await_count==1
     reviewer.assert_awaited_once()
     assert video['script_validation']['machine_script_blocks'][machine]['review_context_version']==2
+
+
+def test_rejected_old_pass_cannot_release_voice(state, monkeypatch):
+    ex,video,machine,package,writer=state
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    video['status']='ready_for_scripting'
+    video['script_validation']['machine_script_blocks'][machine].pop('review_context_version')
+    import factual_machine_summary as fs
+    failed={'passed':False,'paragraph':'Wrong claim.','warnings':['source disagreement']}
+    monkeypatch.setattr(fs,'review_existing_factual_summary',AsyncMock(return_value=failed))
+    writer.return_value=failed
+    pe.execute.reset_mock()
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='needs_review'
+    assert video['status']=='ready_for_scripting'
+    pe.execute.assert_not_awaited()
