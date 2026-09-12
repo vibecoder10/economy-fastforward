@@ -37,6 +37,12 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
                 raise voice_result
             return voice_result or {"status": "completed"}
 
+        async def run_research(self, _id):
+            return {"status": "failed", "error": "Reached research before voice"}
+
+        async def run_script(self, _id, **_kw):
+            return {"status": "failed", "error": "Reached remaining script sections before voice"}
+
     async def fetch(query, *_args):
         if "FROM production_queue" in query:
             return {"continuous": continuous}
@@ -130,6 +136,19 @@ def test_resumed_finish_cannot_swallow_voice_exception():
     statuses, advances, _ = _build(preloop_missing=True, voice_result=RuntimeError("timeout"))
     assert statuses[-1] == ("failed", "Narration failed: timeout")
     assert not advances
+
+
+def test_partial_saved_script_does_not_skip_research_or_script_for_voice():
+    for initial, expected in (
+        ("idea_logged", "Reached research before voice"),
+        ("ready_for_scripting", "Reached remaining script sections before voice"),
+    ):
+        statuses, advances, _ = _build(
+            initial_status=initial, preloop_missing=True,
+            voice_result=RuntimeError("Voice must not run for an incomplete script"),
+        )
+        assert statuses[-1] == ("failed", expected)
+        assert not advances
 
 
 def test_saved_voice_allows_advancement():

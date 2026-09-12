@@ -1745,22 +1745,26 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         vrow = await fetch_one(
                             "SELECT status, render_mode, max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
                             video_id, tenant_id)
-                        cap = (vrow or {}).get("max_spend")
-                        spent = float((vrow or {}).get("total_cost") or 0)
-                        if cap is not None and spent >= float(cap):
-                            _set_task_status(
-                                video_id, "completed",
-                                f"Paused — you've spent ${spent:.2f} against this video's ${float(cap):.2f} "
-                                "cap. Raise the cap (or clear it) and say \"keep going\" to continue.",
-                                tenant_id=tenant_id)
-                            return
-                        _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
-                        if (vrow or {}).get("render_mode") == "static_docu":
-                            await _required_voice()
-                        else:
-                            await ex.run_voice(video_id, progress_callback=_progress)
-                        if vrow and vrow.get("status"):
-                            await _advance(vrow["status"])
+                        # One saved section does not mean the roster script is complete.
+                        # Match run_voice eligibility before this resume-only shortcut.
+                        from status_map import is_at_or_past_stage
+                        if is_at_or_past_stage((vrow or {}).get("status"), "ready_for_voice"):
+                            cap = (vrow or {}).get("max_spend")
+                            spent = float((vrow or {}).get("total_cost") or 0)
+                            if cap is not None and spent >= float(cap):
+                                _set_task_status(
+                                    video_id, "completed",
+                                    f"Paused — you've spent ${spent:.2f} against this video's ${float(cap):.2f} "
+                                    "cap. Raise the cap (or clear it) and say \"keep going\" to continue.",
+                                    tenant_id=tenant_id)
+                                return
+                            _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
+                            if (vrow or {}).get("render_mode") == "static_docu":
+                                await _required_voice()
+                            else:
+                                await ex.run_voice(video_id, progress_callback=_progress)
+                            if vrow and vrow.get("status"):
+                                await _advance(vrow["status"])
                 except Exception as exc:  # noqa: BLE001
                     if (vrow or {}).get("render_mode") == "static_docu":
                         _set_task_status(video_id, "failed", f"Narration failed: {exc}", tenant_id=tenant_id)
