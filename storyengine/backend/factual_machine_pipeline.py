@@ -22,7 +22,7 @@ def source_fingerprint(machine, package):
 
 
 async def run_factual_script_hold(ex, video_id, video, roster, target_machine=None, save_target_script=False):
-    from factual_machine_summary import generate_factual_machine_summary
+    from factual_machine_summary import generate_factual_machine_summary, review_existing_factual_summary
     from pipeline_executor import (
         _locked_roster_item_for_machine, _verified_source_package_for_machine,
         _verified_source_cache_key, fetch_all,
@@ -64,14 +64,22 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         fingerprint = source_fingerprint(machine, package)
         validation = _object(fresh.get('script_validation'))
         saved = (validation.get('machine_script_blocks') or {}).get(machine) or {}
+        summary = None
         if (not target_machine and saved.get('passed') is True
                 and saved.get('machine_script_contract') == CONTRACT
                 and saved.get('source_fingerprint') == fingerprint
                 and saved.get('scene') == scene and saved.get('paragraph')):
-            results.append(saved)
-            continue
+            if saved.get('review_context_version') == 2:
+                results.append(saved)
+                continue
+            # Retain the exact saved prose when broader source review passes;
+            # a review upgrade must not pay to rewrite every passed section.
+            reviewed = await review_existing_factual_summary(machine, package, client, saved)
+            if reviewed.get('passed'):
+                summary = reviewed
         await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (100-word maximum)')
-        summary = await generate_factual_machine_summary(machine, package, client)
+        if summary is None:
+            summary = await generate_factual_machine_summary(machine, package, client)
         block = {**summary, 'machine': machine, 'scene': scene,
                  'machine_script_contract': CONTRACT, 'source_fingerprint': fingerprint,
                  'research_source': 'verified_machine_sources', 'saved': False}

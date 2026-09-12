@@ -1925,6 +1925,14 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         video_id,
                         progress_callback=_progress,
                     ) or {}
+                    if script_result.get("status") in {"paused", "cancelled"}:
+                        _set_task_status(
+                            video_id,
+                            "completed" if script_result["status"] == "paused" else "cancelled",
+                            script_result.get("message") or script_result.get("error") or "Script production stopped; completed sections are saved.",
+                            tenant_id=tenant_id,
+                        )
+                        return
                     if script_result.get("status") == "failed":
                         _set_task_status(
                             video_id,
@@ -1948,6 +1956,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     if script_result.get("status") == "needs_review":
                         review_msg = (
                             script_result.get("message")
+                            or script_result.get("error")
                             or "The script needs another look before I keep building — "
                             "check the notes and tell me to redo it, or say \"use it anyway\" "
                             "to keep going as-is."

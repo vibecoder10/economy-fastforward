@@ -10,7 +10,7 @@ import actions
 def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
            initial_status="ready_for_thumbnail", voice_result=None, voice_saved=True,
            preloop_missing=False, delivery_mode="render_only", delivered_result=None,
-           continuous=False, kill_switch=False):
+           continuous=False, kill_switch=False, script_result=None):
     video = {"status": initial_status, "render_mode": "static_docu", "thumbnail_url": None}
     statuses = []
     advances = []
@@ -41,7 +41,7 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
             return {"status": "failed", "error": "Reached research before voice"}
 
         async def run_script(self, _id, **_kw):
-            return {"status": "failed", "error": "Reached remaining script sections before voice"}
+            return script_result or {"status": "failed", "error": "Reached remaining script sections before voice"}
 
     async def fetch(query, *_args):
         if "FROM production_queue" in query:
@@ -182,3 +182,11 @@ def test_continuous_kill_switch_stops_before_resumed_voice_or_next_stage():
     assert "kill switch" in statuses[-1][1]
     assert not advances
     assert not calls
+
+
+def test_script_pause_keeps_the_specific_reason_and_saved_progress():
+    statuses, advances, _ = _build(initial_status="ready_for_scripting", script_result={
+        "status":"paused", "message":"Video budget reached; completed sections are saved.",
+    })
+    assert statuses[-1] == ("completed", "Video budget reached; completed sections are saved.")
+    assert not advances

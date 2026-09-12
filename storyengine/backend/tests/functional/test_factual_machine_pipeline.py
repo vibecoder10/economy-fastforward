@@ -29,7 +29,7 @@ def state(monkeypatch):
     monkeypatch.setattr(pe,'_machine_documentary_hold_roster',lambda _: [machine])
     monkeypatch.setattr(pe,'_verified_source_package_for_machine',lambda *_:package)
     import factual_machine_summary as fs
-    writer=AsyncMock(return_value={'passed':True,'paragraph':'HMS Argus served as an aircraft carrier.','word_count':8,'warnings':[],'claim_map':[],'sources':[]})
+    writer=AsyncMock(return_value={'passed':True,'paragraph':'HMS Argus served as an aircraft carrier.','word_count':8,'review_context_version':2,'warnings':[],'claim_map':[],'sources':[]})
     monkeypatch.setattr(fs,'generate_factual_machine_summary',writer)
     return ex,video,machine,package,writer
 
@@ -81,3 +81,18 @@ def test_wrong_target_and_failed_save_readback_stop(state):
     result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
     assert result['status']=='failed'
     assert 'verified' in result['error']
+
+
+def test_saved_summary_review_upgrade_does_not_rewrite_passed_prose(state, monkeypatch):
+    ex,video,machine,package,writer=state
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    saved=video['script_validation']['machine_script_blocks'][machine]
+    saved.pop('review_context_version')
+    import factual_machine_summary as fs
+    reviewer=AsyncMock(return_value={**saved,'review_context_version':2})
+    monkeypatch.setattr(fs,'review_existing_factual_summary',reviewer)
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='completed'
+    assert writer.await_count==1
+    reviewer.assert_awaited_once()
+    assert video['script_validation']['machine_script_blocks'][machine]['review_context_version']==2

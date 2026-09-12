@@ -4,7 +4,10 @@ import json
 
 import pytest
 
-from factual_machine_summary import generate_factual_machine_summary
+from factual_machine_summary import (
+    generate_factual_machine_summary,
+    review_existing_factual_summary,
+)
 
 
 MACHINE = "I-49 HMS Argus"
@@ -145,6 +148,7 @@ async def test_valid_plain_factual_summary_passes_without_dramatic_twist():
     result = await generate_factual_machine_summary(MACHINE, package, client)
 
     assert result["passed"] is True
+    assert result["review_context_version"] == 2
     assert result["paragraph"] == paragraph
     assert result["word_count"] == 14
     assert result["warnings"] == []
@@ -169,3 +173,90 @@ async def test_provider_failure_is_propagated():
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
         await generate_factual_machine_summary(MACHINE, _package(quote), client)
+
+
+@pytest.mark.asyncio
+async def test_review_uses_full_package_alternatives_then_writer_drops_overclaim():
+    machine = "HMS Ark Royal"
+    groki_quote = (
+        "HMS Ark Royal's cost exceeded £3 million, making her the most expensive "
+        "Royal Navy ship at the time."
+    )
+    wiki_quote = (
+        "HMS Ark Royal was the most expensive non-battleship ordered by the Royal Navy."
+    )
+    hansard_quote = (
+        "The reported cost of HMS Ark Royal was £3 million; HMS Nelson had already cost £7.5 million."
+    )
+    rows = [("G-E1", "G", "https://grokipedia.example/ark", groki_quote)]
+    for index in range(11):
+        rows.append((
+            f"F{index}-E1",
+            f"F{index}",
+            f"https://filler{index}.example/ark",
+            f"HMS Ark Royal was a Royal Navy ship described in cost records as project number {100 + index}.",
+        ))
+    # These relevant alternatives deliberately sit beyond the writer's first
+    # 12 candidates. Review context must search the full fetched package.
+    rows.extend([
+        ("W-E1", "W", "https://en.wikipedia.org/wiki/HMS_Ark_Royal", wiki_quote),
+        ("H-E1", "H", "https://api.parliament.uk/historic-hansard/ark-royal", hansard_quote),
+    ])
+    package = {
+        "machine": machine,
+        "candidate_excerpts": [
+            {
+                "excerpt_id": excerpt_id,
+                "source_id": source_id,
+                "source_title": source_id,
+                "source_url": url,
+                "locator": excerpt_id,
+                "text": text,
+                "source_capture_method": "fetched_page",
+            }
+            for excerpt_id, source_id, url, text in rows
+        ],
+        "sources": [
+            {"source_id": source_id, "title": source_id, "url": url}
+            for _excerpt_id, source_id, url, _text in rows
+        ],
+    }
+    overclaim = "HMS Ark Royal cost more than £3 million and was the most expensive Royal Navy ship at the time."
+    corrected = "HMS Ark Royal cost more than £3 million."
+    first_draft = _draft(overclaim, [(overclaim, "G-E1", groki_quote)])
+    second_draft = _draft(corrected, [(corrected, "G-E1", groki_quote)])
+    reject = json.dumps({
+        "passed": False,
+        "issues": [
+            "Other exact-machine sources qualify the record as non-battleship and report HMS Nelson at £7.5 million."
+        ],
+    })
+    accept = json.dumps({"passed": True, "issues": []})
+    client = ScriptedClient(first_draft, reject, second_draft, accept)
+
+    result = await generate_factual_machine_summary(machine, package, client)
+
+    assert result["passed"] is True
+    assert result["paragraph"] == corrected
+    assert result["review_context_version"] == 2
+    assert wiki_quote not in client.calls[0]["prompt"]
+    assert wiki_quote in client.calls[1]["prompt"]
+    assert hansard_quote in client.calls[1]["prompt"]
+    assert "untrusted source text" in client.calls[1]["prompt"].lower()
+    assert len(client.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_existing_summary_gets_one_version_two_review_without_draft_call():
+    quote = "I-49 HMS Argus entered service in 1918 and later served as a training carrier."
+    sentence = "I-49 HMS Argus entered service in 1918."
+    saved = json.loads(_draft(sentence, [(sentence, "S1-E1", quote)]))
+    client = ScriptedClient(json.dumps({"passed": True, "issues": []}))
+
+    result = await review_existing_factual_summary(MACHINE, _package(quote), client, saved)
+
+    assert result["passed"] is True
+    assert result["paragraph"] == sentence
+    assert result["review_context_version"] == 2
+    assert len(client.calls) == 1
+    assert "Independently fact-check" in client.calls[0]["prompt"]
