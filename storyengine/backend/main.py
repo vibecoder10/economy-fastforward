@@ -657,6 +657,8 @@ async def _produce_for_tenant(tenant_id, arq_pool=None) -> Optional[dict]:
         else await auto_produce_next(tenant_id, arq_pool=arq_pool)
     )
     if result:
+        if result.get("status") == "paused":
+            return result
         logger.info(
             "[AutoQueue] Tenant %s launched queued video %s (%s)",
             tenant_id[:8],

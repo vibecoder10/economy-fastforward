@@ -49,6 +49,11 @@ export function defaultQueueDeliveryMode(
   return isDvsuWorkspace(workspace) ? "youtube_unlisted" : "render_only";
 }
 
+export function queueSubmitLabel(paused: boolean, pending: boolean): string {
+  if (pending) return paused ? "Saving titles…" : "Starting list…";
+  return paused ? "Save titles" : "Run list continuously";
+}
+
 export function queueLifecycle(item: QueueItem): QueueLifecycle {
   const reason = item.last_error || "";
   if (reason && BLOCKED_REASON.test(reason)) return "blocked";

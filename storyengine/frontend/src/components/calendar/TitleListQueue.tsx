@@ -3,21 +3,24 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, ExternalLink, ListVideo, Loader2, Play, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, ExternalLink, ListVideo, Loader2, PauseCircle, Play, RotateCcw } from "lucide-react";
 import {
   addToQueue,
   getActiveTenant,
   getQueue,
   getWorkspaces,
   patchQueueItem,
+  resumeQueueProduction,
   type QueueDeliveryMode,
   type QueueItem,
+  type QueuePauseState,
 } from "@/lib/api";
 import {
   defaultQueueDeliveryMode,
   defaultQueueRunMode,
   parseTitleLines,
   queueLifecycle,
+  queueSubmitLabel,
   type QueueLifecycle,
   type QueueRunMode,
 } from "./title-list-queue-model";
@@ -40,8 +43,10 @@ const LIFECYCLE_COLOR: Record<QueueLifecycle, string> = {
   blocked: "var(--orange)",
 };
 
-function QueueStatus({ item }: { item: QueueItem }) {
-  const lifecycle = queueLifecycle(item);
+function QueueStatus({ item, pause }: { item: QueueItem; pause?: QueuePauseState | null }) {
+  const isBlockingItem = pause?.paused && pause.blocking_queue_id === item.id;
+  const lifecycle = isBlockingItem ? "blocked" : queueLifecycle(item);
+  const reason = isBlockingItem ? pause.reason : item.last_error;
   return (
     <div className="flex items-start gap-2">
       <span
@@ -54,9 +59,9 @@ function QueueStatus({ item }: { item: QueueItem }) {
           {LIFECYCLE_LABEL[lifecycle]}
           {item.attempt_count > 0 && lifecycle !== "completed" ? ` · attempt ${item.attempt_count} of 3` : ""}
         </p>
-        {item.last_error && (
+        {reason && (
           <p className="mt-0.5 text-[10px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            {item.last_error}
+            {reason}
           </p>
         )}
       </div>
@@ -71,9 +76,11 @@ export function TitleListQueue() {
   const [deliveryChoice, setDeliveryChoice] = useState<{ tenantId: string; mode: QueueDeliveryMode } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const activeTenant = getActiveTenant();
+  const queueQueryKey = ["production-queue", activeTenant || "home"] as const;
 
   const queueQuery = useQuery({
-    queryKey: ["production-queue"],
+    queryKey: queueQueryKey,
     queryFn: getQueue,
     refetchInterval: 5000,
     refetchOnWindowFocus: true,
@@ -84,12 +91,12 @@ export function TitleListQueue() {
   });
 
   const items = queueQuery.data?.items ?? [];
+  const pause = queueQuery.data?.pause;
   const orderedItems = useMemo(
     () => [...items].sort((left, right) => left.position - right.position),
     [items],
   );
   const titles = useMemo(() => parseTitleLines(titleText), [titleText]);
-  const activeTenant = getActiveTenant();
   const currentWorkspace = workspaceQuery.data?.workspaces.find((workspace) => workspace.tenant_id === activeTenant)
     ?? workspaceQuery.data?.workspaces[0];
   const inferredMode = defaultQueueRunMode(currentWorkspace, items);
@@ -103,7 +110,7 @@ export function TitleListQueue() {
 
   const refreshQueue = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["production-queue"] }),
+      queryClient.invalidateQueries({ queryKey: queueQueryKey }),
       queryClient.invalidateQueries({ queryKey: ["calendar-plan"] }),
     ]);
   };
@@ -137,8 +144,18 @@ export function TitleListQueue() {
     onSettled: () => setRetryingId(null),
   });
 
+  const resumeMutation = useMutation({
+    mutationFn: resumeQueueProduction,
+    onSuccess: async (response) => {
+      setNotice(response.launch?.message || "Production resumed. Saved titles will continue automatically.");
+      await refreshQueue();
+    },
+  });
+
   const runError = runMutation.error instanceof Error ? runMutation.error.message : null;
   const retryError = retryMutation.error instanceof Error ? retryMutation.error.message : null;
+  const resumeError = resumeMutation.error instanceof Error ? resumeMutation.error.message : null;
+  const actionError = runError || retryError || resumeError;
 
   return (
     <section
@@ -153,13 +170,46 @@ export function TitleListQueue() {
             Run a title list
           </h2>
           <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-            Paste one title per line. StoryEngine builds them in order, one at a time,
-            {selectedDelivery === "youtube_unlisted"
+            {pause?.paused
+              ? "Production is paused. New titles will be saved in order behind the blocked video."
+              : "Paste one title per line. StoryEngine builds them in order, one at a time,"}
+            {!pause?.paused && (selectedDelivery === "youtube_unlisted"
               ? ` then uploads each one unlisted to ${currentWorkspace?.name || "the selected YouTube channel"} for review.`
-              : " and keeps each rendered video in StoryEngine for review."}
+              : " and keeps each rendered video in StoryEngine for review.")}
           </p>
         </div>
       </div>
+
+      {pause?.paused && (
+        <div
+          className="mt-4 flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-start sm:justify-between"
+          style={{ background: "rgba(255,120,73,0.10)", border: "1px solid rgba(255,120,73,0.35)" }}
+          role="alert"
+        >
+          <div className="flex items-start gap-2.5">
+            <PauseCircle size={18} className="mt-0.5 shrink-0" style={{ color: "var(--orange)" }} />
+            <div>
+              <p className="text-xs font-semibold" style={{ color: "var(--orange)" }}>Production paused</p>
+              <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-primary)" }}>
+                {pause.provider}: {pause.reason}
+              </p>
+              <p className="mt-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                Fix the provider first, then resume the saved blocking video. Other titles will remain in place.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => resumeMutation.mutate()}
+            disabled={resumeMutation.isPending}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-semibold disabled:opacity-50"
+            style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+          >
+            {resumeMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {resumeMutation.isPending ? "Resuming…" : "Resume after fixing provider"}
+          </button>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_520px]">
         <div>
@@ -245,22 +295,22 @@ export function TitleListQueue() {
             style={{ background: "var(--turquoise)", color: "#07110f" }}
           >
             {runMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            {runMutation.isPending ? "Starting list…" : "Run list continuously"}
+            {queueSubmitLabel(Boolean(pause?.paused), runMutation.isPending)}
           </button>
         </div>
       </div>
 
-      {(notice || runError || retryError) && (
+      {(notice || actionError) && (
         <div
           className="mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-[11px]"
           style={{
-            background: runError || retryError ? "rgba(255,92,92,0.08)" : "rgba(70,211,154,0.08)",
-            color: runError || retryError ? "var(--red)" : "var(--green)",
+            background: actionError ? "rgba(255,92,92,0.08)" : "rgba(70,211,154,0.08)",
+            color: actionError ? "var(--red)" : "var(--green)",
           }}
-          role={runError || retryError ? "alert" : "status"}
+          role={actionError ? "alert" : "status"}
         >
-          {runError || retryError ? <AlertCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}
-          <span>{runError || retryError || notice}</span>
+          {actionError ? <AlertCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}
+          <span>{actionError || notice}</span>
         </div>
       )}
 
@@ -287,7 +337,7 @@ export function TitleListQueue() {
                 >
                   <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{index + 1}</span>
                   <p className="min-w-0 text-xs font-medium" style={{ color: "var(--text-primary)" }}>{item.title}</p>
-                  <QueueStatus item={item} />
+                  <QueueStatus item={item} pause={pause} />
                   <div className="flex items-center gap-2 md:justify-end">
                     {item.video_id && (
                       <Link
@@ -302,7 +352,8 @@ export function TitleListQueue() {
                       <button
                         type="button"
                         onClick={() => retryMutation.mutate(item.id)}
-                        disabled={retryMutation.isPending}
+                        disabled={retryMutation.isPending || Boolean(pause?.paused)}
+                        title={pause?.paused ? "Resume production after fixing the provider" : undefined}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
                         style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
                       >

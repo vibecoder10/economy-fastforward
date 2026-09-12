@@ -99,7 +99,7 @@ async def apply_default_template(tenant_id, video_id: str) -> bool:
         if not tpl or not (tpl.get("structure") or "").strip():
             return False
         block = "## The channel's house script format (follow this)\n" + tpl["structure"]
-        await execute(
+        result = await execute(
             """UPDATE videos SET script_system_prompt =
                    $1 || COALESCE(E'\n\n' || script_system_prompt,
                                   COALESCE(E'\n\n' || (
@@ -108,10 +108,17 @@ async def apply_default_template(tenant_id, video_id: str) -> bool:
                                          AND btrim(prompt_text) <> ''
                                   ), '')),
                    updated_at = now()
-               WHERE id = $2 AND tenant_id = $3""",
+               WHERE id = $2 AND tenant_id = $3
+                 AND (
+                     script_system_prompt IS NULL
+                     OR strpos(
+                         E'\n\n' || script_system_prompt || E'\n\n',
+                         E'\n\n' || $1 || E'\n\n'
+                     ) = 0
+                 )""",
             block, video_id, tenant_id,
         )
-        return True
+        return str(result).endswith(" 1")
     except Exception as e:  # noqa: BLE001
         logger.warning("script_templates: apply failed for %s: %s", video_id, e)
         return False

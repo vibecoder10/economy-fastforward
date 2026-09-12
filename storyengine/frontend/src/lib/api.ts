@@ -373,13 +373,33 @@ export interface QueueLaunchResult {
 }
 
 export interface QueueAddResponse {
+  pause?: QueuePauseState | null;
   status: string;
   count: number;
   launch?: QueueLaunchResult | null;
   message?: string;
 }
 
-export const getQueue = () => fetchApi<{ items: QueueItem[] }>("/api/queue");
+export interface QueuePauseState {
+  paused: boolean;
+  provider: string;
+  reason: string;
+  blocking_queue_id?: string | null;
+  paused_at?: string | null;
+}
+
+export interface QueueListResponse {
+  items: QueueItem[];
+  pause: QueuePauseState | null;
+}
+
+export interface QueueResumeResponse {
+  status: "resumed" | "running";
+  launch?: QueueLaunchResult | null;
+  pause?: QueuePauseState | null;
+}
+
+export const getQueue = () => fetchApi<QueueListResponse>("/api/queue");
 export const addToQueue = (
   items: QueueAddItem[],
   options?: {
@@ -400,6 +420,10 @@ export const patchQueueItem = (id: string, data: { title?: string; position?: nu
   });
 export const deleteQueueItem = (id: string) =>
   fetchApi<{ status: string }>(`/api/queue/${id}`, { method: "DELETE" });
+export const resumeQueueProduction = () =>
+  fetchApi<QueueResumeResponse>("/api/queue/resume", {
+    method: "POST",
+  });
 // --- Channel cast (locked brand identity) ---
 export interface ChannelCastMember {
   name: string;

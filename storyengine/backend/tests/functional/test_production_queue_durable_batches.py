@@ -1,10 +1,17 @@
 """Focused contracts for idempotent, durable title-list production."""
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock
 
 import pytest
 
 from routes import queue
+
+
+@pytest.fixture(autouse=True)
+def _provider_pause_is_separately_tested(monkeypatch):
+    monkeypatch.setattr(queue, "sync_provider_pause", AsyncMock(return_value=None))
+    monkeypatch.setattr(queue, "get_queue_pause", AsyncMock(return_value=None))
 
 
 @pytest.mark.asyncio
@@ -156,7 +163,10 @@ async def test_missing_queue_fails_before_video_or_paid_work(monkeypatch):
 @pytest.mark.asyncio
 async def test_reconcile_projects_render_and_terminal_task_outcomes(monkeypatch):
     execute = AsyncMock(return_value="UPDATE 1")
-    monkeypatch.setattr(queue, "execute", execute)
+    @asynccontextmanager
+    async def locked(tenant_id):
+        yield SimpleNamespace(execute=execute)
+    monkeypatch.setattr(queue, "_locked_queue_connection", locked)
 
     await queue._reconcile_queue_items("tenant-1")
 

@@ -5,6 +5,7 @@ import {
   defaultQueueRunMode,
   parseTitleLines,
   queueLifecycle,
+  queueSubmitLabel,
 } from "./title-list-queue-model";
 
 const queueItem = (patch: Partial<QueueItem> = {}): QueueItem => ({
@@ -33,6 +34,12 @@ describe("title-list queue model", () => {
     expect(defaultQueueDeliveryMode({ name: "My Channel", channel_name: "Designed vs Used" })).toBe("youtube_unlisted");
     expect(defaultQueueDeliveryMode({ name: "Another Channel", channel_name: "Another Channel" })).toBe("render_only");
     expect(defaultQueueDeliveryMode(undefined)).toBe("render_only");
+  });
+
+  it("keeps title intake truthful while provider production is paused", () => {
+    expect(queueSubmitLabel(true, false)).toBe("Save titles");
+    expect(queueSubmitLabel(true, true)).toBe("Saving titles…");
+    expect(queueSubmitLabel(false, false)).toBe("Run list continuously");
   });
 
   it("defaults the known DVSU tenant profile and its existing queue to static documentary", () => {

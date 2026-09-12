@@ -545,6 +545,9 @@ def test_auto_produce_next_tags_autopilot_queue_not_plain_queue(monkeypatch):
     monkeypatch.setattr(queue_route, "launch_queue_item", _fake_launch)
     queue_pool = object()
 
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(queue_route, "_reconcile_queue_items", AsyncMock())
+    monkeypatch.setattr(queue_route, "get_queue_pause", AsyncMock(return_value=None))
     result = _run(queue_route.auto_produce_next(TENANT, arq_pool=queue_pool))
     assert result is not None
     assert launches == [(TENANT, "qi-1", queue_pool, "autopilot_queue")]

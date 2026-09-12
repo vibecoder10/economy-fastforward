@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, Literal, Optional
 
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one, get_pool
+from queue_controls import PROVIDER_ERROR_PATTERN, sync_provider_pause
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +164,22 @@ async def queue_titles_from_asset(
     return n, None
 
 
+@asynccontextmanager
+async def _locked_queue_connection(tenant_id):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", str(tenant_id)
+            )
+            yield conn
+
+
+async def get_queue_pause(tenant_id) -> dict | None:
+    async with _locked_queue_connection(tenant_id) as conn:
+        return await sync_provider_pause(conn, tenant_id)
+
+
 async def _claim_next(tenant_id) -> Optional[dict]:
     """Atomically claim the front item while serializing the tenant lane."""
     pool = await get_pool()
@@ -173,6 +191,9 @@ async def _claim_next(tenant_id) -> Optional[dict]:
                 "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
                 str(tenant_id),
             )
+            control = await sync_provider_pause(conn, tenant_id)
+            if control and control.get("paused"):
+                return None
             return await conn.fetchrow(
                 """WITH candidate AS (
                SELECT q.id FROM production_queue q
@@ -223,6 +244,9 @@ async def _claim_item(tenant_id, item_id: str) -> Optional[dict]:
                 "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
                 str(tenant_id),
             )
+            control = await sync_provider_pause(conn, tenant_id)
+            if control and control.get("paused"):
+                return None
             return await conn.fetchrow(
                 """WITH candidate AS (
                SELECT q.id FROM production_queue q
@@ -274,80 +298,83 @@ async def _unclaim(tenant_id, item_id) -> None:
 
 async def _reconcile_queue_items(tenant_id: str) -> None:
     """Project exact video/task truth back onto queue lifecycle state."""
-    await execute(
-        """UPDATE production_queue q
-           SET status = 'completed', completed_at = now(), last_error = NULL,
-               updated_at = now()
-           FROM videos v
-           WHERE q.tenant_id = $1 AND q.tenant_id = v.tenant_id
-             AND q.video_id = v.id AND q.status IN ('dispatching', 'running', 'launched')
-             AND (
-                 (q.delivery_mode = 'render_only'
-                  AND v.status IN ('rendered', 'uploaded', 'uploaded_draft', 'done', 'published'))
-                 OR
-                 (q.delivery_mode = 'youtube_unlisted'
-                  AND v.upload_status = 'uploaded'
-                  AND v.queue_delivery_receipt->>'status' = 'verified'
-                  AND v.queue_delivery_receipt->>'channel_id' = q.delivery_channel_id
-                  AND v.queue_delivery_receipt->>'privacy' = 'unlisted')
-             )""",
-        tenant_id,
-    )
-    await execute(
-        """WITH latest AS (
-               SELECT DISTINCT ON (tenant_id, video_id)
-                      b.tenant_id, b.video_id, b.status, b.message, b.error_message
-               FROM background_tasks b
-               JOIN production_queue q ON q.tenant_id = b.tenant_id
-                                      AND q.video_id = b.video_id
-               WHERE b.task_type = 'autobuild'
-                 AND b.created_at >= q.launched_at
-               ORDER BY b.tenant_id, b.video_id, b.created_at DESC
-           )
-           UPDATE production_queue q
-           SET status = CASE
-                   WHEN t.status = 'failed' AND q.continuous AND q.attempt_count < 3
-                    AND COALESCE(t.error_message, t.message, '') ~*
-                        '(timeout|timed out|temporar|unavailable|connection|worker|redis|interrupt|retry)'
-                   THEN 'queued' ELSE 'failed' END,
-               last_error = COALESCE(t.error_message, t.message,
-                   'Run All stopped before producing a rendered video'), updated_at = now()
-           FROM latest t, videos v
-           WHERE q.tenant_id = $1 AND q.status IN ('dispatching', 'running', 'launched')
-             AND t.tenant_id = q.tenant_id AND t.video_id = q.video_id
-             AND v.id = q.video_id AND v.tenant_id = q.tenant_id
-             AND t.status IN ('failed', 'completed', 'cancelled')
-             AND (
-                 (q.delivery_mode = 'render_only'
-                  AND v.status NOT IN ('rendered', 'uploaded', 'uploaded_draft', 'done', 'published'))
-                 OR
-                 (q.delivery_mode = 'youtube_unlisted'
-                  AND NOT (
-                      COALESCE(v.upload_status = 'uploaded', false)
-                      AND COALESCE(v.queue_delivery_receipt->>'status' = 'verified', false)
-                      AND COALESCE(
-                          v.queue_delivery_receipt->>'channel_id' = q.delivery_channel_id, false
-                      )
-                      AND COALESCE(v.queue_delivery_receipt->>'privacy' = 'unlisted', false)
-                  ))
-             )""",
-        tenant_id,
-    )
-    # A process can die after reserving the video but before enqueueing. Make
-    # that same linked video claimable again; never create a replacement.
-    await execute(
-        """UPDATE production_queue q
-           SET status = 'queued', last_error = 'Dispatch interrupted before queue acknowledgement',
-               updated_at = now()
-           WHERE q.tenant_id = $1 AND q.status IN ('launched', 'dispatching')
-             AND q.updated_at < now() - interval '10 minutes'
-             AND NOT EXISTS (
-                 SELECT 1 FROM background_tasks b
-                 WHERE b.tenant_id = q.tenant_id AND b.video_id = q.video_id
-                   AND b.task_type = 'autobuild' AND b.status IN ('pending', 'running')
-             )""",
-        tenant_id,
-    )
+    async with _locked_queue_connection(tenant_id) as conn:
+        await conn.execute(
+            """UPDATE production_queue q
+               SET status = 'completed', completed_at = now(), last_error = NULL,
+                   updated_at = now()
+               FROM videos v
+               WHERE q.tenant_id = $1 AND q.tenant_id = v.tenant_id
+                 AND q.video_id = v.id AND q.status IN ('dispatching', 'running', 'launched')
+                 AND (
+                     (q.delivery_mode = 'render_only'
+                      AND v.status IN ('rendered', 'uploaded', 'uploaded_draft', 'done', 'published'))
+                     OR
+                     (q.delivery_mode = 'youtube_unlisted'
+                      AND v.upload_status = 'uploaded'
+                      AND v.queue_delivery_receipt->>'status' = 'verified'
+                      AND v.queue_delivery_receipt->>'channel_id' = q.delivery_channel_id
+                      AND v.queue_delivery_receipt->>'privacy' = 'unlisted')
+                 )""",
+            tenant_id,
+        )
+        await conn.execute(
+            """WITH latest AS (
+                   SELECT DISTINCT ON (tenant_id, video_id)
+                          b.tenant_id, b.video_id, b.status, b.message, b.error_message
+                   FROM background_tasks b
+                   JOIN production_queue q ON q.tenant_id = b.tenant_id
+                                          AND q.video_id = b.video_id
+                   WHERE b.task_type = 'autobuild'
+                     AND b.created_at >= q.launched_at
+                   ORDER BY b.tenant_id, b.video_id, b.created_at DESC
+               )
+               UPDATE production_queue q
+               SET status = CASE
+                       WHEN t.status = 'failed' AND q.continuous AND q.attempt_count < 3
+                        AND NOT (COALESCE(t.error_message, t.message, '') ~* $2)
+                        AND COALESCE(t.error_message, t.message, '') ~*
+                            '(timeout|timed out|temporar|unavailable|connection|worker|redis|interrupt|retry)'
+                       THEN 'queued' ELSE 'failed' END,
+                   last_error = COALESCE(t.error_message, t.message,
+                       'Run All stopped before producing a rendered video'), updated_at = now()
+               FROM latest t, videos v
+               WHERE q.tenant_id = $1 AND q.status IN ('dispatching', 'running', 'launched')
+                 AND t.tenant_id = q.tenant_id AND t.video_id = q.video_id
+                 AND v.id = q.video_id AND v.tenant_id = q.tenant_id
+                 AND t.status IN ('failed', 'completed', 'cancelled')
+                 AND (
+                     (q.delivery_mode = 'render_only'
+                      AND v.status NOT IN ('rendered', 'uploaded', 'uploaded_draft', 'done', 'published'))
+                     OR
+                     (q.delivery_mode = 'youtube_unlisted'
+                      AND NOT (
+                          COALESCE(v.upload_status = 'uploaded', false)
+                          AND COALESCE(v.queue_delivery_receipt->>'status' = 'verified', false)
+                          AND COALESCE(
+                              v.queue_delivery_receipt->>'channel_id' = q.delivery_channel_id, false
+                          )
+                          AND COALESCE(v.queue_delivery_receipt->>'privacy' = 'unlisted', false)
+                      ))
+                 )""",
+            tenant_id, PROVIDER_ERROR_PATTERN,
+        )
+        # A process can die after reserving the video but before enqueueing. Make
+        # that same linked video claimable again; never create a replacement.
+        await conn.execute(
+            """UPDATE production_queue q
+               SET status = 'queued', last_error = 'Dispatch interrupted before queue acknowledgement',
+                   updated_at = now()
+               WHERE q.tenant_id = $1 AND q.status IN ('launched', 'dispatching')
+                 AND q.updated_at < now() - interval '10 minutes'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM background_tasks b
+                     WHERE b.tenant_id = q.tenant_id AND b.video_id = q.video_id
+                       AND b.task_type = 'autobuild' AND b.status IN ('pending', 'running')
+                 )""",
+            tenant_id,
+        )
+        await sync_provider_pause(conn, tenant_id)
 
 
 async def _prepare_video(tenant_id: str, item: dict, *, via: str) -> tuple[str, bool]:
@@ -613,7 +640,8 @@ async def launch_queue_item(tenant_id, item: dict, arq_pool=None, *, via: str = 
         "continuous": bool(item.get("continuous")),
         "delivery_mode": str(item.get("delivery_mode") or "render_only"),
         "delivery_channel_id": item.get("delivery_channel_id"),
-        "message": "Video created and durable Run All queued",
+        "message": ("Video created and durable Run All queued" if created
+                    else "Saved video resumed with durable Run All"),
     }
 
 
@@ -624,6 +652,9 @@ async def auto_produce_next(tenant_id, arq_pool=None) -> Optional[dict]:
     Called by main.py:_auto_produce_queue for Autopilot-enabled tenants and
     explicitly continuous queues."""
     await _reconcile_queue_items(tenant_id)
+    pause = await get_queue_pause(tenant_id)
+    if pause and pause.get("paused"):
+        return {"status": "paused", "message": pause["reason"], "pause": pause}
     has = await fetch_one(
         "SELECT id, continuous FROM production_queue WHERE tenant_id = $1 "
         "AND status = 'queued' ORDER BY position, created_at LIMIT 1",
@@ -715,7 +746,7 @@ async def list_queue(tenant_id=Depends(get_tenant_id)):
            ORDER BY status = 'queued' DESC, position, created_at""",
         tenant_id,
     )
-    return {"items": [dict(r) for r in rows]}
+    return {"items": [dict(r) for r in rows], "pause": await get_queue_pause(tenant_id)}
 
 
 @router.post("")
@@ -759,7 +790,10 @@ async def add_to_queue(
         else:
             try:
                 launch = await auto_produce_next(tenant_id, arq_pool=arq_pool)
-                if launch:
+                if launch and launch.get("status") == "paused":
+                    response["message"] = "Titles saved. " + launch["message"]
+                    response["pause"] = launch["pause"]
+                elif launch:
                     response["launch"] = launch
             except Exception as exc:
                 # Intake succeeded. A policy or availability gate blocks
@@ -782,8 +816,87 @@ async def add_to_queue(
     return response
 
 
+async def _resume_saved_item(tenant_id) -> Optional[dict]:
+    """A single explicit recovery opens one new bounded retry window.
+
+    Reserve the blocked video under the same lock as normal claims, so a
+    scheduler wakeup or second Resume cannot jump ahead or duplicate it.
+    """
+    async with _locked_queue_connection(tenant_id) as conn:
+        pause = await sync_provider_pause(conn, tenant_id)
+        if not pause or not pause.get("paused"):
+            return None
+        active = await conn.fetchval(
+            """SELECT EXISTS(SELECT 1 FROM production_queue WHERE tenant_id=$1
+                 AND status IN ('launched','dispatching','running'))
+               OR EXISTS (
+                   SELECT 1 FROM videos v WHERE v.tenant_id=$1
+                     AND (v.source='queue' OR v.source LIKE 'autopilot%')
+                     AND v.deleted_at IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM production_queue managed
+                         WHERE managed.tenant_id=v.tenant_id AND managed.video_id=v.id)
+                     AND (v.status NOT IN ('rendered','uploaded','uploaded_draft','done','published','failed')
+                         OR EXISTS (SELECT 1 FROM generation_claims gc
+                             WHERE gc.tenant_id=v.tenant_id AND gc.video_id=v.id)
+                         OR EXISTS (SELECT 1 FROM background_tasks b
+                             WHERE b.tenant_id=v.tenant_id AND b.video_id=v.id
+                               AND b.status IN ('pending','running')))
+               )""", tenant_id
+        )
+        if active:
+            raise HTTPException(status_code=409, detail="Production is still active; wait for it to stop before resuming.")
+        item = await conn.fetchrow(
+            """SELECT * FROM production_queue WHERE tenant_id=$1
+                 AND (id=$2 AND status='failed' OR status='queued')
+               ORDER BY (id=$2) DESC NULLS LAST, position, created_at
+               LIMIT 1 FOR UPDATE""", tenant_id, pause.get("blocking_queue_id")
+        )
+        if item:
+            busy = await conn.fetchval(
+                """SELECT EXISTS(SELECT 1 FROM generation_claims
+                       WHERE tenant_id=$1 AND video_id=$2)
+                   OR EXISTS(SELECT 1 FROM background_tasks
+                       WHERE tenant_id=$1 AND video_id=$2 AND status IN ('pending','running'))""",
+                tenant_id, item.get("video_id"),
+            )
+            if busy:
+                raise HTTPException(status_code=409, detail="This video still has active work; saved production remains paused.")
+            item = await conn.fetchrow(
+                """UPDATE production_queue SET status='launched', launched_at=now(),
+                       attempt_count=0, last_error=NULL, completed_at=NULL, updated_at=now()
+                   WHERE id=$1 AND tenant_id=$2 RETURNING *""", item["id"], tenant_id
+            )
+        await conn.execute(
+            """UPDATE production_queue_controls SET paused=false, resumed_at=now(),
+                   resume_count=resume_count+1, updated_at=now()
+               WHERE tenant_id=$1""", tenant_id
+        )
+        return dict(item) if item else None
+
+
+@router.post("/resume")
+async def resume_queue(request: Request, tenant_id=Depends(get_tenant_id)):
+    arq_pool = getattr(request.app.state, "arq", None)
+    if arq_pool is None:
+        raise HTTPException(status_code=503, detail="The durable worker queue is unavailable; production remains paused.")
+    import drain_mode
+    await drain_mode.assert_accepting_new_work()
+    await _reconcile_queue_items(tenant_id)
+    item = await _resume_saved_item(tenant_id)
+    if item is None:
+        return {"status": "resumed", "pause": await get_queue_pause(tenant_id)}
+    launch = await launch_queue_item(tenant_id, item, arq_pool=arq_pool)
+    wakeup = getattr(request.app.state, "queue_wakeup", None)
+    if wakeup is not None:
+        wakeup.set()
+    return {"status": "running", "launch": launch, "pause": await get_queue_pause(tenant_id)}
+
+
 @router.patch("/{item_id}")
 async def patch_queue_item(item_id: str, body: QueuePatch, tenant_id=Depends(get_tenant_id)):
+    pause = await get_queue_pause(tenant_id)
+    if body.status == "queued" and pause and pause.get("paused"):
+        raise HTTPException(status_code=409, detail="Production is paused. Fix the provider and use Resume for the list.")
     sets, params = [], []
     if body.title is not None and body.title.strip():
         normalized_title = body.title.strip()[:300]
@@ -797,6 +910,10 @@ async def patch_queue_item(item_id: str, body: QueuePatch, tenant_id=Depends(get
         params.append(int(body.position)); sets.append(f"position = ${len(params)}")
     if body.status in ("queued", "skipped"):
         params.append(body.status); sets.append(f"status = ${len(params)}")
+        if body.status == "queued":
+            # Explicit retry is a new bounded retry window; automatic retries
+            # never call this route and retain their three-attempt cap.
+            sets.extend(["attempt_count=0", "last_error=NULL", "completed_at=NULL"])
     if not sets:
         return {"status": "unchanged"}
     params += [item_id, tenant_id]
@@ -821,6 +938,8 @@ async def patch_queue_item(item_id: str, body: QueuePatch, tenant_id=Depends(get
 
 @router.delete("/{item_id}")
 async def delete_queue_item(item_id: str, tenant_id=Depends(get_tenant_id)):
+    # Persist any shared failure before deleting its source row.
+    await get_queue_pause(tenant_id)
     await execute(
         "DELETE FROM production_queue WHERE id = $1 AND tenant_id = $2 "
         "AND status IN ('queued', 'failed', 'skipped', 'completed')",
