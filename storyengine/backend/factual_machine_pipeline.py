@@ -74,7 +74,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
                 continue
             # Retain the exact saved prose when broader source review passes;
             # a review upgrade must not pay to rewrite every passed section.
-            reviewed = await review_existing_factual_summary(machine, package, client, saved)
+            reviewed = await review_existing_factual_summary(machine, package, client, saved, allow_sentence_removal=True)
             if reviewed.get('passed'):
                 summary = reviewed
         await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (100-word maximum)')

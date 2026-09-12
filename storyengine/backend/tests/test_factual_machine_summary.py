@@ -243,6 +243,9 @@ async def test_review_uses_full_package_alternatives_then_writer_drops_overclaim
     assert wiki_quote in client.calls[1]["prompt"]
     assert hansard_quote in client.calls[1]["prompt"]
     assert "untrusted source text" in client.calls[1]["prompt"].lower()
+    assert "Previous draft to repair" in client.calls[2]["prompt"]
+    assert overclaim in client.calls[2]["prompt"]
+    assert "do not introduce replacement dates" in client.calls[2]["prompt"]
     assert len(client.calls) == 4
 
 
@@ -260,3 +263,38 @@ async def test_existing_summary_gets_one_version_two_review_without_draft_call()
     assert result["review_context_version"] == 2
     assert len(client.calls) == 1
     assert "Independently fact-check" in client.calls[0]["prompt"]
+
+@pytest.mark.asyncio
+async def test_disputed_sentence_removed_then_independently_reviewed():
+    good = 'I-49 HMS Argus served as a training ship.'
+    disputed = 'I-49 HMS Argus was the largest carrier.'
+    summary = json.loads(_draft(good + ' ' + disputed, [(good, 'S1-E1', good), (disputed, 'S1-E2', disputed)]))
+    client = ScriptedClient(json.dumps({'passed': False, 'issues': ['Size record is disputed.'], 'rejected_sentences': [disputed]}), json.dumps({'passed': True, 'issues': []}))
+    result = await review_existing_factual_summary(MACHINE, _package(good, disputed), client, summary, allow_sentence_removal=True)
+    assert result['passed'] is True
+    assert result['paragraph'] == good
+    assert len(result['claim_map']) == len(result['sources']) == 1
+    assert len(client.calls) == 2
+    assert result['removed_disputed_sentences'] == [disputed]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('rejected', [['unknown sentence'], ['I-49 HMS Argus served as a training ship.']])
+async def test_pruning_does_not_accept_unknown_or_empty_draft(rejected):
+    sentence = 'I-49 HMS Argus served as a training ship.'
+    summary = json.loads(_draft(sentence, [(sentence, 'S1-E1', sentence)]))
+    client = ScriptedClient(json.dumps({'passed': False, 'issues': ['Disputed.'], 'rejected_sentences': rejected}))
+    result = await review_existing_factual_summary(MACHINE, _package(sentence), client, summary, allow_sentence_removal=True)
+    assert result['passed'] is False
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_pruning_cannot_bypass_second_review_failure():
+    good = 'I-49 HMS Argus served as a training ship.'
+    disputed = 'I-49 HMS Argus was the largest carrier.'
+    summary = json.loads(_draft(good + ' ' + disputed, [(good, 'S1-E1', good), (disputed, 'S1-E2', disputed)]))
+    client = ScriptedClient(json.dumps({'passed': False, 'issues': ['Record disputed.'], 'rejected_sentences': [disputed]}), json.dumps({'passed': False, 'issues': ['Remaining claim disputed.'], 'rejected_sentences': [good]}))
+    result = await review_existing_factual_summary(MACHINE, _package(good, disputed), client, summary, allow_sentence_removal=True)
+    assert result['passed'] is False
+    assert len(client.calls) == 2

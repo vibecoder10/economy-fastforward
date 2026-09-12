@@ -321,12 +321,15 @@ def _review_alternatives(machine: str, draft: dict, candidates: dict[str, dict])
     })
 
 
-def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str]) -> str:
+def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "") -> str:
     repair = ""
     if prior_issues:
         repair = (
-            "\nThe previous draft failed for these exact reasons. Correct them without adding facts:\n"
+            "\nThe previous draft failed for these exact reasons. Remove the disputed details entirely. "
+            "Keep only uncontested facts already in the previous draft; do not introduce replacement dates, events, "
+            "records, or other new claims. A shorter factual paragraph is preferred to another disputed claim.\n"
             + "\n".join(f"- {issue}" for issue in prior_issues)
+            + "\nPrevious draft to repair (do not replace it with a new story):\n" + prior_draft
         )
     return (
         f"Write a concise factual voiceover summary about the exact locked machine: {machine}.\n"
@@ -359,7 +362,9 @@ def _review_prompt(machine: str, draft: dict, alternatives: list[dict]) -> str:
         "Reject the reverse expansion when the evidence supplies the narrower qualification. Distinguish event milestones: "
         "being attacked on one date and sinking on the next are compatible; do not conflate attack, loss, and sinking dates. "
         "Style, sentence count, narrative shape, drama, and completeness are outside "
-        "this review. Return only JSON: {\"passed\":true|false,\"issues\":[\"specific issue\"]}.\n"
+        "this review. Identify EVERY sentence implicated by any issue using its exact full text in rejected_sentences. "
+        "Return only JSON: {\"passed\":true|false,\"issues\":[\"specific issue\"],"
+        "\"rejected_sentences\":[\"exact full sentence from draft\"]}.\n"
         "REVIEW PACKET:\n"
         + json.dumps({
             "review_context_version": REVIEW_CONTEXT_VERSION,
@@ -388,6 +393,8 @@ async def review_existing_factual_summary(
     source_package: dict,
     anthropic_client: Any,
     summary: Any,
+    *,
+    allow_sentence_removal: bool = False,
 ) -> dict:
     """Mechanically validate and independently review one saved summary once."""
     identity_warnings = _package_identity_warnings(machine, source_package)
@@ -433,6 +440,22 @@ async def review_existing_factual_summary(
         result["warnings"] = [f"Factual review: {issue}" for issue in review_issues]
         if not result["warnings"]:
             result["warnings"] = ["Factual review rejected the draft without a specific issue."]
+        rejected = review.get("rejected_sentences")
+        sentences = _sentences(draft["paragraph"])
+        if (allow_sentence_removal and isinstance(rejected, list) and rejected
+                and all(isinstance(s, str) and s in sentences for s in rejected)):
+            remaining = [row for row in draft["claim_map"] if row["sentence"] not in rejected]
+            if remaining and len(remaining) < len(draft["claim_map"]):
+                # Delete exact disputed sentences and their citations; never invent replacements.
+                # Recheck the reduced paragraph for identity, pronouns, evidence and conflicts.
+                reduced = {"paragraph": " ".join(row["sentence"] for row in remaining),
+                           "claim_map": remaining}
+                checked = await review_existing_factual_summary(
+                    machine, source_package, anthropic_client, reduced,
+                    allow_sentence_removal=False,
+                )
+                checked["removed_disputed_sentences"] = rejected
+                return checked
         return result
     return {
         "paragraph": draft["paragraph"],
@@ -455,7 +478,8 @@ async def generate_factual_machine_summary(
     The initialized client is used through the same async ``generate`` wrapper
     and keyword conventions as ``PipelineExecutor._run_static_script_hold``.
     Provider exceptions intentionally propagate to the caller.  Writer or
-    referee contract failures get one targeted rewrite, then return a reviewable
+    referee contract failures get one targeted rewrite and at most one exact
+    disputed-sentence removal with fresh review, then return a reviewable
     ``passed=False`` result instead of looping indefinitely.
     """
     identity_warnings = _package_identity_warnings(machine, source_package)
@@ -476,7 +500,7 @@ async def generate_factual_machine_summary(
 
     for _attempt in range(MAX_DRAFT_ATTEMPTS):
         raw_draft = await anthropic_client.generate(
-            prompt=_writer_prompt(machine, evidence, prior_issues),
+            prompt=_writer_prompt(machine, evidence, prior_issues, latest.get("paragraph") or ""),
             system_prompt=(
                 "You compile short machine-history summaries from locked evidence. "
                 "Output only the requested JSON and never add outside knowledge."
@@ -486,6 +510,7 @@ async def generate_factual_machine_summary(
         )
         latest = await review_existing_factual_summary(
             machine, source_package, anthropic_client, raw_draft,
+            allow_sentence_removal=(_attempt == MAX_DRAFT_ATTEMPTS - 1),
         )
         if latest["passed"]:
             return latest
