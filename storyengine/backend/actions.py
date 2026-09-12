@@ -1394,7 +1394,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 return f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f}); completed work is saved."
             return None
 
-        async def _run_static_docu_roster_research() -> Optional[dict]:
+        async def _run_static_docu_roster_research(*, saved_repair_only: bool = False) -> Optional[dict]:
             """G8: run_research's roster-discovery + validation gate can pass while
             the untargeted bulk per-machine hold INSIDE run_research is refused by
             the hallucination-safety gate (pipeline_executor._run_unit_research_hold,
@@ -1438,6 +1438,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             import json as _json_roster
 
             _MAX_AUTO_ATTEMPTS = 2
+            _MAX_SAVED_REPAIR_ATTEMPTS = 2
 
             video_row = await ex._get_video(video_id) or {}
             payload = video_row.get("research_payload") or {}
@@ -1447,6 +1448,12 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 except (ValueError, TypeError):
                     payload = {}
             if not isinstance(payload, dict):
+                return None
+            from factual_machine_research import is_factual_machine_contract
+            if saved_repair_only and is_factual_machine_contract(payload):
+                # Factual-card resumes are rebuilt from raw fetched excerpts
+                # inside run_research; never route their old Anton failures
+                # through the narrative surgical ladder.
                 return None
             roster_check = payload.get("unit_roster_validation")
             if not (isinstance(roster_check, dict) and roster_check.get("passed")):
@@ -1467,6 +1474,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
             attempts_raw = payload.get("roster_loop_attempts")
             attempts: dict[str, int] = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
+            repair_attempts_raw = payload.get("roster_surgical_repair_attempts")
+            repair_attempts: dict[str, int] = (
+                dict(repair_attempts_raw) if isinstance(repair_attempts_raw, dict) else {}
+            )
 
             async def _persist_attempts() -> None:
                 # Best-effort bookkeeping, same fail-soft shape as every other
@@ -1491,6 +1502,17 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         _json_roster.dumps(attempts), video_id, tenant_id)
                 except Exception:  # noqa: BLE001
                     pass
+
+            async def _persist_repair_attempts() -> None:
+                result = await execute(
+                    """UPDATE videos SET research_payload = jsonb_set(
+                           COALESCE(research_payload::jsonb, '{}'::jsonb),
+                           '{roster_surgical_repair_attempts}', $1::jsonb, true
+                       ), updated_at = now()
+                       WHERE id=$2 AND tenant_id=$3""",
+                    _json_roster.dumps(repair_attempts), video_id, tenant_id)
+                if str(result or "").upper().endswith(" 0"):
+                    raise RuntimeError("Could not reserve the saved-card repair attempt; no repair was started")
 
             done = total - len(pending)
             failures: list[str] = []
@@ -1530,11 +1552,82 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     for unit in (units or [])
                 )
 
+            async def _repair_saved_machine(machine: str, position: int) -> tuple[bool, Optional[dict], Optional[dict]]:
+                """Run one persisted-card surgical pass, independently bounded."""
+                repair_machine = getattr(ex, "repair_machine_auto", None)
+                prior_repairs = int(repair_attempts.get(machine, 0) or 0)
+                if not callable(repair_machine) or prior_repairs >= _MAX_SAVED_REPAIR_ATTEMPTS:
+                    return False, None, None
+                policy_error = await _queue_policy_error()
+                if policy_error:
+                    return False, None, {"status": "paused", "message": policy_error}
+                repair_cap_row = await fetch_one(
+                    "SELECT max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                    video_id, tenant_id)
+                repair_cap = (repair_cap_row or {}).get("max_spend")
+                repair_spent = float((repair_cap_row or {}).get("total_cost") or 0)
+                repair_budget = 1.0
+                if repair_cap is not None:
+                    repair_budget = min(repair_budget, max(0.0, float(repair_cap) - repair_spent))
+                if repair_budget <= 0:
+                    return False, None, {
+                        "status": "paused",
+                        "message": (
+                            f"Paused — {done}/{total} machines researched, "
+                            f"${repair_spent:.2f} spent against this video's ${float(repair_cap):.2f} cap. "
+                            "Raise the cap (or clear it) and say \"keep going\" to continue."
+                        ),
+                    }
+                _set_task_status(
+                    video_id, "running",
+                    f"Repairing saved research for machine {position}/{total}: {machine}",
+                    tenant_id=tenant_id)
+                # Reserve before any possibly-paid action. A worker crash can
+                # replay the job, but it cannot silently exceed this counter.
+                repair_attempts[machine] = prior_repairs + 1
+                await _persist_repair_attempts()
+                repair_result = await repair_machine(
+                    video_id,
+                    machine,
+                    allow_full_rerun=False,
+                    budget_usd=repair_budget,
+                    max_actions=4,
+                ) or {}
+                _raise_provider_failure(repair_result)
+                if await _saved_machine_passed(machine):
+                    return True, repair_result, None
+                return False, repair_result, None
+
+            missing_saved_card = False
             for position, machine in pending:
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     return {"status": "paused", "message": policy_error}
                 prior_attempts = int(attempts.get(machine, 0) or 0)
+                load_repair_context = getattr(ex, "_load_machine_repair_context", None)
+                saved_card = False
+                if callable(load_repair_context):
+                    repair_context = await load_repair_context(video_id, machine) or {}
+                    saved_card = isinstance(repair_context.get("card"), dict)
+                if saved_card:
+                    repaired, repair_result, paused = await _repair_saved_machine(machine, position)
+                    if paused:
+                        return paused
+                    if repaired:
+                        done += 1
+                        continue
+                    if saved_repair_only:
+                        warning = "; ".join(str(w) for w in ((repair_result or {}).get("warnings") or [])) \
+                            or (repair_result or {}).get("error") \
+                            or (
+                                f"automatic saved-card surgical repair limit reached "
+                                f"({int(repair_attempts.get(machine, 0) or 0)}x)"
+                            )
+                        failures.append(f"{machine}: {warning}"[:220])
+                        continue
+                elif saved_repair_only:
+                    missing_saved_card = True
+                    continue
                 if prior_attempts >= _MAX_AUTO_ATTEMPTS:
                     # Round guard: this machine has already failed referee
                     # review _MAX_AUTO_ATTEMPTS times across prior loop
@@ -1582,47 +1675,17 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # citation repair, and one-field rewrites are the only permitted
                 # actions, bounded by both the video's remaining cap and the
                 # ladder's own four-action/$1 ceiling.
-                repair_machine = getattr(ex, "repair_machine_auto", None)
-                if result.get("status") == "needs_review" and callable(repair_machine):
-                    policy_error = await _queue_policy_error()
-                    if policy_error:
-                        return {"status": "paused", "message": policy_error}
-                    repair_cap_row = await fetch_one(
-                        "SELECT max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
-                        video_id, tenant_id)
-                    repair_cap = (repair_cap_row or {}).get("max_spend")
-                    repair_spent = float((repair_cap_row or {}).get("total_cost") or 0)
-                    repair_budget = 1.0
-                    if repair_cap is not None:
-                        repair_budget = min(repair_budget, max(0.0, float(repair_cap) - repair_spent))
-                    if repair_budget <= 0:
-                        return {
-                            "status": "paused",
-                            "message": (
-                                f"Paused — {done}/{total} machines researched, "
-                                f"${repair_spent:.2f} spent against this video's ${float(repair_cap):.2f} cap. "
-                                "Raise the cap (or clear it) and say \"keep going\" to continue."
-                            ),
-                        }
-                    _set_task_status(
-                        video_id, "running",
-                        f"Repairing research for machine {position}/{total}: {machine}",
-                        tenant_id=tenant_id)
-                    repair_result = await repair_machine(
-                        video_id,
-                        machine,
-                        allow_full_rerun=False,
-                        budget_usd=repair_budget,
-                        max_actions=4,
-                    ) or {}
-                    _raise_provider_failure(repair_result)
-                    if await _saved_machine_passed(machine):
+                if result.get("status") == "needs_review":
+                    repaired, repair_result, paused = await _repair_saved_machine(machine, position)
+                    if paused:
+                        return paused
+                    if repaired:
                         done += 1
                         continue
                     # Prefer the surgical referee's final warnings in the one
                     # terminal roster summary; the original card warning is
                     # stale after any saved repair action.
-                    if repair_result.get("warnings") or repair_result.get("error"):
+                    if repair_result and (repair_result.get("warnings") or repair_result.get("error")):
                         result = repair_result
                 # needs_review or failed — keep walking the rest of the roster so
                 # one bad machine can't hide whether the others are fine too; the
@@ -1633,6 +1696,8 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 failures.append(f"{machine}: {warning}"[:220])
                 attempts[machine] = prior_attempts + 1
                 await _persist_attempts()
+            if saved_repair_only and missing_saved_card:
+                return None
             if failures:
                 return {
                     "status": "needs_review",
@@ -1760,6 +1825,29 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # verified research payload, and the factual gate depends on it.
                 if status in ("idea_logged", "approved"):
                     if (video.get("render_mode") or "") == "static_docu":
+                        # A resumed roster may already have a rejected saved
+                        # card. Try the bounded surgical ladder against that
+                        # persisted evidence before paying for another full
+                        # research pass, including when the full-pass counter
+                        # has reached its cap.
+                        saved_repair_result = None
+                        if callable(getattr(ex, "_load_machine_repair_context", None)):
+                            saved_repair_result = await _run_static_docu_roster_research(
+                                saved_repair_only=True,
+                            )
+                        if saved_repair_result is not None:
+                            if saved_repair_result.get("status") == "ready_for_scripting":
+                                continue
+                            terminal_status = (
+                                "completed"
+                                if saved_repair_result.get("status") == "paused"
+                                else saved_repair_result.get("status")
+                            )
+                            _set_task_status(
+                                video_id, terminal_status,
+                                saved_repair_result.get("message") or "Roster research paused.",
+                                tenant_id=tenant_id)
+                            return
                         # The executor revalidates today's roster, resumes valid
                         # saved cards without rediscovery, and repairs invalid
                         # rosters. A saved verdict alone is not current truth.

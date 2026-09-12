@@ -699,3 +699,38 @@ def test_d48_style_pennant_no_longer_flagged_as_unsupported_designation():
     }
     warnings = pe._validate_card_against_verified_sources(card, package)
     assert not any("unsupported designation" in warning for warning in warnings), warnings
+
+
+def test_free_conformance_removes_unsupported_year_from_verified_claim():
+    segments = _base_segments()
+    package = _base_package(segments)
+    card = _base_card(segments)
+    card['evidence_segments'][0]['claim'] += ' HMS Eagle (1918)'
+    card['evidence_segments'][0]['numeric_tokens'] = ['1918']
+    pe._conform_card_to_verified_package(card, package, MACHINE)
+    repaired = card['evidence_segments'][0]
+    assert repaired['claim'] == package['candidate_excerpts'][0]['text']
+    assert '1918' not in repaired['numeric_tokens']
+    assert repaired['source_url'] == package['candidate_excerpts'][0]['source_url']
+
+
+def test_free_conformance_keeps_supported_numbers():
+    segments = _base_segments()
+    segments[0]['claim'] = segments[0]['source_excerpt'] = 'The design required 4 engines in 1918.'
+    package = _base_package(segments)
+    card = _base_card(segments)
+    original = card['evidence_segments'][0]['claim']
+    pe._conform_card_to_verified_package(card, package, MACHINE)
+    assert card['evidence_segments'][0]['claim'] == original
+
+
+def test_untraceable_excerpt_cannot_repair_unsupported_claim():
+    segments = _base_segments()
+    package = _base_package(segments)
+    package['candidate_excerpts'][0]['source_capture_method'] = 'model_generated'
+    package['candidate_excerpts'][0]['source_variant_selection'] = {}
+    card = _base_card(segments)
+    card['evidence_segments'][0]['claim'] += ' in 1918'
+    original = card['evidence_segments'][0]['claim']
+    pe._conform_card_to_verified_package(card, package, MACHINE)
+    assert card['evidence_segments'][0]['claim'] == original

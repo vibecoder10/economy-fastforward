@@ -633,6 +633,8 @@ async def launch_queue_item(tenant_id, item: dict, arq_pool=None, *, via: str = 
         await apply_default_template(tenant_id, video_id)
         from channel_format import apply_format_defaults
         await apply_format_defaults(tenant_id, video_id)
+        from channel_format import apply_machine_script_contract
+        await apply_machine_script_contract(tenant_id, video_id)
         from routes.characters import apply_locked_cast
         await apply_locked_cast(tenant_id, video_id)
         if required_mode:

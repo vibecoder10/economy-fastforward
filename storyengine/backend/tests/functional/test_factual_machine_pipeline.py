@@ -1,0 +1,83 @@
+import asyncio
+import copy
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+import pipeline_executor as pe
+import factual_machine_pipeline as fp
+
+
+@pytest.fixture
+def state(monkeypatch):
+    machine='I49 HMS Argus'
+    package={'machine':machine,'candidate_excerpts':[]}
+    video={'video_title':'British carriers','max_spend':None,'status':'ready_for_scripting',
+           'research_payload':{'machine_script_contract':fp.CONTRACT}, 'script_validation':{}}
+    ex=SimpleNamespace(tenant_id='tenant',_pipeline=SimpleNamespace(anthropic=object(),should_cancel=AsyncMock(return_value=False)))
+    ex._get_video=AsyncMock(side_effect=lambda _:copy.deepcopy(video))
+    ex._log_activity=AsyncMock()
+    ex._checkpoint_machine_script_preview=AsyncMock(return_value='UPDATE 1')
+    ex._db_write_missed=pe.PipelineExecutor._db_write_missed
+    async def save(**kwargs):
+        block={**kwargs['script_block'],'saved':True}
+        video['script_validation']={'machine_script_blocks':{machine:block},'script_hold':{'passed':True,'completed_count':1}}
+        video['script']=block['paragraph'];video['status']='ready_for_voice'
+        return block
+    ex._save_machine_script_block=AsyncMock(side_effect=save)
+    monkeypatch.setattr(pe,'fetch_all',AsyncMock(return_value=[]))
+    monkeypatch.setattr(pe,'_machine_documentary_hold_roster',lambda _: [machine])
+    monkeypatch.setattr(pe,'_verified_source_package_for_machine',lambda *_:package)
+    import factual_machine_summary as fs
+    writer=AsyncMock(return_value={'passed':True,'paragraph':'HMS Argus served as an aircraft carrier.','word_count':8,'warnings':[],'claim_map':[],'sources':[]})
+    monkeypatch.setattr(fs,'generate_factual_machine_summary',writer)
+    return ex,video,machine,package,writer
+
+
+def test_saved_factual_section_resumes_without_another_model_call(state):
+    ex,video,machine,package,writer=state
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='completed'
+    assert result['new_status']=='ready_for_voice'
+    again=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert again['status']=='completed'
+    assert writer.await_count==1
+    assert ex._save_machine_script_block.await_count==1
+
+
+def test_changed_sources_invalidate_saved_summary(state):
+    ex,video,machine,package,writer=state
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    package['revision']=2
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert writer.await_count==2
+
+
+def test_rejected_claim_is_checkpointed_but_never_saved_as_script(state):
+    ex,video,machine,package,writer=state
+    writer.return_value={'passed':False,'paragraph':'Wrong claim.','warnings':['wrong machine']}
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='needs_review'
+    ex._save_machine_script_block.assert_not_awaited()
+    ex._checkpoint_machine_script_preview.assert_awaited_once()
+
+
+def test_cancel_and_budget_stop_before_generation(state):
+    ex,video,machine,package,writer=state
+    ex._pipeline.should_cancel.return_value=True
+    assert asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))['status']=='cancelled'
+    ex._pipeline.should_cancel.return_value=False
+    video['max_spend']=0
+    assert asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))['status']=='paused'
+    writer.assert_not_awaited()
+
+
+def test_wrong_target_and_failed_save_readback_stop(state):
+    ex,video,machine,package,writer=state
+    assert asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine],'HMS Other'))['status']=='failed'
+    writer.assert_not_awaited()
+    ex._save_machine_script_block.side_effect=None
+    ex._save_machine_script_block.return_value={}
+    result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    assert result['status']=='failed'
+    assert 'verified' in result['error']

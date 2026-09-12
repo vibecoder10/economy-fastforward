@@ -433,6 +433,150 @@ def test_surgical_repair_budget_is_capped_by_video_remaining_spend():
     assert executor.repair_calls[0][2]["budget_usd"] == 0.25
 
 
+class _PersistedRepairExecutor:
+    """A resumed video with an exact rejected card already on disk."""
+
+    def __init__(self, tenant_id, db, repair_outcome):
+        self.tenant_id = tenant_id
+        self.db = db
+        self.repair_outcome = repair_outcome
+        self.repair_calls = []
+        self.run_research_call_count = 0
+        self.machine_calls = []
+
+    async def _get_video(self, _video_id):
+        if self.db.row.get("status") == "ready_for_scripting":
+            return {"status": "ready_for_images", "render_mode": "static_docu"}
+        return self.db.row
+
+    async def _load_machine_repair_context(self, _video_id, machine):
+        return {"machine": machine, "card": {"unit": machine}, "package": {"passed": True}}
+
+    async def run_research(self, _video_id):
+        self.run_research_call_count += 1
+        return {"status": "failed", "error": "full research should not run for a saved card"}
+
+    async def run_one_machine_research(self, _video_id, machine):
+        self.machine_calls.append(machine)
+        return {"status": "needs_review"}
+
+    async def repair_machine_auto(self, video_id, machine, **kwargs):
+        self.repair_calls.append((video_id, machine, kwargs))
+        if isinstance(self.repair_outcome, BaseException):
+            raise self.repair_outcome
+        result = dict(self.repair_outcome)
+        if result.get("passed"):
+            self.db.mark_machine(machine, True)
+        return result
+
+
+def _run_persisted_repair(db, repair_outcome):
+    holders = []
+
+    def factory(tenant_id):
+        executor = _PersistedRepairExecutor(tenant_id, db, repair_outcome)
+        holders.append(executor)
+        return executor
+
+    fake_pe, fake_rp, statuses = _stub_pipeline_and_routes(factory)
+
+    async def fake_execute(query, *args):
+        if "UPDATE videos SET status" in query and "jsonb_set" not in query:
+            db.row["status"] = args[0]
+        elif "roster_surgical_repair_attempts" in query:
+            import json as _json_db
+            payload = db.row.get("research_payload") or {}
+            payload["roster_surgical_repair_attempts"] = _json_db.loads(args[0])
+            db.row["research_payload"] = payload
+        return "UPDATE 1"
+
+    async def fake_fetch_one(query, *_args):
+        if "pipeline_stages" in query:
+            return {"pipeline_stages": None}
+        if "SELECT status FROM videos" in query:
+            return {"status": db.row.get("status")}
+        if "max_spend, total_cost" in query:
+            return {
+                "max_spend": db.row.get("max_spend"),
+                "total_cost": db.row.get("total_cost") or 0.0,
+            }
+        return None
+
+    async def fast_sleep(*_args, **_kwargs):
+        return None
+
+    with patch.object(actions, "execute", fake_execute), \
+         patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+         patch("asyncio.sleep", fast_sleep):
+        asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+    return holders[0], statuses
+
+
+def _capped_saved_card_db(*, max_spend=None, total_cost=0.0):
+    db = _FakeVideoDB(["Machine A"])
+    db.seed_research_done()
+    db.row["max_spend"] = max_spend
+    db.row["total_cost"] = total_cost
+    db.row["research_payload"]["roster_loop_attempts"] = {"Machine A": 2}
+    return db
+
+
+def test_capped_full_generation_saved_card_repairs_before_research_and_passes():
+    db = _capped_saved_card_db()
+    executor, statuses = _run_persisted_repair(
+        db, {"status": "completed", "passed": True, "warnings": []},
+    )
+
+    assert len(executor.repair_calls) == 1
+    assert executor.run_research_call_count == 0
+    assert executor.machine_calls == []
+    assert db.row["status"] == "ready_for_scripting"
+    assert not any(status in {"failed", "needs_review"} for status, _message in statuses)
+
+
+def test_failed_saved_card_surgical_repair_is_persisted_and_bounded_at_two():
+    db = _capped_saved_card_db()
+    outcome = {"status": "needs_review", "passed": False, "warnings": ["unsupported number"]}
+
+    first, _ = _run_persisted_repair(db, outcome)
+    second, _ = _run_persisted_repair(db, outcome)
+    third, statuses = _run_persisted_repair(db, outcome)
+
+    assert len(first.repair_calls) == 1
+    assert len(second.repair_calls) == 1
+    assert third.repair_calls == []
+    assert db.row["research_payload"]["roster_surgical_repair_attempts"] == {"Machine A": 2}
+    assert third.run_research_call_count == 0
+    assert any(
+        status == "needs_review" and "surgical repair limit reached (2x)" in message
+        for status, message in statuses
+    )
+
+
+def test_saved_card_repair_respects_video_budget_before_paid_call():
+    db = _capped_saved_card_db(max_spend=5.0, total_cost=5.0)
+    executor, statuses = _run_persisted_repair(
+        db, {"status": "completed", "passed": True, "warnings": []},
+    )
+
+    assert executor.repair_calls == []
+    assert executor.run_research_call_count == 0
+    assert any(status == "completed" and "against this video's $5.00 cap" in message
+               for status, message in statuses)
+
+
+def test_saved_card_repair_provider_failure_propagates_without_full_research():
+    db = _capped_saved_card_db()
+    provider_error = RuntimeError("Anthropic credit balance is too low; purchase credits")
+    executor, statuses = _run_persisted_repair(db, provider_error)
+
+    assert len(executor.repair_calls) == 1
+    assert executor.run_research_call_count == 0
+    assert any(status == "failed" and "credit balance is too low" in message
+               for status, message in statuses)
+
+
 # --- (c) budget cap reached after machine 1 ---------------------------------
 
 def test_budget_cap_reached_after_machine_one_stops_before_machine_two():

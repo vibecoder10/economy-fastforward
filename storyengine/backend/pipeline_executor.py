@@ -3906,13 +3906,21 @@ def _package_conversion_signals(package: Optional[dict], machine: str) -> list[d
                 if code not in tokens:
                     tokens.append(code)
         if terms:
-            # Vocabulary-bearing excerpts are enforceable signals - no mention
-            # guard (the package is machine-scoped by construction).
+            # A conversion plan is not yet evidence of actual use. Also, a
+            # machine-scoped page can compare OTHER named ships: e.g. an Ark
+            # Royal article describes Glorious's conversion. Keep those rows
+            # as research context without forcing them into this unit's story.
+            hints = item.get("anton_slot_hints") or []
+            actual_use = not hints or "reality" in hints
+            foreign_named_ship = bool(
+                re.search(r"\b(?:HMS|USS|HMAS|HMCS|HNLMS)\s+[A-Z][a-z]", text)
+                and not _mentions_machine(text, machine)
+            )
             signals.append({
                 "excerpt_id": str(item.get("excerpt_id") or item.get("locator") or "").strip(),
                 "terms": terms,
                 "tokens": tokens,
-                "enforce": True,
+                "enforce": actual_use and not foreign_named_ship,
             })
         elif tokens and _mentions_machine(text, machine):
             # Prefix-only hit: prompt guidance, never a block.
@@ -4189,6 +4197,9 @@ def _research_card_contract_warnings(
     grade byte-identical input and the caller's stored card is never mutated.
     Running the referee twice on its own output yields the same verdict."""
     import copy as _copy
+    if isinstance(card, dict) and card.get("machine_research_contract") == "factual_100_v1":
+        from factual_machine_research import factual_card_contract_warnings
+        return factual_card_contract_warnings(machine, card, source_package)
     warnings: list[str] = []
     if not isinstance(card, dict):
         return ["research card was not an object"]
@@ -4535,6 +4546,25 @@ def _conform_card_to_verified_package(card: dict, package: Optional[dict], machi
     segments = card.get("evidence_segments")
     if not isinstance(segments, list):
         return card
+
+    # A display-name year or a generated specification can leak into a claim
+    # without occurring in its source. Repair the claim, never the referee:
+    # only an exact, traceable package row may replace unsupported numbers.
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        identity = str(segment.get("source_excerpt_id") or segment.get("locator") or "").strip()
+        candidate = _find_candidate_excerpt(package, identity)
+        if candidate is None or not _verified_source_candidate_traceable(candidate):
+            continue
+        excerpt = str(candidate.get("text") or "").strip()
+        if not excerpt or str(segment.get("source_excerpt") or "").strip() != excerpt:
+            continue
+        supported = {_numeric_token_key(token) for token in _numeric_tokens_from_text(excerpt)}
+        claim_numbers = _numeric_tokens_from_text(str(segment.get("claim") or ""))
+        if any(_numeric_token_key(token) not in supported for token in claim_numbers):
+            segment["claim"] = excerpt
+            segment["numeric_tokens"] = list(dict.fromkeys(_numeric_tokens_from_text(excerpt)))
 
     required_slots = [
         role for role, _accepted_kinds, _job in _ANTON_SLOT_SPECS
@@ -5304,7 +5334,7 @@ def _classify_repair_actions(machine: str, card: Optional[dict], package: Option
             "reason": "no verified source package exists; only a full one-machine research run can create one",
         })
         return actions
-    package_errors = (
+    package_errors = _blocking_warnings(
         _verified_machine_source_package_quality_errors(package, machine)
         + _verified_machine_source_package_identity_errors(package, machine)
     )
@@ -10662,6 +10692,8 @@ class PipelineExecutor:
         bot_name = "Research Agent"
 
         try:
+            from channel_format import apply_machine_script_contract
+            await apply_machine_script_contract(self.tenant_id, video_id)
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
@@ -10679,6 +10711,14 @@ class PipelineExecutor:
                     existing_payload = _json_existing_research.loads(existing_payload)
                 except (TypeError, ValueError):
                     existing_payload = {}
+            from factual_machine_research import (
+                FACTUAL_MACHINE_SCRIPT_CONTRACT,
+                is_factual_machine_contract,
+            )
+            preserved_machine_script_contract = (
+                FACTUAL_MACHINE_SCRIPT_CONTRACT
+                if is_factual_machine_contract(existing_payload) else ""
+            )
             existing_roster = _machine_documentary_hold_roster(video)
             coverage_required = video.get("render_mode") == "static_docu" and _title_needs_complete_roster(topic)
 
@@ -10843,6 +10883,10 @@ class PipelineExecutor:
                     repair_check = await checked_roster(repair_payload)
                     payload = repair_payload
                     roster_check = repair_check
+            if preserved_machine_script_contract:
+                # The research provider returns a replacement payload. Keep
+                # the channel-selected factual contract across that replace.
+                payload["machine_script_contract"] = preserved_machine_script_contract
             payload["unit_roster_validation"] = roster_check
             if not roster_check.get("passed"):
                 await self._log_activity(
@@ -12345,6 +12389,127 @@ class PipelineExecutor:
         locked_roster_snapshot = _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
         verified_source_package: Optional[dict] = None
 
+        from factual_machine_research import (
+            build_factual_evidence_card,
+            factual_card_contract_warnings,
+            factual_package_contract_warnings,
+            is_factual_machine_contract,
+        )
+        if is_factual_machine_contract(payload):
+            if not target_code:
+                # The bulk entrypoint remains an ordered coordinator. Each
+                # missing or stale card goes through the same exact locked
+                # one-machine checkpoint path used by the public route.
+                for roster_machine in roster:
+                    existing = _research_card_for_machine(payload, roster_machine)
+                    existing_package = _verified_source_package_for_machine(payload, roster_machine)
+                    if not factual_card_contract_warnings(roster_machine, existing, existing_package):
+                        payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                            payload, roster_machine, [],
+                        )
+                        continue
+                    fresh_video = await self._get_video(video_id) or {}
+                    max_spend = fresh_video.get("max_spend")
+                    total_cost = float(fresh_video.get("total_cost") or 0)
+                    if max_spend is not None and total_cost >= float(max_spend):
+                        payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                            payload, roster_machine,
+                            ["Video budget reached; completed factual research cards are saved."],
+                        )
+                        return payload
+                    should_cancel = getattr(self._pipeline, "should_cancel", None)
+                    if callable(should_cancel):
+                        import inspect as _inspect_factual
+                        cancelled = should_cancel()
+                        if _inspect_factual.isawaitable(cancelled):
+                            cancelled = await cancelled
+                        if cancelled:
+                            payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                                payload, roster_machine,
+                                ["Research cancellation requested; completed factual research cards are saved."],
+                            )
+                            return payload
+                    payload = await self._run_unit_research_hold(
+                        video_id, title, payload, roster, target_machine=roster_machine,
+                    )
+                return payload
+
+            cache_key = _verified_source_cache_key(target_machine or "")
+            cached_package = ((payload.get("machine_raw_source_packages") or {}).get(cache_key))
+            if not factual_package_contract_warnings(target_machine or "", cached_package):
+                verified_source_package = cached_package
+            else:
+                verified_source_package = await self._gather_verified_machine_source_package(
+                    title, target_machine or "", payload,
+                )
+            payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
+            _clear_machine_preview_artifacts(payload, target_code)
+            package_checkpoint = await self._checkpoint_machine_raw_source_package(
+                video_id, target_code, verified_source_package, locked_roster_snapshot,
+            )
+            if self._db_write_missed(package_checkpoint):
+                warnings = ["persisted unit_roster changed concurrently; raw source package checkpoint refused"]
+                payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                    payload, target_machine or "", warnings,
+                )
+                return payload
+
+            package_warnings = factual_package_contract_warnings(
+                target_machine or "", verified_source_package,
+            )
+            card = build_factual_evidence_card(target_machine or "", verified_source_package)
+            warnings = package_warnings + factual_card_contract_warnings(
+                target_machine or "", card, verified_source_package,
+            )
+            warnings = list(dict.fromkeys(warnings))
+            current_cards = [
+                item for item in (payload.get("unit_research_cards") or [])
+                if isinstance(item, dict)
+                and _roster_index_for_identity(
+                    roster,
+                    item.get("unit") or item.get("machine") or item.get("name") or item.get("designation") or "",
+                ) != roster.index(target_machine or "") + 1
+            ]
+            if not warnings:
+                card["locked_roster_index"] = roster.index(target_machine or "") + 1
+                card["source_package_key"] = target_code
+                current_cards = _merge_card_into_review_cards(
+                    current_cards, card, target_machine or "",
+                )
+            payload["unit_research_cards"] = current_cards
+            payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                payload, target_machine or "", warnings,
+            )
+            card_checkpoint = await self._checkpoint_one_machine_research_result(
+                video_id,
+                current_cards,
+                payload["unit_research_hold_validation"],
+                locked_roster_snapshot,
+            )
+            if self._db_write_missed(card_checkpoint):
+                conflict = "persisted unit_roster changed concurrently; factual research checkpoint refused"
+                payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                    payload, target_machine or "", [conflict],
+                )
+                return payload
+            if not warnings:
+                roster_index = roster.index(target_machine or "") + 1
+                verdict = {"machine": target_machine, "passed": True, "warnings": []}
+                await self._upsert_machine_research_card(
+                    video_id, target_machine or "", roster_index, card, verdict,
+                )
+            await self._log_activity(
+                bot_name,
+                video_id,
+                "completed" if not warnings else "failed",
+                (
+                    f"Factual source research complete for {target_machine}"
+                    if not warnings else
+                    f"Factual source research stopped at {target_machine}: " + "; ".join(warnings)
+                ),
+            )
+            return payload
+
         def _hydrate_compatibility_fields(card: dict) -> dict:
             """Derive legacy UI fields from schema-v3 evidence without asking the model to repeat itself."""
             if not isinstance(card, dict):
@@ -13714,6 +13879,15 @@ class PipelineExecutor:
         StoryEngine videos keep the existing full-script brief-translator flow.
         """
         import json as _json_sh
+
+        contract_payload = video.get("research_payload") or {}
+        if isinstance(contract_payload, str):
+            contract_payload = _json_sh.loads(contract_payload)
+        if contract_payload.get("machine_script_contract") == "factual_100_v1":
+            from factual_machine_pipeline import run_factual_script_hold
+            return await run_factual_script_hold(
+                self, video_id, video, roster, target_machine, save_target_script,
+            )
 
         bot_name = "Script Bot"
         title = video.get("video_title") or video.get("headline") or ""
@@ -16141,6 +16315,9 @@ scenes."""
                     f"Writing one sourced section for each of {len(roster)} items…"
                 )
                 hold_result = await self._run_static_script_hold(video_id, video, roster)
+                from factual_machine_research import is_factual_machine_contract
+                if is_factual_machine_contract(video.get("research_payload")):
+                    return hold_result
                 # C46a additivity: this path already runs its OWN hard-gate
                 # harness (_validate_machine_story_sentences + its bounded
                 # EDIT loop, grounding law, claim maps, hedge words - much

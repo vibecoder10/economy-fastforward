@@ -216,3 +216,22 @@ async def apply_format_defaults(tenant_id, video_id: str) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.warning("channel_format: defaults failed for %s: %s", video_id, e)
         return False
+
+
+async def apply_machine_script_contract(tenant_id, video_id: str) -> bool:
+    """Carry an explicitly configured machine script contract into new work."""
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    contract = _identity(row).get("machine_script_contract")
+    if contract != "factual_100_v1":
+        return False
+    await execute(
+        """UPDATE videos SET research_payload = jsonb_set(
+               COALESCE(research_payload::jsonb, '{}'::jsonb),
+               '{machine_script_contract}', to_jsonb($1::text), true), updated_at=now()
+           WHERE id=$2 AND tenant_id=$3 AND render_mode='static_docu'
+             AND NOT (COALESCE(research_payload::jsonb, '{}'::jsonb) ? 'machine_script_contract')""",
+        contract, video_id, tenant_id,
+    )
+    return True

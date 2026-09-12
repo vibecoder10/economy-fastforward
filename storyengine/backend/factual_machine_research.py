@@ -1,0 +1,188 @@
+"""Deterministic evidence cards for short factual machine summaries.
+
+This opt-in contract copies verified fetched excerpts into a compact card. It
+does not turn model-written claims into evidence and does not impose the Anton
+story-beat contract used by legacy Designed vs Used videos.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+
+FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1"
+_APPROVED_CAPTURE_METHODS = {"fetched_page", "tavily_raw_content", "national_archives_api"}
+_GENERIC_IDENTITY_WORDS = {
+    "boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin",
+    "hms", "uss", "hmas", "hmcs", "hmnzs", "hmis", "rfa", "sms", "ijn", "rms", "ins",
+    "class", "the",
+}
+_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])(?:\d[\d,]*(?:\.\d+)?(?:%|st|nd|rd|th)?)(?![A-Za-z0-9])")
+
+
+def _words(value: Any) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(value or "").casefold())
+
+
+def _identity_key(value: Any) -> str:
+    return "".join(_words(value))
+
+
+def is_factual_machine_contract(payload: Any) -> bool:
+    return isinstance(payload, dict) and payload.get("machine_script_contract") == FACTUAL_MACHINE_SCRIPT_CONTRACT
+
+
+def _candidate_traceable(candidate: Any) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+    method = str(candidate.get("source_capture_method") or "").strip()
+    return bool(
+        str(candidate.get("excerpt_id") or "").strip()
+        and str(candidate.get("text") or "").strip()
+        and str(candidate.get("source_url") or "").strip()
+        and str(candidate.get("locator") or candidate.get("excerpt_id") or "").strip()
+        and (method in _APPROVED_CAPTURE_METHODS or method.startswith("wayback:"))
+    )
+
+
+def candidate_mentions_machine(text: Any, machine: Any) -> bool:
+    """Require the full distinctive subject phrase, never a shared token/year."""
+    raw_machine = str(machine or "").strip()
+    tokens = [
+        word for word in _words(raw_machine)
+        if len(word) >= 3 and word not in _GENERIC_IDENTITY_WORDS and not word.isdigit()
+    ]
+    # Hull/pennant and roster-order numbers disambiguate metadata but do not
+    # substitute for the vessel name. A page about another 1918 ship must not
+    # become evidence for HMS Eagle merely because the label carries 1918.
+    tokens = [token for token in tokens if not re.fullmatch(r"[a-z]{1,3}\d{1,4}", token)]
+    if tokens:
+        phrase = r"(?<![a-z0-9])" + r"[\s.\-']+".join(re.escape(token) for token in tokens) + r"(?![a-z0-9])"
+        return bool(re.search(phrase, str(text or ""), flags=re.IGNORECASE))
+    # Aircraft/program labels may consist solely of an alphanumeric
+    # designation after the manufacturer is removed.
+    designation = re.search(r"\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b", raw_machine, flags=re.IGNORECASE)
+    if not designation:
+        return False
+    pieces = re.findall(r"[a-z0-9]+", designation.group(0).casefold())
+    pattern = r"(?<![a-z0-9])" + r"[\s.\-]*".join(re.escape(piece) for piece in pieces) + r"(?![a-z0-9])"
+    return bool(re.search(pattern, str(text or ""), flags=re.IGNORECASE))
+
+
+def useful_factual_candidates(machine: str, package: Any, *, limit: int = 8) -> list[dict]:
+    if not isinstance(package, dict):
+        return []
+    eligible: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in package.get("candidate_excerpts") or []:
+        if not _candidate_traceable(candidate):
+            continue
+        text = str(candidate.get("text") or "").strip()
+        if not candidate_mentions_machine(text, machine):
+            continue
+        key = (str(candidate.get("source_url") or "").strip(), text.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        eligible.append(candidate)
+    bounded = max(1, min(int(limit), 12))
+    # Prefer independent source URLs before taking a second excerpt from the
+    # same page. This keeps a small factual card useful for cross-checking.
+    accepted: list[dict] = []
+    used_urls: set[str] = set()
+    for candidate in eligible:
+        url = str(candidate.get("source_url") or "").strip()
+        if url in used_urls:
+            continue
+        accepted.append(candidate)
+        used_urls.add(url)
+        if len(accepted) >= bounded:
+            return accepted
+    for candidate in eligible:
+        if candidate in accepted:
+            continue
+        accepted.append(candidate)
+        if len(accepted) >= bounded:
+            break
+    return accepted
+
+
+def factual_package_contract_warnings(machine: str, package: Any) -> list[str]:
+    if not isinstance(package, dict):
+        return ["missing verified factual source package"]
+    if _identity_key(package.get("machine")) != _identity_key(machine):
+        return ["verified factual source package identity does not match the locked machine"]
+    if not useful_factual_candidates(machine, package):
+        return ["verified factual source package has no traceable exact-machine excerpts"]
+    return []
+
+
+def _numeric_tokens(text: str) -> list[str]:
+    return list(dict.fromkeys(match.group(0) for match in _NUMBER_RE.finditer(text)))
+
+
+def build_factual_evidence_card(machine: str, package: Any) -> dict:
+    """Build a card only from exact retrieved candidate rows."""
+    segments = []
+    for index, candidate in enumerate(useful_factual_candidates(machine, package), start=1):
+        text = str(candidate.get("text") or "").strip()
+        excerpt_id = str(candidate.get("excerpt_id") or "").strip()
+        segments.append({
+            "evidence_id": f"FACT-{index}",
+            "kind": "factual_source",
+            "claim": text,
+            "source_excerpt": text,
+            "source_excerpt_id": excerpt_id,
+            "source_id": str(candidate.get("source_id") or "").strip(),
+            "source_url": str(candidate.get("source_url") or "").strip(),
+            "source_title": str(candidate.get("source_title") or "").strip(),
+            "source_capture_method": str(candidate.get("source_capture_method") or "").strip(),
+            "locator": str(candidate.get("locator") or excerpt_id).strip(),
+            "numeric_tokens": _numeric_tokens(text),
+            "confidence": "high",
+        })
+    return {
+        "schema_version": 3,
+        "machine_research_contract": FACTUAL_MACHINE_SCRIPT_CONTRACT,
+        "unit": machine,
+        "include": True,
+        "evidence_segments": segments,
+    }
+
+
+def factual_card_contract_warnings(machine: str, card: Any, package: Any) -> list[str]:
+    warnings = factual_package_contract_warnings(machine, package)
+    if not isinstance(card, dict):
+        return warnings + ["missing factual evidence card"]
+    if card.get("machine_research_contract") != FACTUAL_MACHINE_SCRIPT_CONTRACT:
+        warnings.append("factual evidence card contract marker is missing")
+    if _identity_key(card.get("unit")) != _identity_key(machine):
+        warnings.append("factual evidence card identity does not match the locked machine")
+    candidates = {
+        str(row.get("excerpt_id") or "").strip(): row
+        for row in useful_factual_candidates(machine, package, limit=12)
+    }
+    segments = card.get("evidence_segments")
+    if not isinstance(segments, list) or not segments:
+        warnings.append("factual evidence card has no source excerpts")
+        return list(dict.fromkeys(warnings))
+    for index, segment in enumerate(segments, start=1):
+        if not isinstance(segment, dict):
+            warnings.append(f"factual evidence segment {index} is not an object")
+            continue
+        excerpt_id = str(segment.get("source_excerpt_id") or "").strip()
+        candidate = candidates.get(excerpt_id)
+        exact_text = str((candidate or {}).get("text") or "").strip()
+        claim = str(segment.get("claim") or "").strip()
+        excerpt = str(segment.get("source_excerpt") or "").strip()
+        if not candidate or claim != exact_text or excerpt != exact_text:
+            warnings.append(f"factual evidence segment {index} is not an exact fetched excerpt")
+            continue
+        if str(segment.get("source_url") or "").strip() != str(candidate.get("source_url") or "").strip():
+            warnings.append(f"factual evidence segment {index} source URL does not match its fetched excerpt")
+        if str(segment.get("locator") or "").strip() != str(candidate.get("locator") or excerpt_id).strip():
+            warnings.append(f"factual evidence segment {index} locator does not match its fetched excerpt")
+        if list(segment.get("numeric_tokens") or []) != _numeric_tokens(exact_text):
+            warnings.append(f"factual evidence segment {index} numeric metadata does not match its fetched excerpt")
+    return list(dict.fromkeys(warnings))
