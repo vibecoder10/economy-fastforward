@@ -63,6 +63,40 @@ def test_invalid_saved_roster_reaches_corrective_discovery():
     assert "CORRECT THE EXISTING ROSTER" in discover.call_args.kwargs["context"]
 
 
+def test_structurally_valid_but_incomplete_roster_is_corrected_before_cards():
+    video = _video()
+    video["video_title"] = "Every British aircraft carrier ever built"
+    ex = _executor(video)
+    ex.run_unit_research = AsyncMock()
+    discover = AsyncMock(return_value=None)
+    module = types.ModuleType("research.agent")
+    module.run_research = discover
+    coverage = AsyncMock(return_value={"passed": False, "findings": [{"candidate": "Activity", "problem": "Missing escort"}]})
+    with patch.dict(sys.modules, {"research.agent": module}), \
+         patch.object(pe, "fetch_one", AsyncMock(return_value=None)), \
+         patch.object(pe, "_roster_validation", return_value={"passed": True, "warnings": []}), \
+         patch("roster_coverage.audit_roster_coverage", coverage):
+        result = asyncio.run(ex.run_research("video"))
+    assert result["status"] == "failed"
+    ex.run_unit_research.assert_not_awaited()
+    coverage.assert_awaited_once()
+    assert "Activity" in discover.call_args.kwargs["context"]
+
+
+def test_live_incremental_gate_cannot_erase_failed_or_stale_coverage():
+    from roster_coverage import VERSION, coverage_fingerprint
+    video = _video()
+    payload = video["research_payload"]
+    payload["independent_coverage_audit"] = {
+        "version": VERSION, "fingerprint": coverage_fingerprint(video["video_title"], payload), "passed": False,
+    }
+    assert not pe._live_roster_gate(video, payload)["passed"]
+    payload["independent_coverage_audit"]["passed"] = True
+    assert pe._live_roster_gate(video, payload)["passed"]
+    payload["unit_roster"].append({"name": "Courageous"})
+    assert not pe._live_roster_gate(video, payload)["passed"]
+
+
 def test_resume_persists_current_gate_and_bootstraps_missing_hold():
     video = _video()
     ex = _executor(video)

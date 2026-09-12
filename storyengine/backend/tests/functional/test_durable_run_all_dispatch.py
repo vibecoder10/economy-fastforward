@@ -55,6 +55,16 @@ async def test_autobuild_queue_identity_forwards_resume_target():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delivery,channel", [("public", "channel"), ("youtube_unlisted", None)])
+async def test_invalid_delivery_cannot_enter_worker_queue(delivery, channel):
+    pool = SimpleNamespace(enqueue_job=AsyncMock())
+    with pytest.raises(ValueError, match="saved YouTube channel identity"):
+        await enqueue_stage(pool, "autobuild", "video", "tenant", target="finish",
+                            claim_owner="owner", delivery_mode=delivery, expected_channel_id=channel)
+    pool.enqueue_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_run_build_refuses_when_durable_queue_is_unavailable(monkeypatch):
     async def fetch_video(query, *args):
         return {"id": "video-1", "status": "approved"}
@@ -221,13 +231,16 @@ async def test_run_build_enqueues_finish_target_and_persists_pending(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_worker_resumes_same_target_without_overwriting_inner_terminal_status(monkeypatch):
+@pytest.mark.parametrize("delivery", ["render_only", "youtube_unlisted"])
+async def test_worker_resumes_same_target_without_overwriting_inner_terminal_status(monkeypatch, delivery):
     calls = []
 
     async def run_step():
         calls.append("ran")
 
-    def make_step(tenant_id, video_id, *, target, start_msg):
+    def make_step(tenant_id, video_id, *, target, start_msg, delivery_mode, expected_channel_id):
+        assert delivery_mode == delivery
+        assert expected_channel_id == ("channel" if delivery == "youtube_unlisted" else None)
         calls.append((tenant_id, video_id, target, start_msg))
         return run_step
 
@@ -254,6 +267,8 @@ async def test_worker_resumes_same_target_without_overwriting_inner_terminal_sta
         "finish",
         "Finishing the video…",
         "pipeline:build:finish:claim-1",
+        delivery_mode=delivery,
+        expected_channel_id="channel" if delivery == "youtube_unlisted" else None,
     )
 
     assert result == {

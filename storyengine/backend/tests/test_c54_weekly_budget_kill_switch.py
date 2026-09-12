@@ -323,6 +323,9 @@ def _patch_queue_and_candidate(monkeypatch, *, queue_result=None, candidate_resu
 
 def test_produce_for_tenant_disabled_short_circuits_before_dial_read(monkeypatch):
     _patch_enabled(monkeypatch, enabled=False)
+    async def no_continuous_queue(query, *args):
+        return None
+    monkeypatch.setattr(main_mod, "fetch_one", no_continuous_queue)
 
     async def fake_dial(tenant_id):
         raise AssertionError("dial must not be read for a disabled tenant")
@@ -378,6 +381,9 @@ def test_produce_for_tenant_budget_ok_queue_drain_wins_candidate_not_tried(monke
 
 def test_produce_for_tenant_budget_ok_queue_empty_falls_back_to_candidate(monkeypatch):
     _patch_enabled(monkeypatch, enabled=True)
+    async def no_continuous_queue(query, *args):
+        return None
+    monkeypatch.setattr(main_mod, "fetch_one", no_continuous_queue)
     _patch_dial(monkeypatch, AutopilotDial())
     _patch_budget(monkeypatch, ok=True)
     queue_calls, candidate_calls = _patch_queue_and_candidate(

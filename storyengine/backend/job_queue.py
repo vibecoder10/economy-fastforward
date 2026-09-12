@@ -95,6 +95,11 @@ async def enqueue_stage(
             raise ValueError(
                 "autobuild requires target='pictures' or 'finish' and its claim owner"
             )
+        delivery = stage_kwargs.get("delivery_mode", "render_only")
+        if delivery not in {"render_only", "youtube_unlisted"} or (
+            delivery == "youtube_unlisted" and (target != "finish" or not stage_kwargs.get("expected_channel_id"))
+        ):
+            raise ValueError("autobuild unlisted delivery requires finish and its saved YouTube channel identity")
 
     job_id = (
         f"custom-film-worker:{stage_kwargs['runtime_job_id']}:{attempt}"

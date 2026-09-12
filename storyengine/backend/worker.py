@@ -317,6 +317,8 @@ async def arq_run_autobuild(
     target: str,
     start_msg: str,
     claim_owner: str,
+    delivery_mode: str = "render_only",
+    expected_channel_id: str | None = None,
 ) -> dict:
     """Resume the saved pipeline state through the existing autobuild chainer.
 
@@ -332,8 +334,10 @@ async def arq_run_autobuild(
     from task_store import db_persist_task
 
     job_id = make_job_id("autobuild", video_id, attempt)
-    if target not in {"pictures", "finish"}:
-        error = f"Invalid autobuild target: {target!r}"
+    if target not in {"pictures", "finish"} or delivery_mode not in {"render_only", "youtube_unlisted"} or (
+        delivery_mode == "youtube_unlisted" and (target != "finish" or not expected_channel_id)
+    ):
+        error = f"Invalid autobuild target/delivery contract: {target!r}/{delivery_mode!r}"
         await db_persist_task(
             tenant_id, video_id, "autobuild", "failed",
             error=error, job_id=job_id, attempt=attempt,
@@ -398,7 +402,8 @@ async def arq_run_autobuild(
         )
     try:
         step = actions.make_autobuild_step(
-            tenant_id, video_id, target=target, start_msg=start_msg
+            tenant_id, video_id, target=target, start_msg=start_msg,
+            delivery_mode=delivery_mode, expected_channel_id=expected_channel_id,
         )
         await step()
     except Exception as exc:

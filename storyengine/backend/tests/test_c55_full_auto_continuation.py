@@ -494,7 +494,7 @@ def test_auto_produce_next_tags_autopilot_queue_not_plain_queue(monkeypatch):
     """The ONLY thing that lets full_auto_may_continue tell an
     autopilot-drained queue launch apart from a manual '.../launch' click —
     both would otherwise build an identical video row."""
-    insert_calls = []
+    launches = []
 
     async def _fake_fetch_one(query, *args):
         if "production_queue" in query and "status = 'queued'" in query:
@@ -504,9 +504,6 @@ def test_auto_produce_next_tags_autopilot_queue_not_plain_queue(monkeypatch):
             return {"production_interval_days": 2}
         if "GREATEST" in query:
             return {"t": None}
-        if "INSERT INTO videos" in query:
-            insert_calls.append(args)
-            return {"id": "video-q1"}
         return None
 
     async def _fake_execute(query, *args):
@@ -516,6 +513,12 @@ def test_auto_produce_next_tags_autopilot_queue_not_plain_queue(monkeypatch):
         return []
 
     monkeypatch.setattr(queue_route, "fetch_one", _fake_fetch_one)
+    monkeypatch.setattr(
+        queue_route, "_claim_next",
+        lambda tenant_id: _fake_fetch_one(
+            "SELECT * FROM production_queue WHERE status = 'queued'", tenant_id
+        ),
+    )
     monkeypatch.setattr(queue_route, "execute", _fake_execute)
     monkeypatch.setattr(queue_route, "fetch_all", _fake_fetch_all)
 
@@ -535,8 +538,13 @@ def test_auto_produce_next_tags_autopilot_queue_not_plain_queue(monkeypatch):
     monkeypatch.setattr(channel_format, "apply_format_defaults", _fake_true)
     monkeypatch.setattr(characters, "apply_locked_cast", _fake_true)
 
-    result = _run(queue_route.auto_produce_next(TENANT))
+    async def _fake_launch(tenant_id, item, arq_pool=None, *, via="queue"):
+        launches.append((tenant_id, item["id"], arq_pool, via))
+        return {"status": "launched", "video_id": "video-q1"}
+
+    monkeypatch.setattr(queue_route, "launch_queue_item", _fake_launch)
+    queue_pool = object()
+
+    result = _run(queue_route.auto_produce_next(TENANT, arq_pool=queue_pool))
     assert result is not None
-    assert insert_calls, "expected an INSERT INTO videos"
-    # source is the 6th positional bind param (tenant, project, title, status, headline, source, ...)
-    assert insert_calls[0][5] == "autopilot_queue"
+    assert launches == [(TENANT, "qi-1", queue_pool, "autopilot_queue")]

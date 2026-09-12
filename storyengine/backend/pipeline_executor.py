@@ -8408,11 +8408,24 @@ def _live_roster_gate(video: dict, payload: dict) -> dict:
     stage gates run pre-script, so ``script_units`` is correctly omitted here;
     the script-time roster check passes its own units separately.
     """
-    return _roster_validation(
-        video.get("video_title") or video.get("headline") or "",
+    title = video.get("video_title") or video.get("headline") or ""
+    check = _roster_validation(
+        title,
         payload,
         video_length_minutes=video.get("video_length_minutes"),
     )
+    # Once independent coverage has been checked, incremental research and
+    # script gates must not erase its unresolved findings by recomputing only
+    # the structural validator. Changed title/roster/boundary reopens review.
+    if payload.get("independent_coverage_audit") is not None:
+        from roster_coverage import coverage_is_current
+        audit = payload.get("independent_coverage_audit") or {}
+        if not coverage_is_current(title, payload) or audit.get("passed") is not True:
+            check["passed"] = False
+            message = "Independent roster coverage is unresolved or stale; run corrective research before scripting."
+            check.setdefault("warnings", []).append(message)
+            check.setdefault("hard_warnings", []).append(message)
+    return check
 
 
 def with_live_roster_validation(video: dict, payload: Any) -> Any:
@@ -10667,7 +10680,26 @@ class PipelineExecutor:
                 except (TypeError, ValueError):
                     existing_payload = {}
             existing_roster = _machine_documentary_hold_roster(video)
-            if existing_roster and _live_roster_gate(video, existing_payload).get("passed"):
+            coverage_required = video.get("render_mode") == "static_docu" and _title_needs_complete_roster(topic)
+
+            async def checked_roster(payload):
+                check = _roster_validation(topic, payload, video_length_minutes=video.get("video_length_minutes"))
+                if coverage_required and check.get("passed"):
+                    from roster_coverage import audit_roster_coverage
+                    await self._log_activity(bot_name, video_id, "running", "Independently checking roster coverage against historical sources")
+                    audit = await audit_roster_coverage(self._pipeline.anthropic, topic, payload)
+                    if not audit.get("passed"):
+                        check["passed"] = False
+                        check.setdefault("warnings", []).append(
+                            "Independent coverage review requires corrections: " + json.dumps(audit.get("findings"))
+                        )
+                return check
+
+            existing_check = await checked_roster(existing_payload) if existing_roster else {}
+            if existing_roster and existing_check.get("passed"):
+                if coverage_required:
+                    await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                  json.dumps(existing_payload), video_id, self.tenant_id)
                 await self._log_activity(
                     bot_name,
                     video_id,
@@ -10715,7 +10747,7 @@ class PipelineExecutor:
                 research_context = (research_context or "") + (
                     "\nCORRECT THE EXISTING ROSTER against the current title. Preserve valid identities; "
                     "resolve these current gate warnings with source-backed research:\n- "
-                    + "\n- ".join(_live_roster_gate(video, existing_payload).get("warnings") or [])
+                    + "\n- ".join(existing_check.get("warnings") or [])
                     + "\nExisting roster: " + json.dumps(existing_payload.get("unit_roster") or [])
                 )
 
@@ -10750,7 +10782,7 @@ class PipelineExecutor:
             if not payload:
                 raise Exception("Research returned no results")
 
-            roster_check = _roster_validation(topic, payload, video_length_minutes=video.get("video_length_minutes"))
+            roster_check = await checked_roster(payload)
             if roster_check.get("complete_title") and not roster_check.get("passed"):
                 pacing = roster_check.get("roster_pacing_targets") or {}
                 pacing_repair_note = ""
@@ -10792,7 +10824,7 @@ class PipelineExecutor:
                     system_prompt_override=getattr(self._pipeline, "research_system_prompt", None),
                 )
                 if repair_payload:
-                    repair_check = _roster_validation(topic, repair_payload, video_length_minutes=video.get("video_length_minutes"))
+                    repair_check = await checked_roster(repair_payload)
                     payload = repair_payload
                     roster_check = repair_check
             payload["unit_roster_validation"] = roster_check

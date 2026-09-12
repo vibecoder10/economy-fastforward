@@ -328,21 +328,70 @@ export const getCalendarPlan = (days?: number) =>
   fetchApi<CalendarPlan>(`/api/dashboard/calendar/plan?days=${days || 30}`);
 
 // --- Production queue (the creator's own ordered "build these" list) ---
+export type QueueItemStatus =
+  | "queued"
+  | "dispatching"
+  | "running"
+  | "launched"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export type QueueDeliveryMode = "render_only" | "youtube_unlisted";
+
 export interface QueueItem {
   id: string;
   position: number;
   title: string;
   framework_angle?: string | null;
-  status: "queued" | "launched" | "skipped";
+  status: QueueItemStatus;
   video_id?: string | null;
   launched_at?: string | null;
   created_at: string;
+  continuous: boolean;
+  required_render_mode?: "static_docu" | null;
+  attempt_count: number;
+  delivery_mode: QueueDeliveryMode;
+  delivery_channel_id?: string | null;
+  last_error?: string | null;
+  completed_at?: string | null;
 }
+
+export interface QueueAddItem {
+  title: string;
+  framework_angle?: string;
+  writer_guidance?: string;
+}
+
+export interface QueueLaunchResult {
+  status: string;
+  queue_id: string;
+  video_id: string;
+  video_title: string;
+  continuous?: boolean;
+  message?: string;
+}
+
+export interface QueueAddResponse {
+  status: string;
+  count: number;
+  launch?: QueueLaunchResult | null;
+  message?: string;
+}
+
 export const getQueue = () => fetchApi<{ items: QueueItem[] }>("/api/queue");
-export const addToQueue = (items: { title: string }[]) =>
-  fetchApi<{ status: string; count: number }>("/api/queue", {
+export const addToQueue = (
+  items: QueueAddItem[],
+  options?: {
+    source_asset_id?: string;
+    continuous?: boolean;
+    required_render_mode?: "static_docu" | null;
+    delivery_mode?: QueueDeliveryMode;
+  },
+) =>
+  fetchApi<QueueAddResponse>("/api/queue", {
     method: "POST",
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, ...options }),
   });
 export const patchQueueItem = (id: string, data: { title?: string; position?: number; status?: string }) =>
   fetchApi<{ status: string }>(`/api/queue/${id}`, {
@@ -413,7 +462,7 @@ export const deleteScriptTemplate = (id: string) =>
   fetchApi<{ status: string }>(`/api/script-templates/${id}`, { method: "DELETE" });
 
 export const launchQueueItem = (id: string) =>
-  fetchApi<{ status: string; queue_id: string; video_id: string; video_title: string }>(
+  fetchApi<QueueLaunchResult>(
     `/api/queue/${id}/launch`,
     { method: "POST" }
   );

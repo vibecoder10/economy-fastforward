@@ -18,6 +18,7 @@ import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
+import { TitleListQueue } from "@/components/calendar/TitleListQueue";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, Rocket, Loader2, ListOrdered, X } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -181,6 +182,8 @@ export default function CalendarPage() {
           Today
         </button>
       </div>
+
+      <TitleListQueue />
 
       {/* Strategic plan (forward-looking, one-click build) */}
       {plan && plan.slots.length > 0 && (

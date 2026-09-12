@@ -16,6 +16,7 @@ import os
 import re
 import tempfile
 import time
+import uuid
 from typing import Optional
 
 from PIL import Image
@@ -41,6 +42,7 @@ _CATEGORY_IDS = {
 _DEFAULT_CATEGORY = "27"  # Education
 _YOUTUBE_THUMBNAIL_MAX_BYTES = 2_000_000
 _THUMBNAIL_RETRY_DELAYS = (0.25, 0.5)
+_VALID_PRIVACY_STATUSES = {"private", "unlisted", "public"}
 
 _SEO_SYSTEM = (
     "You are a YouTube SEO specialist. Write metadata for ONE specific video, driven "
@@ -351,6 +353,89 @@ def _do_youtube_upload(refresh_token: str, video_path: str, thumb_path: Optional
         ) from exc
 
 
+def _do_youtube_video_insert(
+    refresh_token: str,
+    video_path: str,
+    title: str,
+    description: str,
+    tags: list,
+    category_id: str,
+    privacy: str,
+    made_for_kids: bool,
+) -> dict:
+    """Create one YouTube video and return its ID before thumbnail work.
+
+    Queue delivery uses this smaller seam so the provider ID can be committed
+    immediately. Once that ID is saved, every resume takes the existing-video
+    path and cannot issue a second ``videos.insert``.
+    """
+    from googleapiclient.http import MediaFileUpload
+
+    attempted = False
+    try:
+        youtube = _build_youtube_client(refresh_token)
+        body = {
+            "snippet": {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "categoryId": category_id,
+            },
+            "status": {
+                "privacyStatus": privacy,
+                "selfDeclaredMadeForKids": made_for_kids,
+            },
+        }
+        media = MediaFileUpload(
+            video_path,
+            mimetype="video/mp4",
+            resumable=True,
+            chunksize=8 * 1024 * 1024,
+        )
+        request = youtube.videos().insert(
+            part="snippet,status", body=body, media_body=media
+        )
+        response = None
+        while response is None:
+            attempted = True
+            _status, response = request.next_chunk()
+        return _youtube_upload_result(response["id"], False)
+    except Exception as exc:
+        raise YouTubeUploadAttemptError(
+            str(exc), video_insert_attempted=attempted
+        ) from exc
+
+
+async def _verify_expected_owner_channel(
+    refresh_token: str, expected_channel_id: str
+) -> dict:
+    """Resolve the OAuth owner's live channel and require the saved exact ID."""
+    import httpx
+
+    from youtube_oauth_config import get_youtube_oauth_credentials
+    from youtube_owner_api import fetch_channel_summary, refresh_access_token
+
+    oauth = get_youtube_oauth_credentials()
+    if oauth.missing_env:
+        return {"error": "YouTube OAuth client credentials not configured"}
+    token = await refresh_access_token(
+        oauth.client_id, oauth.client_secret, refresh_token
+    )
+    if not token:
+        return {"error": "Could not verify the connected YouTube channel owner."}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        summary = await fetch_channel_summary(client, token)
+    live_id = str((summary or {}).get("channel_id") or "").strip()
+    if not live_id:
+        return {"error": "The connected account did not return a YouTube channel."}
+    if live_id != expected_channel_id:
+        return {
+            "error": "Connected YouTube channel does not match the delivery target.",
+            "actual_channel_id": live_id,
+        }
+    return {"channel_id": live_id}
+
+
 async def _download_to_local(url: str, dest: str) -> None:
     """Download a Drive (or Supabase) URL to a local path, reusing the proven
     authorized Drive path from render_stitch."""
@@ -370,25 +455,64 @@ async def _download_to_local(url: str, dest: str) -> None:
 async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
                                   privacy: str = "unlisted",
                                   made_for_kids: bool = False,
-                                  force_new_upload: bool = False) -> dict:
+                                  force_new_upload: bool = False,
+                                  expected_channel_id: Optional[str] = None) -> dict:
     """Upload the rendered video to the tenant's OWN connected YouTube channel as an
     unlisted draft, using the stored SEO. Writes youtube_url/upload_status back."""
+    privacy = str(privacy or "").strip().lower()
+    if privacy not in _VALID_PRIVACY_STATUSES:
+        return {"error": f"Unsupported YouTube privacy status: {privacy!r}"}
+    expected_channel_id = str(expected_channel_id or "").strip() or None
+    if expected_channel_id and privacy != "unlisted":
+        return {
+            "error": "Automatic queue delivery only supports unlisted uploads.",
+            "blocked": True,
+        }
+
     v = await fetch_one(
         "SELECT video_title, final_video_url, thumbnail_url, seo_description, seo_tags, "
-        "seo_category_id, youtube_video_id, youtube_url "
+        "seo_category_id, youtube_video_id, youtube_url, upload_status, "
+        "queue_delivery_receipt "
         "FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
     if not v:
         return {"error": "video not found"}
     saved_id = (v.get("youtube_video_id") or "").strip()
     saved_url = (v.get("youtube_url") or "").strip()
     retry_existing = bool(saved_id) and not force_new_upload
+    if (
+        expected_channel_id
+        and not retry_existing
+        and not force_new_upload
+        and v.get("upload_status") in {"insert_in_flight", "insert_uncertain"}
+    ):
+        return {
+            "error": (
+                "A prior YouTube insert may have reached the provider without a saved "
+                "video ID. Reconcile that attempt before retrying."
+            ),
+            "blocked": True,
+            "insert_uncertain": True,
+        }
     if not v["final_video_url"] and not retry_existing:
         return {"error": "No rendered video to upload — render it first."}
     cp = await fetch_one(
-        "SELECT youtube_refresh_token, youtube_channel_name FROM channel_profiles "
+        "SELECT youtube_refresh_token, youtube_channel_name, youtube_channel_id "
+        "FROM channel_profiles "
         "WHERE tenant_id=$1", tenant_id)
     if not (cp and cp["youtube_refresh_token"]):
         return {"error": "No YouTube channel connected. Connect one in Settings → first."}
+    if expected_channel_id:
+        saved_channel_id = str(cp.get("youtube_channel_id") or "").strip()
+        if saved_channel_id != expected_channel_id:
+            return {
+                "error": "Saved YouTube channel does not match the delivery target.",
+                "blocked": True,
+            }
+        owner = await _verify_expected_owner_channel(
+            cp["youtube_refresh_token"], expected_channel_id
+        )
+        if owner.get("error"):
+            return {**owner, "blocked": True}
 
     # PostgreSQL reserves exactly the call(s) this path will make. A retry of
     # an existing video's thumbnail never consumes or depends on upload quota.
@@ -449,13 +573,103 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
         else:
             await _download_to_local(v["final_video_url"], vpath)
             try:
-                result = await asyncio.to_thread(
-                    _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
-                    title, description, tags, category_id, privacy, made_for_kids)
+                if expected_channel_id:
+                    attempt_id = str(uuid.uuid4())
+                    claim = await execute(
+                        "UPDATE videos SET upload_status='insert_in_flight', "
+                        "queue_delivery_receipt=$1::jsonb, updated_at=now() "
+                        "WHERE id=$2 AND tenant_id=$3 "
+                        "AND youtube_video_id IS NULL "
+                        "AND COALESCE(upload_status, '') NOT IN "
+                        "('insert_in_flight', 'insert_uncertain')",
+                        json.dumps({
+                            "status": "insert_in_flight",
+                            "attempt_id": attempt_id,
+                            "channel_id": expected_channel_id,
+                            "privacy": "unlisted",
+                        }),
+                        video_id,
+                        tenant_id,
+                    )
+                    if str(claim).endswith(" 0"):
+                        return {
+                            "error": "Another or uncertain YouTube insert already owns this video.",
+                            "blocked": True,
+                            "insert_uncertain": True,
+                        }
+                    result = await asyncio.to_thread(
+                        _do_youtube_video_insert,
+                        cp["youtube_refresh_token"],
+                        vpath,
+                        title,
+                        description,
+                        tags,
+                        category_id,
+                        privacy,
+                        made_for_kids,
+                    )
+                    # The provider has consumed the upload even if the next
+                    # database checkpoint fails. Never refund that quota slot.
+                    release_upload = False
+                    # This write intentionally precedes thumbnail work. A retry
+                    # after this point can only repair the existing provider ID.
+                    await execute(
+                        "UPDATE videos SET youtube_video_id=$1, youtube_url=$2, "
+                        "upload_status='video_created', queue_delivery_receipt=$3::jsonb, "
+                        "upload_date=now(), status='uploaded_draft', updated_at=now() "
+                        "WHERE id=$4 AND tenant_id=$5",
+                        result["youtube_video_id"],
+                        result["youtube_url"],
+                        json.dumps({
+                            "status": "video_created",
+                            "attempt_id": attempt_id,
+                            "channel_id": expected_channel_id,
+                            "privacy": "unlisted",
+                            "youtube_video_id": result["youtube_video_id"],
+                        }),
+                        video_id,
+                        tenant_id,
+                    )
+                    if thumb:
+                        thumbnail = await asyncio.to_thread(
+                            _do_youtube_thumbnail,
+                            cp["youtube_refresh_token"],
+                            result["youtube_video_id"],
+                            thumb,
+                        )
+                        result.update(thumbnail)
+                else:
+                    result = await asyncio.to_thread(
+                        _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
+                        title, description, tags, category_id, privacy, made_for_kids)
             except YouTubeUploadAttemptError as exc:
                 # An attempted videos.insert consumes the reserved upload call even
                 # when YouTube rejects/fails it. No thumbnail call succeeded.
                 release_upload = not exc.video_insert_attempted
+                if expected_channel_id:
+                    marker_status = (
+                        "insert_uncertain"
+                        if exc.video_insert_attempted
+                        else "insert_not_attempted"
+                    )
+                    upload_status = (
+                        "insert_uncertain" if exc.video_insert_attempted else None
+                    )
+                    await execute(
+                        "UPDATE videos SET upload_status=$1, "
+                        "queue_delivery_receipt=$2::jsonb, updated_at=now() "
+                        "WHERE id=$3 AND tenant_id=$4 AND youtube_video_id IS NULL",
+                        upload_status,
+                        json.dumps({
+                            "status": marker_status,
+                            "attempt_id": attempt_id,
+                            "channel_id": expected_channel_id,
+                            "privacy": "unlisted",
+                            "error": str(exc)[:1000],
+                        }),
+                        video_id,
+                        tenant_id,
+                    )
                 raise
             release_upload = False
             if thumbnail_error and not result.get("thumbnail_error"):

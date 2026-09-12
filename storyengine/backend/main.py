@@ -563,7 +563,7 @@ async def _auto_distill_intelligence():
         await asyncio.sleep(43200)  # Every 12 hours
 
 
-async def _produce_for_tenant(tenant_id) -> Optional[dict]:
+async def _produce_for_tenant(tenant_id, arq_pool=None) -> Optional[dict]:
     """One per-tenant production tick — extracted from ``_auto_produce_queue``
     (checklist C54, P4.2-e) so the kill-switch/budget gating is independently
     testable rather than buried in a ``while True`` loop body.
@@ -599,8 +599,19 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
     Kept as one function so both the queue-drain path (paid, no dial checks
     of its own) and the candidate-fallback path share exactly one gate,
     rather than risking the two paths drifting out of sync."""
-    if not await _is_autopilot_enabled(tenant_id):
-        return None
+    autopilot_enabled = await _is_autopilot_enabled(tenant_id)
+    continuous_row = None
+    if not autopilot_enabled:
+        # A creator explicitly selecting continuous processing authorizes this
+        # queue lane without changing their saved Autopilot setting.
+        continuous_row = await fetch_one(
+            "SELECT 1 AS x FROM production_queue WHERE tenant_id=$1 "
+            "AND continuous=true AND status IN ('queued', 'launched', 'dispatching', 'running') "
+            "LIMIT 1",
+            tenant_id,
+        )
+        if not continuous_row:
+            return None
 
     from autopilot_dial import check_weekly_budget, get_autopilot_dial, trip_kill_switch
 
@@ -640,7 +651,11 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
 
     from routes.queue import auto_produce_next
 
-    result = await auto_produce_next(tenant_id)
+    result = (
+        await auto_produce_next(tenant_id)
+        if arq_pool is None
+        else await auto_produce_next(tenant_id, arq_pool=arq_pool)
+    )
     if result:
         logger.info(
             "[AutoQueue] Tenant %s launched queued video %s (%s)",
@@ -649,6 +664,21 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
             result.get("video_title"),
         )
         return result
+
+    if continuous_row is None:
+        continuous_row = await fetch_one(
+            "SELECT 1 AS x FROM production_queue WHERE tenant_id=$1 "
+            "AND continuous=true AND status IN ('queued', 'launched', 'dispatching', 'running') "
+            "LIMIT 1",
+            tenant_id,
+        )
+    # Keep an explicitly continuous queue in its own lane. If one item is
+    # active, do not fall through and launch an unrelated candidate.
+    if continuous_row:
+        return None
+
+    if not autopilot_enabled:
+        return None
 
     from autopilot_launch import auto_launch_best_candidate
 
@@ -664,11 +694,12 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
     return candidate_result
 
 
-async def _auto_produce_queue():
+async def _auto_produce_queue(app: FastAPI):
     """Background task: drain the creator's own production queue, every 30 min.
 
-    Only runs for tenants with autopilot ENABLED. The queue (CSV titles dropped
-    into chat, "queue these") wins over scored competitor candidates: when a
+    Runs for tenants with Autopilot enabled and for queues explicitly marked
+    continuous. The queue (CSV titles dropped into chat, "queue these") wins
+    over scored competitor candidates: when a
     video is due (production_interval_days cadence, shared with autopilot
     launches) and nothing is in flight, the front of the queue is claimed and
     launched (routes/queue.py:auto_produce_next — FOR UPDATE SKIP LOCKED, so a
@@ -685,8 +716,14 @@ async def _auto_produce_queue():
     Checklist C54 (P4.2-e): the kill-switch/weekly-budget gate that used to
     live inline here (and only covered the candidate fallback) is now
     ``_produce_for_tenant`` above, and covers BOTH paths."""
-    await asyncio.sleep(240)  # Offset from other startup tasks
+    queue_wakeup = app.state.queue_wakeup
+    try:
+        await asyncio.wait_for(queue_wakeup.wait(), timeout=240)
+        queue_wakeup.clear()
+    except asyncio.TimeoutError:
+        pass
     while True:
+        next_delay = 1800
         if await _pause_autonomous_start("AutoQueue"):
             await asyncio.sleep(30)
             continue
@@ -694,13 +731,33 @@ async def _auto_produce_queue():
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
                 try:
-                    await _produce_for_tenant(tenant_id)
+                    arq_pool = getattr(app.state, "arq", None)
+                    if arq_pool is None:
+                        result = await _produce_for_tenant(tenant_id)
+                    else:
+                        result = await _produce_for_tenant(
+                            tenant_id, arq_pool=arq_pool
+                        )
+                    if result and result.get("continuous"):
+                        next_delay = 30
+                    continuous_row = await fetch_one(
+                        "SELECT 1 AS x FROM production_queue WHERE tenant_id=$1 "
+                        "AND continuous=true AND status IN ('queued', 'launched', 'dispatching', 'running') "
+                        "LIMIT 1",
+                        tenant_id,
+                    )
+                    if continuous_row:
+                        next_delay = 30
                 except Exception as e:
                     logger.error("[AutoQueue] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
             logger.error("[AutoQueue] Error: %s", e)
 
-        await asyncio.sleep(1800)  # Every 30 minutes
+        try:
+            await asyncio.wait_for(queue_wakeup.wait(), timeout=next_delay)
+            queue_wakeup.clear()
+        except asyncio.TimeoutError:
+            pass
 
 
 async def _auto_generate_meta_insights():
@@ -976,7 +1033,8 @@ async def lifespan(app: FastAPI):
     distillation_task = asyncio.create_task(_auto_distill_intelligence())
     meta_insights_task = asyncio.create_task(_auto_generate_meta_insights())
     reaper_task = asyncio.create_task(_auto_reap_stale_tasks())
-    produce_queue_task = asyncio.create_task(_auto_produce_queue())
+    app.state.queue_wakeup = asyncio.Event()
+    produce_queue_task = asyncio.create_task(_auto_produce_queue(app))
 
     yield
 

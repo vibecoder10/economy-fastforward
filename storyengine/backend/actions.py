@@ -1234,6 +1234,7 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
         async def _progress(message: str):
             _set_task_status(video_id, "running", message, tenant_id=tenant_id)
 
+
         try:
             if any(name == "run_script" for name, _ in calls):
                 try:
@@ -1329,17 +1330,24 @@ async def _pause_for_approval_gate(
 
 
 def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
-                        start_msg: str = "Building your video…"):
+                        start_msg: str = "Building your video…",
+                        delivery_mode: str = "render_only",
+                        expected_channel_id: str | None = None):
     """Chain the pipeline automatically instead of running one step. target='pictures'
     runs research -> script -> (voice) -> storyboards -> pictures and STOPS at the
     pictures-review checkpoint; target='finish' runs the rest (clips + render) to a
-    finished video, auto-passing the review gates. Robust: research failure is
-    non-fatal (skips to script), voice is best-effort (no key -> skipped), and the
-    loop is hard-capped + stops on no-progress so it can never run away."""
+    finished video, auto-passing the review gates. Static documentaries require
+    verified research, saved narration and a thumbnail. The loop is bounded
+    and reports failures without discarding completed work."""
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
     from status_map import get_next_status_supabase, parse_stage_plan, resolve_planned_status
     import generation_claims
+
+    if delivery_mode not in {"render_only", "youtube_unlisted"} or (
+        delivery_mode == "youtube_unlisted" and (target != "finish" or not expected_channel_id)
+    ):
+        raise ValueError("Unlisted delivery requires finish and its saved YouTube channel identity")
 
     async def _advance(to_status: str):
         # Honor the video's reduced stage plan: a raw natural-next status here
@@ -1369,6 +1377,22 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
         async def _progress(message: str):
             _set_task_status(video_id, "running", message, tenant_id=tenant_id)
+
+        async def _queue_policy_error():
+            queued = await fetch_one(
+                "SELECT continuous FROM production_queue WHERE tenant_id=$1 AND video_id=$2 "
+                "AND status IN ('launched', 'dispatching', 'running') LIMIT 1",
+                tenant_id, video_id)
+            if not (queued or {}).get("continuous"):
+                return None
+            from autopilot_dial import get_autopilot_dial, check_weekly_budget
+            dial = await get_autopilot_dial(tenant_id)
+            if dial.kill_switch_tripped_at is not None:
+                return "Autopilot kill switch is active; completed work is saved."
+            ok, spent, cap = await check_weekly_budget(tenant_id)
+            if not ok:
+                return f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f}); completed work is saved."
+            return None
 
         async def _run_static_docu_roster_research() -> Optional[dict]:
             """G8: run_research's roster-discovery + validation gate can pass while
@@ -1471,6 +1495,9 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             done = total - len(pending)
             failures: list[str] = []
             for position, machine in pending:
+                policy_error = await _queue_policy_error()
+                if policy_error:
+                    return {"status": "paused", "message": policy_error}
                 prior_attempts = int(attempts.get(machine, 0) or 0)
                 if prior_attempts >= _MAX_AUTO_ATTEMPTS:
                     # Round guard: this machine has already failed referee
@@ -1532,14 +1559,31 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
         try:
             ex = PipelineExecutor(tenant_id)
+            policy_error = await _queue_policy_error()
+            if policy_error:
+                _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)
+                return
+
+            async def _required_voice():
+                result = await ex.run_voice(video_id, progress_callback=_progress) or {}
+                if result.get("status") in {"failed", "needs_review", "paused"}:
+                    raise RuntimeError(result.get("error") or result.get("message") or "Narration generation failed")
+                missing_voice = await fetch_one(
+                    "SELECT 1 AS x FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
+                    "AND (voice_over_url IS NULL OR btrim(voice_over_url) = '') LIMIT 1",
+                    video_id, tenant_id)
+                if missing_voice:
+                    raise RuntimeError("Narration is still missing for one or more scenes; render has not started")
+
             # Build-to-pictures skips the voiceover; if we're now finishing, lay it down first
             # (the render needs an audio track). run_voice can nudge the status backwards, so
             # snapshot and restore it. Guarded on missing audio so we never double-charge.
             if target == "finish":
+                vrow = None
                 try:
                     missing = await fetch_one(
                         "SELECT 1 AS x FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
-                        "AND voice_over_url IS NULL LIMIT 1", video_id, tenant_id)
+                        "AND (voice_over_url IS NULL OR btrim(voice_over_url) = '') LIMIT 1", video_id, tenant_id)
                     if missing:
                         # C36 (checklist §3.3 item 3): this pre-loop voice pass
                         # is itself a real paid step, ahead of the per-iteration
@@ -1547,7 +1591,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         # a capped video can't spend on voice before the loop
                         # even gets a chance to look.
                         vrow = await fetch_one(
-                            "SELECT status, max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                            "SELECT status, render_mode, max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
                             video_id, tenant_id)
                         cap = (vrow or {}).get("max_spend")
                         spent = float((vrow or {}).get("total_cost") or 0)
@@ -1559,14 +1603,16 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                 tenant_id=tenant_id)
                             return
                         _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
-                        await ex.run_voice(
-                            video_id,
-                            progress_callback=_progress,
-                        )
+                        if (vrow or {}).get("render_mode") == "static_docu":
+                            await _required_voice()
+                        else:
+                            await ex.run_voice(video_id, progress_callback=_progress)
                         if vrow and vrow.get("status"):
                             await _advance(vrow["status"])
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    if (vrow or {}).get("render_mode") == "static_docu":
+                        _set_task_status(video_id, "failed", f"Narration failed: {exc}", tenant_id=tenant_id)
+                        return
             last = None
             for _ in range(18):  # hard cap — the pipeline is ~14 stages deep
                 video = await ex._get_video(video_id)
@@ -1574,10 +1620,23 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     _set_task_status(video_id, "failed", "Video not found", tenant_id=tenant_id)
                     return
                 status = video.get("status")
+                policy_error = await _queue_policy_error()
+                if policy_error:
+                    _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)
+                    return
                 if target == "pictures" and status not in BUILD_TO_PICTURES:
                     _set_task_status(video_id, "completed", PICTURES_READY_MSG, tenant_id=tenant_id)
                     return
                 if target == "finish" and status in DONE_STATUSES:
+                    if delivery_mode == "youtube_unlisted":
+                        from queue_delivery import deliver_queue_video
+                        _set_task_status(video_id, "running", "Delivering and verifying the unlisted YouTube video…", tenant_id=tenant_id)
+                        delivered = await deliver_queue_video(video_id, tenant_id, expected_channel_id) or {}
+                        if delivered.get("status") != "completed":
+                            _set_task_status(video_id, "failed", delivered.get("error") or delivered.get("message") or "Unlisted delivery has not been verified", tenant_id=tenant_id)
+                            return
+                        _set_task_status(video_id, "completed", "Video completed and verified as unlisted on the connected YouTube channel.", tenant_id=tenant_id)
+                        return
                     _set_task_status(video_id, "completed", "Your video is rendered — take a look!", tenant_id=tenant_id)
                     return
                 if status == last:  # no progress — never loop forever
@@ -1917,12 +1976,14 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         # the voiceover down before the render (see the finish guard in _run).
                         if target != "pictures":
                             try:
-                                await ex.run_voice(
-                                    video_id,
-                                    progress_callback=_progress,
-                                )  # best-effort; no voice key -> skip
-                            except Exception:  # noqa: BLE001
-                                pass
+                                if video.get("render_mode") == "static_docu":
+                                    await _required_voice()
+                                else:
+                                    await ex.run_voice(video_id, progress_callback=_progress)
+                            except Exception as exc:  # noqa: BLE001
+                                if video.get("render_mode") == "static_docu":
+                                    _set_task_status(video_id, "failed", f"Narration failed: {exc}", tenant_id=tenant_id)
+                                    return
                         nxt = get_next_status_supabase(status)
                         if nxt:
                             await _advance(nxt)
