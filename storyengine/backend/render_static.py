@@ -48,6 +48,7 @@ from render_stitch import (
 import render_static_ffmpeg
 import channel_audio
 from overlay_position import choose_overlay_position
+from encoded_media import validate_encoded_video
 
 logger = logging.getLogger(__name__)
 
@@ -794,6 +795,9 @@ async def render_static_video(
         # otherwise-good render output.
         try:
             await _emit(on_progress, "Uploading the final video")
+            validated = await validate_encoded_video(
+                out_file, expected_duration=rc["total_duration_seconds"]
+            )
             data = out_file.read_bytes()
             safe = _safe_filename(title, video_id[:8])
             # Unique name per render: re-using one filename REPLACED the Drive
@@ -804,10 +808,9 @@ async def render_static_video(
             url = await upload_bytes(
                 data, f"{video_id}/final/{safe}_{_uuid.uuid4().hex[:6]}.mp4",
                 "video/mp4", tenant_id)
-            duration = await _probe_duration(str(out_file))
             return {
                 "final_video_url": url,
-                "duration_seconds": duration or rc["total_duration_seconds"],
+                "duration_seconds": validated["duration_seconds"],
                 "scene_count": len(segments),
                 "resolution": "1920x1080",
                 "method": "remotion_static",

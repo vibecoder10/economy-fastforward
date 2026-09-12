@@ -680,10 +680,11 @@ Research the following topic as a ROSTER DISCOVERY pass only:
 
 This is NOT the script pass and NOT the full documentary brief pass.
 Your job is to turn the video title plus target length into a locked, script-ready
-roster of audience-facing machines. Do not try to create a self-determined list
-of every possible machine in the world. Research enough candidates to confidently
-fill the runtime-derived machine count, resolve obvious edge cases, lock the
-final roster, then hand execution to scripting. This must work for any vehicle
+roster of audience-facing machines within the exact title boundary. For an
+exhaustive title, research every source-backed class within that boundary; the
+runtime controls pacing, never inclusion. For ranked or selective titles, build
+a researched candidate pool that supports the requested selection. Resolve edge
+cases, lock the final roster, then hand execution to scripting. This must work for any vehicle
 or machine category: aircraft, ships, submarines, tanks, armored vehicles,
 trucks, off-road vehicles, missiles, artillery, spacecraft, weapons platforms,
 industrial machines, or any other title-implied machine family. It runs in
@@ -722,19 +723,15 @@ Rules:
   when official terminology changed by era, branch, or country. Do not silently
   discard older, wartime, interim, converted, or doctrinally-adjacent machines
   merely because their official category name was narrower.
-- For national or force-level complete titles using words like every/all/ever
-  built/complete, use any VIDEO LENGTH / ROSTER PACING PRESSURE context as the
-  production target. Anton/DVsU machine-roster benchmarks average about 95-120
-  words per audience-facing machine but about 60 seconds of final screen time per
-  machine once VO pacing, pauses, transitions, and visuals are included. If the
-  requested length implies N machines, lock roughly N audience-facing machines
-  for scripting. For normal machine-roster videos, “roughly N” means N or N-1/N+1
-  when source quality demands it; do not call N-2 or smaller “fit” when your own
-  research found a large reserve of plausible candidates. Keep a small researched
-  reserve for exclusions/swaps, but do not optimize for a giant universe. The
-  minimum acceptable count is a failure floor, not the target. Do not pad with
-  weak fits; choose the strongest source-backed roster that fits the requested
-  runtime.
+- For complete titles using every/all/ever built/complete, coverage outranks
+  VIDEO LENGTH / ROSTER PACING PRESSURE. Never drop a qualifying class, add a weak
+  candidate, or silently narrow nationality/role to fit a runtime-derived count.
+  Resolve all qualifying candidates against sources first; let pacing or final
+  duration accommodate the resulting roster. An expected count is a diagnostic
+  lead for the gap hunt, not evidence that a class belongs or does not belong.
+  Preserve the explicit user-approved scope through discovery and repair; do not
+  mix British design/build with Royal Navy operation when treating export or
+  foreign-built classes. State operator differences inside the relevant entries.
 - For historical role terms, include the era-equivalent machines a knowledgeable
   viewer would expect, but do not turn a formal machine category into "anything
   ever used against strategic targets." Example class of reasoning: a

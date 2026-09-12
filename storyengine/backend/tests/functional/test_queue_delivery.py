@@ -56,6 +56,8 @@ def test_saved_video_is_read_back_without_another_upload(monkeypatch):
             "youtube_video_id": "yt-existing",
             "channel_id": CHANNEL,
             "privacy": "unlisted",
+            "upload_status": "processed",
+            "processing_status": "succeeded",
         }),
     )
     monkeypatch.setattr(queue_delivery, "_upload_unlisted", upload)
@@ -158,6 +160,7 @@ def test_uncertain_insert_is_marked_and_never_repeated(monkeypatch):
     )
     monkeypatch.setattr(youtube_publish, "release_upload_reservation", AsyncMock())
     monkeypatch.setattr(youtube_publish, "_download_to_local", AsyncMock())
+    monkeypatch.setattr(youtube_publish, "validate_encoded_video", AsyncMock(return_value={"duration_seconds": 60}))
     monkeypatch.setattr(youtube_publish, "_do_youtube_video_insert", uncertain)
 
     try:
@@ -230,3 +233,41 @@ def test_saved_id_automatic_resume_never_calls_video_insert(monkeypatch):
     ))
 
     assert result["youtube_video_id"] == "yt-existing"
+
+
+@pytest.mark.parametrize("final_processing,final_upload,expected", [
+    ("succeeded", "processed", "completed"),
+    ("failed", "failed", "blocked"),
+    ("terminated", "uploaded", "blocked"),
+    ("processing", "uploaded", "pending"),
+    (None, "processed", "pending"),
+])
+def test_processing_must_succeed_before_saved_upload_completes(monkeypatch, final_processing, final_upload, expected):
+    async def fetch_one(query, *args):
+        if "FROM videos" in query:
+            return {"status": "uploaded_draft", "youtube_video_id": "yt-existing", "upload_status": "uploaded"}
+        return {"youtube_refresh_token": "refresh", "youtube_channel_id": CHANNEL}
+    identity = {"youtube_video_id": "yt-existing", "channel_id": CHANNEL, "privacy": "unlisted"}
+    readback = AsyncMock(side_effect=[
+        dict(identity, processing_status="processing", upload_status="uploaded"),
+        dict(identity, processing_status=final_processing, upload_status=final_upload),
+    ])
+    execute, upload = AsyncMock(return_value="UPDATE 1"), AsyncMock()
+    monkeypatch.setattr(queue_delivery, "fetch_one", fetch_one)
+    monkeypatch.setattr(queue_delivery, "execute", execute)
+    monkeypatch.setattr(queue_delivery, "_owner_context", AsyncMock(return_value=("access", CHANNEL)))
+    monkeypatch.setattr(queue_delivery, "_video_readback", readback)
+    monkeypatch.setattr(queue_delivery, "_upload_unlisted", upload)
+    monkeypatch.setattr(queue_delivery, "PROCESSING_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(queue_delivery, "PROCESSING_POLL_SECONDS", 0)
+    result = asyncio.run(queue_delivery.deliver_queue_video(VIDEO, TENANT, CHANNEL))
+    assert result["status"] == expected
+    upload.assert_not_awaited()
+    assert readback.await_count == 2
+    receipts = [json.loads(call.args[1]) for call in execute.await_args_list]
+    assert receipts[0]["status"] == "processing_pending"
+    assert (receipts[-1]["status"] == "verified") == (expected == "completed")
+    if expected == "completed":
+        assert receipts[-1]["processing_status"] == "succeeded"
+    if expected == "pending":
+        assert "timeout" in result["error"]

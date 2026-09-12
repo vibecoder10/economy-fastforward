@@ -5,6 +5,7 @@ import sys
 import types
 
 from PIL import Image
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
@@ -13,6 +14,13 @@ import youtube_publish  # noqa: E402
 
 VIDEO = "video-1"
 TENANT = "tenant-1"
+
+
+@pytest.fixture(autouse=True)
+def _encoded_media_is_outside_quota_contract(monkeypatch):
+    async def valid_media(path, *, expected_duration=None):
+        return {"duration_seconds": 1.0}
+    monkeypatch.setattr(youtube_publish, "validate_encoded_video", valid_media)
 
 
 def _install(monkeypatch, *, thumbnail_succeeded: bool, quota_ok: bool = True):
@@ -103,6 +111,29 @@ def test_quota_refusal_happens_before_download_or_upload(monkeypatch):
     assert calls["downloads"] == 0
     assert calls["uploads"] == 0
     assert calls["releases"] == []
+
+
+def test_invalid_encoded_video_blocks_insert_and_releases_reserved_quota(monkeypatch):
+    calls = _install(monkeypatch, thumbnail_succeeded=False)
+
+    async def reject_media(path, *, expected_duration=None):
+        raise RuntimeError("Encoded output has no audio stream")
+
+    monkeypatch.setattr(youtube_publish, "validate_encoded_video", reject_media)
+
+    with pytest.raises(RuntimeError, match="no audio stream"):
+        asyncio.run(youtube_publish.upload_video_to_youtube(VIDEO, TENANT))
+
+    assert calls["uploads"] == 0
+    assert calls["releases"] == [
+        ({
+            "tracked": True,
+            "day": None,
+            "general_units": 50,
+            "video_uploads": 1,
+            "released": False,
+        }, True, True)
+    ]
 
 
 def test_result_seam_reports_thumbnail_success_and_failure():

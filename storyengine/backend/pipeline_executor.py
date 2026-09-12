@@ -10763,7 +10763,8 @@ class PipelineExecutor:
                     f"Minimum acceptable final roster before proving a small closed category: {pacing_targets['minimum_final_roster']}. "
                     f"Research reserve before final filtering: about {pacing_targets['candidate_universe_target']} total candidates "
                     f"({pacing_targets['extra_good_measure']} extra for exclusions/swaps). "
-                    "Lock the strongest runtime-fit roster; do not optimize for an endless universe or pad weak fits."
+                    "For an exhaustive title, the source-backed title boundary outranks all count targets above. "
+                    "Never omit a qualifying class or pad the roster to fit runtime; adjust pacing instead."
                 )
                 research_context = (research_context + "\n\n" if research_context else "") + pacing_context
 
@@ -10792,7 +10793,7 @@ class PipelineExecutor:
                         f"- Expected final roster: around {pacing.get('expected_final_roster')} audience-facing machines.\n"
                         f"- Minimum failure floor: {pacing.get('minimum_final_roster')} machines. Do not treat this as the target.\n"
                         f"- Research reserve before filtering: about {pacing.get('candidate_universe_target')} total candidates for exclusions/swaps, not an endless universe.\n"
-                        "If your final roster is below the expected target by more than one slot while you found a large reserve, that is not runtime-fit; promote the strongest source-backed edge candidates until the roster fits, or prove a genuinely small closed category.\n"
+                        "For exhaustive titles, these counts are gap-hunt diagnostics only. Resolve all title-qualified candidates from sources; never promote weak fits or omit real classes for runtime.\n"
                     )
                 repair_context = (
                     (research_context or "")

@@ -31,6 +31,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import render_static  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _encoded_media_is_outside_salvage_contract(monkeypatch):
+    async def valid_media(path, *, expected_duration=None):
+        return {"duration_seconds": float(expected_duration or 5.0)}
+    monkeypatch.setattr(render_static, "validate_encoded_video", valid_media)
+
+
 def _write_fake_download(dest):
     """Stage a readable image while keeping narration as inert fake bytes."""
     if dest.suffix.lower() == ".png":
@@ -43,9 +50,10 @@ def _write_fake_download(dest):
 # 1. Salvage path
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("validation_fails", [False, True])
 @pytest.mark.asyncio
 async def test_upload_failure_salvages_finished_mp4_before_workdir_cleanup(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, validation_fails
 ):
     video_id = "salvage-test-vid"
     tenant_id = "tenant-1"
@@ -90,8 +98,16 @@ async def test_upload_failure_salvages_finished_mp4_before_workdir_cleanup(
     async def fake_run_remotion(public_dir, props_file, out_file, on_progress):
         out_file.write_bytes(b"fake-finished-mp4-bytes")
 
+    upload_calls = []
+
     async def fake_upload_bytes(data, path, content_type, tenant_id):
+        upload_calls.append(path)
         raise RuntimeError("simulated Drive 404 (bad parent folder)")
+
+    async def validate_media(path, *, expected_duration=None):
+        if validation_fails:
+            raise RuntimeError("encoded output has no audio stream")
+        return {"duration_seconds": 5.0}
 
     monkeypatch.setattr(render_static, "_gather_segments", fake_gather_segments)
     monkeypatch.setattr(render_static, "_google_client", fake_google_client)
@@ -101,10 +117,17 @@ async def test_upload_failure_salvages_finished_mp4_before_workdir_cleanup(
     monkeypatch.setattr(render_static, "_build_render_config", fake_build_render_config)
     monkeypatch.setattr(render_static, "_select_music_beds", fake_select_music_beds)
     monkeypatch.setattr(render_static, "_run_remotion", fake_run_remotion)
+    monkeypatch.setattr(render_static, "validate_encoded_video", validate_media)
     monkeypatch.setattr(render_static, "upload_bytes", fake_upload_bytes)
 
-    with pytest.raises(RuntimeError, match="simulated Drive 404"):
+    expected_error = (
+        "encoded output has no audio stream"
+        if validation_fails else "simulated Drive 404"
+    )
+    with pytest.raises(RuntimeError, match=expected_error):
         await render_static.render_static_video(video_id, tenant_id, title="Test Video")
+
+    assert len(upload_calls) == (0 if validation_fails else 1)
 
     assert len(created_workdirs) == 1
     workdir = created_workdirs[0]

@@ -32,6 +32,7 @@ from youtube_quota import (
 from youtube_oauth_config import get_youtube_oauth_credentials
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from actions import claude_model_for_direct_client
+from encoded_media import validate_encoded_video
 
 # YouTube videoCategory ids. Education is our default — it fits ESL/explainer content
 # far better than the old hardcoded "25" (News & Politics).
@@ -572,6 +573,7 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
             release_upload = False
         else:
             await _download_to_local(v["final_video_url"], vpath)
+            await validate_encoded_video(vpath)
             try:
                 if expected_channel_id:
                     attempt_id = str(uuid.uuid4())

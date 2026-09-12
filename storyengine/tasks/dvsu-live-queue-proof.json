@@ -1,0 +1,34 @@
+{
+  "observed_at": "2026-09-12T18:24:46Z",
+  "release": "ce3a4c41902815fe7b871b76962d9a6721fe5761",
+  "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+  "video_id": "3f902e62-3ffa-4472-baf4-d0dfe9a20e49",
+  "queue_id": "acc28406-2899-47c0-a8b0-5d5673bf1e93",
+  "job_id": "autobuild:3f902e62-3ffa-4472-baf4-d0dfe9a20e49:1",
+  "attempt_count": 1,
+  "duplicate_intake_insert_count": 0,
+  "existing_video_reused": true,
+  "job_observed_running": true,
+  "first_correction_roster_count": 19,
+  "coverage_first_correction_passed": false,
+  "automatic_second_correction_started": true,
+  "terminal_queue_status": "failed",
+  "terminal_task_status": "failed",
+  "provider_http_status": 400,
+  "provider_error_type": "invalid_request_error",
+  "provider_error": "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+  "provider_request_id": "req_011Cez1bxJ82AdYxpS7zC4P7",
+  "delivery_policy": "youtube_unlisted",
+  "delivery_channel_id": "UCO4gtSa3rpOutrZ45-OjYyA",
+  "production_output_verified": false,
+  "browser_verified": [
+    "deployed title-list defaults",
+    "running attempt visible",
+    "failed credit reason and Retry visible"
+  ],
+  "authorities": [
+    "PostgreSQL production_queue/background_tasks/bot_activity readback",
+    "ARQ worker journal",
+    "live calendar browser"
+  ]
+}

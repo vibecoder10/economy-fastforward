@@ -180,6 +180,9 @@ def _install_upload_plumbing(monkeypatch, video_row, captured):
     )
     monkeypatch.setattr(youtube_publish, "_download_to_local", fake_download_to_local)
     monkeypatch.setattr(youtube_publish, "_do_youtube_upload", fake_do_youtube_upload)
+    async def valid_media(path, *, expected_duration=None):
+        return {"duration_seconds": 1.0}
+    monkeypatch.setattr(youtube_publish, "validate_encoded_video", valid_media)
 
 
 def test_upload_passes_through_the_computed_category(monkeypatch):
