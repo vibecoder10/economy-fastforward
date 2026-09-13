@@ -51,7 +51,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 
 from database import fetch_one, fetch_all, execute
 from generation_ledger import record_ledger_entry
-from error_utils import humanize_error, user_facing
+from error_utils import humanize_error, user_facing, ResearchProviderBlocked
 from status_map import (
     to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage,
     resolve_planned_status, get_next_status_supabase,
@@ -9604,6 +9604,11 @@ class PipelineExecutor:
                     if include_domains:
                         body["include_domains"] = include_domains
                     response = await client.post("https://api.tavily.com/search", json=body)
+                    if response.status_code in {432, 433}:
+                        raise ResearchProviderBlocked(
+                            "Tavily is out of credits or has reached its search plan limit. "
+                            "Add credits or raise the Tavily limit, then resume. Completed research is saved."
+                        )
                     if response.status_code >= 400:
                         errors.append(f"Tavily search failed for {query}: HTTP {response.status_code}")
                         return
@@ -9612,6 +9617,8 @@ class PipelineExecutor:
                             item = dict(item)
                             item["_query"] = query
                             search_results.append(item)
+                except ResearchProviderBlocked:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - keep gathering from remaining queries.
                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
 

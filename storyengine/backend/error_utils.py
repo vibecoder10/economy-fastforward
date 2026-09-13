@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 # Wrapping such copy with user_facing() lets it survive the funnel verbatim.
 USER_FACING_PREFIX = "[[user-facing]] "
 
+
+class ResearchProviderBlocked(RuntimeError):
+    """Account repair is required; trying another research query cannot help."""
+
 _SAFE_RESEARCH_GATE_MESSAGES = {
     "research gate failed; not advancing to scripting: roster validation failed": (
         "Research found a roster coverage or scope issue, so production stopped "
@@ -131,6 +135,10 @@ def humanize_error(
             "record/count qualification, or cite a primary or museum record or two "
             "distinct source hosts supporting the same claim, then retry."
         )
+
+    if "tavily" in lowered and ("out of credits" in lowered or "http 432" in lowered or "http 433" in lowered):
+        return ("Tavily is out of credits or has reached its search plan limit. "
+                "Add credits or raise the Tavily limit, then resume. Completed research is saved.")
 
     # Kie.ai account blocked / out of credit. Kie is the single upstream for
     # text+image+video+voice, so a banned or credit-exhausted key kills every

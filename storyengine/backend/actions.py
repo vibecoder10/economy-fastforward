@@ -1438,6 +1438,19 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 return f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f}); completed work is saved."
             return None
 
+        def _raise_provider_failure(result: dict) -> None:
+            """Keep provider auth/credit failures visible to queue pause logic."""
+            from queue_controls import provider_blocker
+
+            parts = [result.get("error"), result.get("message")]
+            parts.extend(result.get("warnings") or [])
+            for action in (result.get("actions") or [])[:4]:
+                if isinstance(action, dict):
+                    parts.extend((action.get("error"), action.get("detail")))
+            detail = "; ".join(str(part) for part in parts if str(part or "").strip())
+            if detail and provider_blocker(detail):
+                raise RuntimeError(detail)
+
         async def _run_static_docu_roster_research(*, saved_repair_only: bool = False) -> Optional[dict]:
             """G8: run_research's roster-discovery + validation gate can pass while
             the untargeted bulk per-machine hold INSIDE run_research is refused by
@@ -1560,19 +1573,6 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
             done = total - len(pending)
             failures: list[str] = []
-
-            def _raise_provider_failure(result: dict) -> None:
-                """Keep provider auth/credit failures visible to queue pause logic."""
-                from queue_controls import provider_blocker
-
-                parts = [result.get("error"), result.get("message")]
-                parts.extend(result.get("warnings") or [])
-                for action in (result.get("actions") or [])[:4]:
-                    if isinstance(action, dict):
-                        parts.extend((action.get("error"), action.get("detail")))
-                detail = "; ".join(str(part) for part in parts if str(part or "").strip())
-                if detail and provider_blocker(detail):
-                    raise RuntimeError(detail)
 
             async def _saved_machine_passed(machine: str) -> bool:
                 """Read the repaired verdict back from the saved video payload."""
@@ -1914,6 +1914,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          "Checking roster and continuing research…",
                                          tenant_id=tenant_id)
                         r = await ex.run_research(video_id) or {}
+                        _raise_provider_failure(r)
                         if r.get("status") == "cancelled":
                             _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
                             return
@@ -1956,6 +1957,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          "Researching the topic (real web search)…",
                                          tenant_id=tenant_id)
                         r = await ex.run_research(video_id) or {}
+                        _raise_provider_failure(r)
                         if r.get("status") == "cancelled":
                             _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
                             return

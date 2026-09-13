@@ -16,6 +16,25 @@ import pipeline_executor as pe
 import actions
 
 
+@pytest.mark.parametrize("status", [432, 433])
+def test_source_gather_stops_on_first_tavily_account_limit(status):
+    import httpx
+    from unittest.mock import AsyncMock
+    from error_utils import humanize_error
+    executor = object.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+    response = httpx.Response(status, json={"detail": {"error": "Plan limit exceeded"}})
+    with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
+         patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response)) as post:
+        with pytest.raises(RuntimeError, match="Tavily.*credits") as raised:
+            asyncio.run(executor._gather_verified_machine_source_package(
+                "Every US Strategic Bomber Ever Built", "Rockwell B-1B Lancer", {},
+            ))
+    assert post.await_count == 1
+    assert "Tavily" in humanize_error(raised.value)
+    assert "saved" in humanize_error(raised.value)
+
+
 MACHINE = "I-49 HMS Argus"
 
 

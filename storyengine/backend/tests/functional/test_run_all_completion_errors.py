@@ -15,6 +15,11 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     if factual_script_current is not None:
         video["research_payload"] = {"machine_script_contract": "factual_100_v1"}
         video["video_title"] = "Every British Aircraft Carrier Class Ever Built"
+    if research_result is not None:
+        video.setdefault("research_payload", {}).update({
+            "unit_roster_validation": {"passed": True},
+            "unit_research_hold_validation": {"units": [{"machine": "Majestic class", "passed": False}]},
+        })
     statuses = []
     advances = []
     calls = []
@@ -84,6 +89,14 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     if delivery_mode == "render_only":
         delivery.deliver_queue_video.assert_not_awaited()
     return statuses, advances, calls
+
+
+def test_research_provider_limit_stops_before_roster_recovery():
+    message = "Tavily is out of credits. Add credits, then resume; completed research is saved."
+    statuses, advances, calls = _build(initial_status="idea_logged", factual_script_current=False, research_result={"status": "failed", "error": message})
+    assert statuses[-1] == ("failed", message)
+    assert advances == []
+    assert calls == []
 
 
 def test_failed_thumbnail_cannot_advance_to_render():
