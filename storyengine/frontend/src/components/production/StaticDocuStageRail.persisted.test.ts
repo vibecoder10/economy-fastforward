@@ -33,7 +33,7 @@ const assets = [{
   caption: null,
 }];
 
-function renderRail(running: boolean, taskType: string | null, failure: string | null = null): string {
+function renderRail(running: boolean, taskType: string | null, failure: string | null = null, status = video.status): string {
   const watcher: TaskWatcherBridge = {
     running,
     failure,
@@ -44,7 +44,7 @@ function renderRail(running: boolean, taskType: string | null, failure: string |
     subscribe: () => () => undefined,
   };
   const rail = createElement(StaticDocuStageRail, {
-    video: video as never,
+    video: { ...video, status } as never,
     videoActions: actions as never,
     rosterDashboard: roster as never,
     assets: assets as never,
@@ -92,4 +92,10 @@ it("restores the persisted failure on the static documentary rail after reload",
   const html = renderRail(false, null, "Kie source search is temporarily unavailable. Completed research is saved.");
   expect(html).toContain("Kie source search is temporarily unavailable");
   expect(html).toContain("Run All stopped at");
+});
+
+
+it("labels a blocked incomplete script as Script rather than the next visual stage", () => {
+  const html = renderRail(false, null, "Anthropic has reached its API usage limit.", "ready_for_scripting");
+  expect(html).toMatch(/Run All stopped at Script/);
 });

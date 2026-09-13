@@ -239,7 +239,7 @@ export function StaticDocuStageRail({
   );
   const canRun = useMemo(() => computeCanRun(stages), [stages]);
   const visibleRunAllError = runAllError || (!taskWatcher.running && taskWatcher.failure ? {
-    stage: STAGE_ORDER.find((key) => stages[key].status !== "done") || "research",
+    stage: video.status === "ready_for_scripting" ? "script" : STAGE_ORDER.find((key) => stages[key].status !== "done") || "research",
     message: taskWatcher.failure,
   } : null);
 
@@ -267,7 +267,7 @@ export function StaticDocuStageRail({
       // Whichever stage is FIRST not-done, in order, is where the chain was
       // working when it failed — good enough to highlight without the
       // backend needing to report a stage name explicitly.
-      const failedAt = STAGE_ORDER.find((k) => stages[k].status !== "done") || runningStage || "roster";
+      const failedAt = video.status === "ready_for_scripting" ? "script" : STAGE_ORDER.find((k) => stages[k].status !== "done") || runningStage || "roster";
       setRunningStage(null);
       if (runAllActive || persistedActivity.runAllActive) {
         setRunAllActive(false);
