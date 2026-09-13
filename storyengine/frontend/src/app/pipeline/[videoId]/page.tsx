@@ -396,7 +396,7 @@ export default function VideoDetailPage() {
   // it gated its old standalone useTaskPoller.
   useSharedTaskWatcher({
     bridge: taskWatcher,
-    enabled: taskRunning,
+    enabled: taskRunning || sharedTaskRunning,
     onComplete: (message) => {
       setTaskRunning(false);
       setRunningNext(false);
@@ -653,12 +653,13 @@ export default function VideoDetailPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowBuildConfirm((o) => !o)}
-                  disabled={taskRunning || buildStarting}
+                  disabled={taskRunning || sharedTaskRunning || buildStarting}
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
                   style={{ background: "var(--gold)", color: "var(--bg-void)" }}
                   title={detail}
                 >
-                  <Zap size={16} /> {label}
+                  {sharedTaskRunning ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                  {sharedTaskRunning ? "Production running…" : label}
                 </button>
                 {showBuildConfirm && (
                   <>
@@ -686,7 +687,7 @@ export default function VideoDetailPage() {
                             setBuildStarting(false);
                           }
                         }}
-                        disabled={buildStarting}
+                        disabled={buildStarting || taskRunning || sharedTaskRunning}
                         className="w-full py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40"
                         style={{ background: "var(--gold)", color: "var(--bg-void)" }}
                       >
@@ -742,7 +743,7 @@ export default function VideoDetailPage() {
                 </button>
                 <button
                   onClick={() => { setShowResetConfirm(false); handleRunNext(); }}
-                  disabled={runningNext || taskRunning}
+                  disabled={runningNext || taskRunning || sharedTaskRunning}
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)] disabled:opacity-40"
                   style={{ color: "var(--text-secondary)" }}
                 >
@@ -750,7 +751,7 @@ export default function VideoDetailPage() {
                 </button>
                 <button
                   onClick={() => { setShowResetConfirm(false); handleSkipStage(); }}
-                  disabled={skipping}
+                  disabled={skipping || sharedTaskRunning}
                   className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)] disabled:opacity-40"
                   style={{ color: "var(--orange)" }}
                 >

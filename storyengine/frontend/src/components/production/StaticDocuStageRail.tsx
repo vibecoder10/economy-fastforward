@@ -16,6 +16,7 @@ import {
   type VideoDetail, type VideoActions, type RosterDashboard, type Asset,
 } from "@/lib/api";
 import { getStaticDocuReadiness } from "@/lib/static-docu";
+import { persistedTaskActivity } from "@/lib/persisted-task-state";
 import { useDrainMode } from "@/components/system/DrainModeProvider";
 
 export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
@@ -226,6 +227,11 @@ export function StaticDocuStageRail({
   const [runningStage, setRunningStage] = useState<StaticDocuStageKey | null>(null);
   const [runAllActive, setRunAllActive] = useState(false);
   const [runAllError, setRunAllError] = useState<{ stage: StaticDocuStageKey; message: string } | null>(null);
+  const persistedActivity = persistedTaskActivity(
+    taskWatcher.running ? "running" : "idle",
+    taskWatcher.taskType,
+    video.status,
+  );
 
   const stages = useMemo(
     () => computeStaticDocuStages(video, videoActions, rosterDashboard, assets),
@@ -243,7 +249,7 @@ export function StaticDocuStageRail({
 
   useSharedTaskWatcher({
     bridge: taskWatcher,
-    enabled: taskRunning,
+    enabled: taskRunning || persistedActivity.active,
     onComplete: (msg) => {
       setTaskRunning(false);
       setRunningStage(null);
@@ -259,7 +265,7 @@ export function StaticDocuStageRail({
       // backend needing to report a stage name explicitly.
       const failedAt = STAGE_ORDER.find((k) => stages[k].status !== "done") || runningStage || "roster";
       setRunningStage(null);
-      if (runAllActive) {
+      if (runAllActive || persistedActivity.runAllActive) {
         setRunAllActive(false);
         setRunAllError({ stage: failedAt, message: error });
       } else {
@@ -342,7 +348,8 @@ export function StaticDocuStageRail({
   };
 
   const allGreen = STAGE_ORDER.every((k) => stages[k].status === "done");
-  const busy = taskRunning || runAllActive;
+  const visibleRunAllActive = runAllActive || persistedActivity.runAllActive;
+  const busy = taskRunning || runAllActive || persistedActivity.active;
 
   return (
     <div className="space-y-3">
@@ -350,12 +357,20 @@ export function StaticDocuStageRail({
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
           {STAGE_ORDER.map((key, idx) => {
             const meta = STAGE_META[key];
-            const info = stages[key];
+            const savedInfo = stages[key];
+            const info = key === "video" && persistedActivity.renderActive
+              ? {
+                  status: "in_progress" as StageStatus,
+                  detail: persistedActivity.runAllActive ? "Run All is finishing the video…" : "Render job in progress…",
+                }
+              : savedInfo;
             const Icon = meta.icon;
             const locked = !canRun[key];
             const reason = lockReason(key, stages);
             const isActive = activeStage === key;
-            const isBusy = runningStage === key || (runAllActive && info.status !== "done" && STAGE_ORDER.slice(0, idx).every((k) => stages[k].status === "done"));
+            const isBusy = runningStage === key
+              || (visibleRunAllActive && info.status !== "done" && STAGE_ORDER.slice(0, idx).every((k) => stages[k].status === "done"))
+              || (key === "video" && persistedActivity.renderActive);
             const color = STATUS_COLOR[info.status];
             return (
               <div key={key} className="flex items-center shrink-0">
@@ -405,11 +420,12 @@ export function StaticDocuStageRail({
                     : "Run the whole pipeline automatically, stopping on any error."
               }
               data-generation-action
+              data-testid="run-all"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
               style={{ background: "var(--gold)", color: "var(--bg-void)" }}
             >
-              {runAllActive ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-              {runAllActive ? "Running All…" : allGreen ? "All Done" : "Run All"}
+              {visibleRunAllActive ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+              {visibleRunAllActive ? "Running All…" : allGreen ? "All Done" : "Run All"}
             </button>
           </div>
         </div>
@@ -467,7 +483,8 @@ export function StaticDocuStageRail({
             <StageRunButton
               disabled={!canRun.video || busy}
               lockedReason={lockReason("video", stages)}
-              running={runningStage === "video"}
+              running={runningStage === "video" || persistedActivity.renderActive}
+              testId="stage-run-video"
               onClick={() => startStage(
                 video.thumbnail_url ? "render" : "thumbnail",
                 video.thumbnail_url ? "Render" : "Thumbnail",
@@ -483,18 +500,20 @@ export function StaticDocuStageRail({
 }
 
 function StageRunButton({
-  onClick, disabled, running, label, lockedReason,
+  onClick, disabled, running, label, lockedReason, testId,
 }: {
   onClick: () => void;
   disabled: boolean;
   running: boolean;
   label: string;
   lockedReason: string | null;
+  testId?: string;
 }) {
   return (
     <motion.button
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       title={disabled ? (lockedReason || undefined) : undefined}
       whileTap={disabled ? undefined : { scale: 0.98 }}
       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"

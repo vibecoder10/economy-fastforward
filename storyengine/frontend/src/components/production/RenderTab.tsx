@@ -10,6 +10,7 @@ import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advan
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { getStaticDocuReadiness } from "@/lib/static-docu";
+import { persistedTaskActivity } from "@/lib/persisted-task-state";
 import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -51,10 +52,15 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
   const [orientation, setOrientation] = useState<"auto" | "landscape" | "portrait">("auto");
   const [taskRunning, setTaskRunning] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const persistedActivity = persistedTaskActivity(
+    taskWatcher.running ? "running" : "idle",
+    taskWatcher.taskType,
+    video.status,
+  );
 
   const { message: taskMessage } = useSharedTaskWatcher({
     bridge: taskWatcher,
-    enabled: taskRunning,
+    enabled: taskRunning || persistedActivity.renderActive,
     onComplete: () => {
       setTaskRunning(false);
       setIsRendering(false);
@@ -168,7 +174,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
     }
   }, [video.id, orientation]);
 
-  const renderActive = isRendering || isRenderStatus || taskRunning;
+  const renderActive = isRendering || isRenderStatus || taskRunning || persistedActivity.renderActive;
 
   const [advancing, setAdvancing] = useState(false);
   const handleAdvanceStage = useCallback(async () => {
@@ -190,10 +196,10 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
     <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-          <span>Render: <span style={{ color: renderActive ? "var(--gold)" : video.final_video_url ? "var(--green)" : "var(--text-tertiary)" }}>{renderActive ? "In Progress" : video.final_video_url ? "Complete" : "Pending"}</span></span>
+          <span>Render: <span style={{ color: renderActive ? "var(--gold)" : video.final_video_url ? "var(--green)" : "var(--text-tertiary)" }}>{persistedActivity.runAllActive ? "Finishing" : renderActive ? "In Progress" : video.final_video_url ? "Complete" : "Pending"}</span></span>
           <span>Video: <span style={{ color: video.final_video_url ? "var(--green)" : "var(--text-tertiary)" }}>{video.final_video_url ? "Ready" : "Not Ready"}</span></span>
         </div>
-        <button onClick={handleAdvanceStage} disabled={advancing}
+        <button onClick={handleAdvanceStage} disabled={advancing || renderActive}
           className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
           style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
           {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
@@ -526,12 +532,12 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
               <ActionButton
                 startsGeneration
                 variant="warning"
-                icon={isRendering ? Loader2 : undefined}
+                icon={renderActive ? Loader2 : undefined}
                 className="w-full"
                 onClick={handleRender}
                 disabled={renderActive}
               >
-                {renderActive ? "Rendering..." : "Confirm Render"}
+                {persistedActivity.runAllActive ? "Finishing…" : renderActive ? "Rendering..." : "Confirm Render"}
               </ActionButton>
               <ActionButton
                 variant="outline"
@@ -549,7 +555,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
               disabled={renderActive || !canRender}
             >
               {renderActive
-                ? "Rendering..."
+                ? (persistedActivity.runAllActive ? "Finishing…" : "Rendering...")
                 : !canRender
                   ? (isStaticDocu ? "Needs images + voiceover" : "No clips to render")
                   : "Render Now"}

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 // Minimal unit-test setup for pure TypeScript modules (no DOM, no Next.js
 // runtime needed). Added for Timeline Workbench chunk T1 — this frontend
@@ -7,6 +8,9 @@ import { defineConfig } from "vitest/config";
 // testing a pure function in isolation). Scoped to co-located *.test.ts
 // files so it never picks up the Playwright specs under tests/.
 export default defineConfig({
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],

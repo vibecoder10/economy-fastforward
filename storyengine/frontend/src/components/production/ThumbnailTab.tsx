@@ -12,6 +12,7 @@ import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
 import { getStageIndex, getStageLabel } from "@/lib/constants";
 import { toDisplayImageUrl } from "@/lib/utils";
+import { persistedTaskActivity } from "@/lib/persisted-task-state";
 
 interface ThumbnailTabProps {
   video: VideoDetail & {
@@ -36,6 +37,11 @@ export function ThumbnailTab({ video, onAdvanced, taskWatcher }: ThumbnailTabPro
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [promptSaved, setPromptSaved] = useState(false);
   const savedPromptRef = useRef(video.thumbnail_prompt || "");
+  const persistedActivity = persistedTaskActivity(
+    taskWatcher.running ? "running" : "idle",
+    taskWatcher.taskType,
+    video.status,
+  );
 
   // Backend requires video to be at ready_for_thumbnail stage or later
   const minStageIdx = getStageIndex("ready_for_thumbnail");
@@ -44,7 +50,7 @@ export function ThumbnailTab({ video, onAdvanced, taskWatcher }: ThumbnailTabPro
 
   const { message: taskMessage } = useSharedTaskWatcher({
     bridge: taskWatcher,
-    enabled: taskRunning,
+    enabled: taskRunning || persistedActivity.active,
     onComplete: () => {
       setTaskRunning(false);
       setIsRegenerating(false);
@@ -370,14 +376,14 @@ export function ThumbnailTab({ video, onAdvanced, taskWatcher }: ThumbnailTabPro
           <ActionButton
             startsGeneration
             variant="filled"
-            icon={(isRegenerating || taskRunning) ? Loader2 : thumbnailUrl ? RefreshCw : ImageIcon}
+            icon={(isRegenerating || taskRunning || persistedActivity.active) ? Loader2 : thumbnailUrl ? RefreshCw : ImageIcon}
             className="w-full"
             onClick={handleRegenerate}
-            disabled={isRegenerating || taskRunning || !isReadyForThumbnail}
+            disabled={isRegenerating || taskRunning || persistedActivity.active || !isReadyForThumbnail}
           >
             {!isReadyForThumbnail
               ? `Not ready — complete ${getStageLabel(video.status || "")} first`
-              : taskRunning
+              : taskRunning || persistedActivity.active
                 ? (taskMessage || "Generating...")
                 : isRegenerating
                   ? "Starting..."
