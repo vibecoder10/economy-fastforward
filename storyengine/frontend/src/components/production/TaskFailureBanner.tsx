@@ -29,6 +29,7 @@ interface TaskFailureBannerProps {
  */
 export function TaskFailureBanner({ videoId, taskWatcher }: TaskFailureBannerProps) {
   const queryClient = useQueryClient();
+  const [dismissed, setDismissed] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const refreshAll = () => {
@@ -42,17 +43,20 @@ export function TaskFailureBanner({ videoId, taskWatcher }: TaskFailureBannerPro
   useSharedTaskWatcher({
     bridge: taskWatcher,
     onComplete: () => {
-      setFailure(null); // a finished run supersedes any earlier failure card
+      setFailure(null);
+      setDismissed(null); // a finished run supersedes any earlier failure card
       refreshAll();
     },
     onFailed: (error) => {
       refreshAll();
+      setDismissed(null);
       setFailure(humanizeError(error, "That step didn't finish."));
     },
   });
   const { running } = taskWatcher;
 
-  if (!failure || running) return null;
+  const visibleFailure = taskWatcher.failure || failure;
+  if (!visibleFailure || running || visibleFailure === dismissed) return null;
 
   return (
     <GlassCard className="!p-4 mb-4" style={{ border: "1px solid var(--red)" }}>
@@ -62,12 +66,12 @@ export function TaskFailureBanner({ videoId, taskWatcher }: TaskFailureBannerPro
           <p className="text-sm font-semibold" style={{ color: "var(--red)" }}>
             That step didn&apos;t finish
           </p>
-          <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>{failure}</p>
+          <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>{visibleFailure}</p>
           <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
             Anything already created was kept — use the button below to pick up where it left off.
           </p>
         </div>
-        <button onClick={() => setFailure(null)} title="Dismiss" className="shrink-0 p-1" style={{ color: "var(--text-tertiary)" }}>
+        <button onClick={() => { setDismissed(visibleFailure); setFailure(null); }} title="Dismiss" className="shrink-0 p-1" style={{ color: "var(--text-tertiary)" }}>
           <X size={16} />
         </button>
       </div>

@@ -238,6 +238,10 @@ export function StaticDocuStageRail({
     [video, videoActions, rosterDashboard, assets],
   );
   const canRun = useMemo(() => computeCanRun(stages), [stages]);
+  const visibleRunAllError = runAllError || (!taskWatcher.running && taskWatcher.failure ? {
+    stage: STAGE_ORDER.find((key) => stages[key].status !== "done") || "research",
+    message: taskWatcher.failure,
+  } : null);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
@@ -431,15 +435,15 @@ export function StaticDocuStageRail({
         </div>
       </GlassCard>
 
-      {runAllError && (
+      {visibleRunAllError && (
         <GlassCard className="p-4" style={{ borderColor: "var(--red)" }}>
           <div className="flex items-start gap-3">
             <AlertTriangle size={18} style={{ color: "var(--red)" }} className="shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold" style={{ color: "var(--red)" }}>
-                Run All stopped at {STAGE_META[runAllError.stage].label}
+                Run All stopped at {STAGE_META[visibleRunAllError.stage].label}
               </p>
-              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{runAllError.message}</p>
+              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{visibleRunAllError.message}</p>
             </div>
           </div>
         </GlassCard>

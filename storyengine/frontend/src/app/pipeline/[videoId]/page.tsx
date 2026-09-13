@@ -373,7 +373,7 @@ export default function VideoDetailPage() {
     taskCallbacksRef.current.add(handlers);
     return () => { taskCallbacksRef.current.delete(handlers); };
   }, []);
-  const { running: sharedTaskRunning, message: sharedTaskMessage, viaAgent: sharedTaskViaAgent, taskType: sharedTaskType, markStarted: markTaskStarted } = useTaskWatcher({
+  const { running: sharedTaskRunning, message: sharedTaskMessage, failure: sharedTaskFailure, viaAgent: sharedTaskViaAgent, taskType: sharedTaskType, markStarted: markTaskStarted } = useTaskWatcher({
     videoId,
     onProgress: (msg) => taskCallbacksRef.current.forEach((h) => h.onProgress?.(msg)),
     onComplete: (msg) => taskCallbacksRef.current.forEach((h) => h.onComplete?.(msg)),
@@ -383,12 +383,13 @@ export default function VideoDetailPage() {
     () => ({
       running: sharedTaskRunning,
       message: sharedTaskMessage,
+      failure: sharedTaskFailure,
       viaAgent: sharedTaskViaAgent,
       taskType: sharedTaskType,
       markStarted: markTaskStarted,
       subscribe: subscribeTaskWatcher,
     }),
-    [sharedTaskRunning, sharedTaskMessage, sharedTaskViaAgent, sharedTaskType, markTaskStarted, subscribeTaskWatcher],
+    [sharedTaskRunning, sharedTaskMessage, sharedTaskFailure, sharedTaskViaAgent, sharedTaskType, markTaskStarted, subscribeTaskWatcher],
   );
 
   // This page's own "Run Next" flow (the reset-confirm modal's quick action)

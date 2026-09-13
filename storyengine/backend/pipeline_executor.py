@@ -9538,8 +9538,14 @@ class PipelineExecutor:
         ):
             return cached
 
-        tavily_key = await get_secret("tavily_api_key", self.tenant_id)
-        if not tavily_key:
+        from factual_machine_research import is_factual_machine_contract, factual_package_contract_warnings
+        from factual_source_search import discover_sources, guard_public_request, SourceDiscoveryError
+        factual_search = is_factual_machine_contract(payload)
+        search_key = await get_secret("kie_ai_api_key" if factual_search else "tavily_api_key", self.tenant_id)
+        if factual_search and not search_key:
+            raise SourceDiscoveryError(user_facing("Missing Kie API key for source research. Add it in Settings, then resume; completed research is saved."))
+        tavily_key = search_key
+        if not search_key:
             return {
                 "passed": False,
                 "machine": machine,
@@ -9558,7 +9564,9 @@ class PipelineExecutor:
         errors: list[str] = []
         skipped_search_queries: list[str] = []
         headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
-        async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
+        discovery = None
+        hooks = {"request": [guard_public_request]} if factual_search else None
+        async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers, event_hooks=hooks) as client:
             search_passes = [(query, None) for query in queries]
             # GAP 1(c), 2026-07-30: iwm.org.uk 403s every automated fetch (curl,
             # WebFetch - all of it), so a search hit there can never become a
@@ -9622,8 +9630,11 @@ class PipelineExecutor:
                 except Exception as exc:  # noqa: BLE001 - keep gathering from remaining queries.
                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
 
-            for query, include_domains in search_passes:
-                await _run_search_pass(query, include_domains)
+            if factual_search:
+                search_results, discovery = await discover_sources(client, search_key, title, machine)
+            else:
+                for query, include_domains in search_passes:
+                    await _run_search_pass(query, include_domains)
 
             sources: list[dict] = []
             candidate_excerpts: list[dict] = []
@@ -9688,7 +9699,7 @@ class PipelineExecutor:
                 ):
                     _register_variant(capture_method, source_text, 1 if capture_method == "fetched_page" else 0)
 
-                if not source_variants:
+                if not source_variants and not factual_search:
                     # GAP 1(b), 2026-07-30: the direct fetch AND Tavily's own raw
                     # content both came back empty (e.g. iwm.org.uk 403ing the
                     # request) - fall back exactly as the DVsU research
@@ -9798,6 +9809,7 @@ class PipelineExecutor:
             # before giving up on a Tier 1-2 anchor for this machine.
             if (
                 is_naval
+                and not factual_search
                 and calls_used < _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE
                 and not any(1 <= _source_tier_number(c) <= 2 for c in candidate_excerpts)
             ):
@@ -9833,7 +9845,13 @@ class PipelineExecutor:
             [item for item in candidate_excerpts if _verified_source_candidate_traceable(item)],
             machine,
         )
-        quality_errors = _verified_machine_source_package_quality_errors(package, machine)
+        if discovery is not None:
+            package["source_discovery"] = discovery
+        if factual_search:
+            quality_errors = factual_package_contract_warnings(machine, package)
+            package["passed"] = not quality_errors
+        else:
+            quality_errors = _verified_machine_source_package_quality_errors(package, machine)
         # G14, 2026-07-31: package["passed"] is what _verified_machine_source_
         # package_ready() gates on everywhere - it must only go False for a
         # genuinely BLOCKING quality error, or the (now advisory) tier-only
@@ -11039,7 +11057,8 @@ class PipelineExecutor:
         except Exception as e:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
-            return {"status": "failed", "error": error_msg}
+            from factual_source_search import SourceDiscoveryError
+            return {"status": "failed", "error": error_msg, "source_search_failed": isinstance(e, SourceDiscoveryError)}
 
     async def run_one_machine_research(self, video_id: str, machine: str) -> dict:
         """Refresh one locked machine card without paying for or replacing the rest of the roster."""
@@ -12513,6 +12532,18 @@ class PipelineExecutor:
                     payload, target_machine or "", warnings,
                 )
                 return payload
+
+            discovery = verified_source_package.get("source_discovery") or {}
+            if discovery.get("provider") == "kie" and discovery.get("request_id") and discovery.get("credits_consumed") is not None:
+                from generation_ledger import record_ledger_entry
+                from factual_source_search import USD_PER_CREDIT
+                credits = float(discovery["credits_consumed"])
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id, video_id=video_id, stage="research",
+                    model="kie/" + str(discovery.get("model") or "gpt-5-2"),
+                    units=credits, unit_cost=USD_PER_CREDIT, actual_cost=credits * USD_PER_CREDIT,
+                    kie_task_id=str(discovery["request_id"]),
+                )
 
             package_warnings = factual_package_contract_warnings(
                 target_machine or "", verified_source_package,

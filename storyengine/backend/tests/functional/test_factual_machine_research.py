@@ -112,8 +112,11 @@ def test_machine_match_requires_full_distinctive_name_and_prefers_source_diversi
     ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
     ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
 ])
-def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(machine, excerpt):
+@pytest.mark.parametrize("kie_receipt", [False, True])
+def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(machine, excerpt, kie_receipt):
     package = _package(_candidate(text=excerpt), machine=machine)
+    if kie_receipt:
+        package["source_discovery"] = {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32}
     payload = {
         "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
         "unit_roster": [machine, "HMS Eagle"],
@@ -159,9 +162,15 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(mac
     executor._upsert_machine_research_card = MethodType(upsert, executor)
     executor._log_activity = MethodType(log, executor)
 
-    result = asyncio.run(executor._run_unit_research_hold(
-        "video-1", "Every British Carrier", payload, payload["unit_roster"], target_machine=machine,
-    ))
+    from unittest.mock import AsyncMock
+    with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger:
+        result = asyncio.run(executor._run_unit_research_hold(
+            "video-1", "Every British Carrier", payload, payload["unit_roster"], target_machine=machine,
+        ))
+    assert ledger.await_count == int(kie_receipt)
+    if kie_receipt:
+        assert ledger.call_args.kwargs["kie_task_id"] == "search-123"
+        assert ledger.call_args.kwargs["actual_cost"] == pytest.approx(0.0016)
 
     assert calls == {"gather": 0, "raw": 1, "card": 1, "upsert": 1}
     card = pe._research_card_for_machine(result, machine)

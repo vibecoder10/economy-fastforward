@@ -115,6 +115,7 @@ interface UseTaskWatcherOptions {
  */
 export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed, onProgress }: UseTaskWatcherOptions) {
   const [running, setRunning] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   // C28: "via agent" attribution — mirrors `message`'s lifecycle exactly
   // (set while active, cleared to null once the task isn't running/pending
@@ -150,11 +151,13 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
         if (active) {
           wasRunningRef.current = true;
           setRunning(true);
+          setFailure(null);
           setMessage(task.message ?? null);
           setViaAgent(task.via_agent ?? null);
           setTaskType(task.task_type ?? null);
           onProgressRef.current?.(task.message ?? null);
         } else {
+          setFailure(task.status === "failed" ? (task.error || task.message || "That step did not finish.") : null);
           if (wasRunningRef.current) {
             wasRunningRef.current = false;
             if (task.status === "failed") onFailedRef.current?.(task.error || "Unknown error");
@@ -179,6 +182,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
     epochRef.current += 1; // invalidate any poll already in flight
     wasRunningRef.current = true;
     setRunning(true);
+    setFailure(null);
     // Optimistic arm has no way to know attribution yet (it fires the instant
     // a LOCAL click starts work, before the first poll lands) — clear any
     // stale agent name from a previous run rather than showing it briefly
@@ -189,7 +193,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
     setTaskType(null);
   }, []);
 
-  return { running, message, viaAgent, taskType, markStarted };
+  return { running, message, failure, viaAgent, taskType, markStarted };
 }
 
 export interface TaskWatcherHandlers {
@@ -209,6 +213,8 @@ export interface TaskWatcherHandlers {
  */
 export interface TaskWatcherBridge {
   running: boolean;
+  /** Latest persisted failure, including a cold page load; does not replay completion callbacks. */
+  failure?: string | null;
   message: string | null;
   /** C28: the agent's display name when the running task's claim is
    * agent-held, null otherwise — read directly off the bridge (same pattern

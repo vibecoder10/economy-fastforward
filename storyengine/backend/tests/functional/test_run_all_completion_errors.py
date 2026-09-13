@@ -99,6 +99,14 @@ def test_research_provider_limit_stops_before_roster_recovery():
     assert calls == []
 
 
+def test_kie_search_failure_never_enters_legacy_roster_repair():
+    message = "Kie source search is temporarily unavailable; completed research is saved."
+    statuses, advances, calls = _build(initial_status="idea_logged", factual_script_current=False,
+        research_result={"status": "failed", "error": message, "source_search_failed": True})
+    assert statuses[-1] == ("failed", message)
+    assert advances == [] and calls == []
+
+
 def test_failed_thumbnail_cannot_advance_to_render():
     statuses, advances, _ = _build(thumbnail_result={"status": "failed", "error": "Provider unavailable"})
     assert statuses[-1] == ("failed", "Provider unavailable")

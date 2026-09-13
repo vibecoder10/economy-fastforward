@@ -33,9 +33,10 @@ const assets = [{
   caption: null,
 }];
 
-function renderRail(running: boolean, taskType: string | null): string {
+function renderRail(running: boolean, taskType: string | null, failure: string | null = null): string {
   const watcher: TaskWatcherBridge = {
     running,
+    failure,
     taskType,
     message: running ? "Working on it…" : null,
     viaAgent: null,
@@ -84,4 +85,11 @@ describe("StaticDocuStageRail persisted task controls", () => {
     expect(isDisabled(buttonTag(markup, "run-all"))).toBe(false);
     expect(isDisabled(buttonTag(markup, "stage-run-video"))).toBe(false);
   });
+});
+
+
+it("restores the persisted failure on the static documentary rail after reload", () => {
+  const html = renderRail(false, null, "Kie source search is temporarily unavailable. Completed research is saved.");
+  expect(html).toContain("Kie source search is temporarily unavailable");
+  expect(html).toContain("Run All stopped at");
 });
