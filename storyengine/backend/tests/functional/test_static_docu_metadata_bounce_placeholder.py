@@ -277,7 +277,7 @@ async def test_successful_rerun_replaces_blocked_placeholder(monkeypatch):
         return {"url": "https://kie.example/render_success.png"}
 
     async def fake_render_matches(tid, render_url, ref_url, machine, aliases=None,
-                                  *, reason_out=None):
+                                  *, reason_out=None, facts=None):
         if reason_out is not None:
             reason_out.append("yes, same aircraft type")
         return True

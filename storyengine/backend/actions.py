@@ -1347,6 +1347,32 @@ def _factual_script_recheck_needed(video: dict) -> bool:
     return not factual_script_readiness(video, _machine_documentary_hold_roster(video))
 
 
+async def _factual_image_recheck_needed(video: dict, tenant_id: str) -> bool:
+    from static_image_review import factual_image_review_required, image_review_current
+    if (video.get("status") in DONE_STATUSES
+            or not is_at_or_past_stage(video.get("status"), "ready_for_images")
+            or not factual_image_review_required(video)):
+        return False
+    rows = await fetch_all(
+        "SELECT image_url, caption FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "AND generation_method='static_docu' AND status='done' AND image_url IS NOT NULL",
+        video["id"], tenant_id,
+    )
+    for row in rows:
+        cap = row.get("caption")
+        if isinstance(cap, str):
+            try:
+                cap = json.loads(cap)
+            except (TypeError, ValueError):
+                cap = {}
+        # Imported design reconstructions retain their separate provenance contract.
+        if isinstance(cap, dict) and cap.get("design_study") is True:
+            continue
+        if not image_review_current(cap, row.get("image_url")):
+            return True
+    return False
+
+
 def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         start_msg: str = "Building your video…",
                         delivery_mode: str = "render_only",
@@ -1801,6 +1827,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     await _advance("ready_for_scripting")
                     video["status"] = status = "ready_for_scripting"
                     _set_task_status(video_id, "running", "Rechecking saved sections against the current video subject…", tenant_id=tenant_id)
+                if await _factual_image_recheck_needed(video, tenant_id):
+                    await _advance("ready_for_image_prompts")
+                    video["status"] = status = "ready_for_image_prompts"
+                    _set_task_status(video_id, "running", "Rechecking saved images against the current machine configuration…", tenant_id=tenant_id)
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)

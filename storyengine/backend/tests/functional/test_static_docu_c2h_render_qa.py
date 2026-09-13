@@ -105,8 +105,13 @@ async def test_two_image_payload_order_reference_then_render(monkeypatch):
     assert render_block["source"]["data"] == base64.b64encode(_FAKE_RENDER_PNG).decode("ascii")
 
     # Prompt must name image 1 as the reference and image 2 as our render.
-    assert "image 1" in content[0]["text"].lower()
-    assert "image 2" in content[0]["text"].lower()
+    prompt = content[0]["text"].lower()
+    assert "image 1" in prompt
+    assert "image 2" in prompt
+    assert "aircraft comparison" in prompt
+    assert "wing form" in prompt
+    assert "engine count" in prompt
+    assert "tail configuration" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +242,12 @@ async def test_transport_succeeds_on_retry(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 7. Keyless carve-out unchanged: no provider key on the tenant fails OPEN
-#    (config gap, not a transport symptom) — same as _vision_confirms.
+# 7. No provider key means the image remains unverified: fails CLOSED
+#    (an actual judge must inspect the image).
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_no_provider_key_fails_open(monkeypatch):
+async def test_no_provider_key_fails_closed(monkeypatch):
     _install_vision_fakes(monkeypatch, [], anthropic_key=None)
 
     import vault
@@ -255,7 +260,7 @@ async def test_no_provider_key_fails_open(monkeypatch):
     result = await static_docu._render_matches_reference(
         "tenant-1", "https://example.com/render.png",
         "https://example.com/reference.jpg", "Boeing XB-15")
-    assert result is True
+    assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -283,3 +288,38 @@ async def test_aliases_included_in_prompt(monkeypatch):
 
     text = captured["json"]["messages"][0]["content"][0]["text"]
     assert "XB-42" in text
+
+
+@pytest.mark.asyncio
+async def test_ship_prompt_preserves_split_flight_decks_and_major_structures(monkeypatch):
+    fake_client = _install_vision_fakes(monkeypatch, [
+        _anthropic_body("NO, the forward flight deck was replaced by gun turrets"),
+    ])
+    captured = {}
+    orig_post = fake_client.post
+
+    async def spy_post(url, headers=None, json=None, **kwargs):
+        captured["json"] = json
+        return await orig_post(url, headers=headers, json=json, **kwargs)
+
+    monkeypatch.setattr(fake_client, "post", spy_post)
+    reason = []
+
+    result = await static_docu._render_matches_reference(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/reference.jpg", "HMS Vindictive",
+        facts={"role": "aircraft carrier conversion", "years": "1918–1924"},
+        reason_out=reason,
+    )
+
+    assert result is False
+    prompt = captured["json"]["messages"][0]["content"][0]["text"].lower()
+    assert "ship comparison" in prompt
+    assert "role: aircraft carrier conversion" in prompt
+    assert "era: 1918–1924" in prompt
+    assert "split forward and aft flight decks" in prompt
+    assert "armament and gun turrets" in prompt
+    assert "island or other superstructure" in prompt
+    assert "funnels" in prompt
+    assert "do not invent, remove, or replace any major structure" in prompt
+    assert "forward flight deck was replaced by gun turrets" in reason[0]

@@ -223,7 +223,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     remaining_identity_reasons = list(identity_reasons)
 
     async def fake_render_matches(tid, render_url, ref_url, machine, aliases=None,
-                                  *, reason_out=None):
+                                  *, reason_out=None, facts=None):
         env["qa_calls"].append((render_url, ref_url))
         verdict = remaining_verdicts.pop(0) if remaining_verdicts else False
         if reason_out is not None:
@@ -239,7 +239,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
 
     remaining_arbiter = list(arbiter_verdicts)
 
-    async def fake_arbiter(tid, render_url, ref_url, machine, aliases=None):
+    async def fake_arbiter(tid, render_url, ref_url, machine, aliases=None, *, facts=None):
         env["arbiter_calls"].append((render_url, ref_url))
         return remaining_arbiter.pop(0) if remaining_arbiter else False
 
@@ -379,6 +379,29 @@ async def test_double_qa_reject_parks_render_instead_of_deleting(monkeypatch):
     # (it carries the reproduce-exactly emphasis), prefixed with the ref.
     assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
     assert "Reproduce the machine" in row["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generation_and_retry_prompts_receive_configuration_and_specific_qa_reason(monkeypatch):
+    monkeypatch.setattr(
+        static_docu,
+        "_render_reference_configuration_rules",
+        lambda *args, **kwargs: "PRESERVE THE FORWARD AND AFT FLIGHT DECKS",
+    )
+    env = _pipeline_env(
+        monkeypatch,
+        verdicts=[False, True],
+        gen_urls=[RENDER_1, RENDER_2],
+        identity_reasons=["the forward flight deck is missing and replaced by twin gun turrets"],
+    )
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    assert "PRESERVE THE FORWARD AND AFT FLIGHT DECKS" in env["gen_prompts"][0]
+    assert "CORRECT THE OBSERVED QA MISMATCH" in env["gen_prompts"][1]
+    assert "forward flight deck is missing and replaced by twin gun turrets" in env["gen_prompts"][1]
 
 
 @pytest.mark.asyncio
@@ -855,6 +878,35 @@ async def test_arbiter_aliases_included_in_prompt(monkeypatch):
     # first, render second, both base64.
     image_blocks = [b for b in content if b["type"] == "image"]
     assert len(image_blocks) == 2
+
+
+@pytest.mark.asyncio
+async def test_arbiter_ship_prompt_checks_split_decks_and_major_structures(monkeypatch):
+    fake_client = _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MISMATCH, image 2 replaced the forward flight deck with gun turrets"),
+    ])
+    captured = {}
+    orig_post = fake_client.post
+
+    async def spy_post(url, headers=None, json=None, **kwargs):
+        captured["json"] = json
+        return await orig_post(url, headers=headers, json=json, **kwargs)
+
+    monkeypatch.setattr(fake_client, "post", spy_post)
+
+    result = await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "HMS Vindictive",
+        facts={"role": "aircraft carrier conversion", "years": "1918–1924"},
+    )
+
+    assert result is False
+    prompt = captured["json"]["messages"][0]["content"][0]["text"].lower()
+    assert "ship comparison" in prompt
+    assert "split forward and aft flight decks" in prompt
+    assert "replace either flight deck with gun turrets" in prompt
+    assert "island or other superstructure" in prompt
+    assert "do not invent, remove, or replace any major structure" in prompt
 
 
 # ---------------------------------------------------------------------------

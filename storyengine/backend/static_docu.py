@@ -35,6 +35,9 @@ from static_docu_contract import (
     STATIC_VIEWS_TARGET,
 )
 from storage import upload_bytes
+from static_image_review import (
+    factual_image_review_required, image_review_current, image_review_stamp,
+)
 
 _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipeline"
 if str(_PIPELINE_PATH) not in sys.path:
@@ -1456,7 +1459,7 @@ _WRONG_CONTENT_KEYWORDS = ("interior", "cockpit", "person", "portrait", "map",
 # _WRONG_CONTENT_KEYWORDS above (which judge candidate REFERENCE photos),
 # _render_matches_reference only hard-rejects a reply saying the render
 # itself is missing/not-an-aircraft, never "rendered"/"illustration"/"model".
-_RENDER_EMPTY_KEYWORDS = ("empty", "blank", "not an aircraft")
+_RENDER_EMPTY_KEYWORDS = ("empty", "blank", "not an aircraft", "not a ship", "no machine")
 
 
 def _has_keyword(text: str, keywords: tuple) -> bool:
@@ -1654,6 +1657,49 @@ def _qa_reason_text(txt: str, limit: int = 200) -> str:
     never a decision."""
     reason = re.sub(r"^\s*\W*\b(yes|no)\b[\s,:;.\-]*", "", txt, flags=re.I).strip()
     return (reason or txt).strip()[:limit]
+
+
+def _render_reference_configuration_rules(
+    machine: str,
+    *,
+    aliases: Optional[list] = None,
+    facts: Optional[dict] = None,
+) -> str:
+    """Category-specific geometry contract shared by both render judges."""
+    facts = facts if isinstance(facts, dict) else {}
+    context = " ".join([
+        str(machine or ""),
+        *(str(alias) for alias in (aliases or []) if alias),
+        *(str(facts.get(key) or "") for key in ("role", "years", "status")),
+    ]).lower()
+    known_context = "; ".join(
+        f"{label}: {str(facts[key])[:600]}"
+        for key, label in (("role", "role"), ("years", "era"), ("status", "status"))
+        if facts.get(key)
+    )
+    context_line = f"Known locked context: {known_context}. " if known_context else ""
+    is_naval = bool(re.search(
+        r"\b(?:hms|uss|hmas|hmcs|hmnzs|rfa|ship|warship|naval|navy|carrier|"
+        r"battleship|battlecruiser|cruiser|destroyer|frigate|corvette|submarine)\b",
+        context,
+        re.IGNORECASE,
+    ))
+    if is_naval:
+        return (
+            context_line
+            + "Treat this as a ship comparison: match the hull form and profile; the exact number, "
+            "placement, length, and continuity of flight decks; armament and gun turrets; island "
+            "or other superstructure; funnels; and masts. Preserve unusual conversion geometry. "
+            "If the reference has intentionally split forward and aft flight decks, retain both "
+            "decks and their gap; do not merge them into a continuous deck or replace either "
+            "flight deck with gun turrets. Do not invent, remove, or replace any major structure."
+        )
+    return (
+        context_line
+        + "Treat this as an aircraft comparison: match the overall airframe and proportions, wing "
+        "form, engine count, engine type and placement, and tail configuration. Do not invent, "
+        "remove, or replace any major structure."
+    )
 
 
 async def _download_image_b64(image_url: str) -> Optional[tuple]:
@@ -1948,7 +1994,8 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
 
 async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: str,
                                     machine: str, aliases: Optional[list] = None, *,
-                                    reason_out: Optional[list] = None) -> bool:
+                                    reason_out: Optional[list] = None,
+                                    facts: Optional[dict] = None) -> bool:
     """C2h post-generation render-QA: does OUR OWN studio render still show
     the SAME machine as the verified reference photo it was image-to-image'd
     from? This is a DIFFERENT question from `_vision_confirms` (which judges
@@ -1965,18 +2012,19 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
 
     Sends TWO images in one message — the verified reference photo FIRST,
     then our render SECOND — and asks only whether they show the SAME
-    aircraft type/configuration (shape, wing form, engine count/type, tail
-    configuration); livery/markings/background/style differences, and the
-    render simply LOOKING like a clean render, are explicitly told to be
-    fine. Only a hard-reject if the reply says the render itself is empty/
-    blank/not an aircraft (`_RENDER_EMPTY_KEYWORDS`) — no flat-media/scale-
-    model rejects here, since the render IS a render by design.
+    category-appropriate configuration. Aircraft checks cover airframe,
+    wings, engines, and tail; naval checks cover hull, flight decks,
+    armament, superstructure, funnels, and masts. Livery/markings/background/
+    style differences, and the render simply LOOKING like a clean render,
+    are explicitly told to be fine. Only a hard-reject if the reply says the
+    render itself is empty/blank/has no machine (`_RENDER_EMPTY_KEYWORDS`) —
+    no flat-media/scale-model rejects here, since the render IS a render by
+    design.
 
     FAILS CLOSED on transport failure exactly like `_vision_confirms`: one
     retry, then treated as REJECTED (not verified) — never silently promoted
-    to "matches" on a network/API failure. Keyless carve-out unchanged (no
-    provider key configured on the tenant is a config gap, not a transport
-    symptom, so it fails OPEN like `_vision_confirms` does).
+    to "matches" on a network/API failure. A missing provider key also fails closed; an image cannot receive an
+    approval without a judge actually inspecting it.
 
     `reason_out` (2026-08-03 observability fix, keyword-only so every
     existing positional caller is untouched): when given a list, this
@@ -1990,18 +2038,21 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
 
+    configuration_rules = _render_reference_configuration_rules(
+        machine, aliases=aliases, facts=facts)
+
     prompt_text = (
         f"Image 1 is a verified real photograph of the {machine}{alias_txt}. "
         "Image 2 is our own clean studio illustration of the same machine, "
         "prepared for a documentary. "
         "Answer on one line: first word YES or NO, then one short reason. "
-        "YES if image 2 depicts the SAME aircraft type/configuration as "
-        "image 1 — same overall shape, wing form, engine count/type, and "
-        "tail configuration (small liveries/markings/background/style "
+        "YES if image 2 depicts the SAME machine type/configuration as "
+        f"image 1. {configuration_rules} "
+        "Small liveries/markings/background/style "
         "differences are fine; it is EXPECTED that image 2 looks like a "
-        "clean render, that is not a flaw). NO if image 2 shows a different "
-        "aircraft type/variant or the wrong configuration, or if image 2 is "
-        "empty, blank, or not an aircraft at all."
+        "clean render, that is not a flaw. NO if image 2 shows a different "
+        "machine type/variant or the wrong configuration, or if image 2 is "
+        "empty, blank, or does not show the machine at all."
     )
 
     async def _ask_once() -> Optional[str]:
@@ -2080,8 +2131,8 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
 
     if no_key:
         if reason_out is not None:
-            reason_out.append("(no provider key configured — QA skipped)")
-        return True  # config gap, not a transport failure — unchanged behavior
+            reason_out.append("(no provider key configured — image remains unverified)")
+        return False  # no actual review means no approval
     if not txt:
         # Every attempt raised, failed to download, or came back empty —
         # FAIL CLOSED: this render is treated as unverified/rejected (the
@@ -2101,7 +2152,8 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
 
 async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str,
                                    machine: str,
-                                   aliases: Optional[list] = None) -> bool:
+                                   aliases: Optional[list] = None, *,
+                                   facts: Optional[dict] = None) -> bool:
     """Automated tie-breaker for a DOUBLE `_render_matches_reference` reject.
     The pipeline runs unattended — no operator is in the loop to review a
     parked render — and the primary QA judge has a PROVEN systematic failure
@@ -2134,6 +2186,9 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
 
+    configuration_rules = _render_reference_configuration_rules(
+        machine, aliases=aliases, facts=facts)
+
     prompt_text = (
         "You are auditing an automated documentary image pipeline. "
         f"Image 1 is a verified real photograph of the {machine}{alias_txt}. "
@@ -2142,8 +2197,8 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
         "sometimes wrong, so give a fresh, independent second opinion. "
         "Answer on one line: first word MATCH or MISMATCH, then one short "
         "reason. MATCH if image 2 shows the same machine type as image 1 — "
-        "same overall shape, wing form, engine count and placement, and tail "
-        "configuration. Style, background, livery, markings, and image 2 "
+        f"the same configuration. {configuration_rules} "
+        "Style, background, livery, markings, and image 2 "
         "looking like a rendered illustration are all EXPECTED and must not "
         "count against it. MISMATCH only if image 2 shows a different "
         "machine type or variant, or is empty, blank, or shows no machine "
@@ -2696,6 +2751,39 @@ async def _scene_subjects(
     return out, unparseable
 
 
+async def _revalidate_saved_photo_view(row, cap, tenant_id, machine, aliases,
+                                      reference_url, facts):
+    """Reuse a paid image only after its exact configuration clears current QA."""
+    image_url = row.get("image_url")
+    if not reference_url:
+        passed, reason = False, "verified reference unavailable for saved-image review"
+    else:
+        stamp = image_review_stamp(machine, reference_url, facts, image_url)
+        if image_review_current(cap, image_url, stamp):
+            return True
+        reasons = []
+        passed = await _render_matches_reference(
+            tenant_id, image_url, reference_url, machine, aliases,
+            facts=facts, reason_out=reasons,
+        )
+        if not passed:
+            passed = await _arbiter_confirms_render(
+                tenant_id, image_url, reference_url, machine, aliases, facts=facts,
+            )
+        reason = reasons[0] if reasons else "saved image failed current configuration review"
+        if passed:
+            cap.update(stamp)
+            await execute("UPDATE assets SET caption=$2 WHERE id=$1", row["id"], json.dumps(cap))
+            return True
+    # Preserve the paid candidate for inspection, but remove it from render and anchor selection.
+    await execute(
+        "UPDATE assets SET status='qa_rejected', image_url=NULL, drive_image_url=$2, "
+        "image_prompt=COALESCE(image_prompt,'') || $3 WHERE id=$1",
+        row["id"], image_url, " [configuration-recheck] " + reason[:400],
+    )
+    return False
+
+
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                            progress=None,
                                            only_scenes: Optional[set] = None,
@@ -2778,13 +2866,22 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     # `_one_scene`'s `blueprint_override` operator-metadata check (G27,
     # 2026-08-04) — see `_machine_research_cards_by_scene`'s docstring for
     # why no other call site may open a second query against this table.
-    cards_by_scene = await _machine_research_cards_by_scene(
-        tenant_id, video_id, scenes, roster_entries)
-
-    _p("Identifying each segment's machine…")
-    subjects, unparseable_scenes = await _scene_subjects(
-        tenant_id, scenes, rp, video_id=video_id, roster_entries=roster_entries,
-        cards_by_scene=cards_by_scene)
+    factual_images = factual_image_review_required(v)
+    if factual_images:
+        from factual_image_subjects import factual_scene_subjects, FactualImageSubjectError
+        cards_by_scene = {}
+        _p("Using the verified roster identities for each segment…")
+        try:
+            subjects, unparseable_scenes = factual_scene_subjects(v, scenes)
+        except FactualImageSubjectError as exc:
+            return {"status": "failed", "error": str(exc)}
+    else:
+        cards_by_scene = await _machine_research_cards_by_scene(
+            tenant_id, video_id, scenes, roster_entries)
+        _p("Identifying each segment's machine…")
+        subjects, unparseable_scenes = await _scene_subjects(
+            tenant_id, scenes, rp, video_id=video_id, roster_entries=roster_entries,
+            cards_by_scene=cards_by_scene)
     unparseable_scene_set = set(unparseable_scenes)
 
     # Never-built scenes are handed to this ChatGPT thread, so constructing a
@@ -2930,6 +3027,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         scene_card = (cards_by_scene or {}).get(sc)
         blueprint_override = bool(scene_card) and scene_card.get("blueprint_override") is True
         never_built = never_built or (blueprint_override and not verified_photo_veto)
+        qa_facts = (roster_entry or {}).get("facts") or {}
 
         view_plans_for_scene = NEVER_BUILT_VIEW_PLANS if never_built else STATIC_VIEW_PLANS
 
@@ -2998,6 +3096,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     cap = None
             if not isinstance(cap, dict):
                 continue
+            if factual_images:
+                # The spoken claims already passed factual review. Do not add a
+                # second, unreviewed factual layer through legacy model captions.
+                cap.update(title=machine, sub="", specs=[])
             role = cap.get("view_role")
             if role not in current_roles:
                 continue
@@ -3023,6 +3125,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 # A rendered/imported view is complete only when its exact
                 # thread-generation and design provenance survived import.
                 continue
+            if (status == "done" and row.get("image_url") and not never_built
+                    and factual_image_review_required(v)):
+                review_photo = cached_photo or (
+                    roster_cached_photo if roster_cached_photo_verified else None
+                )
+                if not await _revalidate_saved_photo_view(
+                    row, cap, tenant_id, machine, sub.get("aliases"),
+                    (review_photo or {}).get("hosted_url"),
+                    (roster_entry or {}).get("facts") or {},
+                ):
+                    parked_role_ids[role] = row.get("id")
+                    continue
             if status == "done" and row.get("image_url"):
                 done_role_ids[role] = row.get("id")
                 done_role_urls[role] = row.get("image_url")
@@ -3052,7 +3166,9 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         anchor_role: Optional[str] = None
 
         missing_plans: Optional[list] = None  # None == full regenerate, below
-        if len(done_role_ids) >= STATIC_VIEWS_MINIMUM:
+        if len(done_role_ids) >= STATIC_VIEWS_MINIMUM or (
+            done_role_ids and factual_image_review_required(v)
+        ):
             missing_plans = [
                 plan for plan in view_plans_for_scene
                 if plan["role"] not in done_role_ids
@@ -3182,7 +3298,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # metadata) never reaches that DELETE — it returns from this same
         # gate again — so the row is deleted here first, up front, to keep
         # "exactly one" true across repeated bounces too.
-        if not caption_sub or "•" not in caption_sub or not caption_specs:
+        if not factual_images and (not caption_sub or "•" not in caption_sub or not caption_specs):
             if sc in unparseable_scene_set:
                 reason = "subject_planning_unparseable"
                 bounce_detail = (
@@ -3794,6 +3910,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
             prompt = _studio_prompt(
                 machine, view_plan, detail_focus, from_anchor=use_anchor)
+            prompt += (
+                " CONFIGURATION LOCK — "
+                + _render_reference_configuration_rules(
+                    machine, aliases=sub.get("aliases"), facts=qa_facts)
+            )
             _p(
                 f"Segment {sc}/{len(scenes)}, view {view_index}/"
                 f"{STATIC_VIEWS_TARGET}: {view_plan['label']}"
@@ -3922,6 +4043,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             if not await _render_matches_reference(
                 tenant_id, url, ref_url, machine, sub.get("aliases"),
                 reason_out=first_identity_reason,
+                facts=qa_facts,
             ):
                 if first_identity_reason:
                     identity_qa_events.append(("identity", first_identity_reason[0]))
@@ -3932,8 +4054,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 identity_reproduce_desc = (
                     "supplied studio render" if use_anchor else "verified reference"
                 )
+                qa_correction = (
+                    f"CORRECT THE OBSERVED QA MISMATCH: {first_identity_reason[0]}. "
+                    if first_identity_reason else ""
+                )
                 retry_prompt = (
-                    f"Reproduce the machine in the {identity_reproduce_desc} "
+                    qa_correction
+                    + f"Reproduce the machine in the {identity_reproduce_desc} "
                     "EXACTLY: same airframe or hull form, component count and "
                     "placement, proportions, variant, and distinctive "
                     "engineering features. Change only the requested camera "
@@ -3961,6 +4088,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 if url2 and await _render_matches_reference(
                     tenant_id, url2, ref_url, machine, sub.get("aliases"),
                     reason_out=second_identity_reason,
+                    facts=qa_facts,
                 ):
                     url = url2
                 else:
@@ -3969,7 +4097,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                             ("identity", second_identity_reason[0]))
                     candidate = url2 or url
                     if await _arbiter_confirms_render(
-                        tenant_id, candidate, ref_url, machine, sub.get("aliases")
+                        tenant_id, candidate, ref_url, machine, sub.get("aliases"),
+                        facts=qa_facts,
                     ):
                         _p(
                             f"Segment {sc}, view {view_index}: second-opinion "
@@ -4047,6 +4176,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 identity_retry_ok = role_retry_ok and await _render_matches_reference(
                     tenant_id, role_retry_url, ref_url, machine, sub.get("aliases"),
                     reason_out=identity_retry_reason,
+                    facts=qa_facts,
                 )
                 if role_retry_ok and not identity_retry_ok and identity_retry_reason:
                     role_qa_events.append(("identity", identity_retry_reason[0]))
@@ -4076,13 +4206,16 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
             await execute(
                 "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
-                "image_prompt=$3, image_model='gpt-image-2' WHERE id=$1",
+                "image_prompt=$3, image_model='gpt-image-2', caption=$4 WHERE id=$1",
                 view_row_id, durable,
                 (
                     (f"[ref: {ref_src}] " if ref_src else "")
                     + input_marker
                     + qa_note + prompt[:900]
                 ),
+                json.dumps({**_caption(view_plan), **image_review_stamp(
+                    machine, ref_url, (roster_entry or {}).get("facts") or {}, durable,
+                )}),
             )
             # This is now the scene's anchor for every SUBSEQUENT view this
             # run generates, unless one was already set (a prior run's FILL-
