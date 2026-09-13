@@ -10725,6 +10725,7 @@ class PipelineExecutor:
         import json
 
         await self._ensure_initialized()
+        await self._install_cancel_support(video_id)
         bot_name = "Research Agent"
 
         try:
@@ -11002,6 +11003,10 @@ class PipelineExecutor:
             # copy would be.
             from static_docu import dispatch_roster_prefetch
             dispatch_roster_prefetch(video, video_id, self.tenant_id)
+
+            if await self._pipeline.should_cancel():
+                return {"status": "cancelled", "video_id": video_id,
+                        "message": "Stopped; completed research and sources are saved."}
 
             if not (passed_roster_gate and passed_unit_research_hold):
                 gate_error = "Roster validation failed" if not passed_roster_gate else "Unit research-hold failed"
@@ -12207,6 +12212,7 @@ class PipelineExecutor:
     async def run_unit_research(self, video_id: str) -> dict:
         """Continue the locked-roster machine research hold without rediscovering the roster."""
         await self._ensure_initialized()
+        await self._install_cancel_support(video_id)
         bot_name = "Machine Research Agent"
         try:
             video = await self._get_video(video_id)
@@ -12253,6 +12259,10 @@ class PipelineExecutor:
                 return {"status": "failed", "video_id": video_id, "error": warning}
             from drive_workspace import sync_video_workspace_fail_soft
             await sync_video_workspace_fail_soft(video_id, self.tenant_id)
+            if await self._pipeline.should_cancel():
+                return {"status": "cancelled", "video_id": video_id,
+                        "message": "Stopped; completed research and sources are saved."}
+
             completed = len(payload.get("unit_research_cards") or [])
             if passed:
                 await self._log_activity(bot_name, video_id, "completed", f"Machine research complete: {completed}/{len(roster)}")

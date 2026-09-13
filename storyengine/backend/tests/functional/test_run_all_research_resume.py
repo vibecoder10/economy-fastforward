@@ -16,6 +16,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _channel_contract_boundary(monkeypatch):
     monkeypatch.setattr("channel_format.apply_machine_script_contract", AsyncMock())
+    monkeypatch.setattr("cancel_registry.is_cancel_requested", AsyncMock(return_value=False))
     monkeypatch.setattr("roster_coverage.audit_roster_coverage", AsyncMock(return_value={"passed": True, "findings": []}))
 
 
@@ -203,3 +204,21 @@ def test_repair_receives_same_draft_and_all_gates_before_research_handoff():
     assert result['status'] == 'ready_for_scripting', result
     assert discover_mock.await_count == 2
     ex._run_unit_research_hold.assert_awaited_once()
+
+
+def test_locked_research_arms_cancellation_and_preserves_saved_checkpoint():
+    video = _video()
+    ex = _executor(video)
+    async def hold(_id, _title, payload, roster):
+        assert await ex._pipeline.should_cancel() is True
+        payload['unit_research_hold_validation'] = {'passed': False}
+        return payload
+    ex._run_unit_research_hold = AsyncMock(side_effect=hold)
+    workspace = types.ModuleType('drive_workspace')
+    workspace.sync_video_workspace_fail_soft = AsyncMock()
+    saved = AsyncMock(return_value='UPDATE 1')
+    with patch('cancel_registry.is_cancel_requested', AsyncMock(return_value=True)), \
+         patch.object(pe, 'execute', saved), patch.dict(sys.modules, {'drive_workspace': workspace}):
+        result = asyncio.run(ex.run_unit_research('video'))
+    assert result['status'] == 'cancelled'
+    assert saved.call_args.args[2] == 'idea_logged'

@@ -10,7 +10,7 @@ import actions
 def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
            initial_status="ready_for_thumbnail", voice_result=None, voice_saved=True,
            preloop_missing=False, delivery_mode="render_only", delivered_result=None,
-           continuous=False, kill_switch=False, script_result=None, factual_script_current=None):
+           continuous=False, kill_switch=False, script_result=None, factual_script_current=None, research_result=None):
     video = {"status": initial_status, "render_mode": "static_docu", "thumbnail_url": None}
     if factual_script_current is not None:
         video["research_payload"] = {"machine_script_contract": "factual_100_v1"}
@@ -41,7 +41,7 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
             return voice_result or {"status": "completed"}
 
         async def run_research(self, _id):
-            return {"status": "failed", "error": "Reached research before voice"}
+            return research_result or {"status": "failed", "error": "Reached research before voice"}
 
         async def run_script(self, _id, **_kw):
             return script_result or {"status": "failed", "error": "Reached remaining script sections before voice"}
@@ -207,3 +207,11 @@ def test_stale_factual_approval_returns_to_script_before_resumed_paid_work():
         assert advances[0] == 'ready_for_scripting'
         assert terminal[-1] == ('failed', 'Reached remaining script sections before voice')
         assert next_calls == []
+
+
+def test_cancelled_research_does_not_enter_roster_recovery():
+    statuses, advances, _ = _build(initial_status='idea_logged', research_result={
+        'status': 'cancelled', 'message': 'Stopped; completed sources are saved.',
+    })
+    assert statuses[-1] == ('cancelled', 'Stopped; completed sources are saved.')
+    assert advances == []

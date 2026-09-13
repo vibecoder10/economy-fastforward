@@ -1914,6 +1914,9 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          "Checking roster and continuing research…",
                                          tenant_id=tenant_id)
                         r = await ex.run_research(video_id) or {}
+                        if r.get("status") == "cancelled":
+                            _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
+                            return
                         if r.get("status") == "ready_for_scripting":
                             continue
                         # G8: a multi-unit roster can pass discovery/validation
@@ -1953,6 +1956,9 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          "Researching the topic (real web search)…",
                                          tenant_id=tenant_id)
                         r = await ex.run_research(video_id) or {}
+                        if r.get("status") == "cancelled":
+                            _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
+                            return
                         if r.get("status") == "ready_for_scripting":
                             continue
                         # The creator explicitly asked for research — don't fall
