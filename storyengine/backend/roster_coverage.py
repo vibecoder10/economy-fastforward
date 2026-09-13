@@ -21,7 +21,10 @@ def title_scope_policy(title):
         return (
             "LOCKED TITLE SCOPE: Apply the exact title's nationality and date boundary to "
             "aircraft designed or operationally employed for STRATEGIC BOMBING. Evidence "
-            "must establish a bombing/nuclear-strike role, not merely a strategic mission "
+            "must establish a STRATEGIC bombing role (attacking industrial/economic targets "
+            "beyond the battlefield) or strategic nuclear strike. Merely being a bomber, "
+            "having bomb racks, serving a bombardment squadron or making strategic aviation "
+            "technological contributions is insufficient. Require role evidence, not merely a strategic mission "
             "or service in Strategic Air Command. Strategic reconnaissance, weather, "
             "transport, tanker and escort-only aircraft do not become bombers because "
             "they share an operator, a B-series designation or a bomber-derived airframe. "
@@ -154,7 +157,12 @@ async def audit_roster_coverage(client, title, payload):
         )
     response = await client.generate(
         prompt=prompt, system_prompt="You are an independent historical coverage editor. Verify with web sources.",
-        model=Models.CLAUDE_SONNET, max_tokens=5000, temperature=0.2,
+        # Exhaustive bomber boundaries repeatedly produced false blocking
+        # findings when the cheaper review conflated strategic reconnaissance
+        # or any bombardment role with strategic bombing. Use the existing
+        # higher-capability factual reviewer for this consequential gate.
+        model=(Models.CLAUDE_OPUS if "strategic bomber" in title.lower() else Models.CLAUDE_SONNET),
+        max_tokens=5000, temperature=0.2,
         tools=[dict(WEB_SEARCH_TOOL, max_uses=6)],
     )
     raw = parse_json_response(response, default=None)

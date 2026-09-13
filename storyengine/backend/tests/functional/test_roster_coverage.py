@@ -116,6 +116,9 @@ def test_bomber_review_uses_role_boundary_without_carrier_evidence(monkeypatch):
     async def review(**kwargs):
         prompt = kwargs['prompt']
         assert 'not merely a strategic mission' in prompt
+        assert 'Merely being a bomber' in prompt
+        from orchestrator.pipeline_constants import Models
+        assert kwargs['model'] == Models.CLAUDE_OPUS
         assert 'bomber-derived airframe' in prompt
         assert 'British carrier source leads' not in prompt
         return json.dumps(_review(scope='US strategic bombing aircraft', scope_conforms=True))

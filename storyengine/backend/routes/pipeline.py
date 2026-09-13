@@ -3032,7 +3032,7 @@ async def run_build(
         raise HTTPException(status_code=400, detail="target must be 'pictures' or 'finish'")
 
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
@@ -3061,6 +3061,26 @@ async def run_build(
                 "retry Run All when the queue is healthy."
             ),
         )
+    # An explicitly enabled upload stage is part of Run All, not a separate
+    # click after render. Bind the existing unlisted uploader to this channel
+    # now so worker retries cannot silently switch the destination.
+    delivery = {}
+    plan = parse_stage_plan(video.get("pipeline_stages"))
+    if target == "finish" and plan is not None and "upload" in plan:
+        profile = await fetch_one(
+            "SELECT youtube_channel_id, "
+            "(youtube_refresh_token IS NOT NULL AND youtube_refresh_token <> '') AS connected "
+            "FROM channel_profiles WHERE tenant_id=$1", tenant_id,
+        )
+        channel_id = str((profile or {}).get("youtube_channel_id") or "").strip()
+        if not channel_id or not (profile or {}).get("connected"):
+            raise HTTPException(
+                status_code=400,
+                detail="Run All includes upload. Connect the intended YouTube channel in Settings before starting.",
+            )
+        delivery = {"delivery_mode": "youtube_unlisted", "expected_channel_id": channel_id}
+        msg = "Finishing the video and verifying its unlisted YouTube upload"
+
     # Run All spans multiple paid stages, so it must outlive the API process.
     # Reserve the same exclusive main-lane claim used by chat autobuild before
     # enqueueing. actions.make_autobuild_step owns the normal release when the
@@ -3083,6 +3103,7 @@ async def run_build(
             target=target,
             start_msg=f"{msg}…",
             claim_owner=claim_owner,
+            **delivery,
         )
     except Exception as exc:
         if not getattr(exc, "dispatch_uncertain", False):

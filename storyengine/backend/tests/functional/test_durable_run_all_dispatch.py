@@ -407,3 +407,37 @@ async def test_autobuild_terminal_write_does_not_finish_reference_job(monkeypatc
         assert db.execute('SELECT status FROM background_tasks ORDER BY rowid').fetchall() == [('failed',),('running',),('running',)]
     finally:
         db.close()
+
+
+@pytest.mark.asyncio
+async def test_run_all_carries_explicit_upload_plan_into_durable_job(monkeypatch):
+    async def fetch(query, *args):
+        if 'channel_profiles' in query:
+            return {'youtube_channel_id': 'configured-channel', 'connected': True}
+        return {'id': 'video', 'status': 'idea_logged', 'pipeline_stages': ['research','script','voice','images','thumbnail','render','upload']}
+    enqueue = AsyncMock()
+    monkeypatch.setattr(pipeline, 'fetch_one', fetch)
+    monkeypatch.setattr(pipeline, '_is_task_active', AsyncMock(return_value=False))
+    monkeypatch.setattr(pipeline.generation_claims, 'acquire', AsyncMock(return_value=True))
+    monkeypatch.setattr(pipeline, '_enqueue_or_fallback', enqueue)
+    await pipeline.run_build('video', _request(object()), BackgroundTasks(), pipeline.BuildRequest(target='finish'), 'tenant')
+    assert enqueue.call_args.kwargs['delivery_mode'] == 'youtube_unlisted'
+    assert enqueue.call_args.kwargs['expected_channel_id'] == 'configured-channel'
+    assert enqueue.call_args.kwargs['target'] == 'finish'
+
+
+@pytest.mark.asyncio
+async def test_configured_upload_without_connected_channel_is_visible_before_spend(monkeypatch):
+    async def fetch(query, *args):
+        if 'channel_profiles' in query:
+            return {'youtube_channel_id': None, 'connected': False}
+        return {'id': 'video', 'status': 'idea_logged', 'pipeline_stages': ['render','upload']}
+    acquire = AsyncMock(return_value=True)
+    monkeypatch.setattr(pipeline, 'fetch_one', fetch)
+    monkeypatch.setattr(pipeline, '_is_task_active', AsyncMock(return_value=False))
+    monkeypatch.setattr(pipeline.generation_claims, 'acquire', acquire)
+    with pytest.raises(HTTPException) as exc:
+        await pipeline.run_build('video', _request(object()), BackgroundTasks(), pipeline.BuildRequest(target='finish'), 'tenant')
+    assert exc.value.status_code == 400
+    assert 'YouTube' in exc.value.detail
+    acquire.assert_not_awaited()

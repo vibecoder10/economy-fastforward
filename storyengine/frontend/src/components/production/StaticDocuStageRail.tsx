@@ -321,7 +321,7 @@ export function StaticDocuStageRail({
     const costLine = buildInfo?.cost_text ? ` Estimated: ${buildInfo.cost_text}${video.render_mode === "static_docu" ? " (picture cost is approximate for this format)" : ""}.` : "";
     const ok = await confirmDialog({
       title: "Run All",
-      message: `Runs the whole pipeline automatically — research (if needed), script, voice, pictures, thumbnail, and render — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
+      message: `Runs the whole pipeline automatically — research (if needed), script, voice, pictures, thumbnail, and render${video.pipeline_stages?.includes("upload") ? ", then verified unlisted YouTube upload" : ""} — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
     });
     if (!ok) return;
     setRunAllActive(true);
