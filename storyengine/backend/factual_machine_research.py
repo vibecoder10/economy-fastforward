@@ -53,8 +53,33 @@ def _candidate_traceable(candidate: Any) -> bool:
 
 
 def candidate_mentions_machine(text: Any, machine: Any) -> bool:
-    """Require the full distinctive subject phrase, never a shared token/year."""
+    """Match exact aircraft designations or distinctive vessel names."""
     raw_machine = str(machine or "").strip()
+    source_text = str(text or "")
+    # Match aircraft designations before nickname tokenization. Dropping the
+    # digit in XNBL-1 made the old phrase impossible to find; using only
+    # Superfortress admitted B-50 evidence for a B-29. Named ships retain
+    # their name guard: a matching pennant number is never enough.
+    named_ship = re.search(r"\b(?:HMS|USS|HMAS|HMCS|HMNZS|HMIS|RFA|SMS|IJN|RMS|INS|class)\b", raw_machine, re.I)
+    if not named_ship:
+        designations = re.findall(r"\b[A-Z]{1,4}[-‐‑–—]?\d{1,4}[A-Z]?\b", raw_machine, re.I)
+        if designations:
+            for code in designations:
+                pieces = re.findall(r"[A-Za-z]+|[0-9]+", code)
+                pattern = r"(?<![a-z0-9])" + r"[\s.\-‐‑–—]*".join(re.escape(piece) for piece in pieces) + r"(?![a-z0-9])"
+                if re.search(pattern, source_text, re.I):
+                    return True
+            return False
+        # Some early naval aircraft use a letter-only type plus a nickname.
+        # Keep BOTH, rather than deleting the short type token (AJ Savage).
+        short_type = re.match(
+            r"^(?:North American|General Dynamics|Northrop Grumman|Boeing|Martin|Douglas|Convair|Rockwell)\s+([A-Z]{1,3})\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)$",
+            raw_machine,
+        )
+        if short_type:
+            label = short_type.group(1) + " " + short_type.group(2)
+            phrase = r"(?<![a-z0-9])" + r"[\s.\-']+".join(re.escape(word) for word in label.split()) + r"(?![a-z0-9])"
+            return bool(re.search(phrase, source_text, re.I))
     tokens = [
         word for word in _words(raw_machine)
         if len(word) >= 3 and word not in _GENERIC_IDENTITY_WORDS and not word.isdigit()

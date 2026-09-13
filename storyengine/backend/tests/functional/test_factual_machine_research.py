@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 import sys
 import types
 from pathlib import Path
@@ -87,16 +88,21 @@ def test_machine_match_requires_full_distinctive_name_and_prefers_source_diversi
     ]
 
 
-def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic():
-    package = _package(_candidate())
+@pytest.mark.parametrize("machine,excerpt", [
+    (MACHINE, "HMS Argus entered service in 1918."),
+    ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+    ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+])
+def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(machine, excerpt):
+    package = _package(_candidate(text=excerpt), machine=machine)
     payload = {
         "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
-        "unit_roster": [MACHINE, "HMS Eagle"],
-        "machine_raw_source_packages": {pe._verified_source_cache_key(MACHINE): package},
+        "unit_roster": [machine, "HMS Eagle"],
+        "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
         "unit_research_hold_validation": {
             "passed": False,
             "units": [
-                {"machine": MACHINE, "passed": False, "warnings": ["old Anton warning"]},
+                {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
                 {"machine": "HMS Eagle", "passed": False, "warnings": ["missing"]},
             ],
         },
@@ -135,11 +141,11 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic():
     executor._log_activity = MethodType(log, executor)
 
     result = asyncio.run(executor._run_unit_research_hold(
-        "video-1", "Every British Carrier", payload, payload["unit_roster"], target_machine=MACHINE,
+        "video-1", "Every British Carrier", payload, payload["unit_roster"], target_machine=machine,
     ))
 
     assert calls == {"gather": 0, "raw": 1, "card": 1, "upsert": 1}
-    card = pe._research_card_for_machine(result, MACHINE)
+    card = pe._research_card_for_machine(result, machine)
     assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
     assert result["unit_research_hold_validation"]["target_machine_passed"] is True
     assert result["unit_research_hold_validation"]["passed"] is False
@@ -205,3 +211,11 @@ def test_factual_resume_skips_old_g8_anton_surgical_prepass():
 
     assert holders[0].research_calls == 1
     assert not any(status == "failed" for status, _message in statuses)
+
+
+def test_aircraft_designation_rejects_shared_nickname_and_nearby_variant():
+    assert not factual.candidate_mentions_machine("The B-50 Superfortress flew.", "Boeing B-29 Superfortress")
+    assert not factual.candidate_mentions_machine("The B-1A Lancer flew.", "Rockwell B-1B Lancer")
+    assert not factual.candidate_mentions_machine("The XNBL-10 prototype flew.", "Wittemann-Lewis XNBL-1 Barling Bomber")
+    assert not factual.candidate_mentions_machine("The YB-49 wing flew.", "Northrop YB-35")
+    assert factual.candidate_mentions_machine("The P6M SeaMaster was built.", "Martin P6M SeaMaster")
