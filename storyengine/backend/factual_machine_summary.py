@@ -177,6 +177,7 @@ def _validate_draft(
     raw_claim_map = parsed.get("claim_map")
     draft = {"paragraph": paragraph, "claim_map": raw_claim_map if isinstance(raw_claim_map, list) else []}
     warnings: list[str] = []
+    uncorroborated_sentences: list[str] = []
     sources: list[dict] = []
     source_keys: set[tuple[str, str]] = set()
 
@@ -260,6 +261,7 @@ def _validate_draft(
                 )
             if (_requires_record_corroboration(sentence)
                     and not authoritative_record and len(corroborating_hosts) < 2):
+                uncorroborated_sentences.append(sentence)
                 warnings.append(
                     f"claim_map row {index} historical record or class construction count lacks independent corroboration. "
                     "Remove the optional record/count qualification while retaining supported ordinary facts, "
@@ -273,6 +275,8 @@ def _validate_draft(
     ):
         warnings.append("claim_map must cover every paragraph sentence exactly once.")
     draft["claim_map"] = normalized_rows
+    if uncorroborated_sentences:
+        draft["uncorroborated_record_sentences"] = uncorroborated_sentences
     return draft, list(dict.fromkeys(warnings)), sources
 
 
@@ -507,6 +511,24 @@ async def review_existing_factual_summary(
     )
     result["subject_context"] = subject_context
     if mechanical_warnings:
+        rejected = draft.get("uncorroborated_record_sentences") or []
+        if (allow_sentence_removal and rejected
+                and all("lacks independent corroboration" in warning for warning in mechanical_warnings)):
+            remaining = [row for row in draft["claim_map"] if row["sentence"] not in rejected]
+            if remaining and len(remaining) < len(draft["claim_map"]):
+                # A bounded rewrite may retain the disputed count. Remove only
+                # those complete mapped sentences, then run the same identity,
+                # citation and factual checks; never halt on an optional record
+                # while an independently verifiable ordinary summary remains.
+                reduced = {"paragraph": " ".join(row["sentence"] for row in remaining), "claim_map": remaining}
+                checked = await review_existing_factual_summary(
+                    machine, source_package, anthropic_client, reduced,
+                    allow_sentence_removal=True, subject_context=subject_context,
+                )
+                checked["removed_disputed_sentences"] = list(dict.fromkeys(
+                    rejected + (checked.get("removed_disputed_sentences") or [])
+                ))
+                return checked
         return result
 
     alternatives = _review_alternatives(machine, draft, candidates)

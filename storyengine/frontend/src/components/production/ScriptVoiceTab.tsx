@@ -210,6 +210,76 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
   );
 }
 
+const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
+const FACTUAL_REVIEW_CONTEXT_VERSION = 5;
+
+export function machinePreviewPassesContract(
+  preview: any,
+  factualMode: boolean,
+  machine: string,
+  scene: number,
+  subjectContext: string,
+): boolean {
+  if (!factualMode) return machinePreviewPassesAntonGate(preview);
+  return Boolean(
+    preview?.passed === true
+    && String(preview?.paragraph || "").trim()
+    && machinePreviewHasCurrentFactualIdentity(preview, machine, scene, subjectContext)
+  );
+}
+
+export function machinePreviewHasCurrentFactualIdentity(
+  preview: any,
+  machine: string,
+  scene: number,
+  subjectContext: string,
+): boolean {
+  return Boolean(
+    preview?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT
+    && preview?.review_context_version === FACTUAL_REVIEW_CONTEXT_VERSION
+    && preview?.subject_context === subjectContext
+    && Number(preview?.scene) === scene
+    && factualMachineIdentityMatches(preview?.machine, machine)
+    && String(preview?.source_fingerprint || "").trim()
+  );
+}
+
+export function factualMachineIdentityMatches(left: unknown, right: unknown): boolean {
+  if (machineLabelMatches(left, right)) return true;
+  const parts = (value: unknown) => {
+    const text = String(value || "").toUpperCase().replace(/[–—]/g, "-");
+    const codes = new Set((text.match(/\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b/g) || [])
+      .map((code) => code.replace(/[^A-Z0-9]/g, "")));
+    const name = text
+      .replace(/\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b/g, " ")
+      .replace(/[^A-Z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+    return { codes, name };
+  };
+  const leftParts = parts(left);
+  const rightParts = parts(right);
+  return Boolean(
+    leftParts.name
+    && leftParts.name === rightParts.name
+    && leftParts.codes.size > 0
+    && rightParts.codes.size > 0
+    && Array.from(leftParts.codes).some((code) => rightParts.codes.has(code))
+  );
+}
+
+export function machineResearchGatePassesContract(
+  machineScriptContract: unknown,
+  validation: any,
+  verifiedCount: number,
+  rosterCount: number,
+): boolean {
+  if (machineScriptContract === FACTUAL_MACHINE_SCRIPT_CONTRACT) {
+    return rosterCount > 0 && verifiedCount === rosterCount;
+  }
+  return fullMachineResearchGatePassed(validation, verifiedCount, rosterCount);
+}
+
 function machinePreviewReviewMessages(preview: any): string[] {
   if (!preview) return [];
   const warningRows = Array.isArray(preview?.warnings)
@@ -1614,14 +1684,17 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           const card = cards.find((candidate: any) => cardMatchesMachine(candidate, label));
           return machineResearchCardReady(card);
         }).length;
-        if (!fullMachineResearchGatePassed(validation, verifiedCount, roster.length)) {
+        if (!machineResearchGatePassesContract(
+          payload?.machine_script_contract, validation, verifiedCount, roster.length,
+        )) {
           return `Machine research is incomplete: ${verifiedCount}/${roster.length} verified cards finished.`;
         }
       }
 
       const scriptValidation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation || "{}") : (video.script_validation || {});
       const scriptGate = scriptValidation?.unit_roster;
-      if (scriptGate?.complete_title && scriptGate?.passed === false) {
+      if (payload?.machine_script_contract !== FACTUAL_MACHINE_SCRIPT_CONTRACT
+          && scriptGate?.complete_title && scriptGate?.passed === false) {
         return `Script roster gate failed: ${(scriptGate.warnings || []).join("; ") || "script roster is incomplete"}`;
       }
     } catch {
@@ -1995,7 +2068,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
   })();
   const machineRoster = Array.isArray(researchPayload?.unit_roster) ? researchPayload.unit_roster : [];
   const isMachineDocumentary = video.render_mode === "static_docu" && machineRoster.length > 0;
+  const isFactualMachineScript = researchPayload?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT;
   const scriptHold = parsedScriptValidation?.script_hold || null;
+  const factualScriptBlocks = parsedScriptValidation?.machine_script_blocks || null;
   const researchRosterGate = researchPayload?.unit_roster_validation || null;
   const verifiedMachineResearchCount = useMemo(() => {
     const cards = Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [];
@@ -2009,18 +2084,63 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     const roster = machineRoster;
     if (roster.length === 0) return null;
     const validation = researchPayload?.unit_research_hold_validation;
-    return fullMachineResearchGatePassed(validation, verifiedMachineResearchCount, roster.length)
-      ? validation
-      : {
-          passed: false,
-          complete_title: true,
-          roster_count: roster.length,
-          warnings: validation?.warnings || [`Machine research is incomplete: ${verifiedMachineResearchCount}/${roster.length} verified cards finished.`],
-        };
+    const passed = machineResearchGatePassesContract(
+      researchPayload?.machine_script_contract, validation, verifiedMachineResearchCount, roster.length,
+    );
+    if (passed) {
+      return isFactualMachineScript
+        ? { ...(validation || {}), passed: true, complete_title: true, roster_count: roster.length, warnings: [] }
+        : validation;
+    }
+    return {
+      passed: false,
+      complete_title: true,
+      roster_count: roster.length,
+      warnings: validation?.warnings || [`Machine research is incomplete: ${verifiedMachineResearchCount}/${roster.length} verified cards finished.`],
+    };
   })();
-  const scriptRosterGate = parsedScriptValidation?.unit_roster || null;
-  const activeRosterGate = scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
-  const scriptGenerationBlockedByRoster = Boolean(activeRosterGate?.complete_title && activeRosterGate?.passed === false);
+  const scriptRosterGate = isFactualMachineScript ? null : (parsedScriptValidation?.unit_roster || null);
+  const factualPreviewForMachine = (machine: string, scene: number): MachineScriptPreview | null => {
+    const findFactualPreview = (previews: any): MachineScriptPreview | null => {
+      if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
+      const match = Object.entries(previews).find(([key, preview]: [string, any]) => (
+        factualMachineIdentityMatches(key, machine)
+        || factualMachineIdentityMatches(preview?.machine, machine)
+      ));
+      return (match?.[1] as MachineScriptPreview) || null;
+    };
+    const currentPreview = findFactualPreview(researchPayload?.machine_script_previews);
+    const subjectContext = String(video.video_title || video.headline || "");
+    if (machinePreviewHasCurrentFactualIdentity(currentPreview, machine, scene, subjectContext)) {
+      return currentPreview;
+    }
+    return findFactualPreview(factualScriptBlocks);
+  };
+  const factualScriptRosterGate = isFactualMachineScript ? (() => {
+    const failures = machineRoster.map((item: any, index: number) => {
+      const machine = machineLabel(item);
+      const preview = factualPreviewForMachine(machine, index + 1);
+      if (machinePreviewPassesContract(
+        preview, true, machine, index + 1, String(video.video_title || video.headline || ""),
+      )) return null;
+      const reason = machinePreviewReviewMessages(preview)[0]
+        || (preview ? "Current factual review did not pass." : "No current factual script is saved.");
+      return `${machine}: ${reason}`;
+    }).filter(Boolean);
+    return {
+      passed: failures.length === 0 && machineRoster.length > 0,
+      complete_title: true,
+      roster_count: machineRoster.length,
+      warnings: failures,
+    };
+  })() : null;
+  const activeRosterGate = isFactualMachineScript
+    ? factualScriptRosterGate
+    : scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
+  const scriptGenerationBlockedByRoster = Boolean(
+    (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.complete_title
+    && (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.passed === false,
+  );
   const scriptRosterGatePanel = activeRosterGate ? (
     <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
       <div className="flex items-start justify-between gap-3 mb-2">
@@ -2033,7 +2153,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
         </span>
       </div>
       {activeRosterGate.passed ? (
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Script matches the locked research roster.</p>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          {isFactualMachineScript ? "All factual script blocks passed current review." : "Script matches the locked research roster."}
+        </p>
       ) : (
         <ul className="space-y-1">
           {(activeRosterGate.warnings || ["Roster validation failed."]).map((w: string, i: number) => (
@@ -2045,6 +2167,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
   ) : null;
   const machineRosterLabels = machineRoster.map((item: any) => machineLabel(item)).filter(Boolean);
   const activePreviewMachine = previewMachine || machineRosterLabels[0] || "";
+  const activePreviewScene = Math.max(1, machineRosterLabels.findIndex((machine: string) => machineLabelMatches(machine, activePreviewMachine)) + 1);
   const activePreviewResearchCard = (Array.isArray(researchPayload?.unit_research_cards) ? researchPayload.unit_research_cards : [])
     .find((candidate: any) => cardMatchesMachine(candidate, activePreviewMachine));
   const activePreviewSourcePackage = sourcePackageForMachine(researchPayload?.machine_raw_source_packages, activePreviewMachine);
@@ -2056,16 +2179,29 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     ? activePreviewSourcePackageStatus.message
     : activePreviewReadiness.message;
   const activeMachinePreview = useMemo(() => {
-    if (machinePreview && previewMatchesMachine(machinePreview, activePreviewMachine)) return machinePreview;
+    const livePreview = machinePreview && previewMatchesMachine(machinePreview, activePreviewMachine) ? machinePreview : null;
+    const savedFactualBlock = isFactualMachineScript
+      ? factualPreviewForMachine(activePreviewMachine, activePreviewScene)
+      : null;
+    if (livePreview && machinePreviewPassesContract(
+      livePreview, isFactualMachineScript, activePreviewMachine, activePreviewScene,
+      String(video.video_title || video.headline || ""),
+    )) return livePreview;
+    if (savedFactualBlock) return savedFactualBlock;
+    if (livePreview) return livePreview;
     return previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine);
-  }, [machinePreview, researchPayload?.machine_script_previews, activePreviewMachine]);
+  }, [machinePreview, researchPayload?.machine_script_previews, activePreviewMachine,
+      activePreviewScene, factualScriptBlocks, isFactualMachineScript, video.video_title, video.headline]);
   const previewClaimMap = Array.isArray(activeMachinePreview?.claim_bundle?.claim_map)
     ? activeMachinePreview?.claim_bundle?.claim_map
     : [];
   const previewFormulaSentences = Array.isArray(activeMachinePreview?.claim_bundle?.formula_sentences)
     ? activeMachinePreview?.claim_bundle?.formula_sentences
     : [];
-  const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview);
+  const machinePreviewPassed = machinePreviewPassesContract(
+    activeMachinePreview, isFactualMachineScript, activePreviewMachine, activePreviewScene,
+    String(video.video_title || video.headline || ""),
+  );
   const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview);
   const previewEvidenceById = (() => {
     const rows: Record<string, {
@@ -2230,7 +2366,13 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
         ));
       }
       invalidateAll();
-      if (machinePreviewPassesAntonGate(result.preview)) {
+      if (machinePreviewPassesContract(
+        result.preview,
+        isFactualMachineScript,
+        machine,
+        Math.max(1, machineRosterLabels.findIndex((label: string) => machineLabelMatches(label, machine)) + 1),
+        String(video.video_title || video.headline || ""),
+      )) {
         toast.success(`${machine} preview generated. Production script unchanged.`);
       } else {
         toast.error(`${machine} preview needs review. Production script unchanged.`);
@@ -2245,12 +2387,31 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     }
   };
 
-  const machineScriptPreviewPassCount = machineRosterLabels.filter((machine: string) => (
-    machinePreviewPassesAntonGate(previewForMachine(researchPayload?.machine_script_previews, machine))
+  const machineScriptPreviewPassCount = machineRosterLabels.filter((machine: string, index: number) => (
+    machinePreviewPassesContract(
+      isFactualMachineScript
+        ? factualPreviewForMachine(machine, index + 1)
+        : previewForMachine(researchPayload?.machine_script_previews, machine),
+      isFactualMachineScript,
+      machine,
+      index + 1,
+      String(video.video_title || video.headline || ""),
+    )
   )).length;
-  const machineScriptProductionCount = scriptHold?.units?.filter((unit: any) => unit?.passed).length || scenesWithScript;
+  const factualScriptProductionCount = machineRosterLabels.filter((machine: string, index: number) => (
+    machinePreviewPassesContract(
+      factualPreviewForMachine(machine, index + 1), true, machine, index + 1,
+      String(video.video_title || video.headline || ""),
+    )
+  )).length;
+  const machineScriptProductionCount = isFactualMachineScript
+    ? factualScriptProductionCount
+    : (scriptHold?.units?.filter((unit: any) => unit?.passed).length || scenesWithScript);
+  const machineScriptPanelDone = isFactualMachineScript
+    ? machineScriptProductionCount === machineRosterLabels.length && machineRosterLabels.length > 0
+    : scriptDone;
   const machineScriptRosterPanel = isMachineDocumentary ? (
-    <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: scriptDone ? "var(--green)" : "var(--orange)" }}>
+    <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
@@ -2258,12 +2419,14 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine script roster</h3>
           </div>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {machineScriptProductionCount > machineScriptPreviewPassCount
+            {isFactualMachineScript
+              ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes passed current factual review. ${machineScriptPanelDone ? "Script complete." : "Review or rerun the remaining script cards."}`
+              : machineScriptProductionCount > machineScriptPreviewPassCount
               ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes scripted. ${machineScriptProductionCount === machineRosterLabels.length ? "Script complete." : "Run remaining cards, or run all script cards to finish the rest."}`
               : `${machineScriptPreviewPassCount}/${machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.`}
           </p>
           <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (Math.max(machineScriptPreviewPassCount, machineScriptProductionCount) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: scriptDone ? "var(--green)" : "var(--orange)" }} />
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (Math.max(machineScriptPreviewPassCount, machineScriptProductionCount) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }} />
           </div>
         </div>
         <ActionButton
@@ -2286,13 +2449,20 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           const cardSourceStatus = sourcePackageStatus(sourcePackage, machine);
           const cardReadiness = machineResearchReadiness(researchCard);
           const researchReady = cardReadiness.ready;
-          const preview = previewForMachine(researchPayload?.machine_script_previews, machine);
-          const previewPassed = machinePreviewPassesAntonGate(preview);
+          const preview = isFactualMachineScript
+            ? factualPreviewForMachine(machine, index + 1)
+            : previewForMachine(researchPayload?.machine_script_previews, machine);
+          const previewPassed = machinePreviewPassesContract(
+            preview, isFactualMachineScript, machine, index + 1,
+            String(video.video_title || video.headline || ""),
+          );
           const holdUnit = Array.isArray(scriptHold?.units)
             ? scriptHold.units.find((unit: any) => machineLabelMatches(unit?.machine || unit?.unit, machine))
             : null;
           const scene = scenes.find((candidate) => candidate.sceneNumber === index + 1);
-          const productionDone = Boolean(holdUnit?.passed || scene?.narrationText?.trim());
+          const productionDone = isFactualMachineScript
+            ? previewPassed
+            : Boolean(holdUnit?.passed || scene?.narrationText?.trim());
           const selected = machineLabelMatches(activePreviewMachine, machine);
           const statusLabel = productionDone
             ? "Production scene"
@@ -2334,6 +2504,8 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                   <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                     {productionDone
                       ? `Scene ${scene?.sceneNumber || index + 1} has script text.`
+                      : isFactualMachineScript && preview
+                        ? (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass.")
                       : researchReady
                         ? cardSourceStatus.message
                         : cardReadiness.needsRevalidate
@@ -2532,7 +2704,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                     Preview stopped before a paragraph was generated.
                   </div>
                 )}
-                {!activeMachinePreview?.quality_audit?.checks?.length && (
+                {!isFactualMachineScript && !activeMachinePreview?.quality_audit?.checks?.length && (
                   <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     Legacy preview missing Anton audit. Regenerate this machine before accepting it.
                   </div>

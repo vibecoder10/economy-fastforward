@@ -91,6 +91,39 @@ def test_known_research_quality_gates_are_actionable_without_raw_details():
     assert "blocked research entries" in unit_hold.lower()
 
 
+def test_factual_research_corroboration_failure_preserves_safe_machine_context():
+    raw = (
+        "Colossus class: claim_map row 4 historical record or class construction count "
+        "lacks independent corroboration. Remove the optional record/count qualification "
+        "while retaining supported ordinary facts, or cite a primary/museum record or two "
+        "distinct source hosts supporting the same claim."
+    )
+
+    out = humanize_error(raw)
+
+    assert out.startswith("Research for Colossus class stopped")
+    assert "independent corroboration" in out
+    assert "primary or museum record" in out
+    assert "two distinct source hosts" in out
+    assert "claim_map" not in out
+    assert "row 4" not in out
+
+
+def test_factual_research_corroboration_failure_discards_appended_internal_details():
+    raw = (
+        "Colossus class: claim_map row 4 historical record or class construction count "
+        "lacks independent corroboration.\n"
+        "Traceback: database password=PRIVATE_DATABASE_SECRET at internal_worker.py:911"
+    )
+
+    out = humanize_error(raw)
+
+    assert "Colossus class" in out
+    assert "PRIVATE_DATABASE_SECRET" not in out
+    assert "Traceback" not in out
+    assert "internal_worker.py" not in out
+
+
 def test_research_like_unknown_error_still_uses_sanitized_fallback():
     raw = (
         "Research gate failed; not advancing to scripting: "
@@ -221,8 +254,22 @@ def test_set_task_status_humanizes_failure_errors():
         f"Raw upstream URL leaked into _running_tasks['error']: {state['error']!r}"
     )
     assert "HTTPSConnectionPool" not in (state["error"] or "")
+
+    factual_video = "test-vid-factual-gate"
+    factual_error = (
+        "Colossus class: claim_map row 4 historical record or class construction count "
+        "lacks independent corroboration. Remove the optional record/count qualification."
+    )
+    pipeline_mod._set_task_status(
+        factual_video, "failed", factual_error, tenant_id=test_tenant
+    )
+    factual_state = pipeline_mod._running_tasks[(test_tenant, factual_video)]
+    assert factual_state["error"].startswith("Research for Colossus class stopped")
+    assert "independent corroboration" in factual_state["error"]
+    assert "claim_map" not in factual_state["error"]
     # Cleanup
     pipeline_mod._running_tasks.pop((test_tenant, "test-vid-999"), None)
+    pipeline_mod._running_tasks.pop((test_tenant, factual_video), None)
     print("✅ test_set_task_status_humanizes_failure_errors")
 
 

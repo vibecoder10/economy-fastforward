@@ -474,3 +474,46 @@ async def test_uncorroborated_record_repair_keeps_room_for_ordinary_sourced_fact
     assert result['passed'] is True
     assert 'You may add other ordinary facts from EVIDENCE' in client.calls[0]['prompt']
     assert 'Do not replace a disputed record/count with another record/count' in client.calls[0]['prompt']
+
+@pytest.mark.asyncio
+async def test_persistent_optional_count_is_removed_then_remainder_is_reviewed():
+    good = 'I-49 HMS Argus served as an aircraft carrier.'
+    bad = 'Four ships in the I-49 HMS Argus class were completed before the war ended.'
+    package = _package(good,bad)
+    for row in package['candidate_excerpts']:row['source_tier']=3
+    draft = _draft(good+' '+bad,[(good,'S1-E1',good),(bad,'S1-E2',bad)])
+    client=ScriptedClient(draft,draft,{'passed':True,'issues':[]})
+    result=await generate_factual_machine_summary(MACHINE,package,client,
+        subject_context='British aircraft carriers')
+    assert result['passed'] is True
+    assert result['paragraph']==good
+    assert result['removed_disputed_sentences']==[bad]
+    assert len(client.calls)==3
+    assert bad not in client.calls[-1]['prompt'].split('draft_with_locked_provenance')[1].split('relevant_alternate_fetched_context')[0]
+
+
+@pytest.mark.asyncio
+async def test_optional_count_removal_cannot_release_an_empty_or_wrong_subject_summary():
+    bad='Four ships in the I-49 HMS Argus class were completed before the war ended.'
+    package=_package(bad)
+    package['candidate_excerpts'][0]['source_tier']=3
+    client=ScriptedClient()
+    result=await review_existing_factual_summary(MACHINE,package,client,
+        _draft(bad,[(bad,'S1-E1',bad)]),allow_sentence_removal=True)
+    assert result['passed'] is False
+    assert not client.calls
+
+@pytest.mark.asyncio
+async def test_record_removal_still_repairs_a_separate_factual_conflict_once():
+    good='I-49 HMS Argus served as an aircraft carrier.'
+    record='Four ships of the I-49 HMS Argus class were completed before the war ended.'
+    disputed='I-49 HMS Argus was launched in 1940.'
+    package=_package(good,record,disputed)
+    for row in package['candidate_excerpts']:row['source_tier']=3
+    draft=_draft(good+' '+record+' '+disputed,[(good,'S1-E1',good),(record,'S1-E2',record),(disputed,'S1-E3',disputed)])
+    client=ScriptedClient({'passed':False,'issues':['Launch date conflicts with independent evidence.'],'rejected_sentences':[disputed]}, {'passed':True,'issues':[]})
+    result=await review_existing_factual_summary(MACHINE,package,client,draft,allow_sentence_removal=True)
+    assert result['passed'] is True
+    assert result['paragraph']==good
+    assert result['removed_disputed_sentences']==[record,disputed]
+    assert len(client.calls)==2

@@ -20,6 +20,7 @@ The raw exception is always logged at WARNING with a stable prefix
 `[humanize_error]` so devs can grep for it when a customer reports an error.
 """
 import logging
+import re
 from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,12 @@ _SAFE_RESEARCH_GATE_MESSAGES = {
         "and retry."
     ),
 }
+
+_FACTUAL_RESEARCH_CORROBORATION_RE = re.compile(
+    r"^\s*(?P<machine>[A-Za-z0-9][A-Za-z0-9 .,'’()/&+\-]{0,119}):\s*"
+    r"claim_map row \d+ historical record or class construction count lacks independent corroboration\.",
+    re.IGNORECASE,
+)
 
 
 def user_facing(message: str) -> str:
@@ -110,6 +117,20 @@ def humanize_error(
     safe_research_gate = _SAFE_RESEARCH_GATE_MESSAGES.get(lowered.strip())
     if safe_research_gate:
         return safe_research_gate
+
+    # Factual machine review failures are deliberate quality stops. Preserve
+    # the machine identity and actionable gate type, but reconstruct the copy
+    # from this tightly matched prefix so row numbers, stack traces, provider
+    # bodies, or arbitrary appended details can never reach the UI or queue.
+    corroboration_match = _FACTUAL_RESEARCH_CORROBORATION_RE.match(raw)
+    if corroboration_match:
+        machine = corroboration_match.group("machine").strip()
+        return (
+            f"Research for {machine} stopped because a historical record or class "
+            "construction count needs independent corroboration. Remove the optional "
+            "record/count qualification, or cite a primary or museum record or two "
+            "distinct source hosts supporting the same claim, then retry."
+        )
 
     # Kie.ai account blocked / out of credit. Kie is the single upstream for
     # text+image+video+voice, so a banned or credit-exhausted key kills every
