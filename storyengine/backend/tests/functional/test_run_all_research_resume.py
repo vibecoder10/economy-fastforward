@@ -131,10 +131,11 @@ def test_resume_persists_current_gate_and_bootstraps_missing_hold():
 
 
 
-def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair():
+@pytest.mark.parametrize("title", ["Every British aircraft carrier ever built", "Every US Strategic Bomber Ever Built (2026)"])
+def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair(title):
     from roster_coverage import title_scope_policy
     video = _video()
-    video["video_title"] = "Every British aircraft carrier ever built"
+    video["video_title"] = title
     ex = _executor(video)
     ex.run_unit_research = AsyncMock()
     discover = AsyncMock(side_effect=[copy.deepcopy(video["research_payload"]), ValueError("stop after repair dispatch")])

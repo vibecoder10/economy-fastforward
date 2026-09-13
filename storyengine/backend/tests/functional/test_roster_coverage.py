@@ -105,3 +105,22 @@ def test_retrieved_evidence_reaches_reviewer_and_is_saved(monkeypatch):
     asyncio.run(audit_roster_coverage(client, "Every British Aircraft Carrier Class Ever Built", payload))
     assert payload["coverage_source_packet"] == packet
     assert json.dumps(packet) in client.generate.call_args.kwargs["prompt"]
+
+
+def test_bomber_review_uses_role_boundary_without_carrier_evidence(monkeypatch):
+    from roster_coverage import title_scope_policy
+    title = 'Every US Strategic Bomber Ever Built (2026)'
+    payload = _payload()
+    fetch = AsyncMock(return_value=[])
+    monkeypatch.setattr('roster_sources.fetch_scope_sources', fetch)
+    async def review(**kwargs):
+        prompt = kwargs['prompt']
+        assert 'not merely a strategic mission' in prompt
+        assert 'bomber-derived airframe' in prompt
+        assert 'British carrier source leads' not in prompt
+        return json.dumps(_review(scope='US strategic bombing aircraft', scope_conforms=True))
+    client = SimpleNamespace(generate=AsyncMock(side_effect=review))
+    audit = asyncio.run(audit_roster_coverage(client, title, payload))
+    assert audit['passed']
+    assert audit['scope_policy'] == title_scope_policy(title)
+    fetch.assert_not_awaited()

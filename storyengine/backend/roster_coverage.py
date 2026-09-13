@@ -17,6 +17,26 @@ def title_scope_policy(title):
     cannot redefine the accepted British carrier design/conversion boundary.
     """
     normalized = " ".join(str(title).lower().split())
+    if "strategic bomber" in normalized and "ever built" in normalized and "never built" not in normalized:
+        return (
+            "LOCKED TITLE SCOPE: Apply the exact title's nationality and date boundary to "
+            "aircraft designed or operationally employed for STRATEGIC BOMBING. Evidence "
+            "must establish a bombing/nuclear-strike role, not merely a strategic mission "
+            "or service in Strategic Air Command. Strategic reconnaissance, weather, "
+            "transport, tanker and escort-only aircraft do not become bombers because "
+            "they share an operator, a B-series designation or a bomber-derived airframe. "
+            "Carrier-based aircraft qualify only with evidence of the strategic bombing "
+            "role; their inclusion never admits reconnaissance aircraft. Include physically "
+            "built strategic-bomber prototypes; exclude paper-only/unbuilt designs. "
+            "Use a consistent source-backed type/program taxonomy; do not demand duplicate "
+            "prototype/production entries when that aircraft is already represented. "
+            "Do not silently restrict an ever-built title to WWII onward or to a runtime "
+            "count. Earlier qualifying aircraft need the same source-backed role test. "
+            "This boundary remains fixed across discovery, correction and review. "
+            "A proposed omission must have consulted evidence satisfying ALL title "
+            "predicates; an authentic source describing a different role is not omission "
+            "evidence. Record correctly excluded roles as resolved, not blocking findings."
+        )
     if ("british" not in normalized or "aircraft carrier" not in normalized
             or any(word in normalized for word in ("seaplane", "operated", "royal navy", "never built"))):
         return ""
@@ -74,8 +94,8 @@ async def audit_roster_coverage(client, title, payload):
         "Use the exact title and the locked policy below as authority, never the draft's "
         "own scope claim. Audit BOTH excluded qualifying classes and included out-of-scope "
         "vessels; resolve one consistent inclusion test without expanding it between passes. "
-        "Check omitted classes, conversions, "
-        "escorts, one-offs, maintenance roles, export service, reused names and dates. "
+        "Check omitted types/classes and their role, conversions, one-offs, export "
+        "service, reused names and dates against the actual subject category. "
         "Distinguish national design/construction from operator nationality. For a national "
         "carrier-design title, include its carrier designs and domestic carrier conversions, "
         "label foreign operators, and explicitly resolve foreign-built operated classes. "
@@ -102,7 +122,7 @@ async def audit_roster_coverage(client, title, payload):
             "excluded_candidates": (payload.get("roster_audit") or {}).get("excluded_candidates"),
         })
     )
-    if policy:
+    if policy and "aircraft carrier" in title.lower():
         prompt += (
             "\nBritish carrier source leads: https://www.royalnavyresearcharchive.org.uk/ESCORT_2/CLASSES.htm "
             "and https://www.rmg.co.uk/collections/objects/rmgc-object-1128690 and "
@@ -117,7 +137,7 @@ async def audit_roster_coverage(client, title, payload):
             "do not silently lose a distinct design by copying a broader encyclopedia grouping. "
             "Verify dates and chronology from the consulted sources."
         )
-    if policy:
+    if policy and "aircraft carrier" in title.lower():
         from roster_sources import fetch_scope_sources
         packet = await fetch_scope_sources()
         payload["coverage_source_packet"] = packet
