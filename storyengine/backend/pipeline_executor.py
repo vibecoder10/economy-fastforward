@@ -2011,6 +2011,14 @@ def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
     ]))[:8]
 
 
+def _naval_carrier_query_scope(title: str) -> str:
+    return (
+        ' "aircraft carrier"'
+        if re.search(r"\b(?:aircraft\s+)?carriers?\b", str(title or ""), re.IGNORECASE)
+        else ""
+    )
+
+
 def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str]:
     """Cost-bounded query set for one SHIP's exact raw-source package.
 
@@ -2027,11 +2035,7 @@ def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str
     # official, domain, archive, lifecycle, and memoir query to the carrier
     # subject declared by the title. Other naval topics retain the established
     # byte-identical query set.
-    carrier_scope = (
-        ' "aircraft carrier"'
-        if re.search(r"\b(?:aircraft\s+)?carriers?\b", str(title or ""), re.IGNORECASE)
-        else ""
-    )
+    carrier_scope = _naval_carrier_query_scope(title)
     subject = f'"{machine}"{carrier_scope}'
     return list(dict.fromkeys([
         f'{subject} official history commissioned',
@@ -2090,20 +2094,23 @@ def _is_naval_gather_context(title: str, machine: str) -> bool:
     return any(re.search(rf'\b{re.escape(keyword)}\b', text) for keyword in _NAVAL_GATHER_CONTEXT_KEYWORDS)
 
 
-def _naval_museum_domain_query(machine: str) -> str:
+def _naval_museum_domain_query(machine: str, title: str = "") -> str:
     """Steering-call query text, scoped per-group via include_domains to the
     DVsU research simulator's proven fetchable naval/Commonwealth anchors.
     Additive to _verified_machine_source_queries, whose query sets stay
     unchanged and regression-locked."""
-    return f'"{machine}" history design service'
+    carrier_scope = _naval_carrier_query_scope(title)
+    return f'"{machine}"{carrier_scope} history design service'
 
 
-def _naval_reworded_retry_query(machine: str) -> str:
+def _naval_reworded_retry_query(machine: str, title: str = "") -> str:
     """G13, 2026-07-31: one reworded, domain-unrestricted retry when the base
     + domain-grouped steering passes still leave zero Tier 1-2 candidates.
     Drops the include_domains restriction (it already found nothing) and
     rewords away from the base set's phrasing so a differently-indexed page
     can surface instead of repeating the same losing queries a third way."""
+    if _naval_carrier_query_scope(title):
+        return f'"{machine}" "aircraft carrier" Royal Navy warship history museum archive record'
     return f"{machine} Royal Navy warship history museum archive record"
 
 
@@ -9567,7 +9574,7 @@ class PipelineExecutor:
             # each domain pair its own max_results=5 shot.
             if is_naval:
                 for domain_group in _NAVAL_STEERING_DOMAIN_GROUPS:
-                    search_passes.append((_naval_museum_domain_query(machine), list(domain_group)))
+                    search_passes.append((_naval_museum_domain_query(machine, title), list(domain_group)))
 
             # Cost bound: never exceed _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE
             # calls for this machine, base queries + steering + the reworded
@@ -9787,7 +9794,7 @@ class PipelineExecutor:
                 and calls_used < _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE
                 and not any(1 <= _source_tier_number(c) <= 2 for c in candidate_excerpts)
             ):
-                retry_query = _naval_reworded_retry_query(machine)
+                retry_query = _naval_reworded_retry_query(machine, title)
                 pre_retry_count = len(search_results)
                 await _run_search_pass(retry_query, None)
                 for item in search_results[pre_retry_count:]:

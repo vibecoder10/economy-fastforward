@@ -388,6 +388,28 @@ def test_verified_machine_source_queries_do_not_add_carrier_scope_to_other_naval
     ]
 
 
+def test_naval_steering_and_retry_queries_scope_carriers_but_preserve_other_outputs():
+    carrier_title = "Every British Aircraft Carrier Class Ever Built (2026)"
+    battleship_title = "Every Royal Navy Battleship Ever Built"
+
+    assert pe._naval_museum_domain_query("Majestic class", carrier_title) == (
+        '"Majestic class" "aircraft carrier" history design service'
+    )
+    assert pe._naval_reworded_retry_query("Majestic class", carrier_title) == (
+        '"Majestic class" "aircraft carrier" Royal Navy warship history museum archive record'
+    )
+    assert pe._naval_museum_domain_query("32 HMS Howe", battleship_title) == (
+        '"32 HMS Howe" history design service'
+    )
+    assert pe._naval_reworded_retry_query("32 HMS Howe", battleship_title) == (
+        "32 HMS Howe Royal Navy warship history museum archive record"
+    )
+    assert pe._naval_museum_domain_query("32 HMS Howe") == '"32 HMS Howe" history design service'
+    assert pe._naval_reworded_retry_query("32 HMS Howe") == (
+        "32 HMS Howe Royal Navy warship history museum archive record"
+    )
+
+
 def test_machine_mentions_use_designation_boundaries():
     assert pe._mentions_machine("The Northrop B-2 Spirit entered service as a stealth bomber.", "B-2")
     assert pe._mentions_machine("The B2 bomber appears without a hyphen in this source.", "B-2")
@@ -1756,6 +1778,7 @@ def test_gather_verified_machine_source_package_excludes_iwm_and_adds_naval_doma
     # 15-call bound.
     assert len(request_bodies) == 12
     assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
+    assert all('"aircraft carrier"' in body["query"] for body in request_bodies)
     naval_calls = [body for body in request_bodies if body.get("include_domains")]
     assert len(naval_calls) == len(pe._NAVAL_STEERING_DOMAIN_GROUPS)
     covered_domains = {domain for body in naval_calls for domain in body["include_domains"]}
@@ -1767,7 +1790,9 @@ def test_gather_verified_machine_source_package_excludes_iwm_and_adds_naval_doma
     retry_calls = [
         body for body in request_bodies
         if not body.get("include_domains")
-        and body["query"] == pe._naval_reworded_retry_query("HMS Argus")
+        and body["query"] == pe._naval_reworded_retry_query(
+            "HMS Argus", "Every British Aircraft Carrier Class Ever Built"
+        )
     ]
     assert len(retry_calls) == 1
 
@@ -1815,6 +1840,7 @@ def test_gather_verified_machine_source_package_skips_naval_query_for_non_naval_
     assert len(request_bodies) == 8
     assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
     assert not any(body.get("include_domains") for body in request_bodies)
+    assert not any('"aircraft carrier"' in body["query"] for body in request_bodies)
 
 
 # G13, 2026-07-31: real off-topic Tier 1-2 excerpts pulled from the actually
