@@ -357,3 +357,53 @@ async def test_worker_retry_reopens_exact_failed_job_before_resuming(monkeypatch
     assert result["status"] == "completed"
     assert "'failed'" in execute.await_args.args[0]
     assert persist.await_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_cold_poll_keeps_autobuild_failure_after_reference_sweep(monkeypatch):
+    """Execute the route's selection SQL, rather than mocking its chosen row."""
+    import sqlite3
+    db = sqlite3.connect(':memory:')
+    db.row_factory = sqlite3.Row
+    db.execute('CREATE TABLE background_tasks (video_id TEXT, tenant_id TEXT, status TEXT, message TEXT, error_message TEXT, task_type TEXT, created_at TEXT)')
+    db.executemany('INSERT INTO background_tasks VALUES (?,?,?,?,?,?,?)', [
+        ('video', 'tenant', 'failed', 'A-5 coverage unresolved', 'Research requires source correction', 'autobuild', '2026-09-13T04:07:43'),
+        ('video', 'tenant', 'completed', '23 verified, 1 missed', None, 'roster_prefetch', '2026-09-13T04:08:00'),
+        ('video', 'other', 'running', 'Other tenant', None, 'autobuild', '2026-09-13T05:00:00'),
+    ])
+    async def fetch(query, *args):
+        row = db.execute(query, args).fetchone()
+        return dict(row) if row else None
+    monkeypatch.setattr(pipeline, 'fetch_one', fetch)
+    try:
+        result = await pipeline.get_task_status('video', 'tenant')
+        assert result['status'] == 'failed'
+        assert result['task_type'] == 'autobuild'
+        assert result['message'] == 'A-5 coverage unresolved'
+        db.execute("INSERT INTO background_tasks VALUES ('video','tenant','running','Resumed',NULL,'autobuild','2026-09-13T05:01:00')")
+        monkeypatch.setattr(pipeline.generation_claims, 'get_claimed_by', AsyncMock(return_value=None))
+        assert (await pipeline.get_task_status('video', 'tenant'))['status'] == 'running'
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_autobuild_terminal_write_does_not_finish_reference_job(monkeypatch):
+    import sqlite3
+    db = sqlite3.connect(':memory:')
+    db.create_function('now', 0, lambda: '2026-09-13T05:00:00')
+    db.execute('CREATE TABLE background_tasks (video_id TEXT, tenant_id TEXT, status TEXT, message TEXT, error_message TEXT, task_type TEXT, completed_at TEXT)')
+    db.executemany('INSERT INTO background_tasks VALUES (?,?,?,?,?,?,?)', [
+        ('video','tenant','running','Build',None,'autobuild',None),
+        ('video','tenant','running','References',None,'roster_prefetch',None),
+        ('video','other','running','Other',None,'autobuild',None),
+    ])
+    async def execute(query, *args):
+        db.execute(query, args)
+        return 'UPDATE 1'
+    monkeypatch.setattr(pipeline, 'execute', execute)
+    try:
+        await pipeline._db_persist_task('tenant','video','pipeline','failed',message='Coverage failure',error='Coverage failure')
+        assert db.execute('SELECT status FROM background_tasks ORDER BY rowid').fetchall() == [('failed',),('running',),('running',)]
+    finally:
+        db.close()

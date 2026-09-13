@@ -10,6 +10,13 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "skills/video-pipeline"))
 import pipeline_executor as pe
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _channel_contract_boundary(monkeypatch):
+    monkeypatch.setattr("channel_format.apply_machine_script_contract", AsyncMock())
+    monkeypatch.setattr("roster_coverage.audit_roster_coverage", AsyncMock(return_value={"passed": True, "findings": []}))
 
 
 def _video():
@@ -150,3 +157,48 @@ def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair():
     for call in coverage.await_args_list:
         assert call.args[2]["inclusion_policy"] == policy
     ex.run_unit_research.assert_not_awaited()
+
+
+def test_repair_receives_same_draft_and_all_gates_before_research_handoff():
+    """Real executor: structural failure must not defer coverage until repair is spent."""
+    video = _video()
+    video['video_title'] = 'Every US Strategic Bomber Ever Built (2026)'
+    video['research_payload'] = {}
+    ex = _executor(video)
+    ex._log_transition = AsyncMock()
+    draft = {'unit_roster': [{'name': 'B-47'}, {'name': 'A-3'}], 'roster_contract': {'status': 'DRAFT'}}
+    repaired = {'machine_discovery_buckets': {}, 'unit_roster': [{'name': 'B-47'}, {'name': 'A-3'}, {'name': 'A-5'}], 'roster_contract': {'status': 'CONFIRMED'}}
+    async def discover(**kw):
+        if discover_mock.await_count == 1:
+            return copy.deepcopy(draft)
+        assert 'A-5' in kw['context'], 'Coverage feedback never reached corrective discovery'
+        assert 'CURRENT DRAFT TO CORRECT' in kw['context']
+        assert json.dumps(draft['unit_roster']) in kw['context']
+        return copy.deepcopy(repaired)
+    discover_mock = AsyncMock(side_effect=discover)
+    module = types.ModuleType('research.agent')
+    module.run_research = discover_mock
+    module.RESEARCH_SYSTEM_PROMPT = 'Research'
+    async def coverage(_client, _title, payload):
+        passed = len(payload['unit_roster']) == 3
+        return {'passed': passed, 'findings': [] if passed else [{'candidate': 'A-5', 'problem': 'omitted', 'source_url': 'https://www.history.navy.mil/a5'}]}
+    def gate(_title, payload, **kwargs):
+        passed = payload['roster_contract']['status'] == 'CONFIRMED'
+        return {'passed': passed, 'complete_title': True, 'warnings': [] if passed else ['Draft boundary unresolved']}
+    async def hold(_id, _title, payload, roster):
+        assert 'A-5' in roster
+        payload['unit_research_hold_validation'] = {'passed': True}
+        return payload
+    ex._run_unit_research_hold = AsyncMock(side_effect=hold)
+    workspace = types.ModuleType('drive_workspace')
+    workspace.sync_video_workspace_fail_soft = AsyncMock()
+    with patch.dict(sys.modules, {'research.agent': module, 'drive_workspace': workspace}), \
+         patch.object(pe, 'fetch_one', AsyncMock(return_value=None)), \
+         patch.object(pe, 'execute', AsyncMock(return_value='UPDATE 1')), \
+         patch.object(pe, '_roster_validation', side_effect=gate), \
+         patch('roster_coverage.audit_roster_coverage', side_effect=coverage), \
+         patch('static_docu.dispatch_roster_prefetch'):
+        result = asyncio.run(ex.run_research('video'))
+    assert result['status'] == 'ready_for_scripting', result
+    assert discover_mock.await_count == 2
+    ex._run_unit_research_hold.assert_awaited_once()

@@ -347,8 +347,9 @@ async def _db_persist_task(
             # Insert new task (or update if one is already running for this video)
             existing = await fetch_one(
                 "SELECT id FROM background_tasks "
-                "WHERE video_id = $1 AND status = 'running' LIMIT 1",
-                video_id,
+                "WHERE video_id = $1 AND tenant_id = $2 AND status = 'running' "
+                "AND (task_type = $3 OR ($3 = 'pipeline' AND task_type = 'autobuild')) LIMIT 1",
+                video_id, tenant_id, task_type,
             )
             if existing:
                 await execute(
@@ -370,8 +371,10 @@ async def _db_persist_task(
                 "UPDATE background_tasks "
                 "SET status = $1, message = $2, error_message = $3, completed_at = now() "
                 "WHERE video_id = $4 AND (status = 'running' "
-                "      OR (status = 'cancelled' AND completed_at IS NULL))",
-                status, message, error, video_id,
+                "      OR (status = 'cancelled' AND completed_at IS NULL)) "
+                "AND tenant_id = $5 "
+                "AND (task_type = $6 OR ($6 = 'pipeline' AND task_type = 'autobuild'))",
+                status, message, error, video_id, tenant_id, task_type,
             )
     except Exception:
         pass  # DB persistence is best-effort; dict is the real-time source
@@ -654,8 +657,15 @@ async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict
     # key off a structured field instead of parsing `message`.
     row = await fetch_one(
         "SELECT status, message, error_message, task_type FROM background_tasks "
-        "WHERE video_id = $1 AND tenant_id = $2 AND status IN ('pending', 'running') "
-        "ORDER BY created_at DESC LIMIT 1",
+        "WHERE video_id = $1 AND tenant_id = $2 "
+        "AND (status IN ('pending', 'running') OR (task_type <> 'roster_prefetch' "
+        "AND status IN ('failed', 'completed', 'cancelled'))) "
+        "AND (task_type = 'roster_prefetch' OR created_at = ("
+        "SELECT MAX(b.created_at) FROM background_tasks b WHERE b.video_id = $1 "
+        "AND b.tenant_id = $2 AND b.task_type <> 'roster_prefetch')) "
+        "ORDER BY CASE WHEN task_type <> 'roster_prefetch' "
+        "AND status IN ('pending', 'running', 'failed') THEN 2 "
+        "WHEN status IN ('pending', 'running') THEN 1 ELSE 0 END DESC, created_at DESC LIMIT 1",
         video_id, tenant_id,
     )
     if row:
@@ -694,6 +704,7 @@ async def _reconcile_terminal_queue_task(
         "FROM background_tasks "
         "WHERE video_id = $1 AND tenant_id = $2 "
         "  AND status IN ('completed', 'failed', 'cancelled') "
+        "  AND task_type <> 'roster_prefetch' "
         "  AND completed_at >= to_timestamp($3) "
         "ORDER BY completed_at DESC LIMIT 1",
         video_id,
