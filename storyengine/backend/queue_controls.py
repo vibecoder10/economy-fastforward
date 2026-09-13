@@ -6,6 +6,7 @@ import re
 # Credit/auth errors need account repair; ordinary 429/timeouts remain bounded
 # transient retries. Keep this expression compatible with PostgreSQL regex.
 PROVIDER_ERROR_PATTERN = (
+    r"specified api usage limits|anthropic.{0,40}api usage limit|"
     r"out of credits|insufficient[ _-]*(credits|balance|quota)|credit balance.{0,40}(low|exhaust)|"
     r"not enough credits|quota_exceeded|invalid[ _-]*api[ _-]*key|"
     r"api[ _-]*key.{0,30}(invalid|expired|revoked)|authentication_error|"
@@ -18,6 +19,10 @@ def provider_blocker(error: str) -> dict | None:
     if not re.search(PROVIDER_ERROR_PATTERN, error, re.I):
         return None
     lower = error.lower()
+    if "specified api usage limits" in lower or ("anthropic" in lower and "api usage limit" in lower):
+        return {"provider": "Anthropic", "reason": (
+            "Anthropic has reached its API usage limit. Raise the account usage limit, then resume this list."
+        )}
     provider = next((label for markers, label in (
         (("anthropic", "claude"), "Anthropic"),
         (("elevenlabs", "eleven labs"), "ElevenLabs"),

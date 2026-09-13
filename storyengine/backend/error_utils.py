@@ -140,6 +140,14 @@ def humanize_error(
         return ("Tavily is out of credits or has reached its search plan limit. "
                 "Add credits or raise the Tavily limit, then resume. Completed research is saved.")
 
+    if "you have reached your specified api usage limits" in lowered:
+        reset = re.search(r"regain access on (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}) UTC", raw)
+        message = ("Anthropic has reached its API usage limit. Raise the usage limit in the Anthropic Console, "
+                   "then resume. Completed work is saved.")
+        if reset:
+            message += f" The provider reports a reset on {reset[1]} at {reset[2]} UTC."
+        return message
+
     # Kie.ai account blocked / out of credit. Kie is the single upstream for
     # text+image+video+voice, so a banned or credit-exhausted key kills every
     # generation — and the raw signal is opaque. Map it to one actionable
