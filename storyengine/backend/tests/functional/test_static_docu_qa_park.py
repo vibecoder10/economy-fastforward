@@ -1042,3 +1042,14 @@ def test_approve_rejects_parked_row_without_hosted_render(monkeypatch):
     resp = client.post(f"/api/pipeline/static-qa-approve/{asset_id}")
     assert resp.status_code == 400
     assert executed == []
+
+@pytest.mark.asyncio
+async def test_camera_retry_retains_machine_configuration_lock(monkeypatch):
+    monkeypatch.setattr(static_docu, '_render_reference_configuration_rules',
+                        lambda *args, **kwargs: 'PRESERVE THREE MAIN WING PLANES')
+    env = _pipeline_env(monkeypatch, verdicts=[True, True],
+                        gen_urls=[RENDER_1, RENDER_2], role_verdicts=[False, True])
+    result = await static_docu.generate_static_images_for_video(env['video_id'], env['tenant_id'])
+    assert result['status'] == 'completed'
+    assert len(env['gen_prompts']) == 2
+    assert all('PRESERVE THREE MAIN WING PLANES' in prompt for prompt in env['gen_prompts'])

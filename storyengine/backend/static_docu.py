@@ -3911,11 +3911,12 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
             prompt = _studio_prompt(
                 machine, view_plan, detail_focus, from_anchor=use_anchor)
-            prompt += (
+            configuration_lock = (
                 " CONFIGURATION LOCK — "
                 + _render_reference_configuration_rules(
                     machine, aliases=sub.get("aliases"), facts=qa_facts)
             )
+            prompt += configuration_lock
             _p(
                 f"Segment {sc}/{len(scenes)}, view {view_index}/"
                 f"{STATIC_VIEWS_TARGET}: {view_plan['label']}"
@@ -4140,7 +4141,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 geometry_prompt = _studio_prompt(
                     machine, view_plan, detail_focus, emphasize_geometry=True,
                     from_anchor=use_anchor,
-                )
+                ) + configuration_lock
                 geometry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's role-conformance retry")
                 role_retry_url = None
