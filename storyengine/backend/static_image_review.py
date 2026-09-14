@@ -1,6 +1,7 @@
 """Saved image approvals belong to exact pixels and configuration evidence."""
 import hashlib
 import json
+import re
 
 IMAGE_REVIEW_VERSION = 1
 
@@ -16,8 +17,29 @@ def factual_image_review_required(video):
             and payload.get("machine_script_contract") == "factual_100_v1")
 
 
+
+def machine_geometry_requirement(machine):
+    # USAF One Hundred Years of Flight (22 August 1923) and the cached
+    # XNBL-1 in-flight photograph: the Barling was a six-engine triplane.
+    # https://media.defense.gov/2025/Jun/16/2003738822/-1/-1/0/ONE%20HUNDRED%20YEARS%20FLIGHT.PDF
+    if re.search(r"\bXNBL[ -]?1\b|\bBarling Bomber\b", str(machine or ""), re.I):
+        return (
+            "XNBL-1 Barling geometry: preserve three vertically stacked main-wing planes "
+            "(upper, middle, lower), including the shorter middle wing visible in the "
+            "historical reference. It is a TRIPLANE, never a two-wing biplane. Count "
+            "the main wings separately from the tailplanes and reject a missing or merged "
+            "wing level. Preserve the six-engine arrangement: four tractor and two pusher "
+            "engines. Do not simplify the aircraft into a generic biplane. "
+        )
+    return ""
+
+
 def image_review_stamp(machine, reference_url, facts, image_url):
-    context = json.dumps([machine, reference_url, facts or {}], sort_keys=True, default=str)
+    inputs = [machine, reference_url, facts or {}]
+    requirement = machine_geometry_requirement(machine)
+    if requirement:
+        inputs.append(requirement)
+    context = json.dumps(inputs, sort_keys=True, default=str)
     return {"image_review_version": IMAGE_REVIEW_VERSION,
             "image_review_context": hashlib.sha256(context.encode()).hexdigest(),
             "image_review_url": image_url}

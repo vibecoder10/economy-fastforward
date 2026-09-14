@@ -36,7 +36,7 @@ from static_docu_contract import (
 )
 from storage import upload_bytes
 from static_image_review import (
-    factual_image_review_required, image_review_current, image_review_stamp,
+    factual_image_review_required, image_review_current, image_review_stamp, machine_geometry_requirement,
 )
 
 _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipeline"
@@ -1678,6 +1678,7 @@ def _render_reference_configuration_rules(
         if facts.get(key)
     )
     context_line = f"Known locked context: {known_context}. " if known_context else ""
+    context_line += machine_geometry_requirement(machine)
     is_naval = bool(re.search(
         r"\b(?:hms|uss|hmas|hmcs|hmnzs|rfa|ship|warship|naval|navy|carrier|"
         r"battleship|battlecruiser|cruiser|destroyer|frigate|corvette|submarine)\b",
