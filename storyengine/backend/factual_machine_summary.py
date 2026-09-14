@@ -118,7 +118,34 @@ def _word_count(text: str) -> int:
 
 
 def _sentences(paragraph: str) -> list[str]:
-    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph.strip()) if part.strip()]
+    # Keep the original text for exact citation matching. Protect abbreviation
+    # periods only in a continuing phrase, not a sentence ending in "the U.S.".
+    text = paragraph.strip()
+    protected = {
+        match.end() - 1
+        for match in re.finditer(
+            r"\b(?:U\.S\.|U\.K\.)(?=\s+(?:[a-z]|Air\b|Navy\b|Army\b|Marine\b|Space\b|Coast\b))",
+            text,
+        )
+    }
+    # A middle initial in a name, such as Glenn L. Martin, is not a stop.
+    protected.update(
+        match.end(1) - 1
+        for match in re.finditer(
+            r"\b[A-Z][a-z]+\s+([A-Z]\.)(?=\s+(?!(?:It|He|She|They|The|This|That|These|Those)\b)[A-Z][a-z]+\b)",
+            text,
+        )
+    )
+    sentences = []
+    start = 0
+    for boundary in re.finditer(r"(?<=[.!?])\s+", text):
+        if boundary.start() - 1 in protected:
+            continue
+        sentences.append(text[start:boundary.start()])
+        start = boundary.end()
+    if text[start:]:
+        sentences.append(text[start:])
+    return sentences
 
 
 def _numeric_keys(text: str, machine: str) -> set[str]:
