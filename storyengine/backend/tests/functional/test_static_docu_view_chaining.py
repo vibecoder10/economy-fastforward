@@ -140,7 +140,7 @@ def _seed_done_roles_fetch_all(done_role_urls, scene_text=DEFAULT_SCENE_TEXT):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_fresh_scene_first_view_uses_reference_later_views_chain_off_anchor(
+async def test_fresh_aircraft_views_all_use_historical_reference(
     monkeypatch,
 ):
     import shared.clients.image_client as image_client_module
@@ -171,28 +171,19 @@ async def test_fresh_scene_first_view_uses_reference_later_views_chain_off_ancho
     # durable render, never off each other's — a rolling chain would have
     # view 3 receive view 2's url (durable_urls[1]) instead.
     assert durable_urls[1] != durable_urls[0], "sanity: uploads are distinct per call"
-    assert env["gen_refs"][1] == durable_urls[0]
-    assert env["gen_refs"][2] == durable_urls[0]
+    assert env["gen_refs"][1] == REF_HOSTED
+    assert env["gen_refs"][2] == REF_HOSTED
 
     rows = _rows_by_role(env)
     assert rows["three_quarter"]["image_prompt"].startswith(
         f"[ref: {REF_SOURCE}] [input: reference] ")
     assert rows["side_profile"]["image_prompt"].startswith(
-        f"[ref: {REF_SOURCE}] [input: anchor three_quarter] ")
+        f"[ref: {REF_SOURCE}] [input: reference] ")
     assert rows["top_planform"]["image_prompt"].startswith(
-        f"[ref: {REF_SOURCE}] [input: anchor three_quarter] ")
+        f"[ref: {REF_SOURCE}] [input: reference] ")
 
-    # Prompt wording: the first view's prompt still describes a reference
-    # PHOTO; later views' prompts describe a studio RENDER of the machine.
-    assert "verified reference photo" in rows["three_quarter"]["image_prompt"].lower()
-    assert (
-        "verified clean studio render of the same machine"
-        in rows["side_profile"]["image_prompt"].lower()
-    )
-    assert (
-        "verified clean studio render of the same machine"
-        in rows["top_planform"]["image_prompt"].lower()
-    )
+    for row in rows.values():
+        assert "Use the supplied reference image" in row["image_prompt"]
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +194,7 @@ async def test_fresh_scene_first_view_uses_reference_later_views_chain_off_ancho
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_fill_mode_missing_view_chains_off_earliest_plan_order_done_role(
+async def test_aircraft_fill_uses_reference_and_preserves_done_roles(
     monkeypatch,
 ):
     import shared.clients.image_client as image_client_module
@@ -239,15 +230,11 @@ async def test_fill_mode_missing_view_chains_off_earliest_plan_order_done_role(
 
     assert result["status"] == "completed"
     assert len(env["gen_refs"]) == 1, "only the missing three_quarter role should generate"
-    assert env["gen_refs"] == [DONE_SIDE_PROFILE_URL], (
-        "the missing three_quarter view must chain off side_profile — "
-        "earlier in STATIC_VIEW_PLANS order than top_planform, even though "
-        "both are already done"
-    )
+    assert env["gen_refs"] == [REF_HOSTED]
     assert touched_done_ids == [], "the two pre-existing done rows must never be written to"
 
     rows = _rows_by_role(env)
-    assert "[input: anchor side_profile]" in rows["three_quarter"]["image_prompt"]
+    assert "[input: reference]" in rows["three_quarter"]["image_prompt"]
 
 
 # ---------------------------------------------------------------------------
@@ -280,8 +267,7 @@ async def test_identity_qa_still_checks_original_reference_not_the_anchor(monkey
         env["video_id"], env["tenant_id"])
 
     assert result["status"] == "completed"
-    assert env["gen_refs"] == [DONE_SIDE_PROFILE_URL], (
-        "sanity check: generation used the anchor, not the reference")
+    assert env["gen_refs"] == [REF_HOSTED]
     assert env["qa_calls"] == [
         ("https://kie.example/three-quarter-fill.png", REF_HOSTED)
     ], (

@@ -216,6 +216,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     async def fake_generate(self, prompt, ref_url, aspect_ratio="16:9",
                             allow_fallback=False, resolution="1K"):
         env["gen_prompts"].append(prompt)
+        env.setdefault("gen_inputs", []).append((ref_url, aspect_ratio, resolution, allow_fallback))
         u = remaining_urls.pop(0) if remaining_urls else None
         return {"url": u} if u else {}
 
@@ -378,7 +379,7 @@ async def test_double_qa_reject_parks_render_instead_of_deleting(monkeypatch):
     # The operator sees WHICH prompt produced the parked render: the retry's
     # (it carries the reproduce-exactly emphasis), prefixed with the ref.
     assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
-    assert "Reproduce the machine" in row["image_prompt"]
+    assert env["gen_prompts"][0] == env["gen_prompts"][1]
 
 
 @pytest.mark.asyncio
@@ -529,7 +530,7 @@ async def test_role_conformance_double_reject_parks_render_instead_of_deleting(m
     # the retry (short-circuited `and`) — here it fails on the retry too, so
     # identity QA never runs a second time.
     assert len(env["qa_calls"]) == 1
-    assert "CAMERA ANGLE CORRECTION" in row["image_prompt"]
+    assert env["gen_prompts"][0] == env["gen_prompts"][1]
 
 
 @pytest.mark.asyncio
@@ -603,7 +604,7 @@ async def test_role_conformance_reject_persists_judge_reason_on_parked_row(monke
     # The original prompt-audit trail (pre-existing) is still there too —
     # this fix APPENDS observability, it doesn't replace what was there.
     assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
-    assert "CAMERA ANGLE CORRECTION" in row["image_prompt"]
+    assert env["gen_prompts"][0] == env["gen_prompts"][1]
 
 
 @pytest.mark.asyncio
@@ -1053,3 +1054,22 @@ async def test_camera_retry_retains_machine_configuration_lock(monkeypatch):
     assert result['status'] == 'completed'
     assert len(env['gen_prompts']) == 2
     assert all('PRESERVE THREE MAIN WING PLANES' in prompt for prompt in env['gen_prompts'])
+
+
+@pytest.mark.asyncio
+async def test_aircraft_views_and_retry_use_direct_reference_and_format_options(monkeypatch):
+    env = _pipeline_env(monkeypatch, verdicts=[True] * 4,
+                        gen_urls=[RENDER_1, RENDER_2, RENDER_1, RENDER_2],
+                        role_verdicts=[False, True, True, True], isolate_single_view=False)
+    result = await static_docu.generate_static_images_for_video(env['video_id'], env['tenant_id'])
+    assert result['status'] == 'completed'
+    assert len(env['gen_inputs']) == 4
+    assert all(item == (REF_HOSTED, '16:9', '1K', False) for item in env['gen_inputs'])
+    assert env['gen_prompts'][0] == env['gen_prompts'][1]
+    for prompt in env['gen_prompts']:
+        assert prompt.startswith('Boeing XB-15.')
+        assert 'pure white background' in prompt
+        assert 'CONFIGURATION LOCK' not in prompt
+        assert 'bow' not in prompt and 'stern' not in prompt
+    assert 'Exact side profile' in env['gen_prompts'][2]
+    assert 'Directly overhead' in env['gen_prompts'][3]

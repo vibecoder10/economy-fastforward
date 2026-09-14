@@ -195,7 +195,7 @@ _STUDIO_PROMPT = (
 
 def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
                    emphasize_geometry: bool = False,
-                   from_anchor: bool = False) -> str:
+                   from_anchor: bool = False, aircraft: bool = False) -> str:
     """Build one historically locked prompt for a deliberate view role.
 
     `emphasize_geometry` is the role-conformance QA retry's stronger wording
@@ -217,6 +217,18 @@ def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
     (see the contract comment in static_docu_contract.py), so this branch is
     currently dead in production — left in place because `detail_focus`
     still flows from subject planning and a future 4th view could reuse it."""
+    if aircraft:
+        angle = {
+            "three_quarter": "Front three-quarter view, slightly above the aircraft",
+            "side_profile": "Exact side profile, camera level with the fuselage and perpendicular to it",
+            "top_planform": "Directly overhead, looking vertically down at the aircraft",
+        }.get(view_plan.get("role"), view_plan["direction"])
+        return (
+            f"{machine}. {angle}. Use the supplied reference image. "
+            "Photorealistic studio photograph, restored condition, pure white background, "
+            "soft even lighting and subtle ground shadow. Entire aircraft in frame. "
+            "No added text, labels, watermark, people or display stand."
+        )
     input_label = _ANCHOR_INPUT_LABEL if from_anchor else _REFERENCE_INPUT_LABEL
     detail_direction = ""
     if view_plan.get("role") == "engineering_detail":
@@ -3898,7 +3910,11 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             # traceable to one image. No anchor yet (fresh scene, first
             # view, or every prior view this run parked) falls back to the
             # reference photo exactly like before this fix.
-            use_anchor = anchor_url is not None
+            reference_rules = _render_reference_configuration_rules(
+                machine, aliases=sub.get("aliases"), facts=qa_facts)
+            aircraft = "Treat this as an aircraft comparison:" in reference_rules
+            # Aircraft views always use the verified historical source directly.
+            use_anchor = anchor_url is not None and not aircraft
             gen_input_url = anchor_url if use_anchor else ref_url
             input_marker = (
                 f"[input: anchor {anchor_role}] " if use_anchor
@@ -3910,11 +3926,9 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 view_row_id, gen_input_url,
             )
             prompt = _studio_prompt(
-                machine, view_plan, detail_focus, from_anchor=use_anchor)
+                machine, view_plan, detail_focus, from_anchor=use_anchor, aircraft=aircraft)
             configuration_lock = (
-                " CONFIGURATION LOCK — "
-                + _render_reference_configuration_rules(
-                    machine, aliases=sub.get("aliases"), facts=qa_facts)
+                "" if aircraft else " CONFIGURATION LOCK — " + reference_rules
             )
             prompt += configuration_lock
             _p(
@@ -4068,6 +4082,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     "engineering features. Change only the requested camera "
                     "viewpoint. " + prompt
                 )
+                if aircraft:
+                    retry_prompt = prompt
                 retry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's QA retry")
                 if retry_refusal:
@@ -4140,7 +4156,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 )
                 geometry_prompt = _studio_prompt(
                     machine, view_plan, detail_focus, emphasize_geometry=True,
-                    from_anchor=use_anchor,
+                    from_anchor=use_anchor, aircraft=aircraft,
                 ) + configuration_lock
                 geometry_refusal = await budget_refusal(
                     tenant_id, video_id, quote, "this view's role-conformance retry")
