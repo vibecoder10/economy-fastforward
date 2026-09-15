@@ -271,3 +271,40 @@ def test_processing_must_succeed_before_saved_upload_completes(monkeypatch, fina
         assert receipts[-1]["processing_status"] == "succeeded"
     if expected == "pending":
         assert "timeout" in result["error"]
+
+
+def test_automatic_upload_generates_metadata_before_insert(monkeypatch):
+    monkeypatch.setattr(queue_delivery, 'fetch_one', AsyncMock(return_value={'seo_description': None, 'youtube_video_id': None}))
+    order = []
+    async def seo(*args):
+        order.append('seo')
+        return {'description': 'Aircraft history', 'tags': ['aviation']}
+    async def upload(*args, **kwargs):
+        order.append('upload')
+        assert kwargs['privacy'] == 'unlisted'
+        assert kwargs['expected_channel_id'] == CHANNEL
+        return {'youtube_video_id': 'new'}
+    monkeypatch.setattr(youtube_publish, 'generate_and_store_seo', seo)
+    monkeypatch.setattr(youtube_publish, 'upload_video_to_youtube', upload)
+    asyncio.run(queue_delivery._upload_unlisted(VIDEO, TENANT, CHANNEL))
+    assert order == ['seo', 'upload']
+
+
+def test_automatic_upload_stops_on_metadata_failure(monkeypatch):
+    monkeypatch.setattr(queue_delivery, 'fetch_one', AsyncMock(return_value={'seo_description': None}))
+    monkeypatch.setattr(youtube_publish, 'generate_and_store_seo', AsyncMock(return_value={'error': 'Metadata failed'}))
+    upload = AsyncMock()
+    monkeypatch.setattr(youtube_publish, 'upload_video_to_youtube', upload)
+    result = asyncio.run(queue_delivery._upload_unlisted(VIDEO, TENANT, CHANNEL))
+    assert result['error'] == 'Metadata failed'
+    upload.assert_not_awaited()
+
+
+@pytest.mark.parametrize('video', [{'seo_description': 'Creator edited description'}, {'youtube_video_id': 'existing'}])
+def test_automatic_upload_preserves_saved_metadata_and_retries(monkeypatch, video):
+    monkeypatch.setattr(queue_delivery, 'fetch_one', AsyncMock(return_value=video))
+    seo = AsyncMock()
+    monkeypatch.setattr(youtube_publish, 'generate_and_store_seo', seo)
+    monkeypatch.setattr(youtube_publish, 'upload_video_to_youtube', AsyncMock(return_value={}))
+    asyncio.run(queue_delivery._upload_unlisted(VIDEO, TENANT, CHANNEL))
+    seo.assert_not_awaited()

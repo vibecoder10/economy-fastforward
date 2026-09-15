@@ -76,7 +76,20 @@ async def _upload_unlisted(
 ) -> dict:
     # Local import keeps this helper safe to import from actions.py, because
     # youtube_publish itself imports one actions configuration function.
-    from youtube_publish import upload_video_to_youtube
+    from youtube_publish import generate_and_store_seo, upload_video_to_youtube
+
+    video = await fetch_one(
+        "SELECT seo_description, youtube_video_id FROM videos WHERE id=$1 AND tenant_id=$2",
+        video_id, tenant_id,
+    )
+    if not video:
+        return {"error": "Video not found."}
+    # Match the manual uploader: prepare content-derived metadata before the
+    # automatic insert, while retaining saved creator edits and retry behavior.
+    if not video.get("youtube_video_id") and not (video.get("seo_description") or "").strip():
+        seo = await generate_and_store_seo(video_id, tenant_id)
+        if seo.get("error"):
+            return {"error": seo["error"]}
 
     return await upload_video_to_youtube(
         video_id,

@@ -98,7 +98,10 @@ async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
     scenes = await fetch_all(
         "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
         "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
-    script = "\n".join((s["scene_text"] or "") for s in scenes)[:4000]
+    # Sample every scene so long roster videos do not get tags describing
+    # only their first few aircraft. Bound prompt size without dropping the end.
+    per_scene = max(120, 24000 // max(1, len(scenes)))
+    script = "\n".join((s["scene_text"] or "")[:per_scene] for s in scenes)
 
     cp = await fetch_one(
         "SELECT channel_name, youtube_channel_name, niche, target_audience "
