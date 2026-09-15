@@ -46,6 +46,16 @@ import static_docu  # noqa: E402
 import research_ingest  # noqa: E402
 
 @pytest.fixture(autouse=True)
+def _selection_seam(monkeypatch):
+    import reference_selection
+    async def ensure():
+        return None
+    async def selected(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        return {"status": "selected", "selected": {"hosted_url": f"https://storage.example/{machine}.jpg", "image_url": f"https://source.example/{machine}.jpg"}}
+    monkeypatch.setattr(reference_selection, "ensure_selection_schema", ensure)
+    monkeypatch.setattr(reference_selection, "select_reference", selected)
+
+@pytest.fixture(autouse=True)
 def _empty_historical_reference_cache(monkeypatch):
     # These cases exercise web discovery; cross-key cache recovery has its
     # own strict-identity and fallback suite.
@@ -356,12 +366,7 @@ async def test_prefetch_happy_path_writes_cache_and_never_calls_image_client(mon
     assert result["roster_count"] == 3
     assert result["verified"] == 3
     assert result["missed"] == 0
-    assert len(cache_writes) == 3
-    for args in cache_writes:
-        tenant_arg, machine_key_arg, machine_arg, hosted_arg, source_arg = args
-        assert tenant_arg == tenant_id
-        assert hosted_arg.startswith("https://storage.example/roster")
-        assert machine_arg in roster
+    assert cache_writes == []
 
 
 @pytest.mark.asyncio
@@ -396,6 +401,10 @@ async def test_prefetch_miss_path_no_cache_row_no_exception(monkeypatch):
     monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", _empty)
     monkeypatch.setattr(static_docu, "find_article_images", _empty)
     monkeypatch.setattr(static_docu, "find_commons_photos", _empty)
+    import reference_selection
+    async def rejected(*args, **kwargs):
+        return {"status": "needs_review", "reason_code": "no_candidates", "reason": "No candidates"}
+    monkeypatch.setattr(reference_selection, "select_reference", rejected)
 
     result = await static_docu.prefetch_roster_references(video_id, tenant_id)
 
@@ -452,6 +461,12 @@ async def test_prefetch_one_machine_exception_does_not_kill_the_sweep(monkeypatc
     monkeypatch.setattr(static_docu, "find_commons_photos", _empty)
     monkeypatch.setattr(static_docu, "_host_reference", fake_host_reference)
     monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision_confirms)
+    import reference_selection
+    async def one_failure(tenant, video, machine, index, **kwargs):
+        if machine == "Boeing XB-15":
+            raise RuntimeError("selector failure")
+        return {"status": "selected", "selected": {"hosted_url": "https://storage/x.jpg", "image_url": "https://source/x.jpg"}}
+    monkeypatch.setattr(reference_selection, "select_reference", one_failure)
 
     result = await static_docu.prefetch_roster_references(video_id, tenant_id)
 
@@ -459,9 +474,7 @@ async def test_prefetch_one_machine_exception_does_not_kill_the_sweep(monkeypatc
     assert result["roster_count"] == 3
     assert result["missed"] == 1    # XB-15 blew up
     assert result["verified"] == 2  # XB-35 and YB-60 still got cached
-    assert len(cache_writes) == 2
-    cached_machines = {args[2] for args in cache_writes}
-    assert cached_machines == {"Northrop XB-35", "Convair YB-60"}
+    assert cache_writes == []
 
 
 @pytest.mark.asyncio
@@ -584,6 +597,11 @@ async def test_prefetch_finds_ship_class_misses_via_derived_aliases(monkeypatch)
     monkeypatch.setattr(static_docu, "find_commons_photos", fake_commons_photos)
     monkeypatch.setattr(static_docu, "_host_reference", fake_host_reference)
     monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision_confirms)
+    import reference_selection
+    async def record_aliases(tenant, video, machine, index, aliases=None, facts=None, **kwargs):
+        lookup_calls.append([machine, *(aliases or [])])
+        return {"status": "selected", "selected": {"hosted_url": "https://storage/x.jpg", "image_url": "https://source/x.jpg"}}
+    monkeypatch.setattr(reference_selection, "select_reference", record_aliases)
 
     result = await static_docu.prefetch_roster_references(video_id, tenant_id)
 
@@ -591,7 +609,7 @@ async def test_prefetch_finds_ship_class_misses_via_derived_aliases(monkeypatch)
     assert result["roster_count"] == 4
     assert result["verified"] == 4, f"expected all 4 to verify via alias, got: {result}"
     assert result["missed"] == 0
-    assert len(cache_writes) == 4
+    assert cache_writes == []
 
     # Prove the alias was actually offered to the lookup, not just that the
     # sweep happened to pass some other way — every lookup call's `names`

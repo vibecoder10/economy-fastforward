@@ -1522,6 +1522,7 @@ async def remove_roster_unit(
 class SeedReferenceRequest(BaseModel):
     machine: str
     url: str
+    source_page_url: str | None = None
 
 
 @router.post("/roster-seed-reference/{video_id}")
@@ -1530,13 +1531,10 @@ async def seed_roster_reference(
     body: SeedReferenceRequest,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """C3c Roster stage panel's "Add photo" control: an operator pastes an
-    image URL for a machine prefetch couldn't find a reference for. Free —
-    no generation spend, just fetch + vision-verify + cache — reusing
-    static_docu.seed_reference_from_url (itself a thin wrapper over the SAME
-    _host_reference/_vision_confirms/static_reference_cache pipeline
-    prefetch_roster_references already uses, so a manually-supplied photo is
-    held to the identical bar as a prefetched one)."""
+    """Review a supplied photo and its source evidence with the roster selector.
+
+    Fetches and vision review only; this does not generate an image.
+    """
     video = await fetch_one(
         "SELECT id, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -1548,7 +1546,10 @@ async def seed_roster_reference(
     if not machine or not url:
         raise HTTPException(status_code=400, detail="machine and url are required")
     from static_docu import seed_reference_from_url
-    return await seed_reference_from_url(video_id, tenant_id, machine, url)
+    if await _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Wait for the current image review to finish before adding a photo.")
+    return await seed_reference_from_url(video_id, tenant_id, machine, url,
+                                         source_page_url=body.source_page_url)
 
 
 @router.post("/static-qa-approve/{asset_id}")

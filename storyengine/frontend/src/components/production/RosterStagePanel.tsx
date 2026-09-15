@@ -46,6 +46,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
   const [taskRunning, setTaskRunning] = useState(false);
   const [rechecking, setRechecking] = useState(false);
   const [pendingUrl, setPendingUrl] = useState<Record<string, string>>({});
+  const [pendingSourcePage, setPendingSourcePage] = useState<Record<string, string>>({});
   const [seeding, setSeeding] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<Record<string, string>>({});
@@ -163,10 +164,11 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     setSeeding(machine);
     setSeedError((prev) => ({ ...prev, [machine]: "" }));
     try {
-      const result = await seedRosterReference(videoId, machine, url);
+      const result = await seedRosterReference(videoId, machine, url, (pendingSourcePage[machine] || "").trim() || undefined);
       if (result.status === "verified") {
         toast.success(`${machine}: reference photo verified.`);
         setPendingUrl((prev) => ({ ...prev, [machine]: "" }));
+        setPendingSourcePage((prev) => ({ ...prev, [machine]: "" }));
         queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
         onRefresh();
       } else {
@@ -218,7 +220,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     };
   });
   const total = units.length;
-  const verifiedCount = units.filter((u) => u.reference?.status === "verified" && u.reference?.kind === "photo" && u.reference?.hosted_url?.trim() && u.reference?.source_url?.trim()).length;
+  const verifiedCount = units.filter((u) => u.reference?.status === "verified" && u.reference?.selection_review?.status === "selected" && u.reference?.hosted_url?.trim() && u.reference?.source_url?.trim()).length;
   // Same never-built rule as StaticDocuStageRail's roster gate (2026-07-30):
   // a cancelled programme (retryable === false) can never have a photo, so it
   // must satisfy the roster rather than hold the summary at "fix the missing
@@ -228,6 +230,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
   ).length;
   const allVerified = total > 0 && verifiedCount === total;
+  const legacySelectionPending = units.some((unit) => Boolean(unit.reference?.hosted_url) && unit.reference?.status !== "verified" && !unit.reference?.selection_review);
   const pace = Number(minutesPerMachine);
   const duration = Number(video.video_length_minutes || 0);
   const targetCount = Number.isFinite(pace) && pace > 0 && duration > 0
@@ -360,14 +363,17 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
             onClick={mode === "image_gather" ? handleGather : handleRecheck}
             disabled={rechecking || showRunning || taskWatcher.running}
           >
-            {rechecking || showRunning ? "Gathering…" : mode === "image_gather" ? (verifiedCount ? "Retry missing images" : "Gather images") : "Re-check missing"}
+            {rechecking || showRunning ? "Gathering…" : mode === "image_gather" ? (legacySelectionPending ? "Review image choices" : "Retry missing images") : "Re-check missing"}
           </ActionButton>
         </div>
       </GlassCard>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {units.map((u) => {
-          const verified = u.reference?.status === "verified" && u.reference?.kind === "photo" && Boolean(u.reference?.hosted_url?.trim()) && Boolean(u.reference?.source_url?.trim());
+          const receipt = u.reference?.selection_review;
+          const hasPreview = Boolean(u.reference?.hosted_url?.trim());
+          const verified = u.reference?.status === "verified" && receipt?.status === "selected" && Boolean(u.reference?.hosted_url?.trim()) && Boolean(u.reference?.source_url?.trim());
+          const legacyPending = hasPreview && !verified && !receipt;
           // C8: a "missing" card used to look identical whether the machine
           // just hasn't been reached yet, will never have a photo, or was
           // genuinely checked and failed. never_built (retryable === false)
@@ -379,10 +385,10 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
           return (
             <GlassCard key={u.machine} className="p-4 flex flex-col gap-3">
               <div
-                className={verified ? "w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center" : "hidden"}
+                className={hasPreview ? "w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center" : "hidden"}
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
               >
-                {verified && u.reference?.hosted_url ? (
+                {hasPreview && u.reference?.hosted_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={toDisplayImageUrl(u.reference.hosted_url)}
@@ -404,7 +410,11 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                     className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
                     style={{ color: "var(--green)", border: "1px solid var(--green)" }}
                   >
-                    <CheckCircle2 size={11} /> verified
+                    <CheckCircle2 size={11} /> Identity checked
+                  </span>
+                ) : legacyPending ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ color: "var(--gold)", border: "1px solid var(--gold)" }}>
+                    <Info size={11} /> Photo saved — view review pending
                   </span>
                 ) : showRunning && !manualOverride[u.machine] ? (
                   // UX-1: while an automatic sweep is mid-flight, a red
@@ -435,8 +445,13 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                     <ImageIcon size={11} /> photo pending
                   </span>
                 )}
-                {mode === "image_gather" && verified && u.reference?.source_url && (
-                  <a href={u.reference.source_url} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{ color: "var(--turquoise)" }}>Source page</a>
+                {verified && receipt?.compared_count ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}>
+                    {receipt.compared_count > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}
+                  </span>
+                ) : null}
+                {mode === "image_gather" && verified && (u.reference?.source_page_url || u.reference?.source_url) && (
+                  <a href={u.reference.source_page_url || u.reference.source_url} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{ color: "var(--turquoise)" }}>Source page</a>
                 )}
                   <button
                     type="button"
@@ -468,6 +483,21 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                 </p>
               )}
 
+              {receipt && (
+                <details className="text-[11px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+                  <summary className="cursor-pointer" style={{ color: "var(--turquoise)" }}>Why this photo</summary>
+                  <div className="mt-2 space-y-1">
+                    <p>{receipt.selected?.reason || receipt.reason || "Selection review needs attention."}</p>
+                    {receipt.compared_count ? <p>{receipt.compared_count > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}</p> : null}
+                    {receipt.selected?.scores ? <p>Score factors: coverage {receipt.selected.scores.coverage}/5 · features {receipt.selected.scores.features}/5 · sharpness {receipt.selected.scores.sharpness}/5 · unobstructed {receipt.selected.scores.unobstructed}/5 · perspective {receipt.selected.scores.perspective}/5</p> : null}
+                    {(receipt.selected?.identity?.evidence || []).map((e, index) => <p key={index}><a className="underline" href={e.url} target="_blank" rel="noreferrer">Evidence</a>: {e.quote}</p>)}
+                    {(receipt.selected?.limitations || []).map((item, index) => <p key={index}>Limitation: {item}</p>)}
+                    {(receipt.supporting || []).map((support) => <div key={support.id} className="flex items-center gap-2"><img src={toDisplayImageUrl(support.hosted_url || support.image_url)} alt="Supporting view" className="w-12 h-8 object-cover rounded" /><a className="underline" href={support.source_page || support.image_url} target="_blank" rel="noreferrer">Supporting view</a><span>{support.view || "other"}: {support.reason || support.identity?.reason || support.reason_code || ""}</span></div>)}
+                    {(receipt.candidates || []).filter((candidate) => candidate.id !== receipt.selected?.id).map((candidate) => <p key={candidate.id}>Alternative: <a className="underline" href={candidate.source_page || candidate.image_url} target="_blank" rel="noreferrer">{candidate.title || "source"}</a> — {candidate.reason || candidate.identity?.reason || candidate.reason_code || "No reason recorded"}</p>)}
+                  </div>
+                </details>
+              )}
+
               {!verified && !neverBuilt && showRunning && !manualOverride[u.machine] && (
                 <button
                   onClick={() => setManualOverride((prev) => ({ ...prev, [u.machine]: true }))}
@@ -491,14 +521,19 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                       placeholder="Paste an image URL…"
                       value={pendingUrl[u.machine] || ""}
                       onChange={(e) => setPendingUrl((prev) => ({ ...prev, [u.machine]: e.target.value }))}
-                      disabled={seeding === u.machine}
+                      disabled={seeding === u.machine || showRunning || taskWatcher.running || rechecking}
                       className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] outline-none disabled:opacity-40"
                       style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
                     />
                   </div>
+                  <input type="url" placeholder="Optional source page URL" value={pendingSourcePage[u.machine] || ""}
+                    onChange={(e) => setPendingSourcePage((prev) => ({ ...prev, [u.machine]: e.target.value }))}
+                    disabled={seeding === u.machine || showRunning || taskWatcher.running || rechecking} className="w-full px-2 py-1 rounded-md text-[11px] outline-none disabled:opacity-40"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }} />
+                  <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>Use a direct image URL. Search-result pages are unsuitable.</p>
                   <button
                     onClick={() => handleAddPhoto(u.machine)}
-                    disabled={seeding === u.machine || !(pendingUrl[u.machine] || "").trim()}
+                    disabled={seeding === u.machine || showRunning || taskWatcher.running || rechecking || !(pendingUrl[u.machine] || "").trim()}
                     className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
                     style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
                   >

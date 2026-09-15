@@ -1169,11 +1169,29 @@ export type RosterDashboard = {
       kind?: "photo";
       hosted_url?: string;
       source_url?: string;
+      source_page_url?: string;
+      selection_review?: ReferenceSelectionReceipt | null;
+      selection_pending?: boolean;
       reason_code?: string;
       reason_detail?: string;
       retryable?: boolean;
     };
   }>;
+};
+
+export type ReferenceIdentityEvidence = { url: string; quote: string };
+export type ReferenceSelectionScores = { coverage: number; features: number; sharpness: number; unobstructed: number; perspective: number };
+export type ReferenceSelectionCandidate = {
+  id: string; image_url: string; source_page?: string; title?: string; caption?: string;
+  width?: number; height?: number; identity?: { status: "confirmed" | "uncertain" | "rejected"; reason?: string; evidence?: ReferenceIdentityEvidence[] };
+  scores?: ReferenceSelectionScores; score?: number; view?: string; reason?: string;
+  limitations?: string[]; hosted_url?: string; reason_code?: string;
+};
+export type ReferenceSelectionReceipt = {
+  version: number; status: "selected" | "needs_review" | "error"; machine?: string; checked_at?: string;
+  discovered_count?: number; compared_count?: number; selected?: ReferenceSelectionCandidate | null;
+  supporting?: ReferenceSelectionCandidate[]; candidates?: ReferenceSelectionCandidate[];
+  reason_code?: string; reason?: string;
 };
 
 export const getRosterDashboard = (videoId: string) =>
@@ -1188,20 +1206,21 @@ export const saveRosterPacing = (videoId: string, minutesPerMachine: number) =>
 // --- C3c: Roster stage panel — seed/re-check reference photos ---
 
 export type SeedReferenceResult = {
-  status: "verified" | "rejected";
+  status: "verified" | "rejected" | "needs_review" | "error";
   hosted_url?: string;
   source_url?: string;
   reason?: string;
+  selection_review?: ReferenceSelectionReceipt;
 };
 
 /** Operator pastes an image URL for a machine with no verified reference
  * (the "Add photo" control). Free — fetch + vision-verify + cache, reusing
  * the SAME pipeline prefetch already runs. Never throws on a rejection
  * (bad URL / wrong machine) — check `status` on the result. */
-export const seedRosterReference = (videoId: string, machine: string, url: string) =>
+export const seedRosterReference = (videoId: string, machine: string, url: string, sourcePageUrl?: string) =>
   fetchApi<SeedReferenceResult>(`/api/pipeline/roster-seed-reference/${videoId}`, {
     method: "POST",
-    body: JSON.stringify({ machine, url }),
+    body: JSON.stringify({ machine, url, ...(sourcePageUrl ? { source_page_url: sourcePageUrl } : {}) }),
   });
 
 export const removeRosterUnit = (videoId: string, machine: string) =>

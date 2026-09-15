@@ -14,6 +14,7 @@ import static_docu as sd
 
 @pytest.fixture
 def gather(monkeypatch):
+    monkeypatch.setattr(ri, "ensure_selection_schema", AsyncMock())
     names = [f"Class {index}" for index in range(20)]
     payload = {"unit_roster": [{"name": name} for name in names],
                "recommended_final_roster": names[:], "research_phase": "unit_research",
@@ -54,6 +55,13 @@ def gather(monkeypatch):
         key = sd._machine_key(name)
         cache[key] = {"machine_key": key, "reference_kind": "photo", "hosted_url": "https://assets.example/" + key,
                       "source_url": "https://archive.example/" + key, **overrides}
+        row = cache[key]
+        quote = "The source caption identifies " + name
+        row["selection_review"] = {"version": 1, "status": "selected", "compared_count": 2,
+            "selected": {"image_url": "https://archive.example/" + key,
+                "hosted_url": "https://assets.example/" + key, "score": 80,
+                "evidence": [{"url": "https://archive.example/" + key, "text": quote, "kind": "image_caption"}],
+                "identity": {"status": "confirmed", "evidence": [{"url": "https://archive.example/" + key, "quote": quote}]}}}
     return SimpleNamespace(ex=ex, video=video, names=names, cache=cache, writes=writes, reads=reads,
                            finder=finder, add_photo=add_photo, state=state)
 

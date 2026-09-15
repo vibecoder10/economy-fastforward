@@ -4649,164 +4649,45 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                                 roster_index: int,
                                 aliases: Optional[list] = None,
                                 facts: Optional[dict] = None) -> bool:
-    """Verify + self-host + cache ONE roster machine's reference photo, using
-    the SAME candidate chain _one_scene uses (_gather_reference_candidates).
-    Returns True once a verified candidate is cached, False if the whole
-    chain exhausts with nothing passing (a miss — not an exception; the
-    caller records it and moves on to the next machine).
-
-    `aliases` (added 2026-07-29): the roster's display name is a flat string
-    (see pipeline_executor._machine_documentary_hold_roster) that, for a
-    ship-class entry, is often an unsearchable glue of a designation-shaped
-    field holding a category/member-ship list plus the class name (e.g.
-    "Lend-Lease escort carriers Attacker class (US-built)"). The CALLER
-    (static_docu.prefetch_roster_references) now derives real aliases from
-    the structured roster entry
-    (pipeline_executor._machine_documentary_hold_roster_entries) — the bare
-    name, the bare designation, and each comma/slash-split member — and
-    passes them through here so _gather_reference_candidates and
-    _vision_confirms can use them for lookup and identification the same
-    way _one_scene's live per-scene path already does. Defaults to None
-    (the pre-alias behavior) so any other caller is unaffected.
-
-    C8 (2026-07-29): a False return used to be a bare absence — three
-    genuinely different problems (no candidate found at all, a candidate
-    found but never hosted, a candidate hosted but vision-rejected) looked
-    identical to every caller and to the human staring at the roster panel.
-    This now classifies which of those happened and persists it via
-    _record_reference_miss (see static_reference_misses) before returning
-    False, and clears any prior miss the instant a machine verifies."""
-    if await _recover_cached_roster_reference(tenant_id, video_id, machine, aliases, facts):
+    """Select a source-grounded, comparatively reviewed roster photograph."""
+    from reference_selection import select_reference
+    receipt = await select_reference(tenant_id, video_id, machine, roster_index,
+                                     aliases=aliases, facts=facts)
+    if receipt.get("status") == "selected":
+        await _clear_reference_miss(tenant_id, video_id, machine)
         return True
-    lookup_aliases = list(aliases or [])
-    naval_name = re.sub(r"^[A-Za-z]?\d+\s+", "", machine).strip()
-    if re.match(r"^(?:HMS|HMAS|HMCS|USS)\s+", naval_name) and not re.search(r"\(\d{4}\)", naval_name):
-        # The roster often omits a ship's launch-year article suffix. Use
-        # its own first two distinct historical dates as bounded lookup
-        # hints. They do not alter identity facts or grant provenance.
-        years = re.findall(r"\b(?:18|19|20)\d{2}\b", str((facts or {}).get("years") or "").split("[")[0])
-        for year in list(dict.fromkeys(years))[:2]:
-            lookup_aliases.append(f"{naval_name} ({year})")
-    candidates = await _gather_reference_candidates(machine, lookup_aliases or aliases, machine)
-    candidates = await _rank_reference_views(candidates, tenant_id, machine)
-    # Naval class names and reused ship names often resolve to a battleship,
-    # cruiser, or a namesake from another century. Expand the candidate search
-    # with carrier-qualified aliases, while retaining the same vision gate.
-    # This is bounded and deduplicated; a retry must not pay to judge the same
-    # rejected photograph again inside this sweep.
-    role = str((facts or {}).get("role") or "").lower()
-    carrier_queries = []
-    if "carrier" in role:
-        for name in list(aliases or []) + [machine]:
-            name = str(name or "").strip()
-            if len(re.sub(r"[^a-zA-Z]", "", name)) < 4:
-                continue
-            query = f"{name} aircraft carrier"
-            if query not in carrier_queries:
-                carrier_queries.append(query)
-            if len(carrier_queries) == 2:
-                break
-    mkey = _machine_key(machine)
-    hosted_any = False
-    seen = {url for url, _trusted in candidates}
-    idx = 0
-    # Search the next alternative only after existing candidates all fail.
-    while idx < len(candidates) or carrier_queries:
-        if idx >= len(candidates):
-            query = carrier_queries.pop(0)
-            for row in await find_commons_photos(query):
-                url = row.get("url")
-                if url and url not in seen:
-                    seen.add(url)
-                    candidates.append((url, False))
-            if idx >= len(candidates):
-                continue
-        cand, trusted = candidates[idx]
-        idx += 1
-        hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
-        if not hosted:
-            continue
-        hosted_any = True
-        # VIS-1: the candidate URL's own filename is handed to the vision
-        # check as text — a Commons filename usually names the actual unit
-        # photographed ("HMS_Glory_...", "USS_Guadalcanal_..."), which is
-        # how a sister-class lookalike gets caught when pixels can't.
-        cand_label = str(cand).rsplit("/", 1)[-1] if cand else None
-        if await _vision_confirms(tenant_id, hosted, machine, aliases,
-                                  trusted_source=trusted, facts=facts,
-                                  source_label=cand_label):
-            await execute(
-                _reference_cache_upsert_sql("photo"),
-                tenant_id, mkey, machine[:200], hosted, cand)
-            await _clear_reference_miss(tenant_id, video_id, machine)
-            return True
     await _record_reference_miss(
         tenant_id, video_id, machine,
-        REASON_NO_CANDIDATES if not candidates else
-        (REASON_VISION_REJECTED if hosted_any else REASON_FETCH_FAILED))
+        receipt.get("reason_code") or "selection_review_needed",
+        receipt.get("reason") or "Image identity and view selection need review.")
     return False
 
 
 async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
-                                  url: str) -> dict:
-    """Operator-supplied reference photo for ONE roster machine (C3c Roster
-    stage panel's "Add photo" control — the fix for a machine prefetch
-    couldn't find anything for). Reuses the SAME _host_reference (self-host
-    so Kie always fetches from us, never a third party) + _vision_confirms
-    (machine-consistency check) + static_reference_cache upsert that
-    _prefetch_one_machine already uses — no separate verification path for a
-    manually-supplied photo just because a human picked it.
-
-    An operator-pasted URL carries no Wikipedia/Commons provenance signal,
-    so it always runs the FULL untrusted vision bar (trusted_source=False) —
-    never a free pass just because a person supplied it.
-
-    Never raises for a bad candidate (unreachable URL, wrong machine): both
-    are reported as {"status": "rejected", "reason": ...} for the route to
-    hand back as a normal response, not an exception. Returns
-    {"status": "verified", "hosted_url", "source_url"} on pass."""
-    await _ensure_ref_cache_schema()
-    mkey = _machine_key(machine)
-    hosted = await _host_reference(url, video_id, tenant_id, f"seed_{mkey}")
-    if not hosted:
-        return {
-            "status": "rejected",
-            "reason": "Couldn't fetch that URL — it may be unreachable, blocked, or too small to be a real photo.",
-        }
-    # VIS-1: an operator-pasted URL gets the same strengthened question the
-    # sweep asks — the entry's own role/era facts plus the pasted filename.
-    # A human picking the photo does not exempt it from the era/configuration
-    # check (the live wrong-photo audit included exactly the kind of
-    # right-name-wrong-era candidates a well-meaning human paste could hit).
-    facts, aliases = None, None
-    try:
-        from pipeline_executor import _machine_documentary_hold_roster_entries
-        video = await fetch_one(
-            "SELECT id, render_mode, research_payload FROM videos "
-            "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
-        target_key = _machine_key(machine)
-        for entry in (_machine_documentary_hold_roster_entries(video) if video else []):
-            if _machine_key(entry["name"]) == target_key:
-                facts = entry.get("facts") or None
-                aliases = entry.get("aliases") or None
-                break
-    except Exception:  # noqa: BLE001 — enrichment must never break seeding
-        facts, aliases = None, None
-    if not await _vision_confirms(tenant_id, hosted, machine, aliases,
-                                  trusted_source=False, facts=facts,
-                                  source_label=str(url).rsplit("/", 1)[-1]):
-        return {
-            "status": "rejected",
-            "reason": "That photo doesn't look consistent with this machine — try a clearer or more specific photo.",
-        }
-    await execute(
-        _reference_cache_upsert_sql("photo"),
-        tenant_id, mkey, machine[:200], hosted, url)
-    # C8: a manually-seeded photo resolves this video's open miss (if any)
-    # exactly like an automated prefetch success does — same clear helper,
-    # so the panel stops attributing a reason to a machine that's now fine.
-    await _clear_reference_miss(tenant_id, video_id, machine)
-    return {"status": "verified", "hosted_url": hosted, "source_url": url}
+                                  url: str, source_page_url: Optional[str] = None) -> dict:
+    """Review a manual photo using the same source-evidence and view criteria."""
+    from pipeline_executor import _machine_documentary_hold_roster_entries
+    from reference_selection import select_reference
+    video = await fetch_one(
+        "SELECT id, render_mode, research_payload FROM videos "
+        "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+    entry = next((e for e in _machine_documentary_hold_roster_entries(video or {})
+                  if _machine_key(e["name"]) == _machine_key(machine)), None)
+    if not entry:
+        return {"status": "rejected", "reason_code": "invalid_machine",
+                "reason": "Choose a machine from this video's saved roster."}
+    receipt = await select_reference(
+        tenant_id, video_id, entry["name"], 0, aliases=entry.get("aliases"),
+        facts=entry.get("facts"), manual_url=url, source_page_url=source_page_url)
+    if receipt.get("status") != "selected":
+        await _record_reference_miss(tenant_id, video_id, entry["name"],
+            receipt.get("reason_code") or "selection_review_needed", receipt.get("reason"))
+        return {"status": "rejected", "reason_code": receipt.get("reason_code"),
+                "reason": receipt.get("reason"), "selection_review": receipt}
+    await _clear_reference_miss(tenant_id, video_id, entry["name"])
+    selected = receipt["selected"]
+    return {"status": "verified", "hosted_url": selected["hosted_url"],
+            "source_url": selected["image_url"], "selection_review": receipt}
 
 
 async def prefetch_roster_references(video_id: str, tenant_id: str, *,
@@ -4855,6 +4736,8 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
 
     await _ensure_ref_cache_schema()
 
+    from reference_selection import ensure_selection_schema, selection_ready
+    await ensure_selection_schema()
     verified, missed, never_built, processed = 0, 0, 0, 0
     for i, entry in enumerate(entries):
         machine = entry["name"]
@@ -4866,10 +4749,10 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
         outcome = "missing"
         try:
             cached = await fetch_one(
-                "SELECT hosted_url, source_url FROM static_reference_cache "
+                "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
                 "WHERE tenant_id=$1 AND machine_key=$2 "
                 "AND reference_kind='photo'", tenant_id, mkey)
-            if cached and str(cached.get("hosted_url") or "").strip() and str(cached.get("source_url") or "").strip():
+            if selection_ready(cached):
                 verified += 1
                 # C8: this machine already carries a tenant-global verified
                 # reference (perhaps seeded/prefetched via a different
