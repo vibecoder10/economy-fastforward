@@ -199,12 +199,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
           <span>Render: <span style={{ color: renderActive ? "var(--gold)" : video.final_video_url ? "var(--green)" : "var(--text-tertiary)" }}>{persistedActivity.runAllActive ? "Finishing" : renderActive ? "In Progress" : video.final_video_url ? "Complete" : "Pending"}</span></span>
           <span>Video: <span style={{ color: video.final_video_url ? "var(--green)" : "var(--text-tertiary)" }}>{video.final_video_url ? "Ready" : "Not Ready"}</span></span>
         </div>
-        <button onClick={handleAdvanceStage} disabled={advancing || renderActive}
-          className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
-          {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
-          Advance Stage <ChevronRight size={12} />
-        </button>
+        
       </div>
     </div>
 
@@ -520,7 +515,9 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
               )}
             </div>
           )}
-          {confirmRender ? (
+          {isStaticDocu ? (
+            <p className="text-xs">Use Run All / Resume above to finish the video.</p>
+          ) : confirmRender ? (
             <>
               <p className="text-[11px] text-center mb-2" style={{ color: "var(--text-secondary)" }}>
                 {isStaticDocu

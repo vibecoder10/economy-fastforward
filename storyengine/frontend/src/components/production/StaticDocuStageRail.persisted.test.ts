@@ -72,18 +72,22 @@ function isDisabled(tag: string): boolean {
 describe("StaticDocuStageRail persisted task controls", () => {
   it("restores a reloaded external autobuild as active and disables duplicates", () => {
     const markup = renderRail(true, "autobuild");
-    expect(markup).toContain("Running All…");
+    expect(markup).toContain("Production running…");
     expect(markup).toContain("Run All is finishing the video…");
     expect(isDisabled(buttonTag(markup, "run-all"))).toBe(true);
-    expect(isDisabled(buttonTag(markup, "stage-run-video"))).toBe(true);
+    expect(markup).not.toContain('data-testid="stage-run-video"');
+    expect((markup.match(/data-testid="run-all"/g) || []).length).toBe(1);
+    expect(markup).not.toContain('data-testid="run-roster"');
     expect(markup).toContain("animate-spin");
   });
 
   it("restores controls when the persisted task is terminal or idle", () => {
     const markup = renderRail(false, null);
-    expect(markup).not.toContain("Running All…");
+    expect(markup).toContain("Resume");
     expect(isDisabled(buttonTag(markup, "run-all"))).toBe(false);
-    expect(isDisabled(buttonTag(markup, "stage-run-video"))).toBe(false);
+    expect(markup).not.toContain('data-testid="stage-run-video"');
+    expect((markup.match(/data-testid="run-all"/g) || []).length).toBe(1);
+    expect(markup).not.toContain('data-testid="run-roster"');
   });
 });
 

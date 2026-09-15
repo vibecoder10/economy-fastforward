@@ -643,7 +643,7 @@ export default function VideoDetailPage() {
           {/* Build button — the autobuild chainer chat's "build it" uses,
               now one tap from the page (PARITY-PLAN Phase 3). Cost + target
               come from the shared action layer, same numbers chat quotes. */}
-          {videoActions && !TERMINAL_STATUSES.has(status) && (() => {
+          {!isStaticDocu && videoActions && !TERMINAL_STATUSES.has(status) && (() => {
             const buildInfo = videoActions.actions.find((a) => a.verb === "build");
             const toPictures = videoActions.build_target === "pictures";
             const label = toPictures ? "Build to pictures" : "Finish the video";

@@ -415,7 +415,7 @@ export function StaticDocuStageRail({
           <div className="ml-auto pl-3 shrink-0">
             <button
               onClick={handleRunAll}
-              disabled={busy || draining}
+              disabled={busy || draining || allGreen}
               title={
                 draining
                   ? "Generation is briefly paused for a safe update"
@@ -429,7 +429,7 @@ export function StaticDocuStageRail({
               style={{ background: "var(--gold)", color: "var(--bg-void)" }}
             >
               {visibleRunAllActive ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-              {visibleRunAllActive ? "Running All…" : allGreen ? "All Done" : "Run All"}
+              {busy ? "Production running…" : allGreen ? "Complete" : (visibleRunAllError || video.status !== "idea_logged") ? "Resume" : "Run All"}
             </button>
           </div>
         </div>
@@ -449,56 +449,7 @@ export function StaticDocuStageRail({
         </GlassCard>
       )}
 
-      {/* Per-stage run buttons — research/script/voice/video each get their
-          own quote->confirm action, same as every other tab in the app.
-          Roster's and Pictures' actions live in their own panels (Add photo /
-          Re-check, and per-scene Redraw/Approve — free-or-per-scene work that
-          doesn't fit a single "run" button). */}
-      {activeStage !== "roster" && activeStage !== "pictures" && (
-        <div className="flex items-center justify-end gap-2">
-          {activeStage === "research" && (
-            <StageRunButton
-              disabled={!canRun.research || busy}
-              lockedReason={lockReason("research", stages)}
-              running={runningStage === "research"}
-              onClick={() => startStage("research", "Research", "research")}
-              label={stages.research.status === "done" ? "Re-run research" : "Run research"}
-            />
-          )}
-          {activeStage === "script" && (
-            <StageRunButton
-              disabled={!canRun.script || busy}
-              lockedReason={lockReason("script", stages)}
-              running={runningStage === "script"}
-              onClick={() => startStage("script", "Script", "script")}
-              label={stages.script.status === "done" ? "Re-run script" : "Write the script"}
-            />
-          )}
-          {activeStage === "voice" && (
-            <StageRunButton
-              disabled={!canRun.voice || busy}
-              lockedReason={lockReason("voice", stages)}
-              running={runningStage === "voice"}
-              onClick={() => startStage("voice", "Voice", "voice")}
-              label={stages.voice.status === "done" ? "Re-record voice" : "Record the voiceover"}
-            />
-          )}
-          {activeStage === "video" && (
-            <StageRunButton
-              disabled={!canRun.video || busy}
-              lockedReason={lockReason("video", stages)}
-              running={runningStage === "video" || persistedActivity.renderActive}
-              testId="stage-run-video"
-              onClick={() => startStage(
-                video.thumbnail_url ? "render" : "thumbnail",
-                video.thumbnail_url ? "Render" : "Thumbnail",
-                video.thumbnail_url ? "render" : "thumbnail",
-              )}
-              label={video.thumbnail_url ? "Render the video" : "Generate the thumbnail"}
-            />
-          )}
-        </div>
-      )}
+
     </div>
   );
 }

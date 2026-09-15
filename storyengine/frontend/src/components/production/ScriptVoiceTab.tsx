@@ -2881,12 +2881,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                 voice stage to track. */}
             {!voiceSkipped && <span>Voice {scenesWithVoice}/{totalScenes}</span>}
           </div>
-	          <button onClick={handleAdvanceStage} disabled={advancing}
-	            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-	            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
-            {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
-            Advance Stage <ChevronRight size={12} />
-          </button>
+	          
         </div>
       </div>
 

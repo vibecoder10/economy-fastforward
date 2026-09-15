@@ -184,12 +184,7 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
         <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
           <span>Upload: <span style={{ color: statusCfg.color === "green" ? "var(--green)" : statusCfg.color === "gold" ? "var(--gold)" : statusCfg.color === "turquoise" ? "var(--turquoise)" : "var(--text-tertiary)" }}>{statusCfg.label}</span></span>
         </div>
-        <button onClick={handleAdvanceStage} disabled={advancing}
-          className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
-          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
-          {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
-          Advance Stage <ChevronRight size={12} />
-        </button>
+        
       </div>
     </div>
 
