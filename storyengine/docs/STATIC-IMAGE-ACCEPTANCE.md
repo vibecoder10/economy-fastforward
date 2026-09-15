@@ -17,3 +17,7 @@ Implementation: `backend/static_docu.py` `_ROLE_GEOMETRY_REQUIREMENTS` and `_vie
 ## Automatic structural review
 
 Judge recognizable identity and clearly visible major structures. Different angles hide or overlap wings, far-side engines, propellers and tail surfaces. Not visible is not evidence of missing. An exhaustive component count or small-detail certainty is not required for a usable documentary depiction. Reject only a clear visible identity or major structural contradiction that perspective/occlusion cannot explain, or blank output. Both the primary reviewer and independent arbiter use this rule. Do not send otherwise usable images for human approval merely because the reviewer cannot verify every component.
+
+## Reference selection
+
+Prefer the clearest whole-machine photograph with nose, tail and wingtips in frame. Rank top-down and elevated three-quarter/isometric views of upper surfaces ahead of side views; put underside/belly views, cropped or obscured machines and camouflage that conceals geometry last. Exact machine/variant identity remains required. Compare up to six candidates visually before fresh selection; unavailable ranking falls back to discovery order with known underside/detail filenames demoted, without adding a manual gate. Existing references are preserved unless replaced deliberately.

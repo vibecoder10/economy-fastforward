@@ -965,6 +965,57 @@ def _url_file_title(url: str) -> str:
         return ""
 
 
+async def _rank_reference_views(candidates: list, tenant_id: str, machine: str) -> list:
+    """Prefer whole-machine upper views; ranking failure never blocks generation."""
+    if len(candidates) < 2:
+        return candidates
+    # Known poor views go last before the bounded visual comparison.
+    candidates = sorted(candidates, key=lambda c: bool(re.search(
+        r"underside|from[_ -]below|belly|cockpit|close[_ -]?up", c[0], re.I)))
+    try:
+        from vault import get_secret
+        key = await get_secret("anthropic_api_key", tenant_id)
+        if not key:
+            return candidates
+        content = [{"type": "text", "text": (
+            f"Rank reference photos for generating images of {machine}. "
+            "Prefer the clearest view of the ENTIRE machine, with nose, tail and "
+            "wingtips in frame. Prefer top-down or elevated three-quarter/isometric "
+            "views showing the UPPER surfaces, then clear side views. Underside/belly "
+            "views, cropped machines, heavy occlusion, blur and camouflage that hides "
+            "the shape rank last. Preserve the exact variant: a clearer different "
+            "variant is not a better reference. Return ONLY a JSON array of candidate "
+            "numbers, best first. This ranks photos; identity is checked separately."
+        )}]
+        usable = []
+        for candidate in candidates[:6]:
+            img = await _download_image_b64(candidate[0])
+            if img is None:
+                continue
+            usable.append(candidate)
+            content += [{"type": "text", "text": f"Candidate {len(usable)}"},
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": img[0], "data": img[1]}}]
+        if len(usable) < 2:
+            return candidates
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 150,
+                      "messages": [{"role": "user", "content": content}]})
+        response.raise_for_status()
+        text = "".join(b.get("text", "") for b in response.json().get("content", []))
+        order = json.loads(text)
+        if (not isinstance(order, list) or any(type(i) is not int for i in order)
+                or sorted(order) != list(range(1, len(usable) + 1))):
+            return candidates
+        ranked = [usable[i-1] for i in order]
+        return ranked + [c for c in candidates if c not in ranked]
+    except Exception:
+        _logger.warning("Reference view ranking unavailable; retaining candidate order")
+        return candidates
+
+
 async def _gather_reference_candidates(machine: str, aliases: Optional[list],
                                        search_query: Optional[str]) -> list:
     """The SAME layered candidate chain _one_scene has always used, factored
@@ -3857,6 +3908,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 _p(f"Segment {sc}: finding a real photo of the {machine}…")
                 candidates = await _gather_reference_candidates(
                     machine, sub.get("aliases"), sub.get("search_query"))
+                candidates = await _rank_reference_views(candidates, tenant_id, machine)
                 for idx, (cand, trusted) in enumerate(candidates):
                     hosted = await _host_reference(cand, video_id, tenant_id, f"S{sc:02d}_{idx}")
                     if not hosted:
@@ -4636,6 +4688,7 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
         for year in list(dict.fromkeys(years))[:2]:
             lookup_aliases.append(f"{naval_name} ({year})")
     candidates = await _gather_reference_candidates(machine, lookup_aliases or aliases, machine)
+    candidates = await _rank_reference_views(candidates, tenant_id, machine)
     # Naval class names and reused ship names often resolve to a battleship,
     # cruiser, or a namesake from another century. Expand the candidate search
     # with carrier-qualified aliases, while retaining the same vision gate.
