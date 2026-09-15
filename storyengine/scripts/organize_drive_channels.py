@@ -39,7 +39,7 @@ async def main():
             if not apply:
                 return
             channel, folder, types = await asyncio.to_thread(video_layout,client,v,_workspace_folder_name(v['video_title'] or 'Untitled',v['id']))
-            changes = await asyncio.to_thread(tidy_video,client,folder,types)
+            changes = await asyncio.to_thread(tidy_video,client,folder,types,v['video_title'])
             await execute('UPDATE videos SET drive_folder_id=$1,drive_folder_link=$2 WHERE id=$3 AND tenant_id=$4',folder,'https://drive.google.com/drive/folders/'+folder,v['id'],v['tenant_id'])
             after = await asyncio.to_thread(lambda: client.drive_service.files().get(fileId=folder,fields='id,parents').execute())
             assert after['parents']==[channel]

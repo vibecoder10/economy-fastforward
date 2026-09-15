@@ -77,7 +77,7 @@ def video_layout(client, video, folder_name):
     return channel, folder, types
 
 
-def tidy_video(client, folder, types):
+def tidy_video(client, folder, types, video_title=None):
     """Rehome existing assets; merge only recognized type folders, never delete files."""
     changes = []
     for item in children(client, folder):
@@ -97,7 +97,7 @@ def tidy_video(client, folder, types):
                 continue
         if 'Machine Roster' in name or name.startswith('02 — Research'):
             category = 'Research'
-        elif name.startswith('03 — Script'):
+        elif name.startswith('03 — Script') or (name == video_title and item['mimeType'] == 'application/vnd.google-apps.document'):
             category = 'Script'
         else:
             category = asset_type(mime=item['mimeType'], filename=name)

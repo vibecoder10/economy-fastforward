@@ -165,7 +165,7 @@ def _sync_drive(client: Any, video: dict, scenes: list[dict]) -> dict:
     folder_name = _workspace_folder_name(title, video_id)
     from drive_layout import video_layout, tidy_video
     channel_id, folder_id, types = video_layout(client, video, folder_name)
-    tidy_video(client, folder_id, types)
+    tidy_video(client, folder_id, types, title)
     images_id, final_id = types['Images'], types['Video']
     research = _payload(video.get("research_payload"))
     docs = {

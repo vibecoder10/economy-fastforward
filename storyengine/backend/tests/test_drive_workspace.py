@@ -266,3 +266,13 @@ def test_migration_keeps_file_ids_and_merges_legacy_type_folder():
 def test_asset_type_routing(path, mime, expected):
     from drive_layout import asset_type
     assert asset_type(path, mime) == expected
+
+
+def test_legacy_title_named_script_drafts_go_into_script_folder():
+    from drive_layout import video_layout, tidy_video
+    c = FakeGoogleClient()
+    video = {'id':'v','tenant_id':'t','channel_name':'Channel'}
+    _, folder, types = video_layout(c, video, 'Title — v')
+    doc = c.create_document('Title', folder)['id']
+    tidy_video(c, folder, types, 'Title')
+    assert c.items[doc]['parent'] == types['Script']

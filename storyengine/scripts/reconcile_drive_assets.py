@@ -50,6 +50,13 @@ async def main():
     for v in videos:
         if v['drive_folder_id']:
             folders[str(v['id'])]={x['name'].lower():x['id'] for x in children(c,v['drive_folder_id'])}
+            data=json.loads(v['data']) if isinstance(v['data'],str) else v['data']
+            other=folders[str(v['id'])].get('other assets')
+            if other:
+                for doc in children(c,other):
+                    if doc['mimeType']=='application/vnd.google-apps.document' and doc['name']==data.get('video_title'):
+                        uses[doc['id']].add((str(v['id']),'Script'))
+
     service=c.drive_service.files()
     records=batch(c,[(fid,service.get(fileId=fid,fields='id,name,parents,mimeType')) for fid in uses])
     moves=[];missing=[];shared=[];already=0
