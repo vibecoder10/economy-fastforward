@@ -922,6 +922,7 @@ export default function VideoDetailPage() {
         {currentTab === "roster" && (
           <RosterStagePanel
             videoId={videoId}
+            video={videoForTabs}
             rosterDashboard={rosterDashboard}
             isLoading={rosterLoading}
             onRefresh={() => queryClient.invalidateQueries({ queryKey: ["video-actions", videoId] })}

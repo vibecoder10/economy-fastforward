@@ -905,16 +905,27 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
   });
 
   const handleReResearch = useCallback(async () => {
+    const payload = typeof video.research_payload === "string"
+      ? JSON.parse(video.research_payload || "{}") : video.research_payload;
+    const selection = payload?.roster_selection;
+    const rosterPhase = payload?.research_phase;
+    const runtimeRoster = video.render_mode === "static_docu" && (selection?.version === 1 || rosterPhase === "roster_complete" || rosterPhase === "unit_research");
+    const rosterAccepted = selection?.status === "completed" || rosterPhase === "roster_complete" || rosterPhase === "unit_research";
+    if (video.render_mode === "static_docu" && runtimeRoster && !rosterAccepted) {
+      toast.error("Finish or review the Roster stage before detailed research can start.");
+      return;
+    }
+    const stage = runtimeRoster && rosterAccepted ? "machine-research" : "research";
     setIsResearching(true);
     try {
-      await runPipelineStage(video.id, "research");
+      await runPipelineStage(video.id, stage);
       setTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "research");
+          await runPipelineStage(video.id, stage);
           setTaskRunning(true);
           return;
         } catch (retryErr) {
@@ -925,7 +936,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
       }
       setIsResearching(false);
     }
-  }, [video.id]);
+  }, [video.id, video.research_payload, video.render_mode, toast]);
 
   const handleRunAllMachineResearch = useCallback(async () => {
     let rosterCount = 0;

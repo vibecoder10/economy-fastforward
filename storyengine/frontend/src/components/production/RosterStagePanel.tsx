@@ -10,14 +10,17 @@ import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-p
 import {
   recheckRosterReferences,
   removeRosterUnit,
+  saveRosterPacing,
   seedRosterReference,
   type RosterDashboard,
+  type VideoDetail,
 } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/confirm";
 
 interface RosterStagePanelProps {
   videoId: string;
+  video: VideoDetail;
   rosterDashboard: RosterDashboard | undefined;
   isLoading: boolean;
   onRefresh: () => void;
@@ -35,7 +38,7 @@ interface RosterStagePanelProps {
  *     prefetch already uses (routes/pipeline.py's roster-seed-reference).
  *   - "Re-check": re-run prefetch for the machines still missing one.
  */
-export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefresh, taskWatcher }: RosterStagePanelProps) {
+export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, onRefresh, taskWatcher }: RosterStagePanelProps) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const queryClient = useQueryClient();
@@ -46,6 +49,13 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
   const [removing, setRemoving] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<Record<string, string>>({});
   const [manualOverride, setManualOverride] = useState<Record<string, boolean>>({});
+  const payload = video.research_payload as Record<string, any> | null;
+  const savedPacing = Number(payload?.roster_settings?.minutes_per_machine || 1);
+  const [minutesPerMachine, setMinutesPerMachine] = useState(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : 1));
+  const [savingPacing, setSavingPacing] = useState(false);
+  useEffect(() => {
+    setMinutesPerMachine(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : 1));
+  }, [savedPacing]);
 
   // UX-1 (2026-07-29): a sweep takes ~10min for a 23-machine roster (serial,
   // Wikimedia-politeness-throttled) and used to leave the panel frozen at its
@@ -179,8 +189,17 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
     );
   }
 
-  const units = rosterDashboard?.units ?? [];
-  const total = rosterDashboard?.total ?? 0;
+  const draftUnits = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+  const units: RosterDashboard["units"] = (rosterDashboard?.units?.length ? rosterDashboard.units : undefined) ?? draftUnits.map((entry: unknown, index: number) => {
+    if (typeof entry === "string") return { machine: entry, state: "needs_research" as const, warnings: [] };
+    const row = entry as Record<string, unknown>;
+    return {
+      machine: [row.designation, row.name || row.unit || row.machine].filter(Boolean).join(" ") || `Roster entry ${index + 1}`,
+      state: "needs_research" as const,
+      warnings: [],
+    };
+  });
+  const total = units.length;
   const verifiedCount = units.filter((u) => u.reference?.status === "verified").length;
   // Same never-built rule as StaticDocuStageRail's roster gate (2026-07-30):
   // a cancelled programme (retryable === false) can never have a photo, so it
@@ -191,17 +210,55 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
     (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
   ).length;
   const allVerified = total > 0 && verifiedCount + neverBuiltCount >= total;
+  const pace = Number(minutesPerMachine);
+  const duration = Number(video.video_length_minutes || 0);
+  const targetCount = Number.isFinite(pace) && pace > 0 && duration > 0
+    ? Math.max(1, Math.floor(duration / pace + 0.5)) : 0;
+  const selection = payload?.roster_selection;
+  const liveVerdict = payload?.unit_roster_validation;
+  const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
+  const rosterLocked = selection?.status === "completed" || liveVerdict?.passed === true || cards.length > 0 || (video.status !== "idea_logged" && video.status !== "approved");
+  const savePacing = async () => {
+    if (!Number.isFinite(pace) || pace <= 0) {
+      toast.error("Minutes per machine must be greater than zero.");
+      return;
+    }
+    setSavingPacing(true);
+    try {
+      await saveRosterPacing(videoId, pace);
+      await queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      await queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
+      toast.success("Roster pacing saved.");
+    } catch (err) {
+      toast.error(`Couldn't save pacing: ${(err as Error).message}`);
+    } finally {
+      setSavingPacing(false);
+    }
+  };
 
   if (total === 0) {
     return (
-      <GlassCard className="p-12 text-center">
+      <GlassCard className="p-8 text-center">
         <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
           No Machine Roster Yet
         </p>
+        <p className="text-sm mb-4" style={{ color: "var(--text-tertiary)" }}>
+          {video.headline || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
+        </p>
+        <div className="flex items-end justify-center gap-2">
+          <label className="text-left text-xs" style={{ color: "var(--text-secondary)" }}>
+            Minutes per machine
+            <input aria-label="Minutes per machine" type="number" min="0.1" step="0.1" value={minutesPerMachine}
+              onChange={(event) => setMinutesPerMachine(event.target.value)} disabled={taskWatcher.running || rosterLocked}
+              className="block mt-1 w-28 rounded-md px-2 py-1" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
+          </label>
+          <ActionButton variant="outline" onClick={savePacing} disabled={savingPacing || taskWatcher.running || rosterLocked}>
+            {savingPacing ? "Saving…" : "Save pacing"}
+          </ActionButton>
+        </div>
         <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-tertiary)" }}>
-          Run Research to discover this video&apos;s machine roster — reference
-          photos are then automatically looked up for every machine on the list.
+          Run All selects and saves a runtime-sized roster before detailed research begins.
         </p>
       </GlassCard>
     );
@@ -213,12 +270,15 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <p className="text-lg font-display flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-              <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> Machine Roster & Reference Photos
+              <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> Machine Roster
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
+              {video.headline || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
             </p>
             <p className="text-sm mt-1 max-w-xl" style={{ color: "var(--text-tertiary)" }}>
-              Every machine needs a real, verified reference photo before script or
-              voice spend — this is the gate that stops an invented machine from
-              ever reaching the screen.
+              {selection?.status === "completed" && payload?.unit_roster_validation?.passed === true ? `${units.length}/${selection.target_count || targetCount || units.length} selected and independently accepted.`
+                : selection?.status === "needs_review" || selection?.status === "insufficient" ? "Roster selection needs review."
+                  : `${units.length} saved draft entries; target ${selection?.target_count || targetCount || units.length}.`} Reference photos are supporting material.
             </p>
             {showRunning ? (
               <p
@@ -235,7 +295,7 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
               >
                 {verifiedCount}/{total} verified
                 {neverBuiltCount > 0 ? ` + ${neverBuiltCount} never built` : ""}
-                {allVerified ? " — roster is clear to proceed." : " — fix the missing photos below."}
+                {allVerified ? " — reference photos ready." : " — photos are gathered before picture generation."}
               </p>
             )}
             {showRunning && (
@@ -255,6 +315,17 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
             {rechecking || showRunning ? "Re-checking…" : "Re-check missing"}
           </ActionButton>
         </div>
+        <div className="mt-4 flex items-end gap-2">
+          <label className="text-left text-xs" style={{ color: "var(--text-secondary)" }}>
+            Minutes per machine
+            <input aria-label="Minutes per machine" type="number" min="0.1" step="0.1" value={minutesPerMachine}
+              onChange={(event) => setMinutesPerMachine(event.target.value)} disabled={taskWatcher.running || rosterLocked}
+              className="block mt-1 w-28 rounded-md px-2 py-1" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
+          </label>
+          <ActionButton variant="outline" onClick={savePacing} disabled={savingPacing || taskWatcher.running || rosterLocked}>
+            {savingPacing ? "Saving…" : "Save pacing"}
+          </ActionButton>
+        </div>
       </GlassCard>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -271,7 +342,7 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
           return (
             <GlassCard key={u.machine} className="p-4 flex flex-col gap-3">
               <div
-                className="w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center"
+                className={verified ? "w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center" : "hidden"}
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
               >
                 {verified && u.reference?.hosted_url ? (
@@ -286,8 +357,8 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 )}
               </div>
 
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={u.machine}>
+              <div className="flex flex-col items-start gap-2">
+                <p className="text-sm font-semibold break-words" style={{ color: "var(--text-primary)" }} title={u.machine}>
                   {u.machine}
                 </p>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -322,9 +393,9 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 ) : (
                   <span
                     className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                    style={{ color: "var(--red)", border: "1px solid var(--red)" }}
+                    style={{ color: "var(--text-tertiary)", border: "1px solid var(--border)" }}
                   >
-                    <XCircle size={11} /> missing
+                    <ImageIcon size={11} /> photo pending
                   </span>
                 )}
                   <button
@@ -333,10 +404,11 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                     title="Remove from roster"
                     onClick={() => handleRemove(u.machine)}
                     disabled={removing !== null || showRunning}
-                    className="inline-flex items-center justify-center w-6 h-6 rounded-md disabled:opacity-40 hover:bg-red-500/10"
+                    className="inline-flex items-center justify-center gap-1 h-6 px-2 rounded-md text-[10px] font-semibold disabled:opacity-40 hover:bg-red-500/10"
                     style={{ color: "var(--red)", border: "1px solid color-mix(in srgb, var(--red) 45%, transparent)" }}
                   >
                     {removing === u.machine ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Remove
                   </button>
                 </div>
               </div>

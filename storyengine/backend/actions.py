@@ -1847,6 +1847,11 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     if (vrow or {}).get("render_mode") == "static_docu":
                         _set_task_status(video_id, "failed", f"Narration failed: {exc}", tenant_id=tenant_id)
                         return
+            # A static documentary's roster selection deliberately completes
+            # without changing the video status.  Its phase is therefore real
+            # forward progress for this loop; comparing status alone would
+            # falsely report a stall before the next iteration can start the
+            # separate, saved-roster unit-research pass.
             last = None
             for _ in range(18):  # hard cap — the pipeline is ~14 stages deep
                 video = await ex._get_video(video_id)
@@ -1854,6 +1859,21 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     _set_task_status(video_id, "failed", "Video not found", tenant_id=tenant_id)
                     return
                 status = video.get("status")
+                payload_for_progress = video.get("research_payload") or {}
+                if isinstance(payload_for_progress, str):
+                    try:
+                        payload_for_progress = json.loads(payload_for_progress)
+                    except (TypeError, ValueError):
+                        payload_for_progress = {}
+                selection_for_progress = (
+                    payload_for_progress.get("roster_selection")
+                    if isinstance(payload_for_progress, dict) else None
+                )
+                progress_key = (
+                    status,
+                    payload_for_progress.get("research_phase") if isinstance(payload_for_progress, dict) else None,
+                    selection_for_progress.get("status") if isinstance(selection_for_progress, dict) else None,
+                )
                 if _factual_script_recheck_needed(video):
                     await _advance("ready_for_scripting")
                     video["status"] = status = "ready_for_scripting"
@@ -1863,6 +1883,14 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     await _advance("ready_for_image_prompts")
                     video["status"] = status = "ready_for_image_prompts"
                     _set_task_status(video_id, "running", "Completing missing image coverage and checking saved images…", tenant_id=tenant_id)
+                # The two rechecks above can intentionally rewrite `status`.
+                # Compare the final state of this loop pass, not the stale
+                # pre-recheck value, when deciding whether progress occurred.
+                progress_key = (
+                    status,
+                    payload_for_progress.get("research_phase") if isinstance(payload_for_progress, dict) else None,
+                    selection_for_progress.get("status") if isinstance(selection_for_progress, dict) else None,
+                )
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)
@@ -1882,7 +1910,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         return
                     _set_task_status(video_id, "completed", "Your video is rendered — take a look!", tenant_id=tenant_id)
                     return
-                if status == last:  # no progress — never loop forever
+                if progress_key == last:  # no progress — never loop forever
                     _set_task_status(video_id, "failed", f"Build stopped without advancing at {status}; completed work is saved.", tenant_id=tenant_id)
                     return
                 # C36 (checklist §3.3 item 3): the budget ceiling, checked before
@@ -1907,7 +1935,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                             "cap. Raise the cap (or clear it) and say \"keep going\" to continue.",
                             tenant_id=tenant_id)
                         return
-                last = status
+                last = progress_key
                 # Skip the optional research step — it's slow/flaky (web/YouTube blocks)
                 # and the script writes fine from the topic. Go straight to the script;
                 # the creator can run research on demand. This was the actual stall.
@@ -1916,6 +1944,49 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # verified research payload, and the factual gate depends on it.
                 if status in ("idea_logged", "approved"):
                     if (video.get("render_mode") or "") == "static_docu":
+                        # Runtime roster selection is an explicit two-step
+                        # contract: first save/audit the selected roster, then
+                        # on the following loop iteration research that exact
+                        # saved roster.  Never route a failed selection into
+                        # the old per-machine repair ladder.
+                        selection = selection_for_progress if isinstance(selection_for_progress, dict) else {}
+                        selection_phase = payload_for_progress.get("research_phase") if isinstance(payload_for_progress, dict) else None
+                        selection_complete = selection.get("status") == "completed" or selection_phase == "roster_complete"
+                        is_runtime_selection = selection.get("version") == 1
+                        if is_runtime_selection or selection_phase == "roster_complete":
+                            if selection_complete:
+                                _set_task_status(video_id, "running", "Researching the saved roster…", tenant_id=tenant_id)
+                                r = await ex.run_unit_research(video_id) or {}
+                                _raise_provider_failure(r)
+                                if r.get("status") == "ready_for_scripting":
+                                    await _advance("ready_for_scripting")
+                                    continue
+                                if r.get("status") == "cancelled":
+                                    _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
+                                    return
+                                # Preserve the existing bounded card-repair path,
+                                # but only after the accepted roster's detail stage.
+                                if not r.get("roster_gate_failed") and not r.get("source_search_failed"):
+                                    repaired = await _run_static_docu_roster_research()
+                                    if repaired is not None:
+                                        if repaired.get("status") == "ready_for_scripting":
+                                            await _advance("ready_for_scripting")
+                                            continue
+                                        _set_task_status(video_id, "completed" if repaired.get("status") == "paused" else repaired.get("status", "failed"),
+                                                         repaired.get("message") or "Saved-roster research needs review.", tenant_id=tenant_id)
+                                        return
+                                _set_task_status(video_id, "failed", r.get("error") or r.get("message") or "Saved-roster research failed.", tenant_id=tenant_id)
+                                return
+                            _set_task_status(video_id, "running", "Selecting and checking the roster…", tenant_id=tenant_id)
+                            r = await ex.run_research(video_id) or {}
+                            _raise_provider_failure(r)
+                            if r.get("status") == "roster_ready":
+                                continue
+                            if r.get("status") == "cancelled":
+                                _set_task_status(video_id, "cancelled", r.get("message"), tenant_id=tenant_id)
+                                return
+                            _set_task_status(video_id, "failed", r.get("error") or r.get("message") or "Roster selection failed; the saved draft is available for review.", tenant_id=tenant_id)
+                            return
                         # A resumed roster may already have a rejected saved
                         # card. Try the bounded surgical ladder against that
                         # persisted evidence before paying for another full
@@ -1947,6 +2018,19 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                          tenant_id=tenant_id)
                         r = await ex.run_research(video_id) or {}
                         _raise_provider_failure(r)
+                        # A fresh video has no selection marker until this
+                        # call saves its first draft.  Roster-ready is a real
+                        # intermediate result, never a reason to enter the
+                        # old repair ladder. Read back failure state too so a
+                        # saved needs-review draft stops honestly.
+                        if r.get("status") == "roster_ready":
+                            continue
+                        result_selection = r.get("roster_selection")
+                        if r.get("roster_selection_failed") or (
+                            isinstance(result_selection, dict) and result_selection.get("version") == 1
+                        ):
+                            _set_task_status(video_id, "failed", r.get("error") or r.get("message") or "Roster selection failed; the saved draft is available for review.", tenant_id=tenant_id)
+                            return
                         if r.get("source_search_failed"):
                             _set_task_status(video_id, "failed", r.get("error"), tenant_id=tenant_id)
                             return

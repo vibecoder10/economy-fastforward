@@ -8,6 +8,7 @@ import json
 from urllib.parse import urlparse
 
 VERSION = 4
+SELECTION_AUDIT_VERSION = 1
 
 
 def title_scope_policy(title):
@@ -62,6 +63,18 @@ def title_scope_policy(title):
     )
 
 
+def selection_scope_policy(title):
+    """Keep title eligibility predicates while removing exhaustive-list duties."""
+    policy = title_scope_policy(title)
+    if not policy:
+        return ""
+    return (policy
+            .replace("No roster count or runtime target changes this policy.",
+                     "Runtime target controls quantity; retain the role, nationality, and built eligibility tests.")
+            .replace("Do not silently restrict an ever-built title to WWII onward or to a runtime count. ", "")
+            .replace("Earlier qualifying aircraft need the same source-backed role test. ", ""))
+
+
 def coverage_fingerprint(title, payload):
     material = {"title": title, "scope_policy": title_scope_policy(title), "roster": payload.get("unit_roster"),
                 "boundary": payload.get("roster_contract"),
@@ -73,6 +86,64 @@ def coverage_is_current(title, payload):
     audit = payload.get("independent_coverage_audit") or {}
     return (isinstance(audit, dict) and audit.get("version") == VERSION
             and audit.get("fingerprint") == coverage_fingerprint(title, payload))
+
+
+def selection_audit_is_current(title, payload):
+    from roster_selection import selection_fingerprint
+    audit = payload.get("independent_selection_audit") or {}
+    return (isinstance(audit, dict) and audit.get("version") == SELECTION_AUDIT_VERSION
+            and audit.get("fingerprint") == selection_fingerprint(title, payload))
+
+
+async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
+    """Audit selected rows only; exhaustive coverage stays in the legacy gate."""
+    if selection_audit_is_current(title, payload):
+        return payload["independent_selection_audit"]
+    from roster_selection import selection_fingerprint
+    from shared.clients.anthropic_client import WEB_SEARCH_TOOL
+    from orchestrator.pipeline_constants import Models
+    from shared.json_utils import parse_json_response
+    from shared.research_response import checkpoint_path, request_fingerprint
+    if getattr(client, "_gateway_mode", False):
+        raise ValueError("Selection review needs a web-search capable research provider; this gateway cannot execute web search")
+    policy = selection_scope_policy(title)
+    prompt = (
+        "Independently audit this runtime-sized documentary selection. Check only whether each selected "
+        "entry is real, distinct from the other selected entries, and fits the exact title. Do NOT audit "
+        "completeness or search for omitted candidates. Consult at least two primary, archive, museum, service, "
+        "manufacturer, or institutional sources. Return ONLY JSON: {\"passed\": boolean, \"sources\": "
+        "[{\"url\": string, \"supports\": string}], \"findings\": [{\"candidate\": string, "
+        "\"problem\": string, \"required_action\": string, \"source_url\": string}], \"summary\": string}. "
+        "Pass only when findings is empty and at least two valid sources were consulted.\nTITLE: " + title +
+        "\nELIGIBILITY POLICY: " + policy + "\nSELECTED ROSTER: " + json.dumps(payload.get("unit_roster") or [])
+    )
+    system_prompt = "You are an independent historical fact checker. Runtime target controls quantity; audit eligibility only."
+    tools = [dict(WEB_SEARCH_TOOL, max_uses=6)]
+    response = await client.generate(prompt=prompt, system_prompt=system_prompt,
+                                     model=Models.CLAUDE_SONNET, max_tokens=3000, temperature=0.2,
+                                     tools=tools, complete_response=True,
+                                     checkpoint_path=checkpoint_path(checkpoint_scope, request_fingerprint(
+                                         prompt=prompt, system_prompt=system_prompt, model=Models.CLAUDE_SONNET,
+                                         max_tokens=3000, temperature=0.2, tools=tools)))
+    raw = parse_json_response(response, default=None)
+    if not isinstance(raw, dict):
+        raise ValueError("Selection review returned invalid JSON; roster has not been verified")
+    raw_sources = raw.get("sources") if isinstance(raw.get("sources"), list) else []
+    sources = [s for s in raw_sources if isinstance(s, dict)
+               and urlparse(str(s.get("url", ""))).scheme in {"http", "https"}
+               and urlparse(str(s.get("url", ""))).netloc and s.get("supports")
+               and not any((urlparse(str(s.get("url", ""))).hostname or "").endswith(host)
+                           for host in ("wikipedia.org", "naval-encyclopedia.com"))]
+    findings = raw.get("findings") if isinstance(raw.get("findings"), list) else None
+    passed = raw.get("passed") is True and findings == [] and len({s["url"] for s in sources}) >= 2
+    summary = str(raw.get("summary") or "Selection has not been independently verified")
+    if not passed and not findings:
+        findings = [{"candidate": "Runtime selection", "problem": summary,
+                     "required_action": "Verify selected entries against two authoritative sources."}]
+    audit = {"version": SELECTION_AUDIT_VERSION, "fingerprint": selection_fingerprint(title, payload),
+             "passed": passed, "sources": sources, "findings": findings, "summary": summary}
+    payload["independent_selection_audit"] = audit
+    return audit
 
 
 async def audit_roster_coverage(client, title, payload):

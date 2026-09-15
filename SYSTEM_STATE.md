@@ -12154,3 +12154,6 @@ control writes without losing the video, approval, or confirmation.
   two VPS renders are byte-identical at SHA-256
   `fc3c6e265b03822a85c4b65c66b75ad50e7127c88a879e5ef1d5b6eb188f567f`.
   No provider generation, repair, upload, or publication ran.
+
+## 2026-09-15 — Runtime roster stage separation
+Added storyengine/backend/roster_selection.py with versioned duration/pacing count and selected-entry validation. Static documentary discovery now saves/accepts a roster before the separate unit-research stage; independent selection audit retains scoped provider continuation. Roster UI displays drafts and pacing independently of photo/detailed-card readiness. New focused tests cover saved history, audit failure, stage boundaries, settings and worker terminal state. Existing legacy accepted work retains its original roster contract.

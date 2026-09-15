@@ -14,4 +14,9 @@ test("the roster panel exposes a confirmed remove action for every machine card"
   assert.match(panelSource, /removeRosterUnit\(videoId, machine\)/);
   assert.match(panelSource, /Remove \$\{u\.machine\} from roster/);
   assert.match(panelSource, /Remove this machine from the roster\?/);
+  assert.match(
+    panelSource,
+    /removing === u\.machine[\s\S]*?<Trash2[\s\S]*?\}\s*Remove\s*<\/button>/,
+    "each roster card should show a visible Remove label, not only a trash icon",
+  );
 });

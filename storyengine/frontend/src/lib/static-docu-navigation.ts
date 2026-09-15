@@ -46,14 +46,14 @@ export function staticDocuRunAllPreflight(total: number, verified: number): {
   if (total <= 0) {
     return {
       allowed: true,
-      note: "Research will discover and verify the roster automatically.",
+      note: "Roster selection will save and independently check the title-fitting roster first.",
     };
   }
   const missing = Math.max(0, total - verified);
   return {
     allowed: true,
     note: missing > 0
-      ? `${missing} missing reference photo${missing === 1 ? "" : "s"} will be recovered automatically before pictures.`
-      : "The roster and reference photos are ready.",
+      ? `${missing} reference photo${missing === 1 ? "" : "s"} may still be added as supporting material.`
+      : "The saved roster is ready.",
   };
 }

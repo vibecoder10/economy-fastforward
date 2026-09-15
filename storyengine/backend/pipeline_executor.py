@@ -7494,6 +7494,9 @@ def _static_docu_locked_unit_roster(video: dict) -> Optional[list]:
         or isinstance(payload.get("unit_research_hold_validation"), dict)
     )
     if not has_machine_marker:
+        from roster_selection import is_runtime_selection
+        has_machine_marker = is_runtime_selection(payload)
+    if not has_machine_marker:
         return None
     roster = payload.get("unit_roster")
     return roster if isinstance(roster, list) else None
@@ -7512,7 +7515,10 @@ def _machine_documentary_hold_roster(video: dict) -> list[str]:
         return []
     names = [_unit_display_name(item) for item in roster]
     names = [name for name in names if name]
-    return names if 3 <= len(names) <= 40 else []
+    # Runtime selection may legitimately choose one or more than forty entries.
+    # The static-docu marker remains the guard; visibility must not silently
+    # erase a saved roster merely because an old helper imposed a UI-era bound.
+    return names
 
 
 def _unit_roster_aliases(item: Any) -> list[str]:
@@ -7977,6 +7983,43 @@ def _roster_validation(
     truth Ryan just caught manually: a complete-title video cannot silently run
     on a curated shortlist.
     """
+    from roster_selection import is_runtime_selection, selection_validation
+    if is_runtime_selection(payload):
+        check = selection_validation(title, payload)
+        # Reuse the established mixed-member/unfinished-build interpretation.
+        if "ever built" in str(title or "").lower():
+            invalid = [_unit_display_name(item) for item in (payload.get("unit_roster") or [])
+                       if _roster_entry_not_actually_built(item)]
+            if invalid:
+                check["passed"] = False
+                check.setdefault("warnings", []).append(
+                    "An 'ever built' runtime roster includes entries not actually built: " + ", ".join(invalid))
+        if script_units is not None:
+            import re as _selection_re
+            roster_names = check.get("roster") or []
+            roster_rows = payload.get("unit_roster") or []
+            missing = []
+            for index, (name, row) in enumerate(zip(roster_names, roster_rows)):
+                paragraph = str(script_units[index] if index < len(script_units) else "")
+                aliases = [name]
+                if isinstance(row, dict):
+                    aliases += [str(row.get("name") or ""), str(row.get("designation") or "")]
+                if not any(alias.strip() and _selection_re.search(
+                    r"(?<!\w)" + _selection_re.escape(alias.strip()) + r"(?!\w)", paragraph, _selection_re.I
+                ) for alias in aliases):
+                    missing.append(name)
+            check["script_missing"] = missing
+            check["script_extra"] = list(script_units[len(roster_names):])
+            if missing or len(script_units) != len(roster_names):
+                check["passed"] = False
+                check.setdefault("warnings", []).append("Each selected machine needs one matching script paragraph in roster order")
+        check["hard_warnings"] = list(check.get("warnings") or [])
+        check.setdefault("soft_warnings", [])
+        check.setdefault("needs_review", False)
+        # Existing callers use this flag as "roster gate applies" despite the
+        # historical name; runtime selection must pass through that same gate.
+        check["complete_title"] = True
+        return check
     roster_raw = payload.get("unit_roster") if isinstance(payload, dict) else None
     roster = [_unit_display_name(x) for x in (roster_raw or [])]
     roster = [x for x in roster if x]
@@ -8458,6 +8501,32 @@ def _live_roster_gate(video: dict, payload: dict) -> dict:
     the script-time roster check passes its own units separately.
     """
     title = video.get("video_title") or video.get("headline") or ""
+    from roster_selection import is_runtime_selection, selection_settings, selection_validation
+    if is_runtime_selection(payload):
+        selection = payload.get("roster_selection") or {}
+        stored = selection.get("settings") or {}
+        configured = (payload.get("roster_settings") or {}).get("minutes_per_machine", 1)
+        try:
+            current = selection_settings(video.get("video_length_minutes"), configured)
+            check = _roster_validation(title, payload)
+            if selection.get("status") != "completed":
+                check["passed"] = False
+                check.setdefault("warnings", []).append("Roster selection has not completed acceptance.")
+            if stored != current:
+                check["passed"] = False
+                message = "Runtime selection inputs changed; select a new roster before detailed research."
+                check.setdefault("warnings", []).append(message)
+                check.setdefault("hard_warnings", []).append(message)
+            from roster_coverage import selection_audit_is_current
+            audit = payload.get("independent_selection_audit") or {}
+            if not selection_audit_is_current(title, payload) or audit.get("passed") is not True:
+                check["passed"] = False
+                message = "Independent runtime-selection audit is unresolved or stale."
+                check.setdefault("warnings", []).append(message)
+                check.setdefault("hard_warnings", []).append(message)
+            return check
+        except ValueError as exc:
+            return {"passed": False, "warnings": [str(exc)], "hard_warnings": [str(exc)]}
     check = _roster_validation(
         title,
         payload,
@@ -10738,6 +10807,193 @@ class PipelineExecutor:
                 "error": error_msg,
             }
 
+    async def run_roster_selection(self, video_id: str, video: Optional[dict] = None) -> dict:
+        """Select and independently audit a runtime-sized static-docu roster.
+
+        This intentionally ends at ``roster_ready``.  Detailed source cards,
+        reference prefetch, scripts, and title conveniences begin only in the
+        later unit-research step.
+        """
+        import copy
+        import json
+        from roster_selection import selection_settings, selection_validation
+
+        video = video or await self._get_video(video_id)
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        title = video.get("video_title") or video.get("headline") or ""
+        raw_payload = video.get("research_payload") or {}
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                raw_payload = {}
+        payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
+        from roster_selection import is_runtime_selection
+        existing_roster = _machine_documentary_hold_roster(video)
+        downstream = bool(payload.get("unit_research_cards")) or video.get("status") not in {"idea_logged", "approved"}
+        if not downstream:
+            saved_work = await fetch_one(
+                "SELECT EXISTS(SELECT 1 FROM machine_research_cards WHERE video_id=$1 AND tenant_id=$2) "
+                "OR EXISTS(SELECT 1 FROM scripts WHERE video_id=$1 AND tenant_id=$2) AS has_saved_work",
+                video_id, self.tenant_id,
+            )
+            downstream = bool((saved_work or {}).get("has_saved_work"))
+        if existing_roster and not is_runtime_selection(payload):
+            legacy_gate = _live_roster_gate(video, payload)
+            if legacy_gate.get("passed"):
+                if not downstream:
+                    payload["research_phase"] = "roster_complete"
+                    payload["unit_roster_validation"] = legacy_gate
+                    saved = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                          json.dumps(payload), video_id, self.tenant_id)
+                    if self._db_write_missed(saved):
+                        return {"status": "failed", "error": "Roster save refused", "roster_selection_failed": True}
+                return {"status": "roster_ready", "video_id": video_id, "selected_count": len(existing_roster)}
+            if downstream:
+                return {"status": "failed", "error": "Saved roster needs factual review; existing detailed work is preserved.",
+                        "roster_selection_failed": True}
+        pacing = (payload.get("roster_settings") or {}).get("minutes_per_machine", 1)
+        try:
+            settings = selection_settings(video.get("video_length_minutes"), pacing)
+        except ValueError as exc:
+            if is_runtime_selection(payload) and (payload.get("unit_research_cards") or video.get("status") in {"ready_for_scripting", "scripted", "rendering", "completed"}):
+                return {"status": "failed", "video_id": video_id,
+                        "error": "Runtime roster inputs are invalid after detailed work; saved work is preserved.",
+                        "roster_selection_failed": True}
+            payload["roster_selection"] = {"version": 1, "status": "needs_review", "reason": str(exc)}
+            result = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                   json.dumps(payload), video_id, self.tenant_id)
+            if self._db_write_missed(result):
+                return {"status": "failed", "video_id": video_id, "error": "Roster save refused", "roster_selection_failed": True}
+            return {"status": "failed", "video_id": video_id, "error": str(exc), "roster_selection_failed": True}
+
+        def selection_state(status: str, *, selected_count: int, reason: str = "", audit: Optional[dict] = None) -> dict:
+            value = {"version": 1, "status": status, "settings": settings,
+                     "minutes_per_machine": settings["minutes_per_machine"],
+                     "target_count": settings["target_count"], "selected_count": selected_count}
+            if reason:
+                value["reason"] = reason
+            if audit is not None:
+                value["independent_audit"] = audit
+            return value
+
+        existing = payload.get("roster_selection") or {}
+        # An accepted selection with unchanged inputs is a terminal Roster
+        # stage.  Do not pay a provider merely because the user pressed it again.
+        if existing.get("status") == "completed" and existing.get("settings") == settings:
+            gate = _live_roster_gate(video, payload)
+            if gate.get("passed"):
+                return {"status": "roster_ready", "video_id": video_id,
+                        "selected_count": len(payload.get("unit_roster") or [])}
+
+        if downstream:
+            return {"status": "failed", "video_id": video_id,
+                    "error": "Saved selection changed or failed review; detailed work is preserved.", "roster_selection_failed": True}
+
+        previous_roster = copy.deepcopy(payload.get("unit_roster"))
+        history = payload.get("roster_selection_history")
+        if not isinstance(history, list):
+            history = []
+
+        async def save_draft(candidate: dict, *, status: str, reason: str = "") -> None:
+            candidate["roster_selection"] = selection_state(status, selected_count=len(candidate.get("unit_roster") or []), reason=reason)
+            candidate["research_phase"] = "roster_selection"
+            result = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                   json.dumps(candidate), video_id, self.tenant_id)
+            if self._db_write_missed(result):
+                raise RuntimeError("Roster save refused because the video is no longer available for this tenant")
+
+        try:
+            from research.agent import run_research
+            from roster_coverage import selection_scope_policy, audit_roster_selection
+            context = "ELIGIBILITY POLICY:\n" + selection_scope_policy(title) + "\nSaved payload to reuse as source data:\n" + json.dumps(payload)
+            await self._log_activity("Research Agent", video_id, "started", f"Selecting {settings['target_count']} runtime roster entries")
+            draft = await run_research(
+                anthropic_client=self._pipeline.anthropic, topic=title, context=context,
+                record_id=video_id, selection_settings=settings,
+                checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+            )
+            if not isinstance(draft, dict):
+                raise ValueError("Roster selection returned no structured payload")
+            # Preserve unrelated saved data/cards/packages; selected fields are
+            # the only replacement surface for this pre-unit stage.
+            selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit",
+                              "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook"}
+            merged = dict(payload)
+            merged.update({key: value for key, value in draft.items() if key in selection_keys})
+            if previous_roster is not None and previous_roster != merged.get("unit_roster") and not history:
+                previous_payload = copy.deepcopy(payload)
+                previous_payload.pop("roster_selection_history", None)
+                history.append({"payload": previous_payload, "saved_at": datetime.now(timezone.utc).isoformat()})
+            if history:
+                merged["roster_selection_history"] = history
+            merged["unit_roster_validation"] = {"passed": False, "hard_warnings": ["Independent selection audit pending"],
+                                                 "warnings": ["Independent selection audit pending"], "complete_title": True}
+            await save_draft(merged, status="needs_review")
+            if await self._pipeline.should_cancel():
+                return {"status": "cancelled", "video_id": video_id, "message": "Stopped; selected roster draft is saved."}
+
+            audit = await audit_roster_selection(self._pipeline.anthropic, title, merged,
+                                                 checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id})
+            check = _roster_validation(title, merged)
+            if not audit.get("passed"):
+                check["passed"] = False
+                check.setdefault("warnings", []).append("Independent runtime-selection audit failed: " + str(audit.get("summary") or "unresolved findings"))
+                check["hard_warnings"] = list(check.get("warnings") or [])
+            merged["unit_roster_validation"] = check
+            await save_draft(merged, status="needs_review")
+            if await self._pipeline.should_cancel():
+                return {"status": "cancelled", "video_id": video_id, "message": "Stopped; selected roster draft is saved."}
+            if not audit.get("passed") or not check.get("passed"):
+                findings = list(audit.get("findings") or []) + list(check.get("warnings") or [])
+                correction_context = (
+                    "Correct this exact selected draft once. Keep valid entries, replace only entries required by "
+                    "these findings, and return the same compact selection schema. Do not perform completeness "
+                    "research or side generations.\nELIGIBILITY POLICY:\n" + selection_scope_policy(title) + "\nFINDINGS:\n" + json.dumps(findings) +
+                    "\nDRAFT:\n" + json.dumps(merged)
+                )
+                corrected = await run_research(
+                    anthropic_client=self._pipeline.anthropic, topic=title, context=correction_context,
+                    record_id=video_id, selection_settings=settings,
+                    checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+                )
+                if isinstance(corrected, dict):
+                    merged.update({key: value for key, value in corrected.items() if key in selection_keys})
+                    # A correction is a new audit attempt even if the selected
+                    # names happen to stay the same; never reuse the first
+                    # failed verdict from its cache key.
+                    merged.pop("independent_selection_audit", None)
+                    await save_draft(merged, status="needs_review")
+                    audit = await audit_roster_selection(self._pipeline.anthropic, title, merged,
+                                                         checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id})
+                    check = _roster_validation(title, merged)
+                    if not audit.get("passed"):
+                        check["passed"] = False
+                        check.setdefault("warnings", []).append("Independent runtime-selection audit failed: " + str(audit.get("summary") or "unresolved findings"))
+                        check["hard_warnings"] = list(check.get("warnings") or [])
+                    merged["unit_roster_validation"] = check
+                    await save_draft(merged, status="needs_review")
+                    if await self._pipeline.should_cancel():
+                        return {"status": "cancelled", "video_id": video_id, "message": "Stopped; corrected roster draft is saved."}
+            if audit.get("passed") and check.get("passed"):
+                merged["research_phase"] = "roster_complete"
+                merged["roster_selection"] = selection_state("completed", selected_count=check["roster_count"], audit=audit)
+                result = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                       json.dumps(merged), video_id, self.tenant_id)
+                if self._db_write_missed(result):
+                    return {"status": "failed", "video_id": video_id, "error": "Roster save refused", "roster_selection_failed": True}
+                await self._log_activity("Research Agent", video_id, "completed", f"Roster selection complete: {check['roster_count']} entries")
+                return {"status": "roster_ready", "video_id": video_id, "selected_count": check["roster_count"]}
+            reasons = list(check.get("warnings") or []) + list(audit.get("findings") or [])
+            status = "insufficient" if "INSUFFICIENT" in str(merged.get("roster_contract", "")).upper() else "needs_review"
+            await save_draft(merged, status=status, reason="; ".join(map(str, reasons))[:1200])
+            return {"status": "failed", "video_id": video_id, "error": "; ".join(map(str, reasons)), "roster_selection_failed": True}
+        except Exception as exc:
+            # The pre-audit draft (when one existed) has already been saved.
+            await self._log_activity("Research Agent", video_id, "failed", str(exc))
+            return {"status": "failed", "video_id": video_id, "error": str(exc), "roster_selection_failed": True}
+
     async def run_research(self, video_id: str) -> dict:
         """Run research agent on a video idea.
 
@@ -10765,6 +11021,14 @@ class PipelineExecutor:
 
             if not topic:
                 return {"status": "failed", "error": "No topic found for video"}
+
+            # Runtime-sized static documentaries have an explicit Roster stage.
+            # It is deliberately separate from detailed unit research.
+            if video.get("render_mode") == "static_docu":
+                selection = await self.run_roster_selection(video_id, video)
+                if selection.get("status") != "roster_ready":
+                    return selection
+                return selection
 
             existing_payload = video.get("research_payload") or {}
             if isinstance(existing_payload, str):
@@ -12237,6 +12501,7 @@ class PipelineExecutor:
 
     async def run_unit_research(self, video_id: str) -> dict:
         """Continue the locked-roster machine research hold without rediscovering the roster."""
+        import json as _json
         await self._ensure_initialized()
         await self._install_cancel_support(video_id)
         bot_name = "Machine Research Agent"
@@ -12257,11 +12522,14 @@ class PipelineExecutor:
             # verdict written by rules that no longer exist.
             roster_gate = _live_roster_gate(video, payload)
             if not roster_gate.get("passed"):
-                return {"status": "failed", "error": "Lock and approve the machine roster before running machine research"}
+                return {"status": "failed", "error": "Lock and approve the machine roster before running machine research", "roster_gate_failed": True}
 
             # The autobuild continuation reads this checkpoint. Persist the
             # current verdict, including after a rule fix, with the hold result.
             payload["unit_roster_validation"] = roster_gate
+            payload["research_phase"] = "unit_research"
+            await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                          _json.dumps(payload), video_id, self.tenant_id)
 
             roster = _machine_documentary_hold_roster(video)
             if not roster:
@@ -18130,10 +18398,26 @@ scenes."""
             natural_next = get_next_status_supabase(current_status)
             return await self._skip_sound_stage(video_id, video, current_status, natural_next)
 
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            try:
+                import json as _json_next
+                payload = _json_next.loads(payload)
+            except (TypeError, ValueError):
+                payload = {}
+        selection_complete = isinstance(payload, dict) and (
+            (payload.get("roster_selection") or {}).get("status") == "completed"
+            or payload.get("research_phase") == "roster_complete"
+        )
+        roster_or_unit_research = (
+            self.run_unit_research
+            if (video.get("render_mode") == "static_docu" and selection_complete)
+            else self.run_research
+        )
         # Map status to handler
         handlers = {
-            "idea_logged": self.run_research,
-            "approved": self.run_research,
+            "idea_logged": roster_or_unit_research,
+            "approved": roster_or_unit_research,
             "ready_for_scripting": self.run_script,
             # Static documentaries route their image stage to run_coverage_stage,
             # whose static branch creates the verified aircraft view set; the legacy

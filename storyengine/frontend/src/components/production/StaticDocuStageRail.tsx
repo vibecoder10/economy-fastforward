@@ -56,7 +56,15 @@ export function computeStaticDocuStages(
   const scenes = summary?.scenes ?? 0;
   const voiced = summary?.voiced ?? 0;
 
-  const total = rosterDashboard?.total ?? 0;
+  const payload = video.research_payload || {};
+  const selection = payload.roster_selection as Record<string, unknown> | undefined;
+  const selectionMode = selection?.version === 1;
+  const selectedUnits = Array.isArray(payload.unit_roster) ? payload.unit_roster : [];
+  const targetCount = Number(selection?.target_count || selectedUnits.length || 0);
+  const phase = String(payload.research_phase || "");
+  const liveVerdict = payload.unit_roster_validation as Record<string, unknown> | undefined;
+  const holdVerdict = payload.unit_research_hold_validation as Record<string, unknown> | undefined;
+  const total = rosterDashboard?.total || selectedUnits.length;
   const verified = (rosterDashboard?.units ?? []).filter((u) => u.reference?.status === "verified").length;
   // never-built (2026-07-30): a cancelled programme with no completed hardware
   // (reason_code "never_built", surfaced as retryable === false) can NEVER
@@ -72,21 +80,49 @@ export function computeStaticDocuStages(
     neverBuilt > 0
       ? `${verified}/${total} verified + ${neverBuilt} never built (no photo can exist) — roster complete.`
       : `${verified}/${total} machine(s) have a verified reference photo.`;
-  const roster: StageInfo =
-    total === 0
-      ? { status: "not_started", detail: "No roster established yet — run Research." }
-      : stillMissing <= 0
-        ? { status: "done", detail: rosterDoneDetail }
-        : { status: "blocked", detail: `${verified}/${total} verified — ${stillMissing} machine(s) still need a photo.` };
+  const roster: StageInfo = selectionMode
+    ? selection?.status === "completed" && selectedUnits.length > 0 && liveVerdict?.passed === true
+      ? { status: "done", detail: `${selectedUnits.length}/${targetCount || selectedUnits.length} selected and independently accepted.` }
+      : selection?.status === "needs_review" || selection?.status === "insufficient"
+        ? { status: "blocked", detail: String(selection?.reason || "Roster selection needs review.") }
+        : selectedUnits.length > 0
+          ? { status: "in_progress", detail: `${selectedUnits.length}/${targetCount || selectedUnits.length} saved roster draft.` }
+          : { status: "not_started", detail: "No roster established yet — run All to select one." }
+    : liveVerdict?.passed === true
+      ? { status: "done", detail: `${selectedUnits.length || total} saved roster entries accepted.` }
+      : liveVerdict
+        ? { status: "blocked", detail: "Saved roster facts need review before detailed research." }
+      : total === 0
+        ? { status: "not_started", detail: "No roster established yet — run Research." }
+        : stillMissing <= 0
+          ? { status: "done", detail: rosterDoneDetail }
+          : { status: "blocked", detail: `${verified}/${total} verified — ${stillMissing} machine(s) still need a photo.` };
 
-  const payload = video.research_payload;
   const hasResearchPayload = Boolean(payload && (
     (Array.isArray(payload.unit_roster) && payload.unit_roster.length > 0)
     || (typeof payload.fact_sheet === "string" && payload.fact_sheet.trim())
     || (typeof payload.source_bibliography === "string" && payload.source_bibliography.trim())
   ));
   let research: StageInfo;
-  if (!hasResearchPayload) {
+  if (selectionMode) {
+    const readyCards = rosterDashboard?.ready ?? 0;
+    const holdPassed = holdVerdict?.passed === true;
+    const cardsReady = targetCount > 0 && readyCards >= targetCount;
+    research = holdPassed || cardsReady
+      ? { status: "done", detail: `Research is ready for all ${targetCount || readyCards} saved roster entries.` }
+      : phase === "unit_research"
+        ? { status: "in_progress", detail: `${readyCards}/${targetCount || selectedUnits.length} saved roster research card(s) ready.` }
+        : { status: "not_started", detail: "Roster is selected; detailed research has not started." };
+  } else if (selectedUnits.length > 0) {
+    const readyCards = rosterDashboard?.ready ?? 0;
+    const holdPassed = holdVerdict?.passed === true;
+    const cardsReady = selectedUnits.length > 0 && readyCards >= selectedUnits.length;
+    research = holdPassed || cardsReady
+      ? { status: "done", detail: `Research is ready for all ${selectedUnits.length} saved roster entries.` }
+      : phase === "unit_research"
+        ? { status: "in_progress", detail: `${readyCards}/${selectedUnits.length} saved roster research card(s) ready.` }
+        : { status: "not_started", detail: "Roster is saved; detailed research has not started." };
+  } else if (!hasResearchPayload) {
     research = { status: "not_started", detail: "Not researched yet." };
   } else if (rosterDashboard && rosterDashboard.total > 0) {
     research = rosterDashboard.ready >= rosterDashboard.total
@@ -153,7 +189,7 @@ export function computeCanRun(stages: Record<StaticDocuStageKey, StageInfo>): Re
   const picturesGreen = stages.pictures.status === "done";
   return {
     roster: true,
-    research: stages.roster.status !== "blocked",
+    research: rosterGreen,
     script: rosterGreen && researchGreen,
     voice: rosterGreen && researchGreen && scriptGreen,
     pictures: rosterGreen && researchGreen && scriptGreen && voiceGreen,
@@ -167,7 +203,7 @@ export function computeCanRun(stages: Record<StaticDocuStageKey, StageInfo>): Re
 function lockReason(key: StaticDocuStageKey, stages: Record<StaticDocuStageKey, StageInfo>): string | null {
   if (key === "roster") return null;
   if (key === "research") return stages.roster.status === "blocked"
-    ? "Fix the roster's missing reference photos first — no research/script spend until every machine has a photo."
+    ? "Accept the selected machine roster before starting detailed research."
     : null;
   if (key === "script") {
     if (stages.roster.status !== "done") return "Locked until the Roster stage is green.";
@@ -286,14 +322,20 @@ export function StaticDocuStageRail({
 
   const costFor = (verb: string) => videoActions?.actions.find((a) => a.verb === verb);
 
-  const startStage = async (stage: string, label: string, verbForCost: string) => {
+  const startStage = async (
+    stage: string,
+    label: string,
+    verbForCost: string,
+    displayStage?: StaticDocuStageKey,
+  ) => {
     const info = costFor(verbForCost);
     const costLine = info?.cost_text && info.cost_text !== "no extra cost" ? ` Estimated: ${info.cost_text}.` : "";
-    if (!(await confirmDialog({ title: label, message: `Run ${label.toLowerCase()}?${costLine}` }))) return;
-    setRunningStage(stage as StaticDocuStageKey);
+    if (!(await confirmDialog({ title: label, message: `Run ${label.toLowerCase()}?${costLine}` }))) return false;
+    setRunningStage(displayStage || stage as StaticDocuStageKey);
     try {
       await runPipelineStage(video.id, stage);
       setTaskRunning(true);
+      return true;
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
@@ -301,7 +343,7 @@ export function StaticDocuStageRail({
           await clearStaleTask(video.id);
           await runPipelineStage(video.id, stage);
           setTaskRunning(true);
-          return;
+          return true;
         } catch (retryErr) {
           toast.error(`${label} failed: ${(retryErr as Error).message}`);
         }
@@ -309,6 +351,7 @@ export function StaticDocuStageRail({
         toast.error(`${label} failed: ${message}`);
       }
       setRunningStage(null);
+      return false;
     }
   };
 
@@ -417,7 +460,7 @@ export function StaticDocuStageRail({
             );
           })}
 
-          <div className="ml-auto pl-3 shrink-0">
+          <div className="ml-auto pl-3 shrink-0 flex items-center gap-2">
             <button
               onClick={handleRunAll}
               disabled={busy || draining || allGreen}

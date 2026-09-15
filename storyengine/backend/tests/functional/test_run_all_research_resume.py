@@ -15,6 +15,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _channel_contract_boundary(monkeypatch):
+    monkeypatch.setattr(pe, "fetch_one", AsyncMock(return_value=None))
+    monkeypatch.setattr(pe, "execute", AsyncMock(return_value="UPDATE 1"))
     monkeypatch.setattr("channel_format.apply_machine_script_contract", AsyncMock())
     monkeypatch.setattr("cancel_registry.is_cancel_requested", AsyncMock(return_value=False))
     monkeypatch.setattr("roster_coverage.audit_roster_coverage", AsyncMock(return_value={"passed": True, "findings": []}))
@@ -22,7 +24,7 @@ def _channel_contract_boundary(monkeypatch):
 
 def _video():
     return {
-        "id": "video", "status": "idea_logged", "render_mode": "static_docu",
+        "id": "video", "status": "idea_logged", "render_mode": "static_docu", "video_length_minutes": 3,
         "video_title": "British carriers", "research_payload": {
             "machine_discovery_buckets": {},
             "unit_roster": [{"name": n} for n in ["Argus", "Hermes", "Eagle"]],
@@ -46,8 +48,8 @@ def test_valid_saved_roster_resumes_without_discovery_even_with_stale_failure():
     ex = _executor(_video())
     ex.run_unit_research = AsyncMock(return_value={"status": "ready_for_scripting"})
     result = asyncio.run(ex.run_research("video"))
-    assert result["status"] == "ready_for_scripting"
-    ex.run_unit_research.assert_awaited_once_with("video")
+    assert result["status"] == "roster_ready"
+    ex.run_unit_research.assert_not_awaited()
     ex._load_prompt_overrides.assert_not_awaited()
 
 
@@ -69,10 +71,10 @@ def test_invalid_saved_roster_reaches_corrective_discovery():
     ex.run_unit_research.assert_not_awaited()
     discover.assert_awaited_once()
     assert "CVA-01" in discover.call_args.kwargs["context"]
-    assert "CORRECT THE EXISTING ROSTER" in discover.call_args.kwargs["context"]
+    assert "Saved payload to reuse as source data" in discover.call_args.kwargs["context"]
 
 
-def test_structurally_valid_but_incomplete_roster_is_corrected_before_cards():
+def test_failed_legacy_coverage_is_retained_as_source_data_before_runtime_selection():
     video = _video()
     video["video_title"] = "Every British aircraft carrier ever built"
     ex = _executor(video)
@@ -81,7 +83,10 @@ def test_structurally_valid_but_incomplete_roster_is_corrected_before_cards():
     module = types.ModuleType("research.agent")
     module.run_research = discover
     module.RESEARCH_SYSTEM_PROMPT = "Default research system"
-    coverage = AsyncMock(return_value={"passed": False, "findings": [{"candidate": "Activity", "problem": "Missing escort"}]})
+    video["research_payload"]["independent_coverage_audit"] = {"passed": False, "findings": [{"candidate": "Activity", "problem": "Historical audit finding"}]}
+    ex = _executor(video)
+    ex.run_unit_research = AsyncMock()
+    coverage = AsyncMock()
     with patch.dict(sys.modules, {"research.agent": module}), \
          patch.object(pe, "fetch_one", AsyncMock(return_value=None)), \
          patch.object(pe, "_roster_validation", return_value={"passed": True, "warnings": []}), \
@@ -89,7 +94,7 @@ def test_structurally_valid_but_incomplete_roster_is_corrected_before_cards():
         result = asyncio.run(ex.run_research("video"))
     assert result["status"] == "failed"
     ex.run_unit_research.assert_not_awaited()
-    coverage.assert_awaited_once()
+    coverage.assert_not_awaited()
     assert "Activity" in discover.call_args.kwargs["context"]
 
 
@@ -134,9 +139,10 @@ def test_resume_persists_current_gate_and_bootstraps_missing_hold():
 
 @pytest.mark.parametrize("title", ["Every British aircraft carrier ever built", "Every US Strategic Bomber Ever Built (2026)"])
 def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair(title):
-    from roster_coverage import title_scope_policy
+    from roster_coverage import selection_scope_policy
     video = _video()
     video["video_title"] = title
+    video["research_payload"] = {}
     ex = _executor(video)
     ex.run_unit_research = AsyncMock()
     discover = AsyncMock(side_effect=[copy.deepcopy(video["research_payload"]), ValueError("stop after repair dispatch")])
@@ -147,17 +153,15 @@ def test_same_locked_policy_reaches_initial_discovery_and_autonomous_repair(titl
     with patch.dict(sys.modules, {"research.agent": module}), \
          patch.object(pe, "fetch_one", AsyncMock(return_value=None)), \
          patch.object(pe, "_roster_validation", return_value={"passed": True, "complete_title": True, "warnings": []}), \
-         patch("roster_coverage.audit_roster_coverage", coverage):
+         patch("roster_coverage.audit_roster_selection", coverage):
         result = asyncio.run(ex.run_research("video"))
     assert result["status"] == "failed"
     assert discover.await_count == 2
-    policy = title_scope_policy(video["video_title"])
+    policy = selection_scope_policy(video["video_title"])
     for call in discover.await_args_list:
         assert policy in call.kwargs["context"]
-        assert policy in call.kwargs["system_prompt_override"]
-        assert call.kwargs["system_prompt_override"].startswith("Default research system")
-    for call in coverage.await_args_list:
-        assert call.args[2]["inclusion_policy"] == policy
+        assert call.kwargs["selection_settings"]["target_count"] == 3
+        assert "system_prompt_override" not in call.kwargs
     ex.run_unit_research.assert_not_awaited()
 
 
@@ -174,19 +178,19 @@ def test_repair_receives_same_draft_and_all_gates_before_research_handoff():
         if discover_mock.await_count == 1:
             return copy.deepcopy(draft)
         assert 'A-5' in kw['context'], 'Coverage feedback never reached corrective discovery'
-        assert 'CURRENT DRAFT TO CORRECT' in kw['context']
+        assert 'DRAFT:' in kw['context']
         assert json.dumps(draft['unit_roster']) in kw['context']
         return copy.deepcopy(repaired)
     discover_mock = AsyncMock(side_effect=discover)
     module = types.ModuleType('research.agent')
     module.run_research = discover_mock
     module.RESEARCH_SYSTEM_PROMPT = 'Research'
-    async def coverage(_client, _title, payload):
+    async def coverage(_client, _title, payload, **kwargs):
         passed = len(payload['unit_roster']) == 3
-        return {'passed': passed, 'findings': [] if passed else [{'candidate': 'A-5', 'problem': 'omitted', 'source_url': 'https://www.history.navy.mil/a5'}]}
+        return {'passed': passed, 'findings': [] if passed else [{'candidate': 'A-5', 'problem': 'Replacement fits title; existing item does not', 'source_url': 'https://www.history.navy.mil/a5'}]}
     def gate(_title, payload, **kwargs):
         passed = payload['roster_contract']['status'] == 'CONFIRMED'
-        return {'passed': passed, 'complete_title': True, 'warnings': [] if passed else ['Draft boundary unresolved']}
+        return {'passed': passed, 'roster_count':len(payload['unit_roster']), 'complete_title': True, 'warnings': [] if passed else ['Draft boundary unresolved']}
     async def hold(_id, _title, payload, roster):
         assert 'A-5' in roster
         payload['unit_research_hold_validation'] = {'passed': True}
@@ -198,12 +202,12 @@ def test_repair_receives_same_draft_and_all_gates_before_research_handoff():
          patch.object(pe, 'fetch_one', AsyncMock(return_value=None)), \
          patch.object(pe, 'execute', AsyncMock(return_value='UPDATE 1')), \
          patch.object(pe, '_roster_validation', side_effect=gate), \
-         patch('roster_coverage.audit_roster_coverage', side_effect=coverage), \
+         patch('roster_coverage.audit_roster_selection', side_effect=coverage), \
          patch('static_docu.dispatch_roster_prefetch'):
         result = asyncio.run(ex.run_research('video'))
-    assert result['status'] == 'ready_for_scripting', result
+    assert result['status'] == 'roster_ready', result
     assert discover_mock.await_count == 2
-    ex._run_unit_research_hold.assert_awaited_once()
+    ex._run_unit_research_hold.assert_not_awaited()
 
 
 def test_locked_research_arms_cancellation_and_preserves_saved_checkpoint():

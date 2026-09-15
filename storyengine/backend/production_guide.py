@@ -151,6 +151,19 @@ def _stage_snapshot(
     scenes = int(summary.get("scenes") or 0)
 
     if key == "research":
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (ValueError, TypeError):
+                payload = {}
+        if isinstance(payload, dict) and payload.get("roster_selection"):
+            hold = payload.get("unit_research_hold_validation") or {}
+            if hold.get("passed") is True:
+                return "done", "Detailed machine research is complete.", []
+            if payload.get("research_phase") == "unit_research":
+                return "in_progress", "Detailed research on the saved roster is underway.", []
+            return "not_started", "Roster selection is saved; detailed research has not completed.", []
         if video.get("research_payload"):
             return "done", "Research brief exists.", []
         if "research" in active_task_types:

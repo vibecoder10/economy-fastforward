@@ -1178,6 +1178,12 @@ export type RosterDashboard = {
 export const getRosterDashboard = (videoId: string) =>
   fetchApi<RosterDashboard>(`/api/pipeline/roster-dashboard/${videoId}`);
 
+export const saveRosterPacing = (videoId: string, minutesPerMachine: number) =>
+  fetchApi<{ status: string; minutes_per_machine: number }>(
+    `/api/pipeline/roster-settings/${videoId}`,
+    { method: "POST", body: JSON.stringify({ minutes_per_machine: minutesPerMachine }) },
+  );
+
 // --- C3c: Roster stage panel — seed/re-check reference photos ---
 
 export type SeedReferenceResult = {

@@ -241,6 +241,68 @@ def test_all_machines_pass_in_order_and_status_advances():
     print("✅ test_all_machines_pass_in_order_and_status_advances")
 
 
+def test_runtime_roster_selection_advances_on_phase_then_researches_saved_roster():
+    """The first call has no marker; it must save Roster, then the next
+    autobuild iteration must use the saved roster exactly once."""
+    class RuntimeRosterExecutor:
+        def __init__(self, _tenant):
+            self.gets = 0
+            self.selection_calls = 0
+            self.unit_calls = 0
+
+        async def _get_video(self, _video_id):
+            self.gets += 1
+            if self.gets == 1:
+                return {
+                    "status": "idea_logged", "render_mode": "static_docu", "max_spend": None, "total_cost": 0.0,
+                    # A real saved discovery draft has rows but predates the
+                    # versioned runtime selection marker; it must still enter
+                    # selection once, not the legacy repair ladder.
+                    "research_payload": {"unit_roster": ["old discovery row"] * 58, "roster_discovery": {"draft": True}},
+                }
+            if self.gets in (2, 3):
+                return {
+                    "status": "idea_logged", "render_mode": "static_docu", "max_spend": None, "total_cost": 0.0,
+                    "research_payload": {
+                        "roster_selection": {"version": 1, "status": "completed", "target_count": 20},
+                        "research_phase": "roster_complete", "unit_roster": ["A"] * 20,
+                    },
+                }
+            return {"status": "rendered", "render_mode": "static_docu", "max_spend": None, "total_cost": 0.0}
+
+        async def run_research(self, _video_id):
+            self.selection_calls += 1
+            return {"status": "roster_ready"}
+
+        async def run_unit_research(self, _video_id):
+            self.unit_calls += 1
+            return {"status": "ready_for_scripting"}
+
+    holder = []
+    def factory(tenant):
+        executor = RuntimeRosterExecutor(tenant)
+        holder.append(executor)
+        return executor
+    fake_pe, fake_routes, statuses = _stub_pipeline_and_routes(factory)
+    writes = []
+    async def fake_execute(query, *args):
+        writes.append((query, args)); return "UPDATE 1"
+    async def fake_fetch_one(query, *_args):
+        if "pipeline_stages" in query: return {"pipeline_stages": None}
+        if "SELECT status FROM videos" in query: return {"status": "idea_logged"}
+        return None
+    async def no_coverage(*_args, **_kwargs): return False
+    with patch.object(actions, "execute", fake_execute), \
+         patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.object(actions, "_static_image_coverage_missing", no_coverage), \
+         patch.object(actions, "_factual_image_recheck_needed", no_coverage), \
+         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_routes}):
+        asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+    assert holder[0].selection_calls == 1
+    assert holder[0].unit_calls == 1
+    assert any("ready_for_scripting" in args for _query, args in writes)
+
+
 # --- (d) progress messages sequence -----------------------------------------
 
 def test_progress_messages_sequence_names_each_machine():

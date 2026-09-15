@@ -143,7 +143,7 @@ async def _run_stage(
             return result
         if status == "failed":
             error_msg = result.get("error", "Stage returned failed status")
-            if _terminal_failure(error_msg):
+            if result.get("roster_selection_failed") or _terminal_failure(error_msg):
                 # A blocked / out-of-credit Kie key can't be fixed by retrying —
                 # persist an actionable message and stop (no arq retry, no budget burn).
                 await db_persist_task(
@@ -178,7 +178,8 @@ async def _run_stage(
             video_id,
             stage,
             "completed",
-            message=f"{stage} complete (attempt {attempt})",
+            message=(result.get("message") or "Roster selection complete; detailed research is next.")
+            if status == "roster_ready" else f"{stage} complete (attempt {attempt})",
             job_id=job_id,
             attempt=attempt,
         )

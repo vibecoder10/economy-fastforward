@@ -54,6 +54,56 @@ class PipelineResponse(BaseModel):
     error: Optional[str] = None
 
 
+class RosterSettingsRequest(BaseModel):
+    minutes_per_machine: float
+
+
+@router.post("/roster-settings/{video_id}")
+async def save_roster_settings(
+    video_id: str, body: RosterSettingsRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Save pacing before selection, without replacing any saved research."""
+    import math
+    if not math.isfinite(body.minutes_per_machine) or body.minutes_per_machine <= 0:
+        raise HTTPException(status_code=400, detail="Minutes per machine must be a positive number")
+    if await _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Wait for the current task before changing roster pacing")
+    owner = "roster-settings:" + str(uuid.uuid4())
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=owner):
+        raise HTTPException(status_code=409, detail="This video is busy; roster pacing was not changed")
+    try:
+        video = await fetch_one(
+            "SELECT id, status, render_mode, research_payload, video_length_minutes, "
+            "EXISTS(SELECT 1 FROM scripts WHERE video_id=$1 AND tenant_id=$2) AS has_scripts "
+            "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL",
+            video_id, tenant_id,
+        )
+        if not video:
+            raise HTTPException(status_code=404, detail="Video not found")
+        payload = video.get("research_payload") or {}
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        selection = payload.get("roster_selection") or {}
+        if (video.get("render_mode") != "static_docu"
+                or video.get("status") not in {"idea_logged", "approved"}
+                or video.get("has_scripts") or selection.get("status") == "completed"
+                or (payload.get("unit_roster_validation") or {}).get("passed")
+                or payload.get("unit_research_cards")):
+            raise HTTPException(status_code=409, detail="Pacing can be set before the roster is accepted or detailed work begins")
+        result = await execute(
+            "UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload::jsonb, '{}'::jsonb), "
+            "'{roster_settings}', COALESCE(research_payload::jsonb->'roster_settings', '{}'::jsonb) || $1::jsonb, true), "
+            "updated_at=now() WHERE id=$2 AND tenant_id=$3 AND deleted_at IS NULL",
+            json.dumps({"minutes_per_machine": body.minutes_per_machine}), video_id, tenant_id,
+        )
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=409, detail="Video changed; pacing was not saved")
+        return {"status": "saved", "minutes_per_machine": body.minutes_per_machine}
+    finally:
+        await generation_claims.release_owned(tenant_id, video_id, "main", owner)
+
+
 class MachineScriptPreviewRequest(BaseModel):
     machine: str
     confirmed_paid_run: bool = False
@@ -1003,7 +1053,7 @@ async def run_research(
     Poll /status/{video_id} or check activity feed.
     """
     video = await fetch_one(
-        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
@@ -1031,13 +1081,18 @@ async def run_research(
     if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
 
-    _set_task_status(video_id, "running", "Research in progress", tenant_id=tenant_id)
+    selection_only = video.get("render_mode") == "static_docu"
+    _set_task_status(video_id, "running", "Selecting the machine roster" if selection_only else "Research in progress", tenant_id=tenant_id)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_research(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
+            _set_task_status(
+                video_id, "completed" if result.get("status") == "roster_ready" else result.get("status", "unknown"),
+                result.get("error") or result.get("message") or ("Roster selection complete; detailed research is next." if result.get("status") == "roster_ready" else None),
+                tenant_id=tenant_id,
+            )
         except Exception as e:
             logger.exception("[research] fallback task failed video=%s: %s", video_id, e)
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
@@ -1050,7 +1105,7 @@ async def run_research(
     return PipelineResponse(
         video_id=video_id,
         status="running",
-        message="Research started",
+        message="Roster selection started" if selection_only else "Research started",
     )
 
 
