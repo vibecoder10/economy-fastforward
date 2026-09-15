@@ -54,6 +54,12 @@ _FACTUAL_RESEARCH_CORROBORATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_RESEARCH_PROVIDER_STOP_RE = re.compile(
+    r"^research response stopped with "
+    r"(?P<reason>refusal|context_window_exceeded|model_context_window_exceeded|unknown)\b",
+    re.IGNORECASE,
+)
+
 
 def user_facing(message: str) -> str:
     """Mark a message as already-safe user copy (survives humanize_error)."""
@@ -114,6 +120,30 @@ def humanize_error(
         return f"{context}. Please try again."
 
     lowered = raw.lower()
+
+    # Continuation failures retain a private draft, but none are safe to retry
+    # automatically. Match only internal prefixes and reconstruct all visible
+    # copy so provider bodies or checkpoint paths can never leak to the UI.
+    if lowered.startswith("research response continuation limit reached"):
+        return ("Research stopped after reaching its safe continuation limit. "
+                "The draft is saved for review; no additional research was started.")
+
+    if lowered.startswith((
+        "research response checkpoint is ",
+        "research response checkpoint does not match ",
+    )):
+        return ("The saved research checkpoint cannot be used safely. "
+                "No new research was started; review the saved draft before trying again.")
+
+    provider_stop = _RESEARCH_PROVIDER_STOP_RE.match(raw)
+    if provider_stop:
+        category = provider_stop.group("reason").lower().replace("_", " ")
+        return (f"The research provider stopped before finishing ({category}). "
+                "The draft is saved for review; no new research was started.")
+
+    if lowered.startswith("research response stopped with "):
+        return ("The research provider stopped before finishing for an unsupported response reason. "
+                "The draft is saved for review; no new research was started.")
 
     if ("failed to parse research payload" in lowered
             or "research response formatting failed after one recovery attempt" in lowered):

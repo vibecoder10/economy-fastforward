@@ -68,3 +68,20 @@ def test_live_failure_has_actionable_copy_without_raw_details():
         assert 'roster creation stopped' in message
         assert 'Resume' in message
         assert 'char 0' not in message
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('Research response continuation limit reached; provider secret tail=abc123', 'safe continuation limit'),
+    ('Research response checkpoint is unreadable; /private/path token=abc123', 'cannot be used safely'),
+    ('Research response checkpoint does not match this request; /private/path token=abc123', 'cannot be used safely'),
+    ('Research response stopped with refusal; provider body=secret', 'stopped before finishing (refusal)'),
+    ('Research response stopped with context_window_exceeded; provider body=secret', 'stopped before finishing (context window exceeded)'),
+    ('Research response stopped with tool_use; provider body=secret', 'unsupported response reason'),
+])
+def test_continuation_failures_are_humanized_without_raw_tails(raw, expected):
+    message = humanize_error(raw)
+    assert expected in message
+    assert 'Resume' not in message
+    assert 'abc123' not in message
+    assert 'secret' not in message
+    assert '/private/path' not in message

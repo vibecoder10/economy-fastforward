@@ -7,6 +7,8 @@ import re
 from anthropic import Anthropic
 from typing import Optional, List, Dict, Tuple
 
+from shared import research_response
+
 from orchestrator.pipeline_constants import Models
 
 
@@ -57,6 +59,55 @@ WEB_SEARCH_TOOL = {
     "name": "web_search",
     "max_uses": 5,
 }
+
+
+def _serialize_content(response) -> list[dict]:
+    """Keep the provider's complete assistant blocks for a later continuation."""
+    content = getattr(response, "content", None) or []
+    serialized = []
+    for block in content:
+        if isinstance(block, dict):
+            serialized.append(block)
+        elif hasattr(block, "model_dump"):
+            serialized.append(block.model_dump(mode="json"))
+        elif hasattr(block, "dict"):
+            serialized.append(block.dict())
+        elif hasattr(block, "text"):
+            serialized.append({"type": "text", "text": block.text})
+        else:
+            raise RuntimeError("Research response contains an unsupported content block; saved work was not treated as complete")
+    return serialized
+
+
+def _continuation_instruction(stop_reason: Optional[str]) -> str:
+    if stop_reason == "max_tokens":
+        return "The previous response hit the output limit. Continue from exactly the last character. Return only the missing suffix, no repetition, commentary, markdown fences, or new research."
+    return "Continue the response from the exact cutoff."
+
+
+def _continuation_messages(prompt: str, retained: list[dict]) -> list[dict]:
+    """Rebuild a valid conversation; pause_turn extends the assistant turn."""
+    messages = [{"role": "user", "content": prompt}]
+    pending_content = []
+    for item in retained:
+        pending_content.extend(item["content"])
+        if item.get("stop_reason") == "max_tokens":
+            messages.append({"role": "assistant", "content": pending_content})
+            messages.append({"role": "user", "content": _continuation_instruction("max_tokens")})
+            pending_content = []
+    if pending_content:
+        messages.append({"role": "assistant", "content": pending_content})
+    return messages
+
+
+def _response_metadata(response) -> dict:
+    """Retain harmless attribution needed to diagnose a resumed provider exchange."""
+    usage = getattr(response, "usage", None)
+    if hasattr(usage, "model_dump"):
+        usage = usage.model_dump(mode="json")
+    elif hasattr(usage, "dict"):
+        usage = usage.dict()
+    return {"id": getattr(response, "id", None), "model": getattr(response, "model", None), "usage": usage}
 
 # Thumbnail System v3 - Map + Strategic Verdict (default) with editorial illustration fallback
 ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT = """You are the thumbnail prompt engineer for Economy FastForward, \
@@ -196,6 +247,8 @@ class AnthropicClient:
         max_tokens: int = 4096,
         temperature: float = 1.0,
         tools: list = None,
+        complete_response: bool = False,
+        checkpoint_path=None,
     ) -> str:
         """Generate a completion using Claude.
 
@@ -232,7 +285,7 @@ class AnthropicClient:
             kwargs["tools"] = tools
 
         def _create():
-            if self._gateway_mode:
+            if self._gateway_mode or complete_response:
                 # Kie's gateway 500s when a non-streaming response takes longer
                 # than ~110s to generate (verified live: every 16k-token research
                 # call failed; the same call streamed completes fine). Stream
@@ -261,6 +314,53 @@ class AnthropicClient:
                     last = e
             raise last
 
+        if complete_response:
+            fingerprint = research_response.request_fingerprint(
+                prompt=prompt, system_prompt=system_prompt, model=kwargs["model"], tools=tools,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            retained = research_response.load(checkpoint_path, fingerprint)
+            if retained and retained[-1].get("stop_reason") == "end_turn":
+                return "".join(item.get("text", "") for item in retained)
+            if retained:
+                last_reason = retained[-1].get("stop_reason")
+                if last_reason not in {"max_tokens", "pause_turn"}:
+                    raise RuntimeError(
+                        f"Research response stopped with {last_reason or 'unknown'}; saved draft needs review and was not treated as complete"
+                    )
+                if len(retained) >= 4:
+                    raise RuntimeError("Research response continuation limit reached; saved draft needs review and was not treated as complete")
+                messages[:] = _continuation_messages(prompt, retained)
+                if any(item.get("stop_reason") == "max_tokens" for item in retained):
+                    kwargs.pop("tools", None)
+
+            while True:
+                response = await _create_with_5xx_retry()
+                content = _serialize_content(response)
+                stop_reason = getattr(response, "stop_reason", None)
+                text = self._extract_text(response, separator="")
+                retained.append({
+                    "stop_reason": stop_reason,
+                    "content": content,
+                    "text": text,
+                    "metadata": _response_metadata(response),
+                })
+                research_response.save(checkpoint_path, fingerprint, retained)
+
+                if stop_reason == "end_turn":
+                    return "".join(item["text"] for item in retained)
+                if stop_reason not in {"max_tokens", "pause_turn"}:
+                    raise RuntimeError(
+                        f"Research response stopped with {stop_reason or 'unknown'}; saved draft needs review and was not treated as complete"
+                    )
+                if len(retained) >= 4:
+                    raise RuntimeError("Research response continuation limit reached; saved draft needs review and was not treated as complete")
+
+                # A max-token suffix must not trigger new searches; pause_turn retains tools.
+                if stop_reason == "max_tokens":
+                    kwargs.pop("tools", None)
+                messages[:] = _continuation_messages(prompt, retained)
+
         response = await _create_with_5xx_retry()
 
         text = self._extract_text(response)
@@ -279,7 +379,7 @@ class AnthropicClient:
         raise RuntimeError("Anthropic API returned empty content on both attempts")
 
     @staticmethod
-    def _extract_text(response) -> str:
+    def _extract_text(response, separator: str = "\n") -> str:
         """Extract text from a response that may contain mixed content blocks.
 
         When tools like web_search are enabled, the response contains
@@ -290,9 +390,9 @@ class AnthropicClient:
             return ""
         text_parts = []
         for block in response.content:
-            if hasattr(block, "text"):
+            if isinstance(getattr(block, "text", None), str):
                 text_parts.append(block.text)
-        return "\n".join(text_parts)
+        return separator.join(text_parts)
     
     async def generate_beat_sheet(self, video_data: dict) -> dict:
         """Generate a 14-scene beat sheet for a video (legacy path).
