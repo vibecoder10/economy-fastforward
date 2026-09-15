@@ -964,13 +964,15 @@ def _build_research_prompt(
 
 def _build_selection_prompt(topic: str, settings: dict, context: Optional[str]) -> str:
     """A compact research mode used before detailed documentary enrichment."""
+    from roster_selection import selection_subject
     source_data = context or ""
+    subject = selection_subject(topic)
     return f"""Select exactly {settings['target_count']} real, distinct, title-fitting documentary units.
 
-TITLE: {topic}
+ELIGIBILITY SUBJECT: {subject}
 RUNTIME SETTINGS: {json.dumps(settings)}
 
-This is selection only. Review at least two primary, archive, museum, service, manufacturer, or institutional sources. Do not attempt exhaustive completeness, omission hunting, member-hull enumeration, title generation, cinematic guidance, scripts, thumbnails, or narrative writing. Words such as Every or All in the title never override the exact runtime count. Do not pad with weak fits. If the sources cannot support exactly this many real distinct title-fitting entries, return an honest insufficiency.
+This is selection only. Review at least two primary, archive, museum, service, manufacturer, or institutional sources. Do not attempt exhaustive completeness, omission hunting, member-hull enumeration, title generation, cinematic guidance, scripts, thumbnails, or narrative writing. Words such as Every or All in the title never override the exact runtime count. Do not pad with weak fits. If N or more distinct eligible entries exist, select N in preferred presentation order. For example, 55 eligible entries and target 20 means select 20, never insufficiency. Only return insufficiency when fewer than N eligible entries exist. The original title quantity wording is deliberately excluded from the eligibility subject.
 
 Return ONLY JSON with: headline, thesis, executive_hook, fact_sheet, source_bibliography, unit_roster (each entry has name, designation, role, status, built_count, years, source), recommended_final_roster, roster_contract, roster_audit, and research_phase. For each recommended_final_roster item use exactly the display string formed as "designation name" when both exist (or the bare name when designation is empty), in the same order as unit_roster. roster_audit must include sources as a list of {{url, supports}} objects. Set roster_contract to CONFIRMED only for an exact, source-backed list; otherwise INSUFFICIENT and explain why. Keep all narrative fields compact/deferred.
 

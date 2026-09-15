@@ -9,6 +9,37 @@ from typing import Any
 VERSION = 1
 
 
+def selection_subject(title: str) -> str:
+    """Separate title quantity wording from the factual eligibility subject."""
+    return re.sub(r"^(?:every|all(?: of)?(?: the)?)\s+", "", str(title).strip(), flags=re.I)
+
+
+def selection_source_data(payload: dict) -> dict:
+    """Reuse evidence without importing previous exhaustive-writing instructions."""
+    roster = payload.get("unit_roster") or []
+    if not roster:
+        for old in reversed(payload.get("roster_selection_history") or []):
+            roster = (old.get("payload") or {}).get("unit_roster") or []
+            if roster:
+                break
+    return {"candidate_entries": roster, "source_bibliography": payload.get("source_bibliography") or ""}
+
+
+def bound_selection_candidates(draft: dict, target: int) -> dict:
+    """Apply application-owned count to provider-ordered candidates before audit.
+
+    Keep surplus candidates as evidence. Never fill an undersized list or accept
+    any entry here: the independent factual audit still checks the entire result.
+    """
+    result = dict(draft)
+    rows = result.get("unit_roster")
+    if isinstance(rows, list) and len(rows) > target:
+        result["roster_candidate_overflow"] = rows[target:]
+        result["unit_roster"] = rows[:target]
+        result["recommended_final_roster"] = [_display_name(row) for row in rows[:target]]
+    return result
+
+
 def selection_target(duration_minutes: Any, minutes_per_machine: Any = 1) -> int:
     """Return the requested number of sections; reject unusable pacing inputs."""
     try:

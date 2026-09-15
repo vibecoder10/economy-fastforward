@@ -65,3 +65,36 @@ def test_fresh_runtime_selection_is_visible_to_static_docu_hold_without_old_mark
     payload = _payload()
     video = {"render_mode": "static_docu", "research_payload": payload}
     assert len(pe._machine_documentary_hold_roster(video)) == 20
+
+
+def test_selection_subject_retains_eligibility_without_quantity_and_reuses_only_evidence():
+    from roster_selection import selection_subject, selection_source_data, bound_selection_candidates
+    from research.agent import _build_selection_prompt
+    title='Every US Submarine Class Ever Built (2026)'
+    assert selection_subject(title)=='US Submarine Class Ever Built (2026)'
+    assert selection_subject('All British Aircraft Carriers Ever Built')=='British Aircraft Carriers Ever Built'
+    source=selection_source_data({'unit_roster':[{'name':'Example'}],'fact_sheet':'must cover all 58', 'roster_contract':'exhaustive'})
+    assert 'must cover all' not in str(source)
+    prompt=_build_selection_prompt(title, selection_settings(20,1),str(source))
+    assert title not in prompt
+    assert '55 eligible entries and target 20 means select 20' in prompt
+    draft=_payload(21); bounded=bound_selection_candidates(draft,20)
+    assert len(bounded['unit_roster'])==20 and len(draft['unit_roster'])==21
+    assert len(bounded['roster_candidate_overflow'])==1
+    assert selection_validation(title,bounded)['passed']
+    assert len(bound_selection_candidates(_payload(19),20)['unit_roster'])==19
+
+
+def test_independent_review_receives_eligibility_subject_and_keeps_factual_failures():
+    import json
+    from roster_coverage import audit_roster_selection
+    class Client:
+        async def generate(self, **kwargs):
+            self.request=kwargs
+            return json.dumps({'passed':False,'sources':[{'url':'https://history.navy.mil/a','supports':'class history'}, {'url':'https://archives.gov/b','supports':'commission record'}], 'findings':[{'candidate':'Machine 0','problem':'unbuilt','required_action':'replace','source_url':'https://archives.gov/b'}], 'summary':'One selected entry was unbuilt'})
+    client=Client()
+    result=asyncio.run(audit_roster_selection(client,'Every US Submarine Class Ever Built (2026)',_payload()))
+    assert 'ELIGIBILITY SUBJECT: US Submarine Class Ever Built (2026)' in client.request['prompt']
+    assert 'Every US' not in client.request['prompt']
+    assert result['passed'] is False
+    assert result['findings'][0]['problem']=='unbuilt'

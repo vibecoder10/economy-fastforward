@@ -10907,18 +10907,24 @@ class PipelineExecutor:
         try:
             from research.agent import run_research
             from roster_coverage import selection_scope_policy, audit_roster_selection
-            context = "ELIGIBILITY POLICY:\n" + selection_scope_policy(title) + "\nSaved payload to reuse as source data:\n" + json.dumps(payload)
+            from roster_selection import bound_selection_candidates, selection_source_data
+            context = "ELIGIBILITY POLICY:\n" + selection_scope_policy(title) + "\nSaved candidates to reuse as source data:\n" + json.dumps(selection_source_data(payload))
             await self._log_activity("Research Agent", video_id, "started", f"Selecting {settings['target_count']} runtime roster entries")
-            draft = await run_research(
-                anthropic_client=self._pipeline.anthropic, topic=title, context=context,
-                record_id=video_id, selection_settings=settings,
-                checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
-            )
+            if is_runtime_selection(payload) and len(payload.get("unit_roster") or []) >= settings["target_count"]:
+                # A saved candidate list can be re-audited without rediscovery.
+                draft = copy.deepcopy(payload)
+            else:
+                draft = await run_research(
+                    anthropic_client=self._pipeline.anthropic, topic=title, context=context,
+                    record_id=video_id, selection_settings=settings,
+                    checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+                )
             if not isinstance(draft, dict):
                 raise ValueError("Roster selection returned no structured payload")
+            draft = bound_selection_candidates(draft, settings["target_count"])
             # Preserve unrelated saved data/cards/packages; selected fields are
             # the only replacement surface for this pre-unit stage.
-            selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit",
+            selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit", "roster_candidate_overflow",
                               "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook"}
             merged = dict(payload)
             merged.update({key: value for key, value in draft.items() if key in selection_keys})
@@ -10951,7 +10957,7 @@ class PipelineExecutor:
                     "Correct this exact selected draft once. Keep valid entries, replace only entries required by "
                     "these findings, and return the same compact selection schema. Do not perform completeness "
                     "research or side generations.\nELIGIBILITY POLICY:\n" + selection_scope_policy(title) + "\nFINDINGS:\n" + json.dumps(findings) +
-                    "\nDRAFT:\n" + json.dumps(merged)
+                    "\nDRAFT:\n" + json.dumps(selection_source_data(merged))
                 )
                 corrected = await run_research(
                     anthropic_client=self._pipeline.anthropic, topic=title, context=correction_context,
@@ -10959,6 +10965,7 @@ class PipelineExecutor:
                     checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
                 )
                 if isinstance(corrected, dict):
+                    corrected = bound_selection_candidates(corrected, settings["target_count"])
                     merged.update({key: value for key, value in corrected.items() if key in selection_keys})
                     # A correction is a new audit attempt even if the selected
                     # names happen to stay the same; never reuse the first

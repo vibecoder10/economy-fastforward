@@ -175,3 +175,21 @@ def test_live_gate_keeps_mixed_build_and_source_checks(stage):
     assert pe._live_roster_gate(video,video['research_payload'])['passed'] is True
     video['research_payload']['unit_roster'][0]['built_count']='0 ships built'
     assert pe._live_roster_gate(video,video['research_payload'])['passed'] is False
+
+
+def test_saved_surplus_candidates_are_bounded_then_audited_without_rediscovery(stage):
+    from roster_selection import selection_settings
+    ex,video,events,writes,discover,selected=stage
+    saved=copy.deepcopy(selected)
+    saved.pop('unit_research_cards')
+    saved['unit_roster'].append({'name':'Surplus class','status':'production','built_count':'1 completed'})
+    saved['recommended_final_roster'].append('Surplus class')
+    saved['roster_selection']={'version':1,'settings':selection_settings(20,1),'status':'needs_review'}
+    video['research_payload']=saved
+    result=asyncio.run(ex.run_roster_selection('v'))
+    assert result['status']=='roster_ready',result
+    discover.assert_not_called()
+    assert len(video['research_payload']['unit_roster'])==20
+    assert video['research_payload']['roster_candidate_overflow'][0]['name']=='Surplus class'
+    assert ('audit',) in events
+    ex._run_unit_research_hold.assert_not_called()

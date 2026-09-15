@@ -71,7 +71,7 @@ def test_invalid_saved_roster_reaches_corrective_discovery():
     ex.run_unit_research.assert_not_awaited()
     discover.assert_awaited_once()
     assert "CVA-01" in discover.call_args.kwargs["context"]
-    assert "Saved payload to reuse as source data" in discover.call_args.kwargs["context"]
+    assert "Saved candidates to reuse as source data" in discover.call_args.kwargs["context"]
 
 
 def test_failed_legacy_coverage_is_retained_as_source_data_before_runtime_selection():
@@ -95,7 +95,8 @@ def test_failed_legacy_coverage_is_retained_as_source_data_before_runtime_select
     assert result["status"] == "failed"
     ex.run_unit_research.assert_not_awaited()
     coverage.assert_not_awaited()
-    assert "Activity" in discover.call_args.kwargs["context"]
+    assert "Argus" in discover.call_args.kwargs["context"]
+    assert "independent_coverage_audit" not in discover.call_args.kwargs["context"]
 
 
 def test_live_incremental_gate_cannot_erase_failed_or_stale_coverage():
