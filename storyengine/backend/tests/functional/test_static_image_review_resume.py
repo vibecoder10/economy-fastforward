@@ -150,3 +150,27 @@ async def test_factual_fill_preserves_single_passed_view_and_generates_only_two_
     assert len(env['gen_prompts']) == 2
     assert env['assets']['kept']['image_url'] == URL
     assert not any('DELETE FROM assets WHERE video_id=' in q and 'status=' not in q for q in env['queries'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', ['ready_for_images', 'ready_for_thumbnail', 'ready_to_render'])
+async def test_downstream_partial_image_coverage_requires_image_stage(monkeypatch, status):
+    video = {'id': 'v', 'render_mode': 'static_docu', 'status': status}
+    rows = [{'scene': 1, 'image_url': URL, 'caption': {'view_role': role}}
+            for role in ('side_profile', 'three_quarter')]
+    rows.append({'scene': 2, 'image_url': None, 'caption': None})
+    db = AsyncMock(return_value=rows)
+    monkeypatch.setattr(actions, 'fetch_all', db)
+    assert await actions._static_image_coverage_missing(video, 'tenant')
+    rows[-1] = {'scene': 2, 'image_url': URL, 'caption': {'view_role': 'side_profile'}}
+    rows.append(dict(rows[-1]))  # duplicate role does not supply a second view
+    assert await actions._static_image_coverage_missing(video, 'tenant')
+    rows[-1] = {'scene': 2, 'image_url': URL+'2', 'caption': {'view_role': 'top_planform'}}
+    assert not await actions._static_image_coverage_missing(video, 'tenant')
+    query, *args = db.await_args.args
+    assert 'LEFT JOIN' in query and "a.status='done'" in query
+    assert args == ['v', 'tenant']
+    video['status'] = 'rendered'
+    db.reset_mock()
+    assert not await actions._static_image_coverage_missing(video, 'tenant')
+    db.assert_not_awaited()

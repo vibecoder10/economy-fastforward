@@ -1347,6 +1347,37 @@ def _factual_script_recheck_needed(video: dict) -> bool:
     return not factual_script_readiness(video, _machine_documentary_hold_roster(video))
 
 
+async def _static_image_coverage_missing(video: dict, tenant_id: str) -> bool:
+    """A downstream status is not proof that every scene has usable pictures."""
+    if (video.get("render_mode") != "static_docu"
+            or video.get("status") in DONE_STATUSES
+            or not is_at_or_past_stage(video.get("status"), "ready_for_images")):
+        return False
+    from static_docu_contract import STATIC_VIEWS_MINIMUM, STATIC_VIEW_PLANS
+    rows = await fetch_all(
+        "SELECT s.scene, a.image_url, a.caption FROM scripts s LEFT JOIN assets a "
+        "ON a.video_id=s.video_id AND a.tenant_id=s.tenant_id AND a.scene=s.scene "
+        "AND a.generation_method='static_docu' AND a.status='done' "
+        "AND a.image_url IS NOT NULL AND btrim(a.image_url) <> '' "
+        "WHERE s.video_id=$1 AND s.tenant_id=$2",
+        video["id"], tenant_id,
+    )
+    roles = {plan["role"] for plan in STATIC_VIEW_PLANS}
+    coverage = {}
+    for row in rows:
+        seen = coverage.setdefault(row["scene"], set())
+        cap = row.get("caption") or {}
+        if isinstance(cap, str):
+            try:
+                cap = json.loads(cap)
+            except (TypeError, ValueError):
+                cap = {}
+        role = cap.get("view_role") if isinstance(cap, dict) else None
+        if row.get("image_url") and role in roles:
+            seen.add(role)
+    return not coverage or any(len(seen) < STATIC_VIEWS_MINIMUM for seen in coverage.values())
+
+
 async def _factual_image_recheck_needed(video: dict, tenant_id: str) -> bool:
     from static_image_review import factual_image_review_required, image_review_current
     if (video.get("status") in DONE_STATUSES
@@ -1827,10 +1858,11 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     await _advance("ready_for_scripting")
                     video["status"] = status = "ready_for_scripting"
                     _set_task_status(video_id, "running", "Rechecking saved sections against the current video subject…", tenant_id=tenant_id)
-                if await _factual_image_recheck_needed(video, tenant_id):
+                if (await _static_image_coverage_missing(video, tenant_id)
+                        or await _factual_image_recheck_needed(video, tenant_id)):
                     await _advance("ready_for_image_prompts")
                     video["status"] = status = "ready_for_image_prompts"
-                    _set_task_status(video_id, "running", "Rechecking saved images against the current machine configuration…", tenant_id=tenant_id)
+                    _set_task_status(video_id, "running", "Completing missing image coverage and checking saved images…", tenant_id=tenant_id)
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     _set_task_status(video_id, "failed", policy_error, tenant_id=tenant_id)
