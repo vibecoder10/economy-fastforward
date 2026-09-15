@@ -25,6 +25,7 @@ interface RosterStagePanelProps {
   isLoading: boolean;
   onRefresh: () => void;
   taskWatcher: TaskWatcherBridge;
+  mode?: "roster" | "image_gather";
 }
 
 /**
@@ -38,7 +39,7 @@ interface RosterStagePanelProps {
  *     prefetch already uses (routes/pipeline.py's roster-seed-reference).
  *   - "Re-check": re-run prefetch for the machines still missing one.
  */
-export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, onRefresh, taskWatcher }: RosterStagePanelProps) {
+export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, onRefresh, taskWatcher, mode = "roster" }: RosterStagePanelProps) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const queryClient = useQueryClient();
@@ -75,6 +76,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     onComplete: (msg) => {
       setTaskRunning(false);
       setRechecking(false);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
       queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
       onRefresh();
       if (msg) toast.success(msg);
@@ -82,6 +84,8 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     onFailed: (error) => {
       setTaskRunning(false);
       setRechecking(false);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
       toast.error(`Re-check failed: ${error}`);
     },
   });
@@ -117,7 +121,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
   // pipeline text the way a human-readable message can.
   const bridgeIsRosterSweep =
     taskWatcher.running &&
-    (taskWatcher.taskType === "roster_prefetch" ||
+    (taskWatcher.taskType === "roster_images" || taskWatcher.taskType === "roster_prefetch" ||
       (taskWatcher.message || "").toLowerCase().includes("machine reference"));
 
   useEffect(() => {
@@ -136,6 +140,19 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     } catch (err) {
       setRechecking(false);
       toast.error(`Couldn't start the re-check: ${(err as Error).message}`);
+    }
+  };
+
+  const handleGather = async () => {
+    setRechecking(true);
+    try {
+      const { gatherRosterImages } = await import("@/lib/api");
+      await gatherRosterImages(videoId);
+      taskWatcher.markStarted();
+      setTaskRunning(true);
+    } catch (err) {
+      setRechecking(false);
+      toast.error(`Couldn't start image gathering: ${(err as Error).message}`);
     }
   };
 
@@ -200,7 +217,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     };
   });
   const total = units.length;
-  const verifiedCount = units.filter((u) => u.reference?.status === "verified").length;
+  const verifiedCount = units.filter((u) => u.reference?.status === "verified" && u.reference?.kind === "photo" && u.reference?.hosted_url?.trim() && u.reference?.source_url?.trim()).length;
   // Same never-built rule as StaticDocuStageRail's roster gate (2026-07-30):
   // a cancelled programme (retryable === false) can never have a photo, so it
   // must satisfy the roster rather than hold the summary at "fix the missing
@@ -209,7 +226,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
   const neverBuiltCount = units.filter(
     (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
   ).length;
-  const allVerified = total > 0 && verifiedCount + neverBuiltCount >= total;
+  const allVerified = total > 0 && verifiedCount === total;
   const pace = Number(minutesPerMachine);
   const duration = Number(video.video_length_minutes || 0);
   const targetCount = Number.isFinite(pace) && pace > 0 && duration > 0
@@ -264,13 +281,43 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
     );
   }
 
+  if (mode === "roster") {
+    return (
+      <div className="space-y-6">
+        <GlassCard className="p-5">
+          <p className="text-lg font-display" style={{ color: "var(--text-primary)" }}>Machine Roster</p>
+          <p className="text-sm mt-1" style={{ color: "var(--text-tertiary)" }}>
+            {selection?.status === "completed" && liveVerdict?.passed === true
+              ? `${units.length}/${selection.target_count || targetCount || units.length} selected and independently accepted.`
+              : `${units.length} saved roster entries; target ${selection?.target_count || targetCount || units.length}.`}
+            {duration > 0 ? ` · ${duration} minutes` : ""}
+          </p>
+          <div className="mt-4 flex items-end gap-2">
+            <label className="text-left text-xs" style={{ color: "var(--text-secondary)" }}>Minutes per machine
+              <input aria-label="Minutes per machine" type="number" min="0.1" step="0.1" value={minutesPerMachine}
+                onChange={(event) => setMinutesPerMachine(event.target.value)} disabled={taskWatcher.running || rosterLocked}
+                className="block mt-1 w-28 rounded-md px-2 py-1" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
+            </label>
+            <ActionButton variant="outline" onClick={savePacing} disabled={savingPacing || taskWatcher.running || rosterLocked}>{savingPacing ? "Saving…" : "Save pacing"}</ActionButton>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-5">
+          <ol className="space-y-2">{units.map((unit, index) => <li key={unit.machine} className="flex items-center gap-3 text-sm" style={{ color: "var(--text-primary)" }}>
+            <span style={{ color: "var(--text-tertiary)" }}>{index + 1}.</span><span className="flex-1">{unit.machine}</span>
+            {!rosterLocked && <button onClick={() => handleRemove(unit.machine)} disabled={removing === unit.machine} className="text-xs" style={{ color: "var(--red)" }}>{removing === unit.machine ? "Removing…" : "Remove"}</button>}
+          </li>)}</ol>
+        </GlassCard>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <GlassCard className="p-5">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <p className="text-lg font-display flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-              <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> Machine Roster
+              <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> {mode === "image_gather" ? "Gather reference images" : "Machine Roster"}
             </p>
             <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
               {video.headline || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
@@ -295,7 +342,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
               >
                 {verifiedCount}/{total} verified
                 {neverBuiltCount > 0 ? ` + ${neverBuiltCount} never built` : ""}
-                {allVerified ? " — reference photos ready." : " — photos are gathered before picture generation."}
+                {allVerified ? " — reference photos ready." : " — reference images still need review."}
               </p>
             )}
             {showRunning && (
@@ -309,28 +356,17 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
           <ActionButton
             icon={rechecking || showRunning ? Loader2 : RefreshCw}
             variant="outline"
-            onClick={handleRecheck}
-            disabled={rechecking || showRunning}
+            onClick={mode === "image_gather" ? handleGather : handleRecheck}
+            disabled={rechecking || showRunning || taskWatcher.running}
           >
-            {rechecking || showRunning ? "Re-checking…" : "Re-check missing"}
-          </ActionButton>
-        </div>
-        <div className="mt-4 flex items-end gap-2">
-          <label className="text-left text-xs" style={{ color: "var(--text-secondary)" }}>
-            Minutes per machine
-            <input aria-label="Minutes per machine" type="number" min="0.1" step="0.1" value={minutesPerMachine}
-              onChange={(event) => setMinutesPerMachine(event.target.value)} disabled={taskWatcher.running || rosterLocked}
-              className="block mt-1 w-28 rounded-md px-2 py-1" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
-          </label>
-          <ActionButton variant="outline" onClick={savePacing} disabled={savingPacing || taskWatcher.running || rosterLocked}>
-            {savingPacing ? "Saving…" : "Save pacing"}
+            {rechecking || showRunning ? "Gathering…" : mode === "image_gather" ? (verifiedCount ? "Retry missing images" : "Gather images") : "Re-check missing"}
           </ActionButton>
         </div>
       </GlassCard>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {units.map((u) => {
-          const verified = u.reference?.status === "verified";
+          const verified = u.reference?.status === "verified" && u.reference?.kind === "photo" && Boolean(u.reference?.hosted_url?.trim()) && Boolean(u.reference?.source_url?.trim());
           // C8: a "missing" card used to look identical whether the machine
           // just hasn't been reached yet, will never have a photo, or was
           // genuinely checked and failed. never_built (retryable === false)
@@ -397,6 +433,9 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                   >
                     <ImageIcon size={11} /> photo pending
                   </span>
+                )}
+                {mode === "image_gather" && verified && u.reference?.source_url && (
+                  <a href={u.reference.source_url} target="_blank" rel="noreferrer" className="text-[11px] underline" style={{ color: "var(--turquoise)" }}>Source page</a>
                 )}
                   <button
                     type="button"

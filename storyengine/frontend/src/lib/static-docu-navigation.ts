@@ -1,7 +1,8 @@
-export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
+export type StaticDocuStageKey = "roster" | "image_gather" | "research" | "script" | "voice" | "pictures" | "video";
 
 export const STATIC_DOCU_STAGE_TO_TAB: Record<StaticDocuStageKey, string> = {
   roster: "roster",
+  image_gather: "image-gather",
   research: "research",
   script: "script-voice",
   voice: "script-voice",
@@ -46,14 +47,14 @@ export function staticDocuRunAllPreflight(total: number, verified: number): {
   if (total <= 0) {
     return {
       allowed: true,
-      note: "Roster selection will save and independently check the title-fitting roster first.",
+      note: "Run All will select the roster, gather verified images, then research that exact saved roster.",
     };
   }
   const missing = Math.max(0, total - verified);
   return {
     allowed: true,
     note: missing > 0
-      ? `${missing} reference photo${missing === 1 ? "" : "s"} may still be added as supporting material.`
-      : "The saved roster is ready.",
+      ? `${missing} reference photo${missing === 1 ? "" : "s"} will be gathered before detailed research.`
+      : "The saved roster images are ready; detailed research is next.",
   };
 }

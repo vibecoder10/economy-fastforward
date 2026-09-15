@@ -12157,3 +12157,6 @@ control writes without losing the video, approval, or confirmation.
 
 ## 2026-09-15 — Runtime roster stage separation
 Added storyengine/backend/roster_selection.py with versioned duration/pacing count and selected-entry validation. Static documentary discovery now saves/accepts a roster before the separate unit-research stage; independent selection audit retains scoped provider continuation. Roster UI displays drafts and pacing independently of photo/detailed-card readiness. New focused tests cover saved history, audit failure, stage boundaries, settings and worker terminal state. Existing legacy accepted work retains its original roster contract.
+
+## 2026-09-15 — Gather images after the accepted roster
+The static documentary flow adds an explicit Gather images step between Roster and Research. `storyengine/backend/roster_images.py` derives readiness from verified photos in the existing reference cache for the current selected names. The stage reuses the reference finder, preserves saved research, and exposes missing entries and source links before later work advances. The executable plan is `storyengine/IMAGE-GATHER-PLAN.md`; current verification and release state remain in the project checklist.

@@ -25,7 +25,7 @@ test('contract metadata does not show completed research', () => {
 test('saved roster requires saved cards before research is complete', () => {
   assert.equal(stages({fact_sheet: 'Verified research brief.'}).research.status, 'done');
   assert.equal(stages({unit_roster: ['Holland']}, {total: 1, ready: 0, units: []}).research.status, 'not_started');
-  assert.equal(stages({unit_roster: ['Holland']}, {total: 1, ready: 1, units: []}).research.status, 'done');
+  assert.equal(stages({unit_roster: ['Holland']}, {total: 1, ready: 1, units: [{machine:'Holland',reference:{status:'verified',kind:'photo',hosted_url:'https://host/h',source_url:'https://source/h'}}]}).research.status, 'done');
 });
 
 test('accepted runtime roster is done without photos while saved-card research remains separate', () => {

@@ -19,7 +19,7 @@ import { getStaticDocuReadiness } from "@/lib/static-docu";
 import { persistedTaskActivity } from "@/lib/persisted-task-state";
 import { useDrainMode } from "@/components/system/DrainModeProvider";
 
-export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
+export type StaticDocuStageKey = "roster" | "image_gather" | "research" | "script" | "voice" | "pictures" | "video";
 export type StageStatus = "done" | "in_progress" | "blocked" | "not_started";
 
 interface StageInfo {
@@ -29,6 +29,7 @@ interface StageInfo {
 
 const STAGE_META: Record<StaticDocuStageKey, { label: string; icon: typeof Search }> = {
   roster: { label: "Roster", icon: ImageIcon },
+  image_gather: { label: "Gather images", icon: Images },
   research: { label: "Research", icon: Search },
   script: { label: "Script", icon: FileText },
   voice: { label: "Voice", icon: Volume2 },
@@ -36,7 +37,7 @@ const STAGE_META: Record<StaticDocuStageKey, { label: string; icon: typeof Searc
   video: { label: "Video", icon: Film },
 };
 
-const STAGE_ORDER: StaticDocuStageKey[] = ["roster", "research", "script", "voice", "pictures", "video"];
+const STAGE_ORDER: StaticDocuStageKey[] = ["roster", "image_gather", "research", "script", "voice", "pictures", "video"];
 
 const RENDER_DONE_STATUSES = new Set(["rendered", "uploaded_draft", "uploaded", "done", "published"]);
 
@@ -64,22 +65,31 @@ export function computeStaticDocuStages(
   const phase = String(payload.research_phase || "");
   const liveVerdict = payload.unit_roster_validation as Record<string, unknown> | undefined;
   const holdVerdict = payload.unit_research_hold_validation as Record<string, unknown> | undefined;
-  const total = rosterDashboard?.total || selectedUnits.length;
-  const verified = (rosterDashboard?.units ?? []).filter((u) => u.reference?.status === "verified").length;
+  const displayName = (item: unknown) => {
+    if (typeof item === "string") return item.trim();
+    const row = item as Record<string, unknown>;
+    const name = String(row?.name || row?.unit || row?.machine || "").trim();
+    const designation = String(row?.designation || "").trim();
+    return designation && name && !name.toLowerCase().includes(designation.toLowerCase()) ? `${designation} ${name}` : name || designation;
+  };
+  const selectedNames = selectedUnits.map(displayName).filter(Boolean);
+  const selectedSet = new Set(selectedNames);
+  const dashboardUnits = rosterDashboard?.units ?? [];
+  const dashboardNames = dashboardUnits.map((u) => u.machine.trim());
+  const exactDashboard = selectedNames.length > 0 && selectedSet.size === selectedNames.length
+    && rosterDashboard?.total === selectedNames.length && dashboardNames.length === selectedNames.length
+    && new Set(dashboardNames).size === dashboardNames.length
+    && dashboardNames.every((name) => selectedSet.has(name));
+  const verified = exactDashboard ? dashboardUnits.filter((u) => u.reference?.status === "verified"
+    && u.reference?.kind === "photo" && Boolean(u.reference?.hosted_url?.trim()) && Boolean(u.reference?.source_url?.trim())).length : 0;
+  const total = selectedNames.length || rosterDashboard?.total || 0;
   // never-built (2026-07-30): a cancelled programme with no completed hardware
   // (reason_code "never_built", surfaced as retryable === false) can NEVER
   // have a verified photo — C5 skips it before any lookup, by design. Counting
   // it as "still needs a photo" made the roster gate impossible for any roster
   // containing one (the live case: CVA-01 froze the carrier video at 22/23
   // forever). Satisfied = verified OR never-built; only retryable misses block.
-  const neverBuilt = (rosterDashboard?.units ?? []).filter(
-    (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
-  ).length;
-  const stillMissing = total - verified - neverBuilt;
-  const rosterDoneDetail =
-    neverBuilt > 0
-      ? `${verified}/${total} verified + ${neverBuilt} never built (no photo can exist) — roster complete.`
-      : `${verified}/${total} machine(s) have a verified reference photo.`;
+  const stillMissing = total - verified;
   const roster: StageInfo = selectionMode
     ? selection?.status === "completed" && selectedUnits.length > 0 && liveVerdict?.passed === true
       ? { status: "done", detail: `${selectedUnits.length}/${targetCount || selectedUnits.length} selected and independently accepted.` }
@@ -94,9 +104,17 @@ export function computeStaticDocuStages(
         ? { status: "blocked", detail: "Saved roster facts need review before detailed research." }
       : total === 0
         ? { status: "not_started", detail: "No roster established yet — run Research." }
-        : stillMissing <= 0
-          ? { status: "done", detail: rosterDoneDetail }
-          : { status: "blocked", detail: `${verified}/${total} verified — ${stillMissing} machine(s) still need a photo.` };
+        : { status: "done", detail: `${selectedUnits.length || total} saved roster entries accepted.` };
+
+  const receipt = payload.roster_images as Record<string, unknown> | undefined;
+  const imagesComplete = exactDashboard && total > 0 && verified === total;
+  const image_gather: StageInfo = imagesComplete
+    ? { status: "done", detail: `${verified}/${total} verified photo references saved.` }
+    : receipt?.status === "running"
+      ? { status: "in_progress", detail: `${verified}/${total} verified reference images.` }
+      : receipt?.status === "needs_review" || receipt?.status === "failed"
+        ? { status: "blocked", detail: String(receipt.error || `${stillMissing} saved roster images still need review.`) }
+        : { status: "not_started", detail: `${verified}/${total} verified reference images.` };
 
   const hasResearchPayload = Boolean(payload && (
     (Array.isArray(payload.unit_roster) && payload.unit_roster.length > 0)
@@ -105,17 +123,19 @@ export function computeStaticDocuStages(
   ));
   let research: StageInfo;
   if (selectionMode) {
-    const readyCards = rosterDashboard?.ready ?? 0;
-    const holdPassed = holdVerdict?.passed === true;
-    const cardsReady = targetCount > 0 && readyCards >= targetCount;
+    const readyCards = exactDashboard ? (rosterDashboard?.ready ?? 0) : 0;
+    const holdUnits = Array.isArray(holdVerdict?.units) ? holdVerdict.units as Record<string, unknown>[] : [];
+    const holdPassed = selectedNames.length > 0 && holdVerdict?.passed === true && holdUnits.length >= selectedNames.length && selectedNames.every((name) => holdUnits.some((unit) => (unit.machine === name || unit.name === name) && unit.passed === true));
+    const cardsReady = selectedNames.length > 0 && readyCards >= selectedNames.length;
     research = holdPassed || cardsReady
       ? { status: "done", detail: `Research is ready for all ${targetCount || readyCards} saved roster entries.` }
       : phase === "unit_research"
         ? { status: "in_progress", detail: `${readyCards}/${targetCount || selectedUnits.length} saved roster research card(s) ready.` }
         : { status: "not_started", detail: "Roster is selected; detailed research has not started." };
   } else if (selectedUnits.length > 0) {
-    const readyCards = rosterDashboard?.ready ?? 0;
-    const holdPassed = holdVerdict?.passed === true;
+    const readyCards = exactDashboard ? (rosterDashboard?.ready ?? 0) : 0;
+    const holdUnits = Array.isArray(holdVerdict?.units) ? holdVerdict.units as Record<string, unknown>[] : [];
+    const holdPassed = selectedNames.length > 0 && holdVerdict?.passed === true && holdUnits.length >= selectedNames.length && selectedNames.every((name) => holdUnits.some((unit) => (unit.machine === name || unit.name === name) && unit.passed === true));
     const cardsReady = selectedUnits.length > 0 && readyCards >= selectedUnits.length;
     research = holdPassed || cardsReady
       ? { status: "done", detail: `Research is ready for all ${selectedUnits.length} saved roster entries.` }
@@ -170,7 +190,7 @@ export function computeStaticDocuStages(
             ? { status: "in_progress", detail: "Thumbnail set — awaiting render." }
             : { status: "not_started", detail: "Not rendered yet." };
 
-  return { roster, research, script, voice, pictures, video: videoStage };
+  return { roster, image_gather, research, script, voice, pictures, video: videoStage };
 }
 
 /** Locked-until-previous-green gating, with ONE deliberate bootstrap
@@ -183,28 +203,31 @@ export function computeStaticDocuStages(
  * to fix a known-missing photo first, not the very first bootstrap call. */
 export function computeCanRun(stages: Record<StaticDocuStageKey, StageInfo>): Record<StaticDocuStageKey, boolean> {
   const rosterGreen = stages.roster.status === "done";
+  const imagesGreen = stages.image_gather.status === "done";
   const researchGreen = stages.research.status === "done";
   const scriptGreen = stages.script.status === "done";
   const voiceGreen = stages.voice.status === "done";
   const picturesGreen = stages.pictures.status === "done";
   return {
     roster: true,
-    research: rosterGreen,
-    script: rosterGreen && researchGreen,
-    voice: rosterGreen && researchGreen && scriptGreen,
-    pictures: rosterGreen && researchGreen && scriptGreen && voiceGreen,
+    image_gather: rosterGreen,
+    research: rosterGreen && imagesGreen,
+    script: rosterGreen && imagesGreen && researchGreen,
+    voice: rosterGreen && imagesGreen && researchGreen && scriptGreen,
+    pictures: rosterGreen && imagesGreen && researchGreen && scriptGreen && voiceGreen,
     // C6: Video (thumbnail + render) now also waits on Pictures — a render
     // must not ship before every segment's picture is drawn (or the operator
     // has explicitly cleared the blocked ones).
-    video: rosterGreen && researchGreen && scriptGreen && voiceGreen && picturesGreen,
+    video: rosterGreen && imagesGreen && researchGreen && scriptGreen && voiceGreen && picturesGreen,
   };
 }
 
 function lockReason(key: StaticDocuStageKey, stages: Record<StaticDocuStageKey, StageInfo>): string | null {
   if (key === "roster") return null;
+  if (key === "image_gather") return stages.roster.status === "done" ? null : "Accept the saved roster first.";
   if (key === "research") return stages.roster.status === "blocked"
     ? "Accept the selected machine roster before starting detailed research."
-    : null;
+    : stages.image_gather.status !== "done" ? "Gather verified reference images first." : null;
   if (key === "script") {
     if (stages.roster.status !== "done") return "Locked until the Roster stage is green.";
     if (stages.research.status !== "done") return "Locked until Research is done.";
@@ -373,7 +396,7 @@ export function StaticDocuStageRail({
     const costLine = buildInfo?.cost_text ? ` Estimated: ${buildInfo.cost_text}${video.render_mode === "static_docu" ? " (picture cost is approximate for this format)" : ""}.` : "";
     const ok = await confirmDialog({
       title: "Run All",
-      message: `Runs the whole pipeline automatically — research (if needed), script, voice, pictures, thumbnail, and render${video.pipeline_stages?.includes("upload") ? ", then verified unlisted YouTube upload" : ""} — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
+      message: `Runs roster → gather images → research, then script, voice, pictures, thumbnail, and render${video.pipeline_stages?.includes("upload") ? ", then verified unlisted YouTube upload" : ""} — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
     });
     if (!ok) return;
     setRunAllActive(true);

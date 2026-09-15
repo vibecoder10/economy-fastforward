@@ -1090,7 +1090,7 @@ async def run_research(
             result = await executor.run_research(video_id)
             _set_task_status(
                 video_id, "completed" if result.get("status") == "roster_ready" else result.get("status", "unknown"),
-                result.get("error") or result.get("message") or ("Roster selection complete; detailed research is next." if result.get("status") == "roster_ready" else None),
+                result.get("error") or result.get("message") or ("Roster selection complete; gather images is next." if result.get("status") == "roster_ready" else None),
                 tenant_id=tenant_id,
             )
         except Exception as e:
@@ -1107,6 +1107,34 @@ async def run_research(
         status="running",
         message="Roster selection started" if selection_only else "Research started",
     )
+
+
+@router.post("/roster-images/{video_id}", response_model=PipelineResponse)
+async def run_roster_images(video_id: str, request: Request, background_tasks: BackgroundTasks,
+                            tenant_id: str = Depends(get_tenant_id)):
+    """Gather and vision-verify photo references for the saved static roster."""
+    await drain_mode.assert_accepting_new_work()
+    video = await fetch_one("SELECT id, render_mode FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if video.get("render_mode") != "static_docu":
+        raise HTTPException(status_code=400, detail="Roster image gathering is only available for static documentaries")
+    if await _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running for this video")
+    _set_task_status(video_id, "running", "Gathering reference images for the saved roster", tenant_id=tenant_id)
+    async def _run():
+        try:
+            result = await PipelineExecutor(tenant_id).run_roster_image_gather(video_id)
+            terminal = "completed" if result.get("status") == "images_ready" else "cancelled" if result.get("status") == "cancelled" else "failed"
+            _set_task_status(video_id, terminal, result.get("message") or result.get("error"), tenant_id=tenant_id)
+        except Exception as exc:
+            logger.exception("[roster-images] failed video=%s", video_id)
+            _set_task_status(video_id, "failed", str(exc), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+    await _enqueue_or_fallback(request, background_tasks, "roster_images", video_id, tenant_id, _run)
+    return PipelineResponse(video_id=video_id, status="running", message="Roster image gathering started")
 
 
 @router.post("/script/{video_id}", response_model=PipelineResponse)

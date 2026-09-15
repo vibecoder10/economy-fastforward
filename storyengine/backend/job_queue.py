@@ -20,6 +20,7 @@ _SCENE_STORYBOARD_SCHEDULE_RE = re.compile(
 # Stage -> arq function name map (must match worker.py handler names)
 _STAGE_HANDLERS: dict[str, str] = {
     "research":         "arq_run_research",
+    "roster_images":    "arq_run_roster_images",
     "script":           "arq_run_script",
     "voice":            "arq_run_voice",
     "image_prompts":    "arq_run_image_prompts",

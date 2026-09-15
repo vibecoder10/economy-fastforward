@@ -1873,6 +1873,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     status,
                     payload_for_progress.get("research_phase") if isinstance(payload_for_progress, dict) else None,
                     selection_for_progress.get("status") if isinstance(selection_for_progress, dict) else None,
+                    (payload_for_progress.get("roster_images") or {}).get("status") if isinstance(payload_for_progress, dict) else None,
                 )
                 if _factual_script_recheck_needed(video):
                     await _advance("ready_for_scripting")
@@ -1890,6 +1891,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     status,
                     payload_for_progress.get("research_phase") if isinstance(payload_for_progress, dict) else None,
                     selection_for_progress.get("status") if isinstance(selection_for_progress, dict) else None,
+                    (payload_for_progress.get("roster_images") or {}).get("status") if isinstance(payload_for_progress, dict) else None,
                 )
                 policy_error = await _queue_policy_error()
                 if policy_error:
@@ -1955,6 +1957,19 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         is_runtime_selection = selection.get("version") == 1
                         if is_runtime_selection or selection_phase == "roster_complete":
                             if selection_complete:
+                                # Image readiness is cache truth for this exact roster.  The
+                                # gatherer is its own resumable iteration; never let the old
+                                # research repair ladder turn missing photos into paid research.
+                                from roster_images import roster_image_state
+                                image_state = await roster_image_state(video, tenant_id)
+                                if image_state.get("status") != "completed":
+                                    _set_task_status(video_id, "running", "Gathering reference images for the saved roster…", tenant_id=tenant_id)
+                                    gathered = await ex.run_roster_image_gather(video_id) or {}
+                                    if gathered.get("status") == "images_ready":
+                                        continue
+                                    terminal = "cancelled" if gathered.get("status") == "cancelled" else "failed"
+                                    _set_task_status(video_id, terminal, gathered.get("message") or gathered.get("error") or "Saved-roster images need review.", tenant_id=tenant_id)
+                                    return
                                 _set_task_status(video_id, "running", "Researching the saved roster…", tenant_id=tenant_id)
                                 r = await ex.run_unit_research(video_id) or {}
                                 _raise_provider_failure(r)
@@ -1966,7 +1981,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                     return
                                 # Preserve the existing bounded card-repair path,
                                 # but only after the accepted roster's detail stage.
-                                if not r.get("roster_gate_failed") and not r.get("source_search_failed"):
+                                if not r.get("image_gather_failed") and not r.get("roster_gate_failed") and not r.get("source_search_failed"):
                                     repaired = await _run_static_docu_roster_research()
                                     if repaired is not None:
                                         if repaired.get("status") == "ready_for_scripting":

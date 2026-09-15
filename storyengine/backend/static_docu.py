@@ -4809,7 +4809,8 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
     return {"status": "verified", "hosted_url": hosted, "source_url": url}
 
 
-async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
+async def prefetch_roster_references(video_id: str, tenant_id: str, *,
+                                     should_cancel=None, on_progress=None) -> dict:
     """Roster-time reference prefetch (C3). Reads the video's LOCKED machine
     roster — via pipeline_executor._machine_documentary_hold_roster_entries,
     which gates on the exact same conditions as
@@ -4854,25 +4855,29 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
 
     await _ensure_ref_cache_schema()
 
-    verified, missed, never_built = 0, 0, 0
+    verified, missed, never_built, processed = 0, 0, 0, 0
     for i, entry in enumerate(entries):
         machine = entry["name"]
         aliases = entry.get("aliases") or []
         mkey = _machine_key(machine)
+        if should_cancel and await should_cancel():
+            return {"status": "cancelled", "roster_count": len(entries), "verified": verified,
+                    "missed": missed, "never_built": never_built, "processed": processed}
+        outcome = "missing"
         try:
             cached = await fetch_one(
-                "SELECT hosted_url FROM static_reference_cache "
+                "SELECT hosted_url, source_url FROM static_reference_cache "
                 "WHERE tenant_id=$1 AND machine_key=$2 "
                 "AND reference_kind='photo'", tenant_id, mkey)
-            if cached:
+            if cached and str(cached.get("hosted_url") or "").strip() and str(cached.get("source_url") or "").strip():
                 verified += 1
                 # C8: this machine already carries a tenant-global verified
                 # reference (perhaps seeded/prefetched via a different
                 # video) — any stale miss reason recorded against THIS
                 # video no longer applies.
                 await _clear_reference_miss(tenant_id, video_id, machine)
-                continue
-            if entry.get("never_built"):
+                outcome = "cached"
+            elif entry.get("never_built"):
                 # C5: structurally can never have a photograph — skip the
                 # ENTIRE candidate-gather + host + vision chain (real
                 # Wikimedia lookups and a paid vision call per candidate)
@@ -4887,17 +4892,20 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
                     "never-built (cancelled, no unit ever completed) — "
                     "skipping lookup entirely, no spend incurred",
                     video_id, machine)
-                continue
-            if await _prefetch_one_machine(tenant_id, video_id, machine, i,
-                                           aliases=aliases,
-                                           facts=entry.get("facts") or None):
-                verified += 1
+                outcome = "missing"
             else:
-                missed += 1
-                _logger.info(
-                    "[prefetch-roster-ref] video=%s machine=%r no verified "
-                    "reference found (will fail-closed at generation time "
-                    "unless seeded manually)", video_id, machine)
+                if await _prefetch_one_machine(tenant_id, video_id, machine, i,
+                                               aliases=aliases,
+                                               facts=entry.get("facts") or None):
+                    verified += 1
+                    outcome = "verified"
+                else:
+                    missed += 1
+                    outcome = "missing"
+                    _logger.info(
+                        "[prefetch-roster-ref] video=%s machine=%r no verified "
+                        "reference found (will fail-closed at generation time "
+                        "unless seeded manually)", video_id, machine)
         except Exception:  # noqa: BLE001 — one machine's failure must never kill the sweep
             missed += 1
             _logger.warning(
@@ -4908,12 +4916,17 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             # above) before that ever happens — record one here too so no
             # miss is ever silently unexplained.
             await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
+        processed += 1
+        if on_progress:
+            # Deliberately outside the image-error boundary: a durable progress
+            # failure must stop the sweep before any further finder/provider call.
+            await on_progress(processed, len(entries), machine, outcome)
 
     _logger.info(
         "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d never_built=%d",
         video_id, len(entries), verified, missed, never_built)
     return {"status": "completed", "roster_count": len(entries),
-            "verified": verified, "missed": missed, "never_built": never_built}
+            "verified": verified, "missed": missed, "never_built": never_built, "processed": processed}
 
 
 # --- C12: durable registration so a restart mid-sweep is recoverable ------

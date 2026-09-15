@@ -117,12 +117,13 @@ const LEGACY_TAB_IDS: Record<string, string> = {
  * have no separate animate stage between them. */
 const STATIC_DOCU_TABS = [
   { id: "roster", label: "1 · Roster", icon: ImageIcon },
-  { id: "research", label: "2 · Research", icon: Search },
-  { id: "script-voice", label: "3 · Script & Voice", icon: FileText },
-  { id: "pictures", label: "4 · Pictures", icon: ImageIcon },
-  { id: "video", label: "5 · Video", icon: Film },
-  { id: "upload", label: "6 · Upload", icon: Upload },
-  { id: "performance", label: "7 · Results", icon: BarChart3 },
+  { id: "image-gather", label: "2 · Gather images", icon: ImageIcon },
+  { id: "research", label: "3 · Research", icon: Search },
+  { id: "script-voice", label: "4 · Script & Voice", icon: FileText },
+  { id: "pictures", label: "5 · Pictures", icon: ImageIcon },
+  { id: "video", label: "6 · Video", icon: Film },
+  { id: "upload", label: "7 · Upload", icon: Upload },
+  { id: "performance", label: "8 · Results", icon: BarChart3 },
 ];
 
 /** Maps a StaticDocuStageRail stage key to the tab id that shows its
@@ -927,6 +928,17 @@ export default function VideoDetailPage() {
             isLoading={rosterLoading}
             onRefresh={() => queryClient.invalidateQueries({ queryKey: ["video-actions", videoId] })}
             taskWatcher={taskWatcher}
+          />
+        )}
+        {currentTab === "image-gather" && (
+          <RosterStagePanel
+            videoId={videoId}
+            video={videoForTabs}
+            rosterDashboard={rosterDashboard}
+            isLoading={rosterLoading}
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ["video-actions", videoId] })}
+            taskWatcher={taskWatcher}
+            mode="image_gather"
           />
         )}
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} taskWatcher={taskWatcher} />}

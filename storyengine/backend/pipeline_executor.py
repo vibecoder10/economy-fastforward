@@ -12413,8 +12413,8 @@ class PipelineExecutor:
         try:
             ref_rows = await fetch_all(
                 "SELECT machine_key, hosted_url, source_url, reference_kind "
-                "FROM static_reference_cache WHERE tenant_id = $1",
-                self.tenant_id,
+                "FROM static_reference_cache WHERE tenant_id = $1 AND machine_key = ANY($2::text[])",
+                self.tenant_id, [_static_machine_key(machine) for machine in roster],
             )
             ref_cache_by_key = {
                 row.get("machine_key"): row for row in (ref_rows or []) if isinstance(row, dict)
@@ -12458,7 +12458,9 @@ class PipelineExecutor:
                     suggestion = {k: plan[0].get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if plan[0].get(k)}
             preview = previews.get(code) if isinstance(previews.get(code), dict) else None
             ref_row = ref_cache_by_key.get(_static_machine_key(machine))
-            if ref_row:
+            if (ref_row and str(ref_row.get("reference_kind") or "") == "photo"
+                    and str(ref_row.get("hosted_url") or "").strip()
+                    and str(ref_row.get("source_url") or "").strip()):
                 reference = {
                     "status": "verified",
                     "hosted_url": ref_row.get("hosted_url"),
@@ -12531,6 +12533,17 @@ class PipelineExecutor:
             if not roster_gate.get("passed"):
                 return {"status": "failed", "error": "Lock and approve the machine roster before running machine research", "roster_gate_failed": True}
 
+            # Runtime rosters have a separate, cache-truth image gate.  A saved
+            # receipt is progress UI only; it can never authorize provider work.
+            from roster_selection import is_runtime_selection
+            if is_runtime_selection(payload):
+                from roster_images import roster_image_state
+                image_state = await roster_image_state(video, self.tenant_id)
+                if image_state.get("status") != "completed":
+                    return {"status": "needs_review", "video_id": video_id,
+                            "message": "Gather verified reference images for the saved roster first.",
+                            "image_gather_failed": True, "roster_images": image_state}
+
             # The autobuild continuation reads this checkpoint. Persist the
             # current verdict, including after a rule fix, with the hold result.
             payload["unit_roster_validation"] = roster_gate
@@ -12576,6 +12589,80 @@ class PipelineExecutor:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
+
+    async def run_roster_image_gather(self, video_id: str) -> dict:
+        """Gather verified photos for the exact saved roster, without touching research."""
+        import json as _json
+        await self._ensure_initialized()
+        await self._install_cancel_support(video_id)
+        bot_name = "Roster Image Gatherer"
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found", "image_gather_failed": True}
+            if video.get("render_mode") != "static_docu":
+                return {"status": "failed", "error": "Roster image gathering only applies to static documentaries", "image_gather_failed": True}
+            payload = video.get("research_payload") or {}
+            if isinstance(payload, str):
+                payload = _json.loads(payload)
+            if not isinstance(payload, dict) or not _live_roster_gate(video, payload).get("passed"):
+                return {"status": "needs_review", "error": "Lock and approve the machine roster before gathering images", "image_gather_failed": True}
+            from roster_images import roster_image_state
+            state = await roster_image_state(video, self.tenant_id)
+            if state["status"] == "completed":
+                receipt = {**state, "status": "completed"}
+                saved = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(receipt), video_id, self.tenant_id)
+                if self._db_write_missed(saved):
+                    return {"status": "failed", "error": "Image receipt save refused", "image_gather_failed": True}
+                return {"status": "images_ready", "video_id": video_id, "roster_images": receipt}
+            running = {**state, "status": "running"}
+            saved = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(running), video_id, self.tenant_id)
+            if self._db_write_missed(saved):
+                return {"status": "failed", "error": "Image gather save refused", "image_gather_failed": True}
+            await self._log_activity(bot_name, video_id, "started", f"Gathering images for {state['total']} saved machines")
+            from static_docu import prefetch_roster_references
+            async def progress(done, total, machine, outcome):
+                await self._log_activity(bot_name, video_id, "running", f"Images {done}/{total}: {machine}")
+                # Persist live counts in the one receipt key; cache truth is read
+                # after each completed unit so cached hits and new successes agree.
+                current_video = await self._get_video(video_id)
+                current = await roster_image_state(current_video or video, self.tenant_id)
+                receipt = {**current, "status": "running", "processed": done}
+                update = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(receipt), video_id, self.tenant_id)
+                if self._db_write_missed(update):
+                    raise RuntimeError("Image gather progress save refused")
+            result = await prefetch_roster_references(video_id, self.tenant_id, should_cancel=self._pipeline.should_cancel, on_progress=progress)
+            if result.get("status") == "cancelled":
+                fresh = await self._get_video(video_id)
+                current = await roster_image_state(fresh or video, self.tenant_id)
+                final = {**current, "status": "cancelled"}
+                outcome = "cancelled"
+            else:
+                fresh = await self._get_video(video_id)
+                current = await roster_image_state(fresh or video, self.tenant_id)
+                if current["roster_fingerprint"] != state["roster_fingerprint"]:
+                    final = {**current, "status": "needs_review", "error": "Saved roster changed while images were gathering"}
+                    update = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(final), video_id, self.tenant_id)
+                    if self._db_write_missed(update):
+                        return {"status": "failed", "error": "Image receipt final save refused", "image_gather_failed": True}
+                    return {"status": "needs_review", "error": final["error"], "roster_images": final, "image_gather_failed": True}
+                final = {**current, "status": "completed" if current["status"] == "completed" else "needs_review"}
+                outcome = "images_ready" if current["status"] == "completed" else "needs_review"
+            saved = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(final), video_id, self.tenant_id)
+            if self._db_write_missed(saved):
+                return {"status": "failed", "error": "Image receipt final save refused", "image_gather_failed": True}
+            msg = "All saved roster images are verified." if outcome == "images_ready" else ("Stopped; saved images are preserved." if outcome == "cancelled" else "Missing verified images: " + ", ".join(final.get("missing", [])[:5]))
+            await self._log_activity(bot_name, video_id, "completed" if outcome == "images_ready" else "failed", msg)
+            return {"status": outcome, "video_id": video_id, "message": msg, "roster_images": final,
+                    "image_gather_failed": outcome == "needs_review"}
+        except Exception as exc:
+            await self._log_activity(bot_name, video_id, "failed", str(exc))
+            try:
+                failed = {"version": 1, "status": "failed", "error": str(exc)}
+                await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(failed), video_id, self.tenant_id)
+            except Exception:
+                pass
+            return {"status": "failed", "error": str(exc), "image_gather_failed": True}
 
     async def _inject_learnings_into_writer_guidance(self, video_id: str):
         """Inject learned patterns into writer_guidance before script generation.
@@ -18416,11 +18503,10 @@ scenes."""
             (payload.get("roster_selection") or {}).get("status") == "completed"
             or payload.get("research_phase") == "roster_complete"
         )
-        roster_or_unit_research = (
-            self.run_unit_research
-            if (video.get("render_mode") == "static_docu" and selection_complete)
-            else self.run_research
-        )
+        roster_or_unit_research = self.run_research
+        if video.get("render_mode") == "static_docu" and selection_complete:
+            from roster_images import roster_image_state
+            roster_or_unit_research = self.run_unit_research if (await roster_image_state(video, self.tenant_id)).get("status") == "completed" else self.run_roster_image_gather
         # Map status to handler
         handlers = {
             "idea_logged": roster_or_unit_research,

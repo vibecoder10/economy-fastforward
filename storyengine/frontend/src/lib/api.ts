@@ -1166,6 +1166,7 @@ export type RosterDashboard = {
     // yet (no miss row written at all), same as before this chunk.
     reference?: {
       status: "verified" | "missing";
+      kind?: "photo";
       hosted_url?: string;
       source_url?: string;
       reason_code?: string;
@@ -1217,6 +1218,9 @@ export const removeRosterUnit = (videoId: string, machine: string) =>
  * skips machines already verified, only retries ones still missing. */
 export const recheckRosterReferences = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/roster-recheck/${videoId}`, { method: "POST" });
+
+export const gatherRosterImages = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/roster-images/${videoId}`, { method: "POST" });
 
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });

@@ -27,7 +27,7 @@ test("a missing picture uses the locked roster name, never narration text", () =
 test("Run All can start a brand-new video before a roster exists", () => {
   assert.deepEqual(staticDocuRunAllPreflight(0, 0), {
     allowed: true,
-    note: "Research will discover and verify the roster automatically.",
+    note: "Run All will select the roster, gather verified images, then research that exact saved roster.",
   });
   assert.equal(staticDocuRunAllPreflight(24, 20).allowed, true);
 });

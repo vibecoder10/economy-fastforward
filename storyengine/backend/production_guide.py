@@ -159,7 +159,17 @@ def _stage_snapshot(
                 payload = {}
         if isinstance(payload, dict) and payload.get("roster_selection"):
             hold = payload.get("unit_research_hold_validation") or {}
-            if hold.get("passed") is True:
+            roster = payload.get("unit_roster") or []
+            def _name(item):
+                if isinstance(item, str): return item.strip()
+                if isinstance(item, dict):
+                    name, designation = str(item.get("name") or item.get("unit") or item.get("machine") or "").strip(), str(item.get("designation") or "").strip()
+                    return f"{designation} {name}".strip() if designation and name and designation.lower() not in name.lower() else name or designation
+                return ""
+            names = [_name(item) for item in roster if _name(item)]
+            units = hold.get("units") if isinstance(hold.get("units"), list) else []
+            whole_hold = bool(names) and bool(hold.get("passed")) and len(units) >= len(names) and all(any(isinstance(u, dict) and (u.get("machine") == name or u.get("name") == name) and u.get("passed") is True for u in units) for name in names)
+            if whole_hold:
                 return "done", "Detailed machine research is complete.", []
             if payload.get("research_phase") == "unit_research":
                 return "in_progress", "Detailed research on the saved roster is underway.", []
@@ -348,7 +358,7 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
     None when the video doesn't exist for this tenant (caller turns that
     into the tool's error result)."""
     video = await fetch_one(
-        "SELECT video_title, status, render_mode, pipeline_stages, skip_voice, "
+        "SELECT id, video_title, video_length_minutes, status, render_mode, pipeline_stages, skip_voice, "
         "custom_film_plan_id, dialogue_audio, dialogue_mode, "
         "story_locked_at, characters_approved_at, environments_approved_at, "
         "thumbnail_url, youtube_url, youtube_video_id, story_bible, research_payload "
@@ -418,6 +428,19 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
 
     stages: list[dict[str, Any]] = []
     warnings: list[str] = []
+    if is_static:
+        # Static docs have a real saved roster and a separate no-provider image
+        # readiness gate before detailed research.  Both derive from live cache
+        # truth, never a historical receipt.
+        from roster_images import roster_image_state
+        from pipeline_executor import _live_roster_gate
+        payload = _parse_json(video.get("research_payload")) or {}
+        roster_ok = _live_roster_gate(video, payload).get("passed")
+        image_state = await roster_image_state(video, tenant_id) if roster_ok else {"total": 0, "verified": 0, "status": "pending"}
+        stages.extend([
+            {"key": "roster", "label": "Roster", "state": "done" if roster_ok else "not_started", "detail": "Saved roster accepted." if roster_ok else "Select and accept the runtime roster."},
+            {"key": "image_gather", "label": "Gather images", "state": "done" if image_state.get("status") == "completed" else ("in_progress" if (payload.get("roster_images") or {}).get("status") == "running" else "blocked" if (payload.get("roster_images") or {}).get("status") in {"needs_review", "failed"} else "not_started"), "detail": f"{image_state.get('verified', 0)}/{image_state.get('total', 0)} verified roster photos."},
+        ])
     for spec in GUIDE_STAGES:
         key, bucket = spec["key"], spec["format_bucket"]
         if not bucket_enabled(bucket):

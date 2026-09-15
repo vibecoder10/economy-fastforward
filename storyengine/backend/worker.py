@@ -143,7 +143,7 @@ async def _run_stage(
             return result
         if status == "failed":
             error_msg = result.get("error", "Stage returned failed status")
-            if result.get("roster_selection_failed") or _terminal_failure(error_msg):
+            if result.get("roster_selection_failed") or result.get("image_gather_failed") or _terminal_failure(error_msg):
                 # A blocked / out-of-credit Kie key can't be fixed by retrying —
                 # persist an actionable message and stop (no arq retry, no budget burn).
                 await db_persist_task(
@@ -178,8 +178,9 @@ async def _run_stage(
             video_id,
             stage,
             "completed",
-            message=(result.get("message") or "Roster selection complete; detailed research is next.")
-            if status == "roster_ready" else f"{stage} complete (attempt {attempt})",
+            message=(result.get("message") or "Roster selection complete; gather images is next.")
+            if status == "roster_ready" else (result.get("message") or "Saved-roster images are ready; detailed research is next.")
+            if status == "images_ready" else f"{stage} complete (attempt {attempt})",
             job_id=job_id,
             attempt=attempt,
         )
@@ -222,6 +223,10 @@ async def arq_run_research(
     return await _run_stage(
         ctx, "research", "run_research", video_id, tenant_id, attempt
     )
+
+
+async def arq_run_roster_images(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:
+    return await _run_stage(ctx, "roster_images", "run_roster_image_gather", video_id, tenant_id, attempt)
 
 
 async def arq_run_script(
@@ -643,6 +648,7 @@ class WorkerSettings:
 
     functions = [
         func(arq_run_research, name="arq_run_research", timeout=3600, max_tries=3),
+        func(arq_run_roster_images, name="arq_run_roster_images", timeout=3600, max_tries=1),
         func(arq_run_script, name="arq_run_script", timeout=3600, max_tries=3),
         func(arq_run_voice, name="arq_run_voice", timeout=3600, max_tries=3),
         func(
