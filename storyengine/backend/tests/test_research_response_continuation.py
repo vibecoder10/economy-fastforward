@@ -155,3 +155,32 @@ def test_checkpoint_scope_and_corruption_do_not_reuse_or_rediscover(tmp_path):
     with pytest.raises(RuntimeError, match="does not match"):
         run(mismatch, complete_response=True, checkpoint_path=path)
     assert mismatch.client.messages.calls == []
+
+
+def test_streamed_sdk_fields_are_removed_when_resuming_saved_checkpoint(tmp_path):
+    from anthropic.types.parsed_message import ParsedTextBlock
+    from shared.clients.anthropic_client import _serialize_content
+
+    block = ParsedTextBlock(type="text", text="pre", parsed_output=None)
+    response = Response("max_tokens", block)
+    content = _serialize_content(response)
+    assert "parsed_output" in content[0]
+    content.append({"type": "server_tool_use", "id": "tool-1", "name": "web_search",
+                    "input": {"parsed_output": "legitimate input"}, "__json_buf": "sdk-only"})
+    path = tmp_path / "checkpoint.json"
+    fingerprint = research_response.request_fingerprint(
+        prompt="research", system_prompt="", model="test-model", tools=None, max_tokens=9, temperature=0,
+    )
+    research_response.save(path, fingerprint, [
+        {"stop_reason": "max_tokens", "content": content, "text": "pre"},
+    ])
+    resumed = client([Response("end_turn", Block("fix"))])
+    assert run(resumed, complete_response=True, checkpoint_path=path) == "prefix"
+    assert len(resumed.client.messages.calls) == 1
+    sent = resumed.client.messages.calls[0]["messages"][1]["content"]
+    assert "parsed_output" not in sent[0]
+    assert "__json_buf" not in sent[1]
+    assert sent[1]["input"] == {"parsed_output": "legitimate input"}
+    saved = json.loads(path.read_text())["responses"][0]["content"]
+    assert "parsed_output" in saved[0]
+    assert saved[1]["__json_buf"] == "sdk-only"

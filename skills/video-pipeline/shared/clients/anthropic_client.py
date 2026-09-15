@@ -90,7 +90,14 @@ def _continuation_messages(prompt: str, retained: list[dict]) -> list[dict]:
     messages = [{"role": "user", "content": prompt}]
     pending_content = []
     for item in retained:
-        pending_content.extend(item["content"])
+        # Streaming SDK models add local parsing state that is not accepted by
+        # the Messages API. Sanitize copies here so old checkpoints also resume
+        # safely, while retaining their original diagnostic content on disk.
+        pending_content.extend(
+            {key: value for key, value in block.items()
+             if key not in {"parsed_output", "__json_buf"}}
+            for block in item["content"]
+        )
         if item.get("stop_reason") == "max_tokens":
             messages.append({"role": "assistant", "content": pending_content})
             messages.append({"role": "user", "content": _continuation_instruction("max_tokens")})
