@@ -4,6 +4,18 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import test from 'node:test';
 
+test('queued gather receipts show progress only while the shared task is active', () => {
+ const panel = readFileSync(new URL('../src/components/production/RosterStagePanel.tsx', import.meta.url), 'utf8');
+ const expression = panel.match(/const bridgeIsRosterSweep =([\s\S]*?);/)[1];
+ const ctx = vm.createContext({taskWatcher:{running:true,taskType:'pipeline',message:'Gathering reference images'},payload:{roster_images:{status:'running'}}});
+ assert.equal(vm.runInContext(expression,ctx),true);
+ ctx.taskWatcher.running = false;
+ assert.equal(vm.runInContext(expression,ctx),false);
+ ctx.taskWatcher.running = true;
+ ctx.payload.roster_images.status = 'completed';
+ assert.equal(vm.runInContext(expression,ctx),false);
+});
+
 const source = readFileSync(new URL('../src/components/production/StaticDocuStageRail.tsx', import.meta.url), 'utf8');
 const start = source.indexOf('export function computeStaticDocuStages(');
 const end = source.indexOf('\n}', start) + 2;

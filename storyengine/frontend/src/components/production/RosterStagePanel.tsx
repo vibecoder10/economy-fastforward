@@ -122,6 +122,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
   const bridgeIsRosterSweep =
     taskWatcher.running &&
     (taskWatcher.taskType === "roster_images" || taskWatcher.taskType === "roster_prefetch" ||
+      payload?.roster_images?.status === "running" ||
       (taskWatcher.message || "").toLowerCase().includes("machine reference"));
 
   useEffect(() => {
