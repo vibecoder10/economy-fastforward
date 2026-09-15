@@ -133,18 +133,10 @@ def test_three_quarter_judge_requirement_accepts_either_end_not_just_bow():
     while the judge that grades the result still silently insists on bow
     only, reproducing the exact live rejection this fix addresses."""
     requirement = static_docu._ROLE_GEOMETRY_REQUIREMENTS["three_quarter"].lower()
-    assert "bow-quarter" in requirement or "bow quarter" in requirement, (
-        "bow-quarter stays as the PREFERRED framing in the judge's own "
-        "description of the role")
-    assert "stern" in requirement, (
-        "the judge must accept stern-quarter as equally valid, not just "
-        "the contract's direction text")
     assert "one end" in requirement
-    assert "either" in requirement
-    # The judge must still reject flat side-on profiles and top-down
-    # angles for this role — only bow-vs-stern became non-decisive.
-    assert "flat side-on profile" in requirement
-    assert "top-down angle" in requirement
+    assert "either end" in requirement
+    assert "substantial side" in requirement
+    assert "modest differences" in requirement
 
 
 def test_side_profile_direction_has_no_three_quarter_language():
@@ -528,3 +520,25 @@ async def test_fill_mode_skips_entirely_when_all_target_roles_already_done(monke
         "all target roles done must keep the original instant-skip: no "
         "delete, no placeholder insert, no update — just the SELECT"
     )
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('role, allowance', [
+    ('side_profile', 'A slight three-quarter angle'),
+    ('three_quarter', 'modest differences in camera height'),
+    ('top_planform', 'slightly oblique overhead angle'),
+])
+async def test_role_judge_receives_durable_camera_tolerance(monkeypatch, role, allowance):
+    client = _install_vision_fakes(monkeypatch, [_anthropic_body('YES, useful documentary view')])
+    captured = []
+    original_post = client.post
+
+    async def capture(url, **kwargs):
+        captured.append(kwargs['json']['messages'][0]['content'][0]['text'])
+        return await original_post(url, **kwargs)
+
+    monkeypatch.setattr(client, 'post', capture)
+    assert await static_docu._view_role_confirms(
+        'tenant-1', 'https://example.com/render.png', 'Barling Bomber', _PLANS[role])
+    assert allowance in captured[0]
+    assert 'Do not reject or request regeneration solely for a slight camera-angle deviation' in captured[0]
+    assert 'major structural accuracy are checked separately' in captured[0]

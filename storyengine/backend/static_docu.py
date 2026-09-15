@@ -220,7 +220,7 @@ def _studio_prompt(machine: str, view_plan: dict, detail_focus: str, *,
     if aircraft:
         angle = {
             "three_quarter": "Front three-quarter view, slightly above the aircraft",
-            "side_profile": "Exact side profile, camera level with the fuselage and perpendicular to it",
+            "side_profile": "Side view, camera approximately level with the fuselage",
             "top_planform": "Directly overhead, looking vertically down at the aircraft",
         }.get(view_plan.get("role"), view_plan["direction"])
         return (
@@ -2300,34 +2300,27 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
 # A role with no entry here (e.g. a future reintroduced `engineering_detail`)
 # is treated as having no geometry contract to check — see the function's
 # fallback.
+# Ryan-approved camera tolerance: docs/STATIC-IMAGE-ACCEPTANCE.md.
+# These are useful documentary views, not exact engineering projections.
 _ROLE_GEOMETRY_REQUIREMENTS = {
-    # bow-vs-stern is NOT decisive here (2026-08-03 fix): the judge rejected
-    # correctly-elevated quarter views twice on video d2e37cd6 scene 1 over
-    # which end faced the camera, while the preserved rejected frame was a
-    # textbook identification quarter view. Either end + one full side,
-    # slightly elevated, satisfies the role — see static_docu_contract.py's
-    # STATIC_VIEW_PLANS comment for the full rationale.
     "three_quarter": (
-        "a front three-quarter view: the camera from a slightly elevated "
-        "vantage point (the classic bow-quarter or stern-quarter "
-        "press/aerial photo — either end is acceptable, not eye-level and "
-        "not a steep overhead angle), with BOTH one end of the machine "
-        "(bow or stern) and one full side visible together in the same "
-        "frame and the overall shape and length clearly readable (not a "
-        "flat side-on profile, and not a steep top-down angle)"
+        "an identification view showing one end and a substantial side of the "
+        "machine together, with its overall shape clearly readable. Either "
+        "end and modest differences in camera height or rotation are acceptable"
     ),
     "side_profile": (
-        "a TRUE side-on profile view: the camera positioned directly to "
-        "the side, at roughly a 90-degree angle from the machine's "
-        "longitudinal axis, so the full silhouette reads as a flat side "
-        "elevation with little to no front-on or top-down surface visible "
-        "(not a three-quarter angle)"
+        "a predominantly side-facing view with the full length and side "
+        "silhouette clearly readable. A slight three-quarter angle, visible "
+        "nose or engine fronts, or some visible upper surfaces are acceptable. "
+        "An exact 90-degree side elevation is NOT required. Reject only when "
+        "strong foreshortening or a mainly frontal/overhead view prevents it "
+        "from serving as a readable side view"
     ),
     "top_planform": (
-        "a genuinely HIGH top-down planform view: the camera positioned "
-        "well above the machine looking steeply down, so the upper "
-        "surfaces/planform dominate the frame (not a modestly elevated "
-        "three-quarter angle, and not a side-on profile)"
+        "a high view where the upper surfaces and overall planform dominate "
+        "and are clearly readable. A slightly oblique overhead angle is "
+        "acceptable; a perfectly vertical camera is NOT required. Reject "
+        "an ordinary low three-quarter or side view where the planform is hidden"
     ),
 }
 
@@ -2380,8 +2373,12 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
     prompt_text = (
         f"This image is supposed to show the {machine} shot from "
         f"{requirement}. Answer on one line: first word YES or NO, then one "
-        "short reason naming the actual camera angle you see. YES only if "
-        "the camera viewpoint genuinely matches that description."
+        "short reason naming the actual camera angle you see. Judge whether "
+        "the image usefully serves this documentary view, not whether the "
+        "camera is mathematically exact. Do not reject or request regeneration "
+        "solely for a slight camera-angle deviation allowed above. "
+        "Machine identity and major structural accuracy are checked separately; "
+        "this camera tolerance does not waive those checks."
     )
 
     async def _ask_once() -> Optional[str]:

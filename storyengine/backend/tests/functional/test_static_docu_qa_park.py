@@ -1071,5 +1071,5 @@ async def test_aircraft_views_and_retry_use_direct_reference_and_format_options(
         assert 'pure white background' in prompt
         assert 'CONFIGURATION LOCK' not in prompt
         assert 'bow' not in prompt and 'stern' not in prompt
-    assert 'Exact side profile' in env['gen_prompts'][2]
+    assert 'Side view' in env['gen_prompts'][2]
     assert 'Directly overhead' in env['gen_prompts'][3]
