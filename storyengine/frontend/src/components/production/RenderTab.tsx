@@ -203,8 +203,8 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
       </div>
     </div>
 
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
-      <div className="space-y-4">
+    <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6">
+      <div className="min-w-0 space-y-4">
         {/* Video preview */}
         <GlassCard className="p-0 overflow-hidden">
           <div
@@ -351,7 +351,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
             Scene Timeline
           </h3>
           {timeline.length > 0 ? (
-            <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
+            <div className="flex min-w-0 max-w-full items-stretch gap-1 overflow-x-auto pb-1">
               {timeline.map((seg) => {
                 // Color based on readiness
                 const color = seg.hasVoice && seg.hasImage
