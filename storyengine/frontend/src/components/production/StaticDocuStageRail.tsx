@@ -79,7 +79,12 @@ export function computeStaticDocuStages(
         ? { status: "done", detail: rosterDoneDetail }
         : { status: "blocked", detail: `${verified}/${total} verified — ${stillMissing} machine(s) still need a photo.` };
 
-  const hasResearchPayload = Boolean(video.research_payload && Object.keys(video.research_payload).length > 0);
+  const payload = video.research_payload;
+  const hasResearchPayload = Boolean(payload && (
+    (Array.isArray(payload.unit_roster) && payload.unit_roster.length > 0)
+    || (typeof payload.fact_sheet === "string" && payload.fact_sheet.trim())
+    || (typeof payload.source_bibliography === "string" && payload.source_bibliography.trim())
+  ));
   let research: StageInfo;
   if (!hasResearchPayload) {
     research = { status: "not_started", detail: "Not researched yet." };

@@ -115,6 +115,11 @@ def humanize_error(
 
     lowered = raw.lower()
 
+    if ("failed to parse research payload" in lowered
+            or "research response formatting failed after one recovery attempt" in lowered):
+        return ("Research returned an unreadable brief, so roster creation stopped. "
+                "Your saved work is intact. Resume to retry research.")
+
     # These two pipeline gates are deliberate quality stops rather than opaque
     # exceptions. Match the complete known string so appended database/provider
     # details can never hitch a ride into customer-visible copy.
