@@ -119,7 +119,7 @@ async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
         "\nELIGIBILITY POLICY: " + policy + "\nSELECTED ROSTER: " + json.dumps(payload.get("unit_roster") or [])
     )
     system_prompt = "You are an independent historical fact checker. Runtime target controls quantity; audit eligibility only."
-    tools = [dict(WEB_SEARCH_TOOL, max_uses=6)]
+    tools = [dict(WEB_SEARCH_TOOL, max_uses=12)]
     response = await client.generate(prompt=prompt, system_prompt=system_prompt,
                                      model=Models.CLAUDE_SONNET, max_tokens=3000, temperature=0.2,
                                      tools=tools, complete_response=True,
