@@ -19,3 +19,11 @@ def test_only_barling_saved_approval_becomes_stale():
 
 def test_other_aircraft_do_not_inherit_barling_wing_count():
     assert 'three vertically stacked' not in sd._render_reference_configuration_rules('Boeing B-52')
+
+
+def test_component_checks_allow_occlusion_and_require_visible_contradictions():
+    rules = sd._render_reference_configuration_rules(MACHINE)
+    assert 'Not visible does NOT mean missing' in rules
+    assert 'Do not reject solely because you cannot count every wing or engine' in rules
+    assert 'explain why occlusion does not account for it' in rules
+    assert 'three vertically stacked' in rules

@@ -1691,6 +1691,19 @@ def _render_reference_configuration_rules(
     )
     context_line = f"Known locked context: {known_context}. " if known_context else ""
     context_line += machine_geometry_requirement(machine)
+    context_line += (
+        "VISIBILITY RULE: Compare recognizable identity and clearly visible major structures, "
+        "not an exhaustive component inventory. The reference and render use different "
+        "camera angles. Overlapping wings, far-side engines, propellers and tail surfaces "
+        "may be occluded or foreshortened. Not visible does NOT mean missing. "
+        "Do not reject solely because you cannot count every wing or engine, cannot "
+        "verify a small detail, or see a minor proportion difference. Accept a recognizable, "
+        "usable documentary depiction unless there is a clear visible contradiction. "
+        "Reject wrong aircraft identity, blank output, or an obvious major structural "
+        "error that cannot be explained by perspective or occlusion. Any structural "
+        "rejection must identify that visible contradiction and explain why occlusion "
+        "does not account for it. Apply this visibility rule to component-count checks below. "
+    )
     is_naval = bool(re.search(
         r"\b(?:hms|uss|hmas|hmcs|hmnzs|rfa|ship|warship|naval|navy|carrier|"
         r"battleship|battlecruiser|cruiser|destroyer|frigate|corvette|submarine)\b",
