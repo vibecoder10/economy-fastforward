@@ -18,10 +18,23 @@ class Files:
     def __init__(self, client):
         self.client = client
 
+    def get(self, fileId, **kwargs):
+        return Request({'id': fileId, 'parents': [self.client.items[fileId]['parent']]})
+
+    def list(self, q, **kwargs):
+        parent = q.split("'")[1]
+        items = [x for x in self.client.items.values() if x['parent'] == parent and not x.get('trashed')]
+        if 'appProperties has' in q:
+            tenant = q.split("value='")[1].split("'")[0]
+            items = [x for x in items if x.get('appProperties', {}).get('storyengine_channel') == tenant]
+        return Request({'files': items})
+
     def update(self, fileId, body=None, **kwargs):
         def apply():
-            if body and "name" in body:
-                self.client.items[fileId]["name"] = body["name"]
+            if body:
+                self.client.items[fileId].update(body)
+            if kwargs.get('addParents'):
+                self.client.items[fileId]['parent'] = kwargs['addParents']
         return Request({"id": fileId}, apply)
 
 
@@ -219,3 +232,37 @@ async def test_production_sync_takes_and_releases_database_advisory_lock(monkeyp
     assert result == {"video_id": "video-1"}
     assert "pg_advisory_lock" in statements[0][0]
     assert "pg_advisory_unlock" in statements[-1][0]
+
+
+def test_channels_are_isolated_and_rename_preserves_identity():
+    from drive_layout import channel_folder
+    c = FakeGoogleClient()
+    first = channel_folder(c, 'tenant-a', 'Same name')
+    second = channel_folder(c, 'tenant-b', 'Same name')
+    assert first != second
+    assert channel_folder(c, 'tenant-a', 'Renamed') == first
+    assert c.items[first]['name'] == 'Renamed'
+
+
+def test_migration_keeps_file_ids_and_merges_legacy_type_folder():
+    from drive_layout import video_layout, tidy_video
+    c = FakeGoogleClient()
+    old = c.create_folder('Old video', 'root')['id']
+    legacy = c.create_folder('static', old)['id']
+    image = c._new('aircraft.png', legacy, 'image/png')['id']
+    doc = c.create_document('03 — Script', old)['id']
+    video = {'id': 'v', 'tenant_id': 't', 'channel_name': 'Channel', 'drive_folder_id': old}
+    channel, folder, types = video_layout(c, video, 'Video')
+    tidy_video(c, folder, types)
+    assert folder == old
+    assert c.items[folder]['parent'] == channel
+    assert c.items[image]['parent'] == types['Images']
+    assert c.items[doc]['parent'] == types['Script']
+    assert c.items[legacy]['trashed']
+    assert tidy_video(c, folder, types) == []
+
+
+@pytest.mark.parametrize('path,mime,expected', [('static','image/png','Images'), ('final','video/mp4','Video'), ('voice','audio/mpeg','Audio'), ('thumbnails','image/jpeg','Thumbnails'), (None,'audio/wav','Audio'), ('reference','image/png','References')])
+def test_asset_type_routing(path, mime, expected):
+    from drive_layout import asset_type
+    assert asset_type(path, mime) == expected

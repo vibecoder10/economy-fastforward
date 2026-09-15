@@ -247,6 +247,8 @@ async def save_channel(body: ChannelSetup, tenant_id: str = Depends(get_tenant_i
                VALUES ($1, $2, $3, $4)""",
             tenant_id, body.channel_name, body.niche, body.target_audience,
         )
+    from drive_workspace import sync_channel_folder_fail_soft
+    await sync_channel_folder_fail_soft(str(tenant_id))
     return {"status": "ok", "channel_name": body.channel_name}
 
 

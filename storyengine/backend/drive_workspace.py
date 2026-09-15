@@ -163,30 +163,24 @@ def _sync_drive(client: Any, video: dict, scenes: list[dict]) -> dict:
     video_id = str(video["id"])
     title = (video.get("video_title") or "Untitled").strip() or "Untitled"
     folder_name = _workspace_folder_name(title, video_id)
-    folder_id = video.get("drive_folder_id")
-    if folder_id:
-        # Video id is the canonical identity; keep the one persisted folder and
-        # rename it when a title changes instead of creating another title match.
-        client.drive_service.files().update(fileId=folder_id, body={"name": folder_name}, fields="id, name").execute()
-    else:
-        workspace_root = getattr(client, "workspace_root_folder_id", None) or client.parent_folder_id
-        folder = client.get_or_create_folder(folder_name, parent_id=workspace_root)
-        folder_id = folder["id"]
-
-    images_id = _ensure_named_folder(client, folder_id, "Images")
-    final_id = _ensure_named_folder(client, folder_id, "Final Video")
+    from drive_layout import video_layout, tidy_video
+    channel_id, folder_id, types = video_layout(client, video, folder_name)
+    tidy_video(client, folder_id, types)
+    images_id, final_id = types['Images'], types['Video']
     research = _payload(video.get("research_payload"))
     docs = {
         # Stable filenames prevent a title edit from creating stale duplicates.
-        "machine_roster": _upsert_doc(client, folder_id, "01 — Machine Roster", _machine_roster_text(title, research)),
-        "research": _upsert_doc(client, folder_id, "02 — Research", _research_text(title, research)),
-        "script": _upsert_doc(client, folder_id, "03 — Script", _script_text(title, str(video.get("script") or ""), scenes)),
+        "machine_roster": _upsert_doc(client, types["Research"], "01 — Machine Roster", _machine_roster_text(title, research)),
+        "research": _upsert_doc(client, types["Research"], "02 — Research", _research_text(title, research)),
+        "script": _upsert_doc(client, types["Script"], "03 — Script", _script_text(title, str(video.get("script") or ""), scenes)),
     }
     return {
         "video_id": video_id,
         "folder_id": folder_id,
         "folder_link": f"https://drive.google.com/drive/folders/{folder_id}",
         "folders": {"images": images_id, "final_video": final_id},
+        "asset_folders": types,
+        "channel_folder_id": channel_id,
         "docs": docs,
     }
 
@@ -211,6 +205,9 @@ async def _sync_video_workspace_unlocked(
     if not video:
         raise LookupError("Video not found")
     owner = str(video.get("tenant_id") or tenant_id or "")
+    profile = await fetch_one("SELECT channel_name, youtube_channel_name FROM channel_profiles WHERE tenant_id=$1", owner)
+    video['channel_name'] = (profile or {}).get('channel_name') or (profile or {}).get('youtube_channel_name') or ''
+
     scenes = await fetch_all(
         "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
         "ORDER BY scene NULLS FIRST, created_at",
@@ -248,13 +245,13 @@ async def sync_video_workspace(
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "SELECT pg_advisory_lock(hashtextextended($1, 0))", str(video_id)
+            "SELECT pg_advisory_lock(hashtextextended($1, 0))", str(tenant_id or video_id)
         )
         try:
             return await _sync_video_workspace_unlocked(video_id, tenant_id)
         finally:
             await conn.execute(
-                "SELECT pg_advisory_unlock(hashtextextended($1, 0))", str(video_id)
+                "SELECT pg_advisory_unlock(hashtextextended($1, 0))", str(tenant_id or video_id)
             )
 
 
@@ -264,4 +261,25 @@ async def sync_video_workspace_fail_soft(video_id: str, tenant_id: Optional[str]
         return await sync_video_workspace(video_id, tenant_id)
     except Exception as exc:  # noqa: BLE001 - intentionally fail-soft boundary
         logger.warning("Drive workspace sync failed for video %s: %s", video_id, str(exc)[:240])
+        return None
+
+
+async def sync_channel_folder_fail_soft(tenant_id: str) -> Optional[str]:
+    """Provision/rename the owner-shareable folder when a channel is configured."""
+    try:
+        from drive_layout import channel_folder
+        from storage import _get_google_client
+        profile = await fetch_one('SELECT channel_name,youtube_channel_name FROM channel_profiles WHERE tenant_id=$1', tenant_id)
+        if not profile:
+            return None
+        name = profile.get('channel_name') or profile.get('youtube_channel_name') or ''
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('SELECT pg_advisory_lock(hashtextextended($1, 0))', str(tenant_id))
+            try:
+                return await asyncio.to_thread(channel_folder, _get_google_client(), str(tenant_id), name)
+            finally:
+                await conn.execute('SELECT pg_advisory_unlock(hashtextextended($1, 0))', str(tenant_id))
+    except Exception as exc:
+        logger.warning('Channel Drive folder sync failed for %s: %s', tenant_id, str(exc)[:240])
         return None

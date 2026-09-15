@@ -235,6 +235,9 @@ async def update_channel_profile(
             query = f"UPDATE channel_profiles SET {', '.join(sets)} WHERE tenant_id = $1"
             await execute(query, tenant_id, *params)
 
+    from drive_workspace import sync_channel_folder_fail_soft
+    await sync_channel_folder_fail_soft(str(tenant_id))
+
     # Return updated profile
     return await get_channel_profile(tenant_id)
 

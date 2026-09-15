@@ -147,31 +147,22 @@ async def _resolve_video_drive_folder(video_id: str) -> str:
     if cache_key in _folder_cache:
         return _folder_cache[cache_key]
 
-    title = None
-    persisted_folder_id = None
+    from database import fetch_one
+    import uuid
     try:
-        from database import fetch_one
-        row = await fetch_one(
-            "SELECT video_title, drive_folder_id FROM videos WHERE id = $1", video_id
-        )
-        title = ((row or {}).get("video_title") or "").strip() or None
-        persisted_folder_id = (row or {}).get("drive_folder_id") or None
-    except Exception:
-        title = None
+        uuid.UUID(video_id)
+    except ValueError:
+        return await asyncio.to_thread(_get_video_folder, video_id)
+    row = await fetch_one("SELECT tenant_id FROM videos WHERE id=$1", video_id)
+    if row:
+        from drive_workspace import sync_video_workspace
+        result = await sync_video_workspace(video_id, str(row['tenant_id']))
+        folder_id = result['folder_id']
+    else:
+        # Non-video shared inputs (e.g. reusable reference cache) retain their
+        # own app-owned location; never put them inside a customer's folder.
+        folder_id = await asyncio.to_thread(_get_video_folder, video_id)
 
-    def _sync_resolve() -> str:
-        client = _get_google_client()
-        if persisted_folder_id:
-            return persisted_folder_id
-        if title:
-            return client.get_or_create_folder(
-                title,
-                parent_id=(getattr(client, "workspace_root_folder_id", None)
-                           or client.parent_folder_id),
-            )["id"]
-        return _get_video_folder(video_id)
-
-    folder_id = await asyncio.to_thread(_sync_resolve)
     _folder_cache[cache_key] = folder_id
     return folder_id
 
@@ -189,10 +180,8 @@ def _sync_upload_drive_into(data: bytes, filename: str, content_type: str,
     client = _get_google_client()
     # Canonical workspace labels are user-facing; normalize the pipeline's
     # lower-case storage path segments into those folders.
-    workspace_subfolder = (
-        {"images": "Images", "final": "Final Video"}.get(subfolder, subfolder)
-        if subfolder else None
-    )
+    from drive_layout import asset_type
+    workspace_subfolder = asset_type(subfolder, content_type, filename)
     target = (_get_or_create_child_folder(client, folder_id, workspace_subfolder)
               if workspace_subfolder else folder_id)
 

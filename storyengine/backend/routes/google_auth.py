@@ -988,6 +988,9 @@ async def youtube_callback(
             tenant_id, refresh_token, channel_id or "", channel_name or "",
         )
 
+    from drive_workspace import sync_channel_folder_fail_soft
+    await sync_channel_folder_fail_soft(tenant_id)
+
     return {
         "status": "connected",
         "channel_id": channel_id,
