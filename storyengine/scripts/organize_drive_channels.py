@@ -28,7 +28,7 @@ async def main():
         for tenant, name in names.items():
             folder = await asyncio.to_thread(channel_folder, client, tenant, name)
             print(json.dumps({'channel':tenant,'name':name,'folder':folder}),flush=True)
-    for v in videos:
+    async def organize(v):
         v['tenant_id'] = str(v['tenant_id']);v['id'] = str(v['id'])
         v['channel_name'] = names.get(v['tenant_id'], '')
         try:
@@ -37,7 +37,7 @@ async def main():
                 before = await asyncio.to_thread(lambda: client.drive_service.files().get(fileId=v['drive_folder_id'],fields='id,name,parents').execute())
             print(json.dumps({'before': v, 'folder':before}),flush=True)
             if not apply:
-                continue
+                return
             channel, folder, types = await asyncio.to_thread(video_layout,client,v,_workspace_folder_name(v['video_title'] or 'Untitled',v['id']))
             changes = await asyncio.to_thread(tidy_video,client,folder,types)
             await execute('UPDATE videos SET drive_folder_id=$1,drive_folder_link=$2 WHERE id=$3 AND tenant_id=$4',folder,'https://drive.google.com/drive/folders/'+folder,v['id'],v['tenant_id'])
@@ -49,6 +49,11 @@ async def main():
         except Exception as e:
             errors.append({'video':v['id'],'error':str(e)})
             print(json.dumps(errors[-1]),flush=True)
+    semaphore = asyncio.Semaphore(4)
+    async def bounded(v):
+        async with semaphore:
+            await organize(v)
+    await asyncio.gather(*(bounded(v) for v in videos))
     print(json.dumps({'complete':not errors,'videos':len(videos),'channels':len(names),'errors':errors}),flush=True)
     await close_pool()
     if errors:sys.exit(1)
