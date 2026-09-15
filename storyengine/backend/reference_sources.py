@@ -135,7 +135,18 @@ def _merge(base: dict, record: dict|None, context: list[dict], code=None, reason
     record=record or {}
     return _candidate(record.get("image_url") or base["image_url"],source_page=record.get("source_page") or base.get("source_page"),title=record.get("title", ""),caption=record.get("caption", ""),width=record.get("width"),height=record.get("height"),evidence=(record.get("evidence") or [])+(page_evidence or [])+context,reason_code=code,reason=reason)
 
-async def collect_candidates(machine: str, aliases=None, *, manual_url=None, source_page_url=None, cached_url=None) -> list[dict]:
+def _search_queries(names: list[str], facts: dict | None) -> list[str]:
+    role = str((facts or {}).get("role") or "").lower()
+    category = next((kind for kind in ("submarine", "aircraft", "helicopter", "tank") if kind in role), "")
+    if not category and any(kind in role for kind in ("bomber", "fighter")):
+        category = "aircraft"
+    # Class names can be shared by unrelated kinds of machine. Use the saved
+    # roster's role to disambiguate discovery; this is never identity evidence.
+    return [" ".join((re.sub(r"\bclass\b", "", name, flags=re.I) + " " + category).split())
+            if category and category not in name.lower() else name for name in names[:2]]
+
+
+async def collect_candidates(machine: str, aliases=None, *, facts=None, manual_url=None, source_page_url=None, cached_url=None) -> list[dict]:
     """Return metadata candidates; manual mode contains only the supplied image as c1."""
     names=_names(machine,aliases)
     if manual_url:
@@ -154,7 +165,7 @@ async def collect_candidates(machine: str, aliases=None, *, manual_url=None, sou
         seen.add(_norm(url)); urls.append(url); return True
     add(cached_url)
     for url,_ in await _gather_reference_candidates(machine,aliases,machine): add(url)
-    for query in names[:2]:
+    for query in _search_queries(names, facts):
         if len(urls)>=MAX_CANDIDATES: break
         for row in await find_commons_photos(query,limit=4): add(row.get("url"))
     try: metadata=await _commons_metadata(urls); failed=False

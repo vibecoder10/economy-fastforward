@@ -187,7 +187,11 @@ def validate_judgment(judgment, candidates):
             or any(not isinstance(s, str) for s in item["limitations"])):
             raise SelectionFailure("invalid_review", "The comparison returned malformed scores or reasons.")
         if identity["status"] == "confirmed" and not _valid_citations(by_id[item["id"]], identity):
-            raise SelectionFailure("invalid_review", "Identity evidence could not be verified against the retrieved captions.")
+            # One unsupported claim must exclude that photo, not poison other
+            # independently grounded candidates in the same comparison.
+            item = dict(item, identity=dict(identity, status="uncertain",
+                reason="Identity evidence could not be verified against this photo's retrieved captions."),
+                reason_code="unverified_identity_evidence")
         result[item["id"]] = item
     return result
 
@@ -289,7 +293,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         receipt.update(status=status, reason_code=code, reason=reason)
         await _save_review(tenant_id, video_id, machine, receipt)
         return receipt
-    candidates = (await collect_candidates(machine, aliases, manual_url=manual_url,
+    candidates = (await collect_candidates(machine, aliases, facts=facts, manual_url=manual_url,
         source_page_url=source_page_url, cached_url=(cached or {}).get("source_url")))[:12]
     receipt["discovered_count"] = len(candidates)
     usable, hashes = [], set()

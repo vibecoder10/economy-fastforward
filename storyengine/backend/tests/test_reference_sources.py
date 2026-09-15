@@ -4,6 +4,12 @@ import reference_sources as rs
 from unittest.mock import AsyncMock
 
 
+def test_roster_role_disambiguates_discovery_without_inventing_identity():
+    assert rs._search_queries(['Albacore class','AGSS-569','ignored'],{'role':'Experimental research submarine'}) == ['Albacore submarine','AGSS-569 submarine']
+    assert rs._search_queries(['Boeing XB-15'],{'role':'Heavy bomber'}) == ['Boeing XB-15 aircraft']
+    assert rs._search_queries(['Unknown class'],{}) == ['Unknown class']
+
+
 @pytest.fixture(autouse=True)
 def no_live_commons_search(monkeypatch):
     monkeypatch.setattr(rs, "find_commons_photos", AsyncMock(return_value=[]))

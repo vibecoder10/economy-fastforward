@@ -84,7 +84,13 @@ def test_malformed_or_ungrounded_review_never_passes(mutation):
     if mutation=='missing':js.pop()
     if mutation=='badscore':js[0]['scores']['coverage']=True
     if mutation=='badbool':js[0]['usable']='true'
-    with pytest.raises(rs.SelectionFailure):rs.validate_judgment({'candidates':js},cs)
+    if mutation in {'forged','article_only'}:
+        reviewed=rs.validate_judgment({'candidates':js},cs)
+        assert reviewed['a']['identity']['status']=='uncertain'
+        assert reviewed['a']['reason_code']=='unverified_identity_evidence'
+        assert rs.choose_candidate(cs,reviewed)[0][2]['id']=='b'
+    else:
+        with pytest.raises(rs.SelectionFailure):rs.validate_judgment({'candidates':js},cs)
 
 
 def test_identity_precedes_quality_and_score_has_100_point_scale():
@@ -161,7 +167,7 @@ async def test_failed_review_preserves_legacy_cache_and_has_specific_reason(flow
     expected=''
     if kind=='provider':judge.side_effect=rs.SelectionFailure('provider_error','Provider unavailable.');expected='provider_error'
     if kind=='identity':judge.return_value={'candidates':[judgment(status='rejected')]};expected='identity_mismatch'
-    if kind=='quote':judge.return_value['candidates'][0]['identity']['evidence'][0]['quote']='Entirely invented claim.';expected='invalid_review'
+    if kind=='quote':judge.return_value['candidates'][0]['identity']['evidence'][0]['quote']='Entirely invented claim.';expected='insufficient_evidence'
     if kind=='download':monkeypatch.setattr(rs,'_fetch_image',AsyncMock(side_effect=rs.SelectionFailure('invalid_image','HTML page.')));expected='invalid_image'
     if kind=='source':collect.return_value[0]['evidence']=[];expected='insufficient_evidence'
     result=await rs.select_reference('t','v','Exact',0)
