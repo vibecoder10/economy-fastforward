@@ -16657,7 +16657,13 @@ scenes."""
             # Run voice generation
             await self._install_cancel_support(video_id)
             await _report("Recording narration…")
-            result = await self._pipeline.run_voice_bot()
+            from drive_workspace import sync_video_workspace
+            workspace = await sync_video_workspace(video_id, self.tenant_id)
+            self._pipeline.project_folder_id = workspace['asset_folders']['Audio']
+            try:
+                result = await self._pipeline.run_voice_bot()
+            finally:
+                self._pipeline.project_folder_id = workspace['folder_id']
             if result.get("voice_count"):
                 await _report(
                     f"Recorded {result['voice_count']} narration track(s)…"
