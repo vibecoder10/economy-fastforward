@@ -6,6 +6,7 @@ import pytest
 
 from factual_machine_summary import generate_factual_machine_summary
 from research_claim_assessment import (
+    _quote_rows,
     assessment_fingerprint,
     assess_verified_package,
     current_assessment,
@@ -49,6 +50,18 @@ def _claims(extra=None):
     return {"claims": claims}
 
 
+def _holland_package():
+    machine = "SS-1 USS Holland"
+    text = "Navy’s first submarine, USS Holland (SS 1)."
+    return machine, {
+        "machine": machine,
+        "sources": [{"source_id": "S1", "url": "https://museum.example/holland"}],
+        "candidate_excerpts": [{"excerpt_id": "S1-E1", "source_id": "S1", "source_title": "Museum record",
+            "source_url": "https://museum.example/holland", "locator": "S1-E1",
+            "source_capture_method": "fetched_page", "text": text}],
+    }
+
+
 @pytest.mark.asyncio
 async def test_assessment_enriches_exact_quotes_and_reuses_current_receipt_without_provider_call():
     package = _package()
@@ -63,6 +76,39 @@ async def test_assessment_enriches_exact_quotes_and_reuses_current_receipt_witho
     assert receipt["claims"][0]["evidence"][0]["source_url"] == URL
     assert reused == receipt
     assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_saved_holland_raw_response_replays_curly_apostrophe_quote_without_provider():
+    machine, package = _holland_package()
+    context = "Every US Submarine Class Ever Built (2026)"
+    raw = json.dumps({"claims": [{"claim": "USS Holland was the Navy's first submarine.", "scope": "machine",
+        "status": "supported", "reason": "The excerpt identifies it.",
+        "evidence": [{"excerpt_id": "S1-E1", "quote": "Navy's first submarine, USS Holland (SS 1)"}],
+        "counterevidence": []}]})
+    package["claim_assessment"] = {"version": 1, "status": "needs_review", "machine": machine,
+        "subject_context": context, "source_fingerprint": assessment_fingerprint(machine, package, context),
+        "raw_response": raw, "raw_response_truncated": False}
+    client = ScriptedClient()
+
+    replayed = await assess_verified_package(machine, package, client, context)
+
+    assert replayed["status"] == "assessed"
+    assert replayed["claims"][0]["evidence"][0]["quote"] == "Navy’s first submarine, USS Holland (SS 1)"
+    assert client.calls == []
+
+    package["candidate_excerpts"][0]["text"] = "Navy’s second submarine, USS Holland (SS 1)."
+    stale = await assess_verified_package(machine, package, None, context)
+    assert stale["status"] == "needs_review"
+    assert "client" in stale["warnings"][0].lower()
+
+
+def test_typography_recovery_preserves_source_slice_and_rejects_substantive_or_ambiguous_matches():
+    source = "Navy’s first submarine; Navy’s first submarine."
+    candidates = {"S1-E1": {"text": source, "source_url": URL, "source_title": "Source", "locator": "S1-E1"}}
+    assert _quote_rows([{"excerpt_id": "S1-E1", "quote": "Navy's first submarine;"}], candidates)[0]["quote"] == "Navy’s first submarine;"
+    assert _quote_rows([{"excerpt_id": "S1-E1", "quote": "Navy's second submarine;"}], candidates) is None
+    assert _quote_rows([{"excerpt_id": "S1-E1", "quote": "Navy's first submarine"}], candidates) is None
 
 
 @pytest.mark.asyncio

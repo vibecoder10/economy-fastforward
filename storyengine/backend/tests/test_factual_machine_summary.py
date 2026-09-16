@@ -517,3 +517,11 @@ async def test_record_removal_still_repairs_a_separate_factual_conflict_once():
     assert result['paragraph']==good
     assert result['removed_disputed_sentences']==[record,disputed]
     assert len(client.calls)==2
+
+
+def test_naval_registry_number_is_not_a_sentence_boundary():
+    from factual_machine_summary import _sentences
+    first = "USS S-1 (Submarine No. 105, later SS-105) served from 1920 to 1942."
+    second = "She was built at Quincy, Massachusetts."
+    assert _sentences(first + " " + second) == [first, second]
+    assert _sentences("The answer was No. She continued.") == ["The answer was No.", "She continued."]

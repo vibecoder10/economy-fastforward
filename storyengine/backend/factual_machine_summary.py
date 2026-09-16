@@ -128,6 +128,10 @@ def _sentences(paragraph: str) -> list[str]:
             text,
         )
     }
+    # Naval registry designations such as Submarine No. 105 continue before digits.
+    protected.update(
+        match.end() - 1 for match in re.finditer(r"\bNos?\.(?=\s+\d)", text)
+    )
     # A middle initial in a name, such as Glenn L. Martin, is not a stop.
     protected.update(
         match.end(1) - 1

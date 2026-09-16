@@ -9,6 +9,10 @@ from typing import Any
 
 CLAIM_ASSESSMENT_VERSION = 1
 _STATUSES = {"supported", "disputed", "insufficient", "out_of_scope"}
+_TYPOGRAPHY_NORMALIZATION = str.maketrans({
+    "‘": "'", "’": "'", "“": '"', "”": '"', "\u00a0": " ",
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "−": "-",
+})
 
 
 def _object(value: Any) -> dict:
@@ -35,6 +39,26 @@ def _eligible(machine: str, package: Any, subject_context: str) -> dict[str, dic
     return dict(list(_eligible_candidates(machine, _original_package(package), subject_context).items())[:60])
 
 
+def _source_quote_slice(source_text: str, quote: str) -> str | None:
+    """Resolve exact text first, then one-character typography variants only."""
+    exact_at = source_text.find(quote)
+    if exact_at >= 0:
+        return source_text[exact_at:exact_at + len(quote)]
+    normalized_text = source_text.translate(_TYPOGRAPHY_NORMALIZATION)
+    normalized_quote = quote.translate(_TYPOGRAPHY_NORMALIZATION)
+    if len(normalized_text) != len(source_text) or len(normalized_quote) != len(quote):
+        return None
+    matches = []
+    start = normalized_text.find(normalized_quote)
+    while start >= 0:
+        matches.append(start)
+        start = normalized_text.find(normalized_quote, start + 1)
+    if len(matches) != 1:
+        return None
+    start = matches[0]
+    return source_text[start:start + len(quote)]
+
+
 def _quote_rows(rows: Any, candidates: dict[str, dict]) -> list[dict] | None:
     if not isinstance(rows, list):
         return None
@@ -46,10 +70,11 @@ def _quote_rows(rows: Any, candidates: dict[str, dict]) -> list[dict] | None:
             return None
         excerpt_id, quote = row["excerpt_id"].strip(), row["quote"].strip()
         candidate = candidates.get(excerpt_id)
-        if not excerpt_id or not quote or not candidate or quote not in str(candidate.get("text") or ""):
+        source_quote = _source_quote_slice(str(candidate.get("text") or ""), quote) if candidate else None
+        if not excerpt_id or not quote or not candidate or source_quote is None:
             return None
         output.append({
-            "excerpt_id": excerpt_id, "quote": quote,
+            "excerpt_id": excerpt_id, "quote": source_quote,
             "source_url": str(candidate.get("source_url") or "").strip(),
             "source_title": str(candidate.get("source_title") or "").strip(),
             "locator": str(candidate.get("locator") or excerpt_id).strip(),
@@ -139,12 +164,34 @@ def _failed(machine: str, subject_context: str, warning: str, package: Any = Non
     return receipt
 
 
+def _assessed_receipt(machine: str, package: Any, subject_context: str, claims: list[dict]) -> dict:
+    receipt = {"version": CLAIM_ASSESSMENT_VERSION, "status": "assessed", "machine": machine,
+               "subject_context": str(subject_context or ""), "claims": claims, "probability": None,
+               "provenance_status": "captured", "method": "model_source_assessment",
+               "calibration": "not_calibrated", "source_fingerprint": assessment_fingerprint(machine, package, subject_context)}
+    receipt["claims_fingerprint"] = _claims_fingerprint(claims)
+    return receipt
+
+
 async def assess_verified_package(machine: str, package: Any, client: Any, subject_context: str = "") -> dict:
     """Reuse a current receipt or make one bounded source-assessment request."""
     current = current_assessment(machine, package, subject_context)
     if current:
         return current
     candidates = _eligible(machine, package, subject_context)
+    saved = _object(package).get("claim_assessment")
+    saved = _object(saved)
+    if (saved.get("version") == CLAIM_ASSESSMENT_VERSION and saved.get("status") == "needs_review"
+            and saved.get("machine") == machine and saved.get("subject_context") == str(subject_context or "")
+            and saved.get("source_fingerprint") == assessment_fingerprint(machine, package, subject_context)
+            and saved.get("raw_response_truncated") is False and isinstance(saved.get("raw_response"), str)):
+        from factual_machine_summary import _parse_json_object
+        replay_claims = _validated_claims(_object(_parse_json_object(saved["raw_response"])).get("claims"), candidates)
+        if replay_claims:
+            replayed = _assessed_receipt(machine, package, subject_context, replay_claims)
+            valid = _valid_receipt(machine, package, replayed, subject_context)
+            if valid:
+                return valid
     if not candidates:
         return _failed(machine, subject_context, "No eligible source excerpts.")
     if client is None:
@@ -157,10 +204,6 @@ async def assess_verified_package(machine: str, package: Any, client: Any, subje
     claims = _validated_claims(_object(parsed).get("claims"), candidates)
     if not claims:
         return _failed(machine, subject_context, "Assessment returned invalid or unsupported claim evidence.", package, raw)
-    receipt = {"version": CLAIM_ASSESSMENT_VERSION, "status": "assessed", "machine": machine,
-               "subject_context": str(subject_context or ""), "claims": claims, "probability": None,
-               "provenance_status": "captured", "method": "model_source_assessment",
-               "calibration": "not_calibrated", "source_fingerprint": assessment_fingerprint(machine, package, subject_context)}
-    receipt["claims_fingerprint"] = _claims_fingerprint(claims)
+    receipt = _assessed_receipt(machine, package, subject_context, claims)
     return _valid_receipt(machine, package, receipt, subject_context) or _failed(
         machine, subject_context, "Assessment receipt failed structural validation.")
