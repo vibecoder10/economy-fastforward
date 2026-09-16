@@ -46,7 +46,48 @@ def _citation_url(value):
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), unquote(parts.path), parts.query, ""))
 
 
-def _valid_citations(candidate, identity):
+_NAVAL_HULL_RE = re.compile(r"(?<![A-Z0-9])(?:AGSS|SSBN|SSGN|SSN|SSG|SS)-?\s*(\d+)(?![A-Z0-9])", re.I)
+_USS_RE = re.compile(r"\bU\s*\.?\s*S\s*\.?\s*S\s*\.?\s+(.+)", re.I)
+
+
+def _single_uss_submarine_target(machine):
+    """Return a named US submarine's hull number and complete USS name tokens.
+
+    This deliberately excludes classes, ranges, and every other machine shape:
+    the added caption rule is only a guard against same-name US submarines.
+    """
+    text = str(machine or "").strip()
+    if not text or re.search(r"\b(?:class|through)\b", text, re.I):
+        return None
+    hulls = _NAVAL_HULL_RE.findall(text)
+    match = _USS_RE.search(text)
+    if len(hulls) != 1 or not match:
+        return None
+    name = match.group(1).split("(", 1)[0]
+    name_tokens = tuple(re.findall(r"[a-z0-9]+", name.casefold()))
+    if not name_tokens or all(token in {"submarine", "boat", "ship", "class"} for token in name_tokens):
+        return None
+    return hulls[0], name_tokens
+
+
+def _caption_identifies_target(quote, target):
+    """Require a cited caption to name this single USS submarine directly."""
+    hull, name_tokens = target
+    text = str(quote or "")
+    hulls = _NAVAL_HULL_RE.findall(text)
+    has_target_hull = hull in hulls
+    # Captions often omit or punctuate USS, so require the complete actual
+    # vessel name, never the USS prefix, a pronoun, or a generic vessel word.
+    normalized = re.sub(r"\bu\s*\.?\s*s\s*\.?\s*s\s*\.?(?=[A-Z])", "USS ", text, flags=re.I)
+    tokens = tuple(re.findall(r"[a-z0-9]+", normalized.casefold()))
+    has_target_name = any(tokens[i:i + len(name_tokens)] == name_tokens
+                          for i in range(len(tokens) - len(name_tokens) + 1))
+    # A caption that calls the vessel by name but explicitly gives another hull
+    # number is still a same-name collision unless it also supplies this hull.
+    return (has_target_hull or has_target_name) and (has_target_hull or not any(n != hull for n in hulls))
+
+
+def _valid_citations(candidate, identity, machine=""):
     citations, sources = identity.get("evidence"), candidate.get("evidence")
     if not isinstance(citations, list) or not citations or not isinstance(sources, list):
         return False
@@ -62,7 +103,13 @@ def _valid_citations(candidate, identity):
                     and words.strip() and words in _quote_words(e.get("text") or "")]
         if not matching:
             return False
-        caption_cited |= any(e.get("kind") == "image_caption" for e in matching)
+        caption_matches = [e for e in matching if e.get("kind") == "image_caption"]
+        if target := _single_uss_submarine_target(machine):
+            if caption_matches and not any(_caption_identifies_target(quote, target) for _ in caption_matches):
+                return False
+            caption_cited |= bool(caption_matches)
+        else:
+            caption_cited |= bool(caption_matches)
     return caption_cited
 
 
@@ -77,7 +124,7 @@ def selection_ready(row):
     return bool(str(row.get("hosted_url") or "").strip() and str(row.get("source_url") or "").strip()
         and selected.get("image_url") == row["source_url"] and selected.get("hosted_url") == row["hosted_url"]
         and isinstance(identity, dict) and identity.get("status") == "confirmed"
-        and _valid_citations(selected, identity)
+        and _valid_citations(selected, identity, receipt.get("machine") or "")
         and type(score) in (int, float) and math.isfinite(score) and 0 <= score <= 100
         and type(receipt.get("compared_count")) is int and 1 <= receipt["compared_count"] <= 12)
 
@@ -180,7 +227,7 @@ def judgment_prompt(machine, aliases, facts):
     )
 
 
-def validate_judgment(judgment, candidates):
+def validate_judgment(judgment, candidates, *, machine=""):
     entries = judgment.get("candidates") if isinstance(judgment, dict) else None
     if not isinstance(entries, list) or len(entries) != len(candidates):
         raise SelectionFailure("invalid_review", "The comparison returned incomplete judgments.")
@@ -198,7 +245,7 @@ def validate_judgment(judgment, candidates):
             or not isinstance(item.get("limitations"), list) or len(item["limitations"]) > 10
             or any(not isinstance(s, str) for s in item["limitations"])):
             raise SelectionFailure("invalid_review", "The comparison returned malformed scores or reasons.")
-        if identity["status"] == "confirmed" and not _valid_citations(by_id[item["id"]], identity):
+        if identity["status"] == "confirmed" and not _valid_citations(by_id[item["id"]], identity, machine):
             # One unsupported claim must exclude that photo, not poison other
             # independently grounded candidates in the same comparison.
             item = dict(item, identity=dict(identity, status="uncertain",
@@ -224,27 +271,32 @@ def choose_candidate(candidates, judgments):
 
 
 def _rerank_saved_review(receipt):
-    """Recover typography-only citation failures without another model call."""
+    """Recover a valid saved candidate after citation validation without a provider call."""
     candidates = [dict(c) for c in receipt.get("candidates", [])
                   if isinstance(c, dict) and isinstance(c.get("scores"), dict)
                   and isinstance(c.get("identity"), dict)]
+    machine = receipt.get("machine") or ""
+    selected = receipt.get("selected") if isinstance(receipt.get("selected"), dict) else {}
+    selected_invalid = bool(selected and isinstance(selected.get("identity"), dict)
+                            and not _valid_citations(selected, selected["identity"], machine))
     repaired = False
     for candidate in candidates:
         if (candidate.get("reason_code") == "unverified_identity_evidence"
-                and _valid_citations(candidate, candidate["identity"])):
+                and _valid_citations(candidate, candidate["identity"], machine)):
             candidate["identity"] = dict(candidate["identity"], status="confirmed",
                 reason="The cited source words and machine designations match the retrieved evidence; typography differences were normalized.")
             candidate.pop("reason_code", None)
             repaired = True
-    if not repaired:
+    if not (repaired or selected_invalid):
         return None
     try:
         fields = ("id", "identity", "usable", "scores", "view", "reason", "limitations")
-        judgments = validate_judgment({"candidates": [{k: c[k] for k in fields} for c in candidates]}, candidates)
+        judgments = validate_judgment({"candidates": [{k: c[k] for k in fields} for c in candidates]}, candidates,
+                                      machine=machine)
         primary, _ = choose_candidate(candidates, judgments)
     except (SelectionFailure, KeyError, TypeError):
         return None
-    old_score = (receipt.get("selected") or {}).get("score", 0)
+    old_score = -1 if selected_invalid else (receipt.get("selected") or {}).get("score", 0)
     if not primary or primary[0] <= old_score:
         return None
     return candidates, primary
@@ -338,7 +390,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         receipt = dict(saved, status="selected", reason_code=None, selected=selected, supporting=[], checked_at=datetime.now(timezone.utc).isoformat(),
             candidates=[_summary(c) | {k: c[k] for k in ("identity", "usable", "scores", "view", "limitations")}
                         for c in candidates],
-            reason="Selected a clearer view from the saved comparison after matching source quotation typography.")
+            reason="Selected a source-supported photograph from the saved comparison after validating caption identity.")
         await execute("""INSERT INTO static_reference_cache
             (tenant_id,machine_key,machine,hosted_url,source_url,reference_kind,selection_review)
             VALUES ($1,$2,$3,$4,$5,'photo',$6::jsonb) ON CONFLICT (tenant_id,machine_key) DO UPDATE
@@ -378,7 +430,8 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         failure = next((c for c in candidates if c.get("reason_code") not in {None, "duplicate_image"}), {})
         return await fail(failure.get("reason_code") or "no_candidates", failure.get("reason") or "No source-backed candidate photographs were found.")
     try:
-        judgments = validate_judgment(await _judge(tenant_id, machine, usable, facts, aliases, video_id=video_id), usable)
+        judgments = validate_judgment(await _judge(tenant_id, machine, usable, facts, aliases, video_id=video_id), usable,
+                                      machine=machine)
     except SelectionFailure as exc:
         return await fail(exc.code, exc.reason, "error")
     receipt["compared_count"] = len(usable)
