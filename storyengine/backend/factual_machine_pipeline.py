@@ -5,6 +5,7 @@ import copy
 import hashlib
 import inspect
 import json
+import os
 import re
 
 CONTRACT = 'factual_100_v1'
@@ -55,6 +56,46 @@ def factual_research_readiness(payload, roster, subject_context='') -> bool:
     return bool(roster) and len(current_research_briefings(payload, roster, subject_context)) == len(roster)
 
 
+def _episode_outline(roster):
+    return [{"scene": scene, "machine": str(machine)} for scene, machine in enumerate(roster or [], 1)]
+
+
+def _current_briefing_paragraph(payload, machine, subject_context=''):
+    """Return only this machine's saved research wording reference, never roster evidence."""
+    from machine_research_summary import research_summary_ready
+    from pipeline_executor import _research_card_for_machine, _verified_source_package_for_machine
+
+    card = _research_card_for_machine(_object(payload), machine) or {}
+    package = _verified_source_package_for_machine(_object(payload), machine)
+    summary = card.get("research_summary") if isinstance(card, dict) else None
+    if research_summary_ready(machine, package, summary, subject_context):
+        return str(summary.get("paragraph") or "")
+    return ""
+
+
+def _expected_script_packet(machine, package, subject_context, outline, current_briefing):
+    """Derive cache identity from exactly the packet writer/reviewer will consume."""
+    if not isinstance(package, dict) or "claim_assessment" not in package:
+        return None
+    from factual_machine_summary import _eligible_candidates
+    from research_claim_assessment import current_assessment
+    from script_research_packet import ScriptPacketError, compile_script_packet
+
+    assessment = current_assessment(machine, package, subject_context)
+    if assessment is None:
+        return None
+    try:
+        return compile_script_packet(
+            machine, package, assessment,
+            _eligible_candidates(machine, package, subject_context),
+            subject_context=subject_context, episode_outline=outline,
+            current_briefing=current_briefing,
+            model=os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-5-20251101"),
+        )
+    except ScriptPacketError:
+        return None
+
+
 def factual_script_readiness(video, roster) -> bool:
     """Return whether every factual block is approved for this exact subject and source set."""
     from factual_machine_summary import REVIEW_CONTEXT_VERSION
@@ -64,15 +105,29 @@ def factual_script_readiness(video, roster) -> bool:
     validation = _object(video.get('script_validation'))
     blocks = validation.get('machine_script_blocks') or {}
     subject_context = str(video.get('video_title') or video.get('headline') or '')
+    outline = _episode_outline(roster)
+    def current(machine, scene):
+        package = _verified_source_package_for_machine(payload, machine)
+        block = blocks.get(machine) or {}
+        packet = _expected_script_packet(machine, package, subject_context, outline,
+                                         _current_briefing_paragraph(payload, machine, subject_context))
+        # Assessed blocks are compiler-versioned. A stale/invalid assessment
+        # cannot quietly fall back to the old unassessed cache contract.
+        if isinstance(package, dict) and "claim_assessment" in package:
+            if not packet:
+                return False
+            if (block.get("compiler_version") != packet.get("compiler_version")
+                    or block.get("packet_fingerprint") != packet.get("packet_fingerprint")):
+                return False
+        return (
+            block.get('passed') is True and block.get('paragraph')
+            and block.get('machine_script_contract') == CONTRACT
+            and block.get('review_context_version') == REVIEW_CONTEXT_VERSION
+            and block.get('subject_context') == subject_context and block.get('scene') == scene
+            and block.get('source_fingerprint') == source_fingerprint(machine, package)
+        )
     return bool(roster) and all(
-        (blocks.get(machine) or {}).get('passed') is True
-        and (blocks.get(machine) or {}).get('paragraph')
-        and (blocks.get(machine) or {}).get('machine_script_contract') == CONTRACT
-        and (blocks.get(machine) or {}).get('review_context_version') == REVIEW_CONTEXT_VERSION
-        and (blocks.get(machine) or {}).get('subject_context') == subject_context
-        and (blocks.get(machine) or {}).get('scene') == scene
-        and (blocks.get(machine) or {}).get('source_fingerprint') == source_fingerprint(
-            machine, _verified_source_package_for_machine(payload, machine))
+        current(machine, scene)
         for scene, machine in enumerate(roster, 1)
     )
 
@@ -107,7 +162,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         if row.get('voice_over_url') or row.get('voice_status') == 'Done'
     }
     subject_context = str(video.get('video_title') or video.get('headline') or '')
-    research_briefings = current_research_briefings(_object(video.get('research_payload')), roster, subject_context)
+    outline = _episode_outline(roster)
     failures = []
     results = []
     for scene, machine in selected:
@@ -170,6 +225,8 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
                 return {'status': 'failed', 'error': 'Locked roster changed during source refresh'}
             payload = _object(fresh.get('research_payload'))
             package = _verified_source_package_for_machine(payload, machine)
+        current_briefing = _current_briefing_paragraph(payload, machine, subject_context)
+        script_packet = _expected_script_packet(machine, package, subject_context, outline, current_briefing)
         fingerprint = source_fingerprint(machine, package)
         validation = _object(fresh.get('script_validation'))
         saved = (validation.get('machine_script_blocks') or {}).get(machine) or {}
@@ -178,9 +235,23 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         saved_matches = (saved.get('machine_script_contract') == CONTRACT
                 and saved.get('source_fingerprint') == fingerprint
                 and saved.get('scene') == scene and saved.get('paragraph'))
+        assessed_package = isinstance(package, dict) and 'claim_assessment' in package
+        saved_packet_matches = (not assessed_package or (
+            script_packet is not None
+            and saved.get('compiler_version') == script_packet.get('compiler_version')
+            and saved.get('packet_fingerprint') == script_packet.get('packet_fingerprint')
+        ))
         saved_is_current = (saved_matches and saved.get('passed') is True
                 and saved.get('review_context_version') == REVIEW_CONTEXT_VERSION
-                and saved.get('subject_context') == subject_context)
+                and saved.get('subject_context') == subject_context and saved_packet_matches)
+        if saved_is_current and assessed_package:
+            # Accepted compiled packets are immutable cache hits, including
+            # intentionally short sections; do not spend a model call expanding them.
+            results.append(saved)
+            if target_machine:
+                return {'status': 'completed', 'video_id': video_id,
+                        'script_block' if save_target_script else 'preview': saved}
+            continue
         if not target_machine and saved_is_current:
             if (len(str(saved.get('paragraph') or '').split()) >= 80
                     or saved.get('length_target_attempted') is True):
@@ -191,9 +262,51 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         preview_matches = (preview.get('machine_script_contract') == CONTRACT
                 and preview.get('source_fingerprint') == fingerprint
                 and preview.get('scene') == scene and preview.get('paragraph'))
+        preview_packet_matches = (not assessed_package or (
+            script_packet is not None
+            and preview.get('compiler_version') == script_packet.get('compiler_version')
+            and preview.get('packet_fingerprint') == script_packet.get('packet_fingerprint')
+        ))
+        preview_is_current = (preview_matches and preview.get('passed') is True
+            and preview.get('review_context_version') == REVIEW_CONTEXT_VERSION
+            and preview.get('subject_context') == subject_context and preview_packet_matches)
         # A restarted worker consumes its last exact persisted draft, including
         # a rejected one, instead of inventing a new story and losing the repair.
-        if prior_review is not None:
+        if assessed_package:
+            # A matching preview was already generated and refereed but did
+            # not reach the durable section save. Promote it without another
+            # writer/referee call. Older packets are prose-only repair input.
+            if preview_is_current:
+                cached = None
+                prior_review = preview
+            elif preview_matches and preview_packet_matches:
+                # A newer rejected checkpoint is the best bounded repair
+                # input. Keep its exact review issues rather than replacing
+                # them with an older saved section's prose.
+                if preview.get('passed') is True:
+                    prior_review = {**preview, 'passed': False,
+                                    'warnings': list(preview.get('warnings') or []) +
+                                    ['Prior assessed draft requires current factual review.']}
+                else:
+                    prior_review = preview
+                cached = None
+            elif saved_matches and saved_packet_matches:
+                if saved.get('passed') is True:
+                    prior_review = {**saved, 'passed': False,
+                                    'warnings': list(saved.get('warnings') or []) +
+                                    ['Prior assessed draft requires current factual review.']}
+                else:
+                    prior_review = saved
+                cached = None
+            elif saved_matches or preview_matches:
+                old = preview if preview_matches else saved
+                prior_review = {**old, 'passed': False,
+                                'warnings': list(old.get('warnings') or []) +
+                                ['Prior assessed draft does not match the current script packet.']}
+                cached = None
+            else:
+                cached = None
+        elif prior_review is not None:
             cached = saved
         elif preview_matches:
             cached = preview
@@ -204,14 +317,16 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         if cached and prior_review is None:
             prior_review = await review_existing_factual_summary(
                 machine, package, client, cached, allow_sentence_removal=True,
-                subject_context=subject_context,
+                subject_context=subject_context, script_packet=script_packet,
             )
         length_attempted_for_context = bool(
             cached
             and cached.get('length_target_attempted') is True
             and cached.get('subject_context') == subject_context
         )
-        if prior_review and prior_review.get('passed'):
+        if assessed_package and preview_is_current:
+            summary = prior_review
+        elif prior_review and prior_review.get('passed'):
             if (len(str(prior_review.get('paragraph') or '').split()) >= 80
                     or length_attempted_for_context):
                 summary = prior_review
@@ -220,7 +335,8 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
             summary = await generate_factual_machine_summary(
                 machine, package, client, subject_context=subject_context,
                 previous_summary=prior_review,
-                research_briefings=research_briefings,
+                episode_outline=outline, current_briefing=current_briefing,
+                script_packet=script_packet,
             )
             summary = {**summary, 'length_target_attempted': True}
         block = {**summary, 'machine': machine, 'scene': scene,
@@ -273,7 +389,8 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
                 )
             readback = await ex._get_video(video_id) or {}
             stored = (_object(readback.get('script_validation')).get('machine_script_blocks') or {}).get(machine) or {}
-            if stored.get('paragraph') != summary['paragraph'] or stored.get('source_fingerprint') != fingerprint:
+            if (stored.get('paragraph') != summary['paragraph'] or stored.get('source_fingerprint') != fingerprint
+                    or (assessed_package and stored.get('packet_fingerprint') != script_packet.get('packet_fingerprint'))):
                 return {'status': 'failed', 'error': f'Summary save could not be verified: {machine}'}
         results.append(block)
         if target_machine:

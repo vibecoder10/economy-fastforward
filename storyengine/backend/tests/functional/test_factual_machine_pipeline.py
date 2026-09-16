@@ -55,7 +55,7 @@ def test_saved_factual_section_resumes_without_another_model_call(state):
     assert ex._save_machine_script_block.await_args.kwargs['advance_status'] is False
 
 
-def test_script_writer_receives_current_saved_research_briefing(state):
+def test_script_writer_receives_only_current_saved_research_briefing_and_compact_outline(state):
     ex,video,machine,package,writer=state
     from machine_research_summary import saved_research_summary
     from research_claim_assessment import _claims_fingerprint, assessment_fingerprint
@@ -84,10 +84,10 @@ def test_script_writer_receives_current_saved_research_briefing(state):
     },video['video_title'])
     video['research_payload']['unit_research_cards']=[{'machine':machine,'research_summary':summary}]
     asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
-    briefings=writer.await_args.kwargs['research_briefings']
-    assert briefings == [{'machine':machine,'scene':1,'paragraph':summary['paragraph'],
-                          'claim_map':summary['claim_map'],'sources':summary['sources'],
-                          'claim_assessment':summary['claim_assessment']}]
+    kwargs=writer.await_args.kwargs
+    assert 'research_briefings' not in kwargs
+    assert kwargs['episode_outline'] == [{'machine':machine, 'scene':1}]
+    assert kwargs['current_briefing'] == summary['paragraph']
 
 
 def test_changed_sources_invalidate_saved_summary(state):
