@@ -92,3 +92,10 @@ test("SSR renders assessment evidence, counterevidence, warnings, and empty stat
   assert.match(missing, /Not assessed/);
   assert.match(missing, /this submarine/);
 });
+
+
+test("factual cards use summary status without legacy Anton preview warnings", () => {
+  assert.match(source, /factualResearch \? "Saved source-backed research summary"/);
+  assert.match(source, /selectedSourcePackage && !factualResearch/);
+  assert.doesNotMatch(assessmentSource, /row\.locator/);
+});

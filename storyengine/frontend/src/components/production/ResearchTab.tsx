@@ -870,7 +870,6 @@ function AssessmentQuotes({ rows, label, tone }: { rows: any[]; label: string; t
             <p className="text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>“{row?.quote}”</p>
             <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
               {/^https?:\/\//i.test(url) ? <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--turquoise)" }}>{title}</a> : <span>{title}</span>}
-              {row?.locator && <span>{row.locator}</span>}
               {row?.excerpt_id && <span className="font-mono">{row.excerpt_id}</span>}
             </div>
           </div>
@@ -1478,7 +1477,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
     && selectedSavedResearchSummarySources.length > 0
   );
   const selectedResearchStatusMessage = selectedResearchReady
-    ? selectedSourcePackageStatus.message
+    ? (factualResearch ? "Saved source-backed research summary" : selectedSourcePackageStatus.message)
     : selectedResearchReadiness.message;
   const selectedMachinePreview = useMemo(() => (
     localMachinePreview && previewMatchesMachine(localMachinePreview, selectedMachineLabel)
@@ -1841,7 +1840,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                         </span>
                       </div>
                       <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                        {cardVerified ? sourcePackageStatus(cardSourcePackage, label).message : cardReadiness.message}
+                        {cardVerified ? (factualResearch ? "Saved source-backed research summary" : sourcePackageStatus(cardSourcePackage, label).message) : cardReadiness.message}
                       </p>
                       {!cardVerified && cardReadiness.warnings.length > 0 && (
                         <ul className="mt-1 space-y-0.5 text-xs" style={{ color: "var(--orange)" }}>
@@ -1983,7 +1982,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                   subjectWord={namedSubmarineRoster ? "submarine" : "machine"}
                 />
               )}
-              {selectedSourcePackage && (
+              {selectedSourcePackage && !factualResearch && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {selectedSourceCoverageRows.map((row) => (
                     <span
