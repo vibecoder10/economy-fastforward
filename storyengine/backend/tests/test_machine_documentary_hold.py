@@ -1593,7 +1593,7 @@ def test_source_gathering_falls_back_to_real_wayback_snapshot(monkeypatch):
                 availability_calls.append(kwargs.get("params"))
                 return FakeGetResponse(
                     200,
-                    payload={"archived_snapshots": {"closest": {"url": snapshot_url, "status": "200"}}},
+                    payload={"archived_snapshots": {"closest": {"url": snapshot_url, "status": "200", "available": True}}},
                 )
             if url == snapshot_url:
                 return FakeGetResponse(200, text=wayback_text)
@@ -8425,7 +8425,10 @@ def test_run_one_machine_research_canonicalizes_label_to_locked_roster(monkeypat
             "passed": False,
             "target_machine": "Boeing XB-15",
             "target_machine_passed": False,
-            "units": [{"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]}],
+            "units": [
+                {"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]},
+                {"machine": "Consolidated B-24 Liberator", "passed": False, "warnings": ["different machine warning"]},
+            ],
         },
     }
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
@@ -8534,7 +8537,10 @@ def test_run_one_machine_research_returns_reviewable_payload_when_card_fails(mon
             "passed": False,
             "target_machine": "Boeing XB-15",
             "target_machine_passed": False,
-            "units": [{"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]}],
+            "units": [
+                {"machine": "Boeing XB-15", "passed": False, "warnings": ["research card missing Anton slots"]},
+                {"machine": "Consolidated B-24 Liberator", "passed": False, "warnings": ["different machine warning"]},
+            ],
         },
     }
 

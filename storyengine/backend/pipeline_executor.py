@@ -1144,8 +1144,11 @@ def _normalized_source_text(text: str) -> str:
     return s
 
 
-def _html_to_visible_text(raw_html: str) -> str:
+def _html_to_visible_text(raw_html: str, preserve_sections: bool = False) -> str:
     """Lightweight HTML text extraction without adding another dependency."""
+    if preserve_sections:
+        from factual_source_sections import html_visible_sections
+        return html_visible_sections(raw_html)
     import html as _html
     import re as _re
 
@@ -1251,6 +1254,23 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
                                      matcher: Optional[Callable[[str, str], bool]] = None) -> list[str]:
     import re as _re
 
+    from factual_machine_research import named_submarine_target
+    from factual_source_sections import has_foreign_ship
+    strict_named = matcher is not None and named_submarine_target(machine) is not None
+    if strict_named and "\n\n" in str(text):
+        whole, short = [], []
+        for section in str(text).split("\n\n"):
+            section = " ".join(section.split())
+            if not section or not matcher(section, machine):
+                continue
+            if 45 <= len(section) <= 3000 and not has_foreign_ship(section, machine):
+                whole.append(section)
+            short.extend(_sentence_candidates_from_source(section, machine, limit, matcher))
+        # Whole publisher sections retain later service paragraphs without
+        # injecting a synthetic identity prefix or crossing another heading.
+        whole.sort(key=lambda s: (not bool(_re.search(r"\b(?:train\w*|served|operated|patrol\w*)\b", s, _re.I)), len(s)))
+        return list(dict.fromkeys(whole + short))[:limit]
+
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
         return []
@@ -1268,6 +1288,8 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
                 continue
             window = " ".join(raw_sentences[index:index + span]).strip()
             if len(window) < 45 or len(window) > 720:
+                continue
+            if strict_named and has_foreign_ship(window, machine):
                 continue
             key = _normalized_source_text(window)
             if key in seen:
@@ -9611,7 +9633,7 @@ class PipelineExecutor:
 
                 reader = PdfReader(io.BytesIO(response.content))
                 return " ".join((page.extract_text() or "") for page in reader.pages[:8])
-            return _html_to_visible_text(response.text)
+            return _html_to_visible_text(response.text, preserve_sections=True)
         except Exception as exc:  # noqa: BLE001 - source fetch failures are represented in validation.
             _logger.info("[machine-source] fetch failed for %s: %s", url[:140], str(exc)[:120])
             return ""
@@ -9632,7 +9654,8 @@ class PipelineExecutor:
             if response.status_code >= 400:
                 return ""
             snap = (response.json().get("archived_snapshots") or {}).get("closest") or {}
-            return str(snap.get("url") or "").strip()
+            from factual_source_sections import verified_archive_url
+            return verified_archive_url(snap, url)
         except Exception as exc:  # noqa: BLE001 - fallback failures fall through to the next leg.
             _logger.info("[machine-source] wayback availability lookup failed for %s: %s", url[:140], str(exc)[:120])
             return ""
@@ -9868,13 +9891,9 @@ class PipelineExecutor:
                 ):
                     _register_variant(capture_method, source_text, 1 if capture_method == "fetched_page" else 0)
 
-                if not source_variants and not factual_search:
-                    # GAP 1(b), 2026-07-30: the direct fetch AND Tavily's own raw
-                    # content both came back empty (e.g. iwm.org.uk 403ing the
-                    # request) - fall back exactly as the DVsU research
-                    # simulator's build_package.py does before giving up on this
-                    # source entirely. Lowest method_priority: a live capture is
-                    # always preferred over an archived one on a genuine tie.
+                if not source_variants:
+                    # No direct variant provided exact machine evidence. Try
+                    # the verified archive capture for factual and legacy routes.
                     fallback_text, fallback_method = await self._fetch_source_fallback_text(client, url)
                     if fallback_text and fallback_method:
                         _register_variant(fallback_method, fallback_text, -1)
@@ -11479,7 +11498,10 @@ class PipelineExecutor:
         validation = payload.get("unit_research_hold_validation") or {}
         if not validation.get("target_machine_passed"):
             units = validation.get("units") or []
-            warnings = units[-1].get("warnings", []) if units else validation.get("warnings", [])
+            target_verdict = next((unit for unit in units if isinstance(unit, dict)
+                and _locked_roster_item_for_machine([matched], unit.get("machine", "")) == matched), {})
+            warnings = target_verdict.get("warnings") or validation.get("warnings") or [
+                f"Research for {matched} is incomplete; inspect its saved research card."]
             summary = (
                 "One-machine research saved raw source evidence, but "
                 f"{matched} still needs review before script preview."

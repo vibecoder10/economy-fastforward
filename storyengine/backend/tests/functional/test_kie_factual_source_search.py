@@ -110,6 +110,7 @@ def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
     with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
          patch.object(httpx.AsyncClient, "post", AsyncMock(side_effect=[first, second])) as post:
         executor._fetch_source_text = fetched
+        executor._fetch_source_fallback_text = AsyncMock(return_value=("", ""))
         package = asyncio.run(executor._gather_verified_machine_source_package(
             "Every US Submarine Class Ever Built", "SS-212 through SS-284 Gato class",
             {"machine_script_contract": "factual_100_v1"},
@@ -119,3 +120,48 @@ def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
     assert len(package["source_discovery_requests"]) == 2
     assert [row["url"] for row in package["sources"]] == ["https://archive.example/alternate"]
     assert package["candidate_excerpts"]
+
+
+def test_factual_route_uses_verified_archive_fallback_when_direct_page_fails():
+    executor = object.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+    text = "The FB-111A was a strategic bomber operated by Strategic Air Command."
+    capture = "wayback:https://web.archive.org/web/20250101000000/https://www.sacmuseum.org/aircraft/fb-111a"
+    executor._fetch_source_text = AsyncMock(return_value="")
+    executor._fetch_source_fallback_text = AsyncMock(return_value=(text, capture))
+    with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
+         patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response())) as post:
+        package = asyncio.run(executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
+        ))
+    assert post.await_count == 1
+    executor._fetch_source_fallback_text.assert_awaited_once()
+    assert package["candidate_excerpts"][0]["text"] == text
+    assert package["candidate_excerpts"][0]["source_capture_method"] == capture
+
+
+def test_captured_holland_html_survives_fetch_and_package_assembly():
+    from pathlib import Path
+    raw_html = (Path(__file__).parents[1] / "fixtures/holland-source-section.html").read_text()
+    url = "https://navalunderseamuseum.org/undersea-pioneers2/"
+    executor = object.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+    executor._fetch_source_fallback_text = AsyncMock(side_effect=AssertionError("direct source is usable"))
+    with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
+         patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response([
+             {"title": "Undersea pioneers", "exact_source_url": url}
+         ]))) as post, \
+         patch.object(httpx.AsyncClient, "get", AsyncMock(return_value=httpx.Response(
+             200, text=raw_html, headers={"content-type": "text/html"}
+         ))):
+        package = asyncio.run(executor._gather_verified_machine_source_package(
+            "Every US Submarine Class Ever Built", "SS-1 USS Holland",
+            {"machine_script_contract": "factual_100_v1"},
+        ))
+    assert post.await_count == 1
+    excerpts = package["candidate_excerpts"]
+    assert "as a training submarine" in excerpts[0]["text"]
+    assert excerpts[0]["source_url"] == url
+    assert excerpts[0]["source_capture_method"] == "fetched_page"
+    assert pe._verified_source_candidate_traceable(excerpts[0])
+    assert all("USS Other" not in row["text"] for row in excerpts)
