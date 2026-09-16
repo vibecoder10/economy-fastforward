@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html.parser
+import math
 import re
 from typing import Any
 from urllib.parse import unquote, urljoin, urlparse, urlunparse
@@ -64,6 +65,26 @@ def _resolve(title: str, changes: dict[str,str]) -> str:
     while title in changes and title not in seen: seen.add(title); title=changes[title]
     return title
 
+def _thumb_width(url: str) -> int | None:
+    """Read a Wikimedia thumbnail's advertised width; never treats it as pixels."""
+    match = re.search(r"/(\d+)px-[^/]+$", urlparse(str(url or "")).path)
+    return int(match.group(1)) if match else None
+
+def _thumb_adequate(url: str, thumb_info: dict | None, original_info: dict) -> bool:
+    """Check displayed dimensions without pretending a URL can add pixels."""
+    if "/thumb/" not in urlparse(str(url or "")).path:
+        return False
+    thumb_info = thumb_info or {}
+    width = int(thumb_info.get("thumbwidth") or _thumb_width(url) or 0)
+    height = int(thumb_info.get("thumbheight") or 0)
+    if not height:
+        original_width, original_height = int(original_info.get("width") or 0), int(original_info.get("height") or 0)
+        height = int(width * original_height / original_width) if original_width else 0
+    return width >= 500 and height >= 250
+
+def _original_adequate(info: dict) -> bool:
+    return int(info.get("width") or 0) >= 500 and int(info.get("height") or 0) >= 250
+
 async def _commons_metadata(urls: list[str]) -> dict[str,dict]:
     """One imageinfo query; maps every original Wikimedia input to its record."""
     asked: dict[str,list[str]]={}
@@ -82,9 +103,28 @@ async def _commons_metadata(urls: list[str]) -> dict[str,dict]:
             raw = [info["url"] for info in infos if info.get("url") and
                    (not info.get("thumburl") or info.get("thumburl") == info["url"])]
             issued=await _api_issued_thumbs_batch(client,raw) if raw else {}
+            pages = {_file(page.get("title")): page for page in (query.get("pages") or {}).values() if page.get("title")}
+            # Repair only the API answers that cannot meet the real 500x250
+            # pixel gate.  A short, wide source needs more than 500px width.
+            affected={}
+            for requested in asked:
+                resolved=_resolve(requested,changes); page=pages.get(resolved)
+                info=((page or {}).get("imageinfo") or [{}])[0]
+                thumb=info.get("thumburl") or issued.get(info.get("url")) or ""
+                if _original_adequate(info) and not _thumb_adequate(thumb, info, info):
+                    affected[resolved] = max(500, math.ceil(250 * int(info["width"]) / int(info["height"])))
+            repaired={}
+            if affected:
+                for width in sorted(set(affected.values())):
+                    titles=[title for title, target in affected.items() if target == width]
+                    repair=await _wm_get(client,_COMMONS_API,params={"action":"query","titles":"|".join(titles),"redirects":1,"normalized":1,"prop":"imageinfo","iiprop":"url|size","iiurlwidth":width,"format":"json"})
+                    repair.raise_for_status()
+                    for page in ((repair.json().get("query") or {}).get("pages") or {}).values():
+                        info=(page.get("imageinfo") or [{}])[0]
+                        if "/thumb/" in urlparse(info.get("thumburl") or "").path:
+                            repaired[_file(page.get("title"))]=info
     except Exception as exc:
         raise RuntimeError("metadata_unavailable") from exc
-    pages={_file(page.get("title")):page for page in (query.get("pages") or {}).values() if page.get("title")}
     output={}
     for title, originals in asked.items():
         page=pages.get(_resolve(title,changes)); infos=(page or {}).get("imageinfo") or []
@@ -99,12 +139,21 @@ async def _commons_metadata(urls: list[str]) -> dict[str,dict]:
         if caption: evidence.append({"url":desc,"text":caption[:MAX_PAGE_TEXT],"kind":"image_caption"})
         if facts: evidence.append({"url":desc,"text":"\n".join(facts)[:MAX_PAGE_TEXT],"kind":"source_attribution"})
         for original in originals:
-            thumb = info.get("thumburl")
+            repair_info = repaired.get(_resolve(title,changes))
+            thumb = (repair_info or {}).get("thumburl") or info.get("thumburl")
             if not thumb or thumb == info.get("url"):
                 thumb = issued.get(info.get("url"))
-            image = original if "/thumb/" in urlparse(original).path else thumb
-            # Raw upload links can 403.  Do not advertise one if no API thumbnail was issued.
-            if not image or ("/thumb/" not in urlparse(image).path and "/thumb/" not in urlparse(original).path): continue
+            thumb_info = repair_info or info
+            if _thumb_adequate(thumb, thumb_info, info):
+                image=thumb
+            elif _original_adequate(info) and info.get("url"):
+                # The API's exact original is preferable to a short thumbnail;
+                # do not manufacture a higher-resolution URL.
+                image=info["url"]
+            elif _thumb_adequate(original, None, info):
+                image=original
+            else:
+                continue
             output[_norm(original)]={"image_url":image,"source_page":desc,"title":page.get("title") or title,"caption":caption,"width":info.get("width"),"height":info.get("height"),"evidence":evidence}
     return output
 
@@ -135,43 +184,127 @@ def _merge(base: dict, record: dict|None, context: list[dict], code=None, reason
     record=record or {}
     return _candidate(record.get("image_url") or base["image_url"],source_page=record.get("source_page") or base.get("source_page"),title=record.get("title", ""),caption=record.get("caption", ""),width=record.get("width"),height=record.get("height"),evidence=(record.get("evidence") or [])+(page_evidence or [])+context,reason_code=code,reason=reason)
 
+def _category(machine: str, facts: dict | None) -> str:
+    role = (str((facts or {}).get('role') or '') + ' ' + machine).lower()
+    for word in ('submarine', 'aircraft', 'helicopter', 'tank'):
+        if word in role: return word
+    if re.search(r'\b(?:agss|ssn|ssbn|ssgn|ss)-\d',role): return 'submarine'
+    if any(w in role for w in ('bomber','fighter')): return 'aircraft'
+    return ''
+
+
+def _entity_queries(machine: str, names: list[str], facts: dict | None) -> list[str]:
+    category = _category(machine, facts)
+    # First alias with a real name/class, not an isolated hull number/range.
+    meaningful = [n for n in names if not re.fullmatch(r'[A-Z]+-?\d+(?:\s+through\s+[A-Z]+-?\d+)?',n,re.I)]
+    subject = meaningful[0] if meaningful else machine
+    subject = re.sub(r'^(?:(?:[A-Z]+-\d+\+?)[,\s]*(?:through\s*)?)+\s*','',subject)
+    subject = re.sub(r'\s*\([^)]*\)','',subject).strip()
+    subject = re.sub(r'\s+class\b','-class',subject,flags=re.I)
+    subject = subject.replace('"','').strip()
+    designation = re.search(r'\b(?:[A-Z]{1,6})-\d+\b',machine)
+    queries = []
+    if subject: queries.append(' '.join(x for x in (f'"{subject}"',category) if x))
+    if designation: queries.append(' '.join(x for x in (f'"{designation.group()}"',category) if x))
+    return list(dict.fromkeys(queries))[:2]
+
+
 def _search_queries(names: list[str], facts: dict | None) -> list[str]:
-    role = str((facts or {}).get("role") or "").lower()
-    category = next((kind for kind in ("submarine", "aircraft", "helicopter", "tank") if kind in role), "")
-    if not category and any(kind in role for kind in ("bomber", "fighter")):
-        category = "aircraft"
-    # Class names can be shared by unrelated kinds of machine. Use the saved
-    # roster's role to disambiguate discovery; this is never identity evidence.
-    return [" ".join((re.sub(r"\bclass\b", "", name, flags=re.I) + " " + category).split())
-            if category and category not in name.lower() else name for name in names[:2]]
+    return _entity_queries(names[-1] if names else '', names, facts)
+
+
+async def _resolve_article_titles(machine: str, names: list[str], facts: dict | None) -> list[str]:
+    queries = _entity_queries(machine,names,facts)
+    groups = []
+    async with httpx.AsyncClient(timeout=30,headers=_COMMONS_UA) as client:
+        for query in queries:
+            try:
+                response=await _wm_get(client,_WIKIPEDIA_API,params={'action':'query','list':'search',
+                    'srsearch':query,'srnamespace':0,'srlimit':3,'format':'json'})
+                response.raise_for_status()
+                groups.append([x['title'] for x in (response.json().get('query') or {}).get('search',[])
+                    if x.get('title') and 'disambiguation' not in x['title'].lower()])
+            except (httpx.HTTPError,ValueError,KeyError):
+                groups.append([])
+    # Reserve room for both exact-designation and named-class results.
+    ordered=[]
+    for index in range(3):
+        for group in groups:
+            if index<len(group) and group[index] not in ordered: ordered.append(group[index])
+    if not ordered:
+        category=_category(machine,facts)
+        for name in names[:3]:
+            if re.search(r'\bclass\b',name,re.I) and category:
+                ordered.append(re.sub(r'[- ]class\b', '-class '+category,name,flags=re.I))
+            elif len(name.split())>1: ordered.append(name)
+    return ordered[:4]
+
+
+async def _article_sources(machine, names, facts):
+    from reference_article import article_pack
+    return await article_pack(await _resolve_article_titles(machine,names,facts))
+
+
+def _image_identity(candidate):
+    title=_commons_title(candidate.get('image_url') or '')
+    if not title and str(candidate.get('title') or '').lower().startswith('file:'):
+        title=_file(candidate['title'])
+    return title.casefold() if title else _norm(candidate.get('image_url') or '')
 
 
 async def collect_candidates(machine: str, aliases=None, *, facts=None, manual_url=None, source_page_url=None, cached_url=None) -> list[dict]:
-    """Return metadata candidates; manual mode contains only the supplied image as c1."""
+    """Gather exact-entity article photos and safe quoted searches automatically."""
     names=_names(machine,aliases)
+    if manual_url and re.search(r'(?:^|[./])(google|bing|duckduckgo)\.|[?&]q=|/search',manual_url,re.I):
+        result=_candidate(manual_url,reason_code='search_result_url',reason='Paste a direct image URL, not a search-results page.')
+        result['id']='c1';return [result]
+    pack=await _article_sources(machine,names,facts)
+    context=pack.get('context') or []
+    article_images=pack.get('images') or []
+    bases=[];by_identity={}
+    def add(base):
+        if not base.get('image_url'):return
+        identity=_image_identity(base)
+        if identity in by_identity:
+            existing=by_identity[identity]
+            for evidence in base.get('evidence',[]):
+                if evidence not in existing.setdefault('evidence',[]):existing['evidence'].append(evidence)
+            if base.get('caption'):existing['caption']=base['caption']
+            return
+        if len(bases)>=MAX_CANDIDATES:return
+        copied=dict(base);copied['evidence']=list(base.get('evidence') or [])
+        bases.append(copied);by_identity[identity]=copied
     if manual_url:
-        if re.search(r"(?:^|[./])(google|bing|duckduckgo)\.|[?&]q=|/search",manual_url,re.I):
-            result=_candidate(manual_url,reason_code="search_result_url",reason="Paste a direct image URL, not a search-results page."); result["id"]="c1"; return [result]
-        context=await _wiki_context(names[:3])
-        page_evidence,code,reason=([],None,None)
-        if source_page_url: page_evidence,code,reason=await _fetch_source_page(source_page_url,manual_url)
-        try: metadata=await _commons_metadata([manual_url])
-        except RuntimeError: metadata={}; code,reason=code or "metadata_unavailable",reason or "Wikimedia metadata was unavailable."
-        result=_merge({"image_url":manual_url,"source_page":source_page_url or manual_url},metadata.get(_norm(manual_url)),context,code,reason,page_evidence); result["id"]="c1"; return [result]
-    context=await _wiki_context(names[:3])
-    urls=[]; seen=set()
-    def add(url):
-        if not url or len(urls)>=MAX_CANDIDATES or _norm(url) in seen: return False
-        seen.add(_norm(url)); urls.append(url); return True
-    add(cached_url)
-    for url,_ in await _gather_reference_candidates(machine,aliases,machine): add(url)
-    for query in _search_queries(names, facts):
-        if len(urls)>=MAX_CANDIDATES: break
-        for row in await find_commons_photos(query,limit=4): add(row.get("url"))
-    try: metadata=await _commons_metadata(urls); failed=False
-    except RuntimeError: metadata={}; failed=True
+        add(_candidate(manual_url,source_page=source_page_url or manual_url))
+        identity=_image_identity(bases[0])
+        for item in article_images:
+            if _image_identity(item)==identity:add(item)
+    else:
+        if cached_url:add(_candidate(cached_url))
+        for item in article_images:add(item)
+        for query in _entity_queries(machine,names,facts):
+            if len(bases)>=MAX_CANDIDATES:break
+            for row in await find_commons_photos(query,limit=4):
+                add(_candidate(row['url'],title=row.get('title','')))
+    urls=[b['image_url'] for b in bases]
+    try:metadata=await _commons_metadata(urls);failed=False
+    except RuntimeError:metadata={};failed=True
     output=[]
-    for index,url in enumerate(urls,1):
-        record=metadata.get(_norm(url)); code="metadata_unavailable" if failed or (not record and _commons_title(url)) else None
-        result=_merge({"image_url":url,"source_page":url},record,context,code,"Wikimedia metadata was unavailable." if code else None); result["id"]=f"c{index}"; output.append(result)
+    for index,base in enumerate(bases,1):
+        record=metadata.get(_norm(base['image_url'])) or {}
+        evidence=list(record.get('evidence') or [])
+        for item in (base.get('evidence') or [])+context:
+            if item not in evidence:evidence.append(item)
+        code=reason=None
+        if manual_url and source_page_url:
+            page_evidence,code,reason=await _fetch_source_page(source_page_url,manual_url)
+            evidence+=page_evidence
+        if (failed or not record) and _commons_title(base['image_url']) and not any(e.get('kind')=='image_caption' for e in evidence):
+            code,reason='metadata_unavailable','Image metadata and a linked source caption were unavailable.'
+        result=_candidate(record.get('image_url') or base['image_url'],
+            source_page=record.get('source_page') or base.get('source_page'),
+            title=record.get('title') or base.get('title',''),
+            caption=record.get('caption') or base.get('caption',''),
+            width=record.get('width'),height=record.get('height'),evidence=evidence,reason_code=code,reason=reason)
+        result['id']=f'c{index}';output.append(result)
     return output

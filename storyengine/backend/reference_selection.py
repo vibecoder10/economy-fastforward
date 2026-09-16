@@ -211,7 +211,7 @@ def choose_candidate(candidates, judgments):
     return primary, support
 
 
-async def _judge(tenant_id, machine, candidates, facts, aliases=None):
+async def _judge(tenant_id, machine, candidates, facts, aliases=None, *, video_id=None):
     from static_docu import CLAUDE_MODELS
     from vault import get_secret
     key = await get_secret("anthropic_api_key", tenant_id)
@@ -243,23 +243,9 @@ async def _judge(tenant_id, machine, candidates, facts, aliases=None):
             {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                 "data": base64.b64encode(candidate["_vision"]).decode("ascii")}},
         ])
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(url, headers=headers, json={"model": CLAUDE_MODELS[provider]["smart"],
-                "max_tokens": 6000, "messages": [{"role": "user", "content": content}]})
-        if response.status_code != 200:
-            raise SelectionFailure("provider_error", f"Vision provider HTTP {response.status_code}; this is not a machine-identity verdict.")
-        body = response.json()
-        if body.get("stop_reason") in {"max_tokens", "refusal", "pause_turn"}:
-            raise SelectionFailure("invalid_review", "The vision provider did not finish the comparison.")
-        text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-        return json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text))
-    except SelectionFailure:
-        raise
-    except httpx.HTTPError as exc:
-        raise SelectionFailure("provider_error", "The vision provider could not be reached; identity remains unchecked.") from exc
-    except (TypeError, ValueError, KeyError) as exc:
-        raise SelectionFailure("invalid_review", "The provider returned an unreadable comparison; no image was selected.") from exc
+    from reference_judgment import request_judgment
+    return await request_judgment(tenant_id, machine, candidates, content, provider,
+        url, headers, CLAUDE_MODELS[provider]["smart"], video_id=video_id)
 
 
 async def _save_review(tenant_id, video_id, machine, receipt):
@@ -318,7 +304,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         failure = next((c for c in candidates if c.get("reason_code") not in {None, "duplicate_image"}), {})
         return await fail(failure.get("reason_code") or "no_candidates", failure.get("reason") or "No source-backed candidate photographs were found.")
     try:
-        judgments = validate_judgment(await _judge(tenant_id, machine, usable, facts, aliases), usable)
+        judgments = validate_judgment(await _judge(tenant_id, machine, usable, facts, aliases, video_id=video_id), usable)
     except SelectionFailure as exc:
         return await fail(exc.code, exc.reason, "error")
     receipt["compared_count"] = len(usable)
