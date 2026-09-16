@@ -3,6 +3,16 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 
 const source = readFileSync(new URL("./ScriptVoiceTab.tsx", import.meta.url), "utf8");
+const backendSource = readFileSync(new URL("../../../../backend/factual_machine_summary.py", import.meta.url), "utf8");
+
+function numericConstant(body: string, name: string): number {
+  const match = body.match(new RegExp(`(?:const\\s+)?${name}\\s*=\\s*(\\d+)\\s*;?`));
+  if (!match) throw new Error(`missing numeric constant ${name}`);
+  return Number(match[1]);
+}
+
+const FACTUAL_REVIEW_CONTEXT_VERSION = numericConstant(source, "FACTUAL_REVIEW_CONTEXT_VERSION");
+const BACKEND_REVIEW_CONTEXT_VERSION = numericConstant(backendSource, "REVIEW_CONTEXT_VERSION");
 
 function exportedFunction(name: string): string {
   const start = source.indexOf(`export function ${name}`);
@@ -22,7 +32,7 @@ const helperSource = `
   const machinePreviewPassesAntonGate = (preview: any) => Boolean(preview?.quality_audit?.passed && preview?.claim_bundle?.formula_sentences?.length === 5);
   const fullMachineResearchGatePassed = (validation: any, verifiedCount: number, rosterCount: number) => Boolean(validation?.passed && verifiedCount === rosterCount && validation?.units?.length >= rosterCount && !validation?.target_machine);
   const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
-  const FACTUAL_REVIEW_CONTEXT_VERSION = 5;
+  const FACTUAL_REVIEW_CONTEXT_VERSION = ${FACTUAL_REVIEW_CONTEXT_VERSION};
   ${exportedFunction("factualMachineIdentityMatches")}
   ${exportedFunction("machinePreviewHasCurrentFactualIdentity")}
   ${exportedFunction("machinePreviewPassesContract")}
@@ -36,21 +46,25 @@ const { machinePreviewPassesContract, machineResearchGatePassesContract } = new 
 
 const currentFactualBlock = {
   passed: true,
-  paragraph: "HMS Argus served as an aircraft carrier.",
-  machine: "I49 HMS Argus",
+  paragraph: "USS Holland was the United States Navy's first submarine.",
+  machine: "SS-1 USS Holland",
   scene: 1,
   machine_script_contract: "factual_100_v1",
-  review_context_version: 5,
-  subject_context: "Every British Aircraft Carrier Class Ever Built",
+  review_context_version: 6,
+  subject_context: "Every US Submarine Class Ever Built",
   source_fingerprint: "sha256-current",
 };
 
 describe("factual machine script UI truth", () => {
-  it("accepts the current factual block without requiring the legacy Anton audit", () => {
+  it("keeps the UI factual review version aligned with the backend", () => {
+    expect(FACTUAL_REVIEW_CONTEXT_VERSION).toBe(BACKEND_REVIEW_CONTEXT_VERSION);
+  });
+
+  it("accepts the current Holland factual block with an em dash display label", () => {
     expect(machinePreviewPassesContract(
       currentFactualBlock,
       true,
-      "I49 HMS Argus",
+      "SS-1 — USS Holland",
       1,
       currentFactualBlock.subject_context,
     )).toBe(true);
@@ -58,16 +72,16 @@ describe("factual machine script UI truth", () => {
 
   it("does not pass stale, wrong-context, or failed factual blocks", () => {
     expect(machinePreviewPassesContract(
-      { ...currentFactualBlock, review_context_version: 4 }, true,
-      "I49 HMS Argus", 1, currentFactualBlock.subject_context,
+      { ...currentFactualBlock, review_context_version: 5 }, true,
+      "SS-1 — USS Holland", 1, currentFactualBlock.subject_context,
     )).toBe(false);
     expect(machinePreviewPassesContract(
       currentFactualBlock, true,
-      "I49 HMS Argus", 1, "Every British Battleship Class Ever Built",
+      "SS-1 — USS Holland", 1, "Every British Battleship Class Ever Built",
     )).toBe(false);
     expect(machinePreviewPassesContract(
-      { ...currentFactualBlock, passed: false }, true,
-      "I49 HMS Argus", 1, currentFactualBlock.subject_context,
+      { ...currentFactualBlock, passed: false, review_context_version: 6 }, true,
+      "SS-1 — USS Holland", 1, currentFactualBlock.subject_context,
     )).toBe(false);
   });
 

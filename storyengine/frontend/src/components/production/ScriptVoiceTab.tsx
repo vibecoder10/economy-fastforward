@@ -211,7 +211,7 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
 }
 
 const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
-const FACTUAL_REVIEW_CONTEXT_VERSION = 5;
+const FACTUAL_REVIEW_CONTEXT_VERSION = 6;
 
 export function machinePreviewPassesContract(
   preview: any,
