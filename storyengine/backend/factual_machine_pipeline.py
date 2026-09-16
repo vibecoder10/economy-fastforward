@@ -45,6 +45,7 @@ def current_research_briefings(payload, roster, subject_context=''):
             'paragraph': summary['paragraph'],
             'claim_map': summary['claim_map'],
             'sources': summary['sources'],
+            'claim_assessment': summary['claim_assessment'],
         })
     return briefings
 

@@ -20,6 +20,14 @@ _GENERIC_IDENTITY_WORDS = {
     "class", "the",
 }
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])(?:\d[\d,]*(?:\.\d+)?(?:%|st|nd|rd|th)?)(?![A-Za-z0-9])")
+_NAMED_SUBMARINE_HULL_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?P<prefix>AGSS|SSBN|SSGN|SSN|SSG|SS)[\s\-]?(?P<number>\d+)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_NAMED_SUBMARINE_TARGET_RE = re.compile(
+    r"^\s*(?:AGSS|SSBN|SSGN|SSN|SSG|SS)[\s\-]?\d+\s+USS\s+(?P<name>[A-Za-z0-9][A-Za-z0-9 .,'’\-–—/]*)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _words(value: Any) -> list[str]:
@@ -28,6 +36,53 @@ def _words(value: Any) -> list[str]:
 
 def _identity_key(value: Any) -> str:
     return "".join(_words(value))
+
+
+def named_submarine_target(machine: Any) -> dict[str, str] | None:
+    """Parse one exact USS submarine target, never a class or hull range.
+
+    The factual evidence contract needs a stricter path for the runtime's
+    named-submarine roster: a target is a single SS-family hull plus its full
+    USS name.  Class/range display labels retain the existing class matcher.
+    """
+    raw = " ".join(str(machine or "").split())
+    if not raw or re.search(r"\b(?:class|through|range)\b", raw, re.IGNORECASE):
+        return None
+    hulls = list(_NAMED_SUBMARINE_HULL_RE.finditer(raw))
+    target = _NAMED_SUBMARINE_TARGET_RE.fullmatch(raw)
+    if len(hulls) != 1 or target is None:
+        return None
+    name = target.group("name").strip()
+    name_key = _identity_key(name)
+    if not name_key:
+        return None
+    hull = hulls[0]
+    return {
+        "prefix": hull.group("prefix").upper(),
+        "number": hull.group("number"),
+        "name": name,
+        "name_key": name_key,
+    }
+
+
+def _named_submarine_excerpt_matches(text: Any, target: dict[str, str]) -> bool:
+    """Require the complete submarine name and its target hull in one excerpt."""
+    source = str(text or "")
+    name_words = re.findall(r"[A-Za-z0-9]+", target["name"])
+    if not name_words:
+        return False
+    name_pattern = r"(?<![A-Za-z0-9])" + r"[\s._,'’\-–—/]*".join(
+        re.escape(word) for word in name_words
+    ) + r"(?![A-Za-z0-9])"
+    if not re.search(name_pattern, source, re.IGNORECASE):
+        return False
+    prefixes = ("AGSS", "SS") if target["prefix"] in {"AGSS", "SS"} else (target["prefix"],)
+    prefix_pattern = "|".join(re.escape(prefix) for prefix in prefixes)
+    hull_pattern = (
+        r"(?<![A-Za-z0-9])(?:" + prefix_pattern + r")[\s.\-‐‑–—]*"
+        + re.escape(target["number"]) + r"(?![A-Za-z0-9])"
+    )
+    return bool(re.search(hull_pattern, source, re.IGNORECASE))
 
 
 _NAVAL_HULL_PREFIX_RE = re.compile(
@@ -130,6 +185,9 @@ def candidate_mentions_machine(text: Any, machine: Any) -> bool:
     """Match exact aircraft designations or distinctive vessel names."""
     raw_machine = str(machine or "").strip()
     source_text = str(text or "")
+    submarine = named_submarine_target(raw_machine)
+    if submarine:
+        return _named_submarine_excerpt_matches(source_text, submarine)
     subject = factual_research_subject(raw_machine)
     # Class display labels with naval range bookkeeping require the actual
     # class phrase, or both a distinctive lead-vessel name and exact hull.
@@ -254,15 +312,21 @@ def build_factual_evidence_card(machine: str, package: Any) -> dict:
             "source_capture_method": str(candidate.get("source_capture_method") or "").strip(),
             "locator": str(candidate.get("locator") or excerpt_id).strip(),
             "numeric_tokens": _numeric_tokens(text),
-            "confidence": "high",
+            "confidence": "unassessed",
+            "provenance_status": "captured",
         })
-    return {
+    card = {
         "schema_version": 3,
         "machine_research_contract": FACTUAL_MACHINE_SCRIPT_CONTRACT,
         "unit": machine,
         "include": True,
+        "confidence": "unassessed",
+        "provenance_status": "captured",
         "evidence_segments": segments,
     }
+    if isinstance(package, dict) and isinstance(package.get("claim_assessment"), dict):
+        card["claim_assessment"] = dict(package["claim_assessment"])
+    return card
 
 
 def factual_card_contract_warnings(machine: str, card: Any, package: Any) -> list[str]:

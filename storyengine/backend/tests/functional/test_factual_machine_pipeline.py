@@ -58,6 +58,24 @@ def test_saved_factual_section_resumes_without_another_model_call(state):
 def test_script_writer_receives_current_saved_research_briefing(state):
     ex,video,machine,package,writer=state
     from machine_research_summary import saved_research_summary
+    from research_claim_assessment import _claims_fingerprint, assessment_fingerprint
+    quote = 'I49 HMS Argus was an aircraft carrier commissioned with a full flight deck.'
+    package.update({
+        'sources': [{'source_id': 'S1', 'url': 'https://example.test/argus'}],
+        'candidate_excerpts': [{'excerpt_id': 'S1', 'source_id': 'S1', 'source_title': 'Argus carrier record',
+            'source_url': 'https://example.test/argus', 'locator': 'S1', 'source_capture_method': 'fetched_page',
+            'text': quote}],
+    })
+    claims = [{'id': 'C1', 'claim': 'Argus had a flight deck.', 'scope': 'configuration', 'status': 'supported',
+        'reason': 'The excerpt says so.', 'evidence': [{'excerpt_id': 'S1', 'quote': quote,
+        'source_url': 'https://example.test/argus', 'source_title': 'Argus carrier record', 'locator': 'S1'}],
+        'counterevidence': []}]
+    package['claim_assessment'] = {
+        'version': 1, 'status': 'assessed', 'machine': machine, 'subject_context': video['video_title'],
+        'probability': None, 'provenance_status': 'captured', 'method': 'model_source_assessment',
+        'calibration': 'not_calibrated', 'source_fingerprint': assessment_fingerprint(machine, package, video['video_title']),
+        'claims_fingerprint': _claims_fingerprint(claims), 'claims': claims,
+    }
     summary=saved_research_summary(machine,package,{
         'passed':True, 'paragraph':'Argus was commissioned with a full flight deck.',
         'claim_map':[{'sentence':'Argus was commissioned with a full flight deck.','citations':[{'excerpt_id':'S1'}]}],
@@ -68,7 +86,8 @@ def test_script_writer_receives_current_saved_research_briefing(state):
     asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
     briefings=writer.await_args.kwargs['research_briefings']
     assert briefings == [{'machine':machine,'scene':1,'paragraph':summary['paragraph'],
-                          'claim_map':summary['claim_map'],'sources':summary['sources']}]
+                          'claim_map':summary['claim_map'],'sources':summary['sources'],
+                          'claim_assessment':summary['claim_assessment']}]
 
 
 def test_changed_sources_invalidate_saved_summary(state):
@@ -198,6 +217,20 @@ def test_readiness_rejects_changed_title_and_stale_review_context(state):
     block['subject_context']=video['video_title']
     block['review_context_version']=fs.REVIEW_CONTEXT_VERSION-1
     assert fp.factual_script_readiness(video,[machine]) is False
+
+
+def test_claim_assessment_change_invalidates_script_fingerprint(state):
+    _ex, video, machine, package, _writer = state
+    fingerprint = fp.source_fingerprint(machine, package)
+    block = {'passed': True, 'paragraph': 'Approved prose.', 'machine': machine, 'scene': 1,
+             'machine_script_contract': fp.CONTRACT, 'source_fingerprint': fingerprint,
+             'review_context_version': fs.REVIEW_CONTEXT_VERSION, 'subject_context': video['video_title']}
+    video['script_validation'] = {'machine_script_blocks': {machine: block}}
+    assert fp.factual_script_readiness(video, [machine]) is True
+
+    package['claim_assessment'] = {'version': 1, 'status': 'assessed', 'claims': []}
+    assert fp.source_fingerprint(machine, package) != fingerprint
+    assert fp.factual_script_readiness(video, [machine]) is False
 
 
 def test_changed_title_rechecks_large_saved_prose_without_fresh_generation(state, monkeypatch):

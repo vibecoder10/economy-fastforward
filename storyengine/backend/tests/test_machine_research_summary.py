@@ -8,23 +8,43 @@ from machine_research_summary import (
 )
 import factual_machine_research as factual
 import pipeline_executor as pe
-from factual_machine_summary import _writer_prompt
+from factual_machine_summary import REVIEW_CONTEXT_VERSION, _writer_prompt
+from research_claim_assessment import _claims_fingerprint, assessment_fingerprint
 
 
 MACHINE = "I-49 HMS Argus"
 CONTEXT = "Every British Aircraft Carrier Class Ever Built"
 
 
-def _package(text="I-49 HMS Argus entered service in 1918."):
+def _package(text="I-49 HMS Argus, an aircraft carrier, entered service in 1918."):
     return {
         "machine": MACHINE,
+        "sources": [{"source_id": "S1", "url": "https://example.test/argus"}],
         "candidate_excerpts": [{
             "excerpt_id": "S1-E1",
+            "source_id": "S1",
+            "source_title": "Argus record",
             "source_url": "https://example.test/argus",
             "text": text,
             "locator": "S1-E1",
+            "source_capture_method": "fetched_page",
         }],
     }
+
+
+def _assessed(package):
+    excerpt = package["candidate_excerpts"][0]
+    claims = [{"id": "C1", "claim": "Argus entered service.", "scope": "service", "status": "supported",
+               "reason": "The excerpt states it.", "evidence": [{"excerpt_id": "S1-E1", "quote": excerpt["text"],
+               "source_url": excerpt["source_url"], "source_title": excerpt["source_title"], "locator": "S1-E1"}],
+               "counterevidence": []}]
+    package["claim_assessment"] = {
+        "version": 1, "status": "assessed", "machine": MACHINE, "subject_context": CONTEXT,
+        "probability": None, "provenance_status": "captured", "method": "model_source_assessment",
+        "calibration": "not_calibrated", "source_fingerprint": assessment_fingerprint(MACHINE, package, CONTEXT),
+        "claims_fingerprint": _claims_fingerprint(claims), "claims": claims,
+    }
+    return package
 
 
 def _result():
@@ -35,12 +55,12 @@ def _result():
         "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
         "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
         "warnings": [],
-        "review_context_version": 5,
+        "review_context_version": REVIEW_CONTEXT_VERSION,
     }
 
 
 def test_saved_summary_is_current_only_for_exact_package_and_context():
-    package = _package()
+    package = _assessed(_package())
     summary = saved_research_summary(MACHINE, package, _result(), CONTEXT)
 
     assert summary["schema_version"] == RESEARCH_SUMMARY_VERSION

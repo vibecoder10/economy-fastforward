@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -49,6 +49,38 @@ function normalizedUnitCode(text: string): string {
   return unitCode(text).replace(/[^A-Z0-9]/g, "");
 }
 
+type SubmarineIdentity = { hullType: string; hullNumber: string; name: string };
+
+function submarineIdentity(value: unknown): SubmarineIdentity | null {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text || /\b(?:class|through|range)\b/i.test(text)) return null;
+  const hulls = Array.from(text.matchAll(/\b(AGSS|SSBN|SSN|SS)[\s-]?(\d+)\b/gi));
+  const target = text.match(/^\s*(AGSS|SSBN|SSN|SS)[\s-]?(\d+)\s*(?:[-—–]\s*)?USS\s+([A-Z0-9][A-Z0-9 .,'’\-–—/]*?)\s*$/i);
+  if (hulls.length !== 1 || !target) return null;
+  const normalizedName = target[3].replace(/[^a-z0-9]+/gi, " ").trim().replace(/\s+/g, " ").toUpperCase();
+  return {
+    hullType: target[1].toUpperCase(),
+    hullNumber: target[2],
+    name: normalizedName,
+  };
+}
+
+function navalHullMatches(left: SubmarineIdentity, right: SubmarineIdentity): boolean {
+  if (left.hullNumber !== right.hullNumber) return false;
+  return left.hullType === right.hullType
+    || (new Set([left.hullType, right.hullType])).size === 2
+      && new Set([left.hullType, right.hullType]).has("SS")
+      && new Set([left.hullType, right.hullType]).has("AGSS");
+}
+
+function isNamedUssSubmarine(value: unknown): boolean {
+  return submarineIdentity(value) !== null;
+}
+
+function normalizedDisplayIdentity(value: unknown): string {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function designationCodes(text: unknown): Set<string> {
   const body = String(text || "").toUpperCase().replace(/[–—]/g, "-");
   const matches = body.match(/\b(?:X?Y?B|FB)-?\d{1,3}[A-Z]?\b|\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b/g) || [];
@@ -62,10 +94,22 @@ function designationCodeMatches(candidateCode: string, targetCode: string): bool
   return Boolean(suffix && /^[A-Z]+$/.test(suffix));
 }
 
-function textMentionsMachine(text: unknown, machine: string): boolean {
+export function textMentionsMachine(text: unknown, machine: string): boolean {
   const body = String(text || "");
   const target = String(machine || "").trim();
   if (!body || !target) return false;
+  const submarine = submarineIdentity(target);
+  if (submarine) {
+    const nameWords = submarine.name.match(/[A-Z0-9]+/g) || [];
+    const namePattern = nameWords.length
+      ? new RegExp(`(?<![A-Z0-9])${nameWords.join("[\\s._,'’\\-–—/]*")}(?![A-Z0-9])`, "i")
+      : null;
+    if (!namePattern?.test(body)) return false;
+    const prefixes = submarine.hullType === "SS" || submarine.hullType === "AGSS"
+      ? "AGSS|SS"
+      : submarine.hullType;
+    return new RegExp(`(?<![A-Z0-9])(?:${prefixes})[\\s.\\-‐‑–—]*${submarine.hullNumber}(?![A-Z0-9])`, "i").test(body);
+  }
   const targetCode = normalizedUnitCode(target);
   const bodyCodes = designationCodes(body);
   // Exact designation tokens and letter suffixes only: B-2 must not match B-21.
@@ -82,10 +126,18 @@ function textMentionsMachine(text: unknown, machine: string): boolean {
     .some((word) => !genericMakers.has(word) && bodyWords.has(word));
 }
 
-function machineLabelMatches(left: unknown, right: unknown): boolean {
+export function machineLabelMatches(left: unknown, right: unknown): boolean {
   const leftText = String(left || "").trim();
   const rightText = String(right || "").trim();
   if (!leftText || !rightText) return false;
+  const leftSubmarine = submarineIdentity(leftText);
+  const rightSubmarine = submarineIdentity(rightText);
+  // A named submarine is its full display identity, never just the shared hull
+  // number or a class/range alias.
+  if (leftSubmarine || rightSubmarine) {
+    return Boolean(leftSubmarine && rightSubmarine
+      && normalizedDisplayIdentity(leftText) === normalizedDisplayIdentity(rightText));
+  }
   const leftCode = normalizedUnitCode(leftText);
   const rightCode = normalizedUnitCode(rightText);
   if (leftCode && rightCode && leftCode === rightCode) return true;
@@ -730,10 +782,16 @@ function machineResearchCardReady(card: any): boolean {
   return machineResearchReadiness(card).ready;
 }
 
-function sourcePackageForMachine(packages: any, machine: string): any | null {
+export function sourcePackageForMachine(packages: any, machine: string): any | null {
   if (!packages || typeof packages !== "object" || !machine) return null;
   const key = normalizedUnitCode(machine);
-  if (!Array.isArray(packages) && key && packages[key]) return packages[key];
+  const namedSubmarine = isNamedUssSubmarine(machine);
+  if (!Array.isArray(packages) && key && packages[key]) {
+    const direct = packages[key];
+    // Direct map keys can be stale or collide. For named boats, the saved
+    // package itself must name the exact submarine.
+    if (!namedSubmarine || machineLabelMatches(direct?.machine, machine)) return direct;
+  }
   const rows = Array.isArray(packages) ? packages : Object.entries(packages).map(([rawKey, value]) => ({ rawKey, value }));
   for (const row of rows) {
     const rawKey = Array.isArray(packages) ? "" : String(row.rawKey || "");
@@ -741,11 +799,12 @@ function sourcePackageForMachine(packages: any, machine: string): any | null {
     if (!candidate || typeof candidate !== "object") continue;
     const packageMachine = String(candidate.machine || "");
     const packageKey = String(candidate.machine_key || "");
-    if (
+    if (namedSubmarine && machineLabelMatches(packageMachine, machine)) return candidate;
+    if (!namedSubmarine && (
       normalizedUnitCode(rawKey) === key
       || normalizedUnitCode(packageMachine) === key
       || normalizedUnitCode(packageKey) === key
-    ) {
+    )) {
       return candidate;
     }
   }
@@ -794,6 +853,77 @@ function TagChips({ text }: { text: string }) {
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function AssessmentQuotes({ rows, label, tone }: { rows: any[]; label: string; tone: string }) {
+  if (!rows.length) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: tone }}>{label}</div>
+      {rows.map((row: any, index: number) => {
+        const url = String(row?.source_url || "").trim();
+        const title = String(row?.source_title || url || `Source ${index + 1}`).trim();
+        return (
+          <div key={`${row?.excerpt_id || title}-${index}`} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <p className="text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>“{row?.quote}”</p>
+            <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {/^https?:\/\//i.test(url) ? <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--turquoise)" }}>{title}</a> : <span>{title}</span>}
+              {row?.locator && <span>{row.locator}</span>}
+              {row?.excerpt_id && <span className="font-mono">{row.excerpt_id}</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function SourceAssessmentPanel({ assessment, subjectWord }: { assessment: any; subjectWord: string }) {
+  const assessmentStatus = assessment?.status === "assessed" ? "assessed" : assessment ? "needs_review" : "not_assessed";
+  return (
+    <div className="mt-3 rounded-md p-3" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Source-backed assessment</div>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: assessmentStatus === "assessed" ? "var(--green)" : "var(--orange)" }}>
+          {assessmentStatus === "assessed" ? "Assessed" : assessmentStatus === "needs_review" ? "Needs review" : "Not assessed"}
+        </span>
+      </div>
+      {assessmentStatus === "assessed" ? (
+        <>
+          <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-tertiary)" }}>Model assessment of supplied sources, not a measured probability.</p>
+          <div className="mt-3 space-y-2">
+            {(Array.isArray(assessment?.claims) ? assessment.claims : []).map((claim: any, claimIndex: number) => {
+              const status = String(claim?.status || "insufficient");
+              const statusLabel: Record<string, string> = { supported: "Supported", disputed: "Disputed", insufficient: "Insufficient", out_of_scope: "Out of scope" };
+              const tone = status === "supported" ? "var(--green)" : status === "disputed" ? "var(--orange)" : "var(--text-tertiary)";
+              return (
+                <div key={claim?.id || claimIndex} className="rounded px-3 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[10px]" style={{ color: "var(--text-tertiary)" }}>{claim?.id || `C${claimIndex + 1}`}</span>
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: tone, background: "rgba(255,255,255,.05)" }}>{statusLabel[status] || "Needs review"}</span>
+                    {claim?.scope && <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{claim.scope}</span>}
+                  </div>
+                  <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-primary)" }}>{claim?.claim}</p>
+                  {claim?.reason && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{claim.reason}</p>}
+                  <AssessmentQuotes rows={Array.isArray(claim?.evidence) ? claim.evidence : []} label="Supporting source quotes" tone="var(--green)" />
+                  <AssessmentQuotes rows={Array.isArray(claim?.counterevidence) ? claim.counterevidence : []} label="Counterevidence quotes" tone="var(--orange)" />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+          {assessment?.reason || (assessmentStatus === "needs_review" ? "Saved assessment needs review." : `No source assessment receipt has been saved for this ${subjectWord}.`)}
+        </p>
+      )}
+      {Array.isArray(assessment?.warnings) && assessment.warnings.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs" style={{ color: "var(--orange)" }}>
+          {assessment.warnings.map((warning: any, index: number) => <li key={index}>• {warning}</li>)}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1287,9 +1417,24 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
     };
   }, [video]);
 
+  const machineRosterLabels = useMemo(() => research?.unit_roster.map(machineLabel).filter(Boolean) || [], [research?.unit_roster]);
+  const namedSubmarineRoster = machineRosterLabels.length > 0 && machineRosterLabels.every(isNamedUssSubmarine);
+
+  useEffect(() => {
+    if (!machineRosterLabels.length) {
+      if (selectedMachine) setSelectedMachine("");
+      return;
+    }
+    if (!machineRosterLabels.some((label) => machineLabelMatches(label, selectedMachine))) {
+      setSelectedMachine(machineRosterLabels[0]);
+    }
+  }, [machineRosterLabels, selectedMachine]);
+
   const selectedMachineLabel = useMemo(() => {
-    return selectedMachine || machineLabel(research?.unit_roster?.[0]) || "";
-  }, [research?.unit_roster, selectedMachine]);
+    return machineRosterLabels.find((label) => machineLabelMatches(label, selectedMachine))
+      || machineRosterLabels[0]
+      || "";
+  }, [machineRosterLabels, selectedMachine]);
 
   const selectedResearchCard = useMemo(() => {
     if (!research || !selectedMachineLabel) return null;
@@ -1619,7 +1764,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <FileText size={15} style={{ color: "var(--turquoise)" }} />
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine research roster</h3>
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>{namedSubmarineRoster ? "Submarine research roster" : "Machine research roster"}</h3>
               </div>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
                 {verifiedMachineResearchCount}/{research.unit_roster.length} cards verified. Repair fixes a failing card with the cheapest verb first; Run research is the full paid re-roll.
@@ -1744,7 +1889,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
             <summary className="cursor-pointer list-none">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Selected machine inspector</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>{namedSubmarineRoster ? "Selected submarine inspector" : "Selected machine inspector"}</div>
                   <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{selectedMachineLabel}</p>
                 </div>
                 <span className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ background: selectedResearchReady ? "rgba(0,230,138,.1)" : "rgba(255,120,73,.1)", color: selectedResearchReady ? "var(--green)" : "var(--orange)", border: `1px solid ${selectedResearchReady ? "rgba(0,230,138,.2)" : "rgba(255,120,73,.22)"}` }}>
@@ -1831,6 +1976,12 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                     </p>
                   )}
                 </div>
+              )}
+              {factualResearch && (
+                <SourceAssessmentPanel
+                  assessment={selectedSourcePackage?.claim_assessment}
+                  subjectWord={namedSubmarineRoster ? "submarine" : "machine"}
+                />
               )}
               {selectedSourcePackage && (
                 <div className="mt-2 flex flex-wrap gap-1.5">

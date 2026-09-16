@@ -7,7 +7,7 @@ from factual_machine_pipeline import source_fingerprint
 from factual_machine_summary import REVIEW_CONTEXT_VERSION
 
 
-RESEARCH_SUMMARY_VERSION = 1
+RESEARCH_SUMMARY_VERSION = 2
 
 
 def is_recoverable_research_error(exc: BaseException, _source_wrapper_depth: int = 0) -> bool:
@@ -65,6 +65,8 @@ def research_summary_ready(
     """
     if not isinstance(summary, dict):
         return False
+    from research_claim_assessment import current_assessment, has_supported_claim
+    assessment = current_assessment(machine, package, subject_context)
     return (
         summary.get("schema_version") == RESEARCH_SUMMARY_VERSION
         and summary.get("passed") is True
@@ -76,6 +78,8 @@ def research_summary_ready(
         and summary.get("review_context_version") == REVIEW_CONTEXT_VERSION
         and summary.get("subject_context") == str(subject_context or "")
         and summary.get("source_fingerprint") == source_fingerprint(machine, package)
+        and assessment is not None and has_supported_claim(assessment)
+        and summary.get("claim_assessment") == assessment
     )
 
 
@@ -87,6 +91,8 @@ def saved_research_summary(
 ) -> dict:
     """Shape a generated/reviewed result for storage on a factual card."""
     result = result if isinstance(result, dict) else {}
+    from research_claim_assessment import current_assessment
+    assessment = current_assessment(machine, package, subject_context)
     return {
         "schema_version": RESEARCH_SUMMARY_VERSION,
         "paragraph": str(result.get("paragraph") or "").strip(),
@@ -97,4 +103,5 @@ def saved_research_summary(
         "subject_context": str(subject_context or ""),
         "source_fingerprint": source_fingerprint(machine, package),
         "review_context_version": result.get("review_context_version", REVIEW_CONTEXT_VERSION),
+        "claim_assessment": assessment,
     }

@@ -1,10 +1,11 @@
 import asyncio
+import json
 import pytest
 import sys
 import types
 from pathlib import Path
 from types import MethodType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -59,6 +60,22 @@ def _package(*candidates, machine=MACHINE):
     }
 
 
+def _assessment_client():
+    """Return a controlled assessor that grounds its one claim in prompt evidence."""
+    async def generate(*, prompt, **_kwargs):
+        evidence = json.loads(prompt.split("EVIDENCE:\n", 1)[1])
+        candidate = evidence[0]
+        return json.dumps({"claims": [{
+            "claim": "The cited source records a fact about the locked machine.",
+            "scope": "exact locked machine source record",
+            "status": "supported",
+            "reason": "The supplied excerpt directly names the locked machine.",
+            "evidence": [{"excerpt_id": candidate["excerpt_id"], "quote": candidate["text"]}],
+            "counterevidence": [],
+        }]})
+    return SimpleNamespace(generate=AsyncMock(side_effect=generate))
+
+
 def test_factual_card_copies_only_traceable_exact_machine_excerpts():
     package = _package(
         _candidate(),
@@ -91,6 +108,37 @@ def test_factual_contract_rejects_wrong_package_identity_and_mutated_claim():
     assert any("not an exact fetched excerpt" in warning for warning in warnings)
 
 
+def test_factual_hold_blocks_wrong_source_before_assessment_or_briefing():
+    package = _package(_candidate(text="HMS Eagle entered service in 1924."))
+    payload = {
+        "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+        "unit_roster": [MACHINE],
+        "machine_raw_source_packages": {pe._verified_source_cache_key(MACHINE): package},
+        "unit_research_cards": [],
+    }
+    executor = object.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+    client = _assessment_client()
+    executor._pipeline = SimpleNamespace(anthropic=client)
+    executor._load_machine_research_cards = AsyncMock(side_effect=lambda *_args, **_kwargs: payload)
+    executor._gather_verified_machine_source_package = AsyncMock(return_value=package)
+    executor._checkpoint_machine_raw_source_package = AsyncMock(return_value="UPDATE 1")
+    executor._checkpoint_one_machine_research_result = AsyncMock(return_value="UPDATE 1")
+    executor._upsert_machine_research_card = AsyncMock()
+    executor._log_activity = AsyncMock()
+    writer = AsyncMock(side_effect=AssertionError("bad source must stop before briefing"))
+
+    with patch("factual_machine_summary.generate_factual_machine_summary", writer):
+        result = asyncio.run(executor._run_unit_research_hold(
+            "video-1", "Every British Carrier", payload, [MACHINE], target_machine=MACHINE,
+        ))
+
+    assert client.generate.await_count == 0
+    assert writer.await_count == 0
+    assert result["machine_raw_source_packages"][pe._verified_source_cache_key(MACHINE)]["candidate_excerpts"] == package["candidate_excerpts"]
+    assert result["unit_research_hold_validation"]["target_machine_passed"] is False
+
+
 def test_machine_match_requires_full_distinctive_name_and_prefers_source_diversity():
     assert factual.candidate_mentions_machine("HMS Queen Elizabeth entered service.", "HMS Queen Elizabeth")
     assert not factual.candidate_mentions_machine("HMS Queen Mary entered service in 1918.", "94 HMS Queen Elizabeth (1918)")
@@ -113,7 +161,7 @@ def test_machine_match_requires_full_distinctive_name_and_prefers_source_diversi
     ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
 ])
 @pytest.mark.parametrize("kie_receipt", [False, True])
-def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(machine, excerpt, kie_receipt):
+def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
     package = _package(_candidate(text=excerpt), machine=machine)
     if kie_receipt:
         package["source_discovery_requests"] = [
@@ -148,7 +196,8 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(mac
     }
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
-    executor._pipeline = SimpleNamespace(anthropic=None)
+    client = _assessment_client()
+    executor._pipeline = SimpleNamespace(anthropic=client)
     calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
 
     async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
@@ -179,8 +228,16 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(mac
     executor._upsert_machine_research_card = MethodType(upsert, executor)
     executor._log_activity = MethodType(log, executor)
 
-    from unittest.mock import AsyncMock
-    with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger:
+    generated = {
+        "passed": True,
+        "paragraph": sentence,
+        "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+        "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+        "review_context_version": REVIEW_CONTEXT_VERSION,
+    }
+    writer = AsyncMock(return_value=generated)
+    with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+         patch("factual_machine_summary.generate_factual_machine_summary", writer):
         result = asyncio.run(executor._run_unit_research_hold(
             "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
         ))
@@ -189,9 +246,13 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(mac
         assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
         assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
 
-    assert calls == {"gather": 0, "raw": 1, "card": 1, "upsert": 1}
+    assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+    assert client.generate.await_count == 1
+    assert writer.await_count == 1
     card = pe._research_card_for_machine(result, machine)
     assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+    assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+    assert card["claim_assessment"]["status"] == "assessed"
     assert result["unit_research_hold_validation"]["target_machine_passed"] is True
     assert result["unit_research_hold_validation"]["passed"] is False
     assert len(result["unit_research_hold_validation"]["units"]) == 20
@@ -274,7 +335,8 @@ def test_factual_hold_persists_malformed_generator_success_as_failed_summary():
     }
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
-    executor._pipeline = SimpleNamespace(anthropic=object())
+    client = _assessment_client()
+    executor._pipeline = SimpleNamespace(anthropic=client)
 
     async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
         return current_payload
@@ -291,7 +353,6 @@ def test_factual_hold_persists_malformed_generator_success_as_failed_summary():
     executor._upsert_machine_research_card = MethodType(noop, executor)
     executor._log_activity = MethodType(noop, executor)
 
-    from unittest.mock import AsyncMock
     malformed = {"passed": True, "paragraph": "HMS Argus entered service in 1918.", "claim_map": [], "sources": []}
     with patch("factual_machine_summary.generate_factual_machine_summary", AsyncMock(return_value=malformed)):
         result = asyncio.run(executor._run_unit_research_hold(
@@ -300,6 +361,8 @@ def test_factual_hold_persists_malformed_generator_success_as_failed_summary():
     saved = pe._research_card_for_machine(result, MACHINE)["research_summary"]
     assert saved["passed"] is False
     assert "claims or citations" in " ".join(saved["warnings"])
+    assert client.generate.await_count == 1
+    assert result["machine_raw_source_packages"][pe._verified_source_cache_key(MACHINE)]["claim_assessment"]["status"] == "assessed"
     assert result["unit_research_hold_validation"]["passed"] is False
 
 
@@ -316,7 +379,8 @@ def test_bulk_factual_hold_continues_after_one_transport_failure():
     async def should_cancel():
         return False
 
-    executor._pipeline = SimpleNamespace(anthropic=object(), should_cancel=should_cancel)
+    client = _assessment_client()
+    executor._pipeline = SimpleNamespace(anthropic=client, should_cancel=should_cancel)
     attempted = []
 
     async def get_video(_self, _video_id):
@@ -345,7 +409,6 @@ def test_bulk_factual_hold_continues_after_one_transport_failure():
     executor._upsert_machine_research_card = MethodType(noop, executor)
     executor._log_activity = MethodType(noop, executor)
 
-    from unittest.mock import AsyncMock
     complete = {
         "passed": True, "paragraph": "A sourced research briefing.",
         "claim_map": [{"sentence": "A sourced research briefing.", "citations": [{"excerpt_id": "S1-E1"}]}],
@@ -358,6 +421,9 @@ def test_bulk_factual_hold_continues_after_one_transport_failure():
     failed = next(unit for unit in result["unit_research_hold_validation"]["units"] if unit["machine"] == "HMS Eagle")
     assert failed["passed"] is False
     assert "transport failure" in " ".join(failed["warnings"])
+    assert client.generate.await_count == 2
+    for machine in (MACHINE, "HMS Hermes"):
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
 
 
 def test_bulk_factual_hold_stops_after_machine_two_checkpoint_conflict():
@@ -367,7 +433,8 @@ def test_bulk_factual_hold_stops_after_machine_two_checkpoint_conflict():
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
     async def should_cancel(): return False
-    executor._pipeline = SimpleNamespace(anthropic=object(), should_cancel=should_cancel)
+    client = _assessment_client()
+    executor._pipeline = SimpleNamespace(anthropic=client, should_cancel=should_cancel)
     attempted, raw_checkpoints = [], []
     async def get_video(_self, _video_id): return {"max_spend": None, "total_cost": 0}
     async def load(_self, _video_id, value, _roster, target_machine=None): return value
@@ -376,7 +443,7 @@ def test_bulk_factual_hold_stops_after_machine_two_checkpoint_conflict():
         return _package(_candidate(text=f"{machine} entered service in 1918."), machine=machine)
     async def raw_checkpoint(_self, *_args):
         raw_checkpoints.append(1)
-        return "UPDATE 0" if len(raw_checkpoints) == 2 else "UPDATE 1"
+        return "UPDATE 0" if len(raw_checkpoints) == 3 else "UPDATE 1"
     async def checkpoint(*_args): return "UPDATE 1"
     async def noop(*_args, **_kwargs): return None
     executor._get_video = MethodType(get_video, executor)
@@ -386,13 +453,14 @@ def test_bulk_factual_hold_stops_after_machine_two_checkpoint_conflict():
     executor._checkpoint_one_machine_research_result = MethodType(checkpoint, executor)
     executor._upsert_machine_research_card = MethodType(noop, executor)
     executor._log_activity = MethodType(noop, executor)
-    from unittest.mock import AsyncMock
     valid = {"passed": True, "paragraph": "Briefing.",
              "claim_map": [{"sentence": "Briefing.", "citations": [{"excerpt_id": "S1-E1"}]}],
              "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}]}
     with patch("factual_machine_summary.generate_factual_machine_summary", AsyncMock(return_value=valid)):
         result = asyncio.run(executor._run_unit_research_hold("video-1", "Every British Carrier", payload, roster))
     assert attempted == [MACHINE, "HMS Eagle"]
+    assert len(raw_checkpoints) == 3
+    assert client.generate.await_count == 1
     assert "checkpoint refused" in " ".join(
         next(unit["warnings"] for unit in result["unit_research_hold_validation"]["units"] if unit["machine"] == "HMS Eagle")
     )

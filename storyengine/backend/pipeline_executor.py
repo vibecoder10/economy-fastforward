@@ -869,6 +869,9 @@ def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
     if not isinstance(cards, list):
         return None
     target_name = _unit_display_name(machine).strip().lower()
+    from factual_machine_research import named_submarine_target
+    target_submarine = named_submarine_target(_unit_display_name(machine))
+    target_identity = _normalized_display_identity(machine) if target_submarine else ""
     target_code = _normalized_unit_code(machine)
     for card in cards:
         if not isinstance(card, dict):
@@ -883,6 +886,10 @@ def _research_card_for_machine(payload: dict, machine: str) -> Optional[dict]:
         )
         card_name = _unit_display_name(raw_unit).strip().lower()
         card_code = _normalized_unit_code(_unit_display_name(raw_unit))
+        if target_submarine:
+            if _normalized_display_identity(raw_unit) == target_identity:
+                return card
+            continue
         if target_name and card_name == target_name:
             return card
         if target_code and card_code == target_code:
@@ -914,6 +921,13 @@ def _locked_roster_item_for_machine(roster: list[str], machine: str) -> Optional
     exact collision for the research-card-identity path; this was the same
     disease in the script-block roster-matching path)."""
     target_name = _unit_display_name(machine).strip().lower()
+    from factual_machine_research import named_submarine_target
+    if named_submarine_target(_unit_display_name(machine)):
+        target_identity = _normalized_display_identity(machine)
+        for item in roster or []:
+            if _normalized_display_identity(item) == target_identity:
+                return item
+        return None
     if target_name:
         for item in roster or []:
             if _unit_display_name(item).strip().lower() == target_name:
@@ -922,6 +936,9 @@ def _locked_roster_item_for_machine(roster: list[str], machine: str) -> Optional
     if not target_code:
         return None
     candidates = [item for item in (roster or []) if _normalized_unit_code(item) == target_code]
+    from factual_machine_research import named_submarine_target
+    if any(named_submarine_target(_unit_display_name(item)) for item in candidates):
+        return None
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -935,7 +952,15 @@ def _roster_index_for_identity(roster: list[str], identity: Any) -> Optional[int
     class / Malta class" and "CVA-01 class" both normalize to CVA01, but
     their display names never collide). Falls back to a code match only
     when exactly one roster entry has that code."""
-    name = _unit_display_name(identity).strip().lower()
+    from factual_machine_research import named_submarine_target
+    identity_display = _unit_display_name(identity)
+    if named_submarine_target(identity_display):
+        normalized_identity = _normalized_display_identity(identity_display)
+        for index, machine in enumerate(roster or [], start=1):
+            if _normalized_display_identity(machine) == normalized_identity:
+                return index
+        return None
+    name = identity_display.strip().lower()
     if name:
         for index, machine in enumerate(roster or [], start=1):
             if _unit_display_name(machine).strip().lower() == name:
@@ -947,7 +972,11 @@ def _roster_index_for_identity(roster: list[str], identity: Any) -> Optional[int
         index for index, machine in enumerate(roster or [], start=1)
         if _normalized_unit_code(machine) == code
     ]
-    return candidates[0] if len(candidates) == 1 else None
+    if len(candidates) != 1:
+        return None
+    if named_submarine_target(_unit_display_name((roster or [])[candidates[0] - 1])):
+        return None
+    return candidates[0]
 
 
 def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]:
@@ -1013,6 +1042,11 @@ def _verified_source_cache_key(machine: str) -> str:
     return _normalized_unit_code(_unit_display_name(machine))
 
 
+def _normalized_display_identity(value: Any) -> str:
+    """Punctuation-tolerant whole display identity for strict named-sub joins."""
+    return re.sub(r"[^a-z0-9]", "", _unit_display_name(value).casefold())
+
+
 def _clear_machine_preview_artifacts(payload: dict, machine_key: str) -> None:
     """Drop preview artifacts that were generated from older research for this machine."""
     if not isinstance(payload, dict) or not machine_key:
@@ -1043,10 +1077,15 @@ def _verified_source_package_for_machine(payload: dict, machine: str) -> Optiona
 
     target_code = _verified_source_cache_key(machine)
     target_name = _unit_display_name(machine).strip().lower()
+    from factual_machine_research import named_submarine_target
+    target_submarine = named_submarine_target(_unit_display_name(machine))
+    target_identity = _normalized_display_identity(machine) if target_submarine else ""
 
     def package_matches(raw_key: Any, package: Any) -> bool:
         if not isinstance(package, dict):
             return False
+        if target_submarine:
+            return _normalized_display_identity(package.get("machine")) == target_identity
         key_code = _normalized_unit_code(_unit_display_name(raw_key) or str(raw_key or ""))
         package_code = _normalized_unit_code(
             _unit_display_name(package.get("machine_key") or package.get("machine") or "")
@@ -1058,7 +1097,7 @@ def _verified_source_package_for_machine(payload: dict, machine: str) -> Optiona
 
     if isinstance(packages, dict):
         direct = packages.get(target_code)
-        if isinstance(direct, dict):
+        if isinstance(direct, dict) and (not target_submarine or package_matches(target_code, direct)):
             return direct
         for raw_key, package in packages.items():
             if package_matches(raw_key, package):
@@ -4224,10 +4263,11 @@ def _research_card_contract_warnings(
         # New factual cards carry an independently reviewed research briefing.
         # Preserve excerpt-only legacy cards as resumable inputs, but never let
         # a stored failed/stale briefing be revalidated as a passing card.
-        if "research_summary" in card:
+        if "research_summary" in card or (isinstance(source_package, dict) and "claim_assessment" in source_package):
             from machine_research_summary import research_summary_ready
             context = (str(factual_subject_context) if factual_subject_context is not None
-                       else str((card.get("research_summary") or {}).get("subject_context") or ""))
+                       else str((card.get("research_summary") or {}).get("subject_context")
+                                or ((source_package or {}).get("claim_assessment") or {}).get("subject_context") or ""))
             if not research_summary_ready(machine, source_package, card.get("research_summary"), context):
                 warnings.append("factual research summary is missing, failed, or stale for the current sources/context")
         return list(dict.fromkeys(warnings))
@@ -13066,14 +13106,42 @@ class PipelineExecutor:
             package_warnings = factual_package_contract_warnings(
                 target_machine or "", verified_source_package,
             )
+            assessment_warnings = []
+            if not package_warnings:
+                from research_claim_assessment import (
+                    assess_verified_package, current_assessment, has_supported_claim,
+                )
+                assessment = await assess_verified_package(
+                    target_machine or "", verified_source_package,
+                    getattr(self._pipeline, "anthropic", None), subject_context=title,
+                )
+                verified_source_package["claim_assessment"] = assessment
+                # Source capture is already durable above. Persist the assessment
+                # separately before generating prose, including failed receipts.
+                assessment_checkpoint = await self._checkpoint_machine_raw_source_package(
+                    video_id, target_code, verified_source_package, locked_roster_snapshot,
+                )
+                if self._db_write_missed(assessment_checkpoint):
+                    payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or "",
+                        ["persisted unit_roster changed concurrently; claim assessment checkpoint refused"],
+                        locked_roster=roster,
+                    )
+                    return payload
+                if not current_assessment(target_machine or "", verified_source_package, title):
+                    assessment_warnings = list(assessment.get("warnings") or [
+                        "Source-backed claim assessment is missing, invalid, or stale.",
+                    ])
+                elif not has_supported_claim(assessment):
+                    assessment_warnings = ["Source assessment found no supported claims; review the retained conflicts and evidence."]
             existing = _research_card_for_machine(payload, target_machine or "")
             existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
             card = build_factual_evidence_card(target_machine or "", verified_source_package)
             card_warnings = factual_card_contract_warnings(
                 target_machine or "", card, verified_source_package,
             )
-            summary_warnings = []
-            if not package_warnings and not card_warnings:
+            summary_warnings = list(assessment_warnings)
+            if not package_warnings and not card_warnings and not assessment_warnings:
                 if research_summary_ready(target_machine or "", verified_source_package, existing_summary, title):
                     card["research_summary"] = existing_summary
                 else:

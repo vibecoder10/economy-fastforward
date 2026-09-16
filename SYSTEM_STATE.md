@@ -1,5 +1,12 @@
 # System State — Economy FastForward
 
+## Source-backed submarine research (2026-09-16)
+
+- `storyengine/backend/research_claim_assessment.py` adds bounded source-linked claim assessments for factual research. Receipts live under existing raw-source-package JSON, preserve exact quotations, distinguish supported/disputed/insufficient/out-of-scope claims, and expose no numerical correctness probability.
+- Exact named submarine identity is enforced across evidence filtering, saved card/package joins and Research display. Assessment receipts flow into saved research briefings and subsequent writer/referee context; existing package fingerprints invalidate stale summaries.
+- New regression coverage: `test_named_submarine_research_identity.py`, `test_research_claim_assessment.py`, `test_submarine_research_integration.py`, frontend `submarine-research.test.mjs`. No new database table or migration.
+
+
 ## S7: ACTION stage-direction authoring channel (2026-08-06)
 
 - Real incident (evidence case): tenant PocoAPoco video
