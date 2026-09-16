@@ -106,7 +106,7 @@ async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
     from shared.research_response import checkpoint_path, request_fingerprint
     if getattr(client, "_gateway_mode", False):
         raise ValueError("Selection review needs a web-search capable research provider; this gateway cannot execute web search")
-    from roster_selection import selection_subject
+    from roster_selection import selection_subject, representative_policy
     policy = selection_scope_policy(title)
     prompt = (
         "Independently audit this runtime-sized documentary selection. Check only whether each selected "
@@ -116,7 +116,7 @@ async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
         "[{\"url\": string, \"supports\": string}], \"findings\": [{\"candidate\": string, "
         "\"problem\": string, \"required_action\": string, \"source_url\": string}], \"summary\": string}. "
         "Pass only when findings is empty and at least two valid sources were consulted. The existence of additional eligible entries is never a failure.\nELIGIBILITY SUBJECT: " + selection_subject(title) +
-        "\nELIGIBILITY POLICY: " + policy + "\nSELECTED ROSTER: " + json.dumps(payload.get("unit_roster") or [])
+        "\nELIGIBILITY POLICY: " + policy + "\nREPRESENTATIVE POLICY: " + representative_policy() + "\nSELECTED ROSTER: " + json.dumps(payload.get("unit_roster") or [])
     )
     system_prompt = "You are an independent historical fact checker. Runtime target controls quantity; audit eligibility only."
     tools = [dict(WEB_SEARCH_TOOL, max_uses=12)]

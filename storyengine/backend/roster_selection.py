@@ -7,6 +7,50 @@ from typing import Any
 
 
 VERSION = 1
+REPRESENTATIVE_POLICY = "one_named_machine_per_class_v1"
+
+
+def representative_policy() -> str:
+    return (
+        "For class-based selections, choose exactly one real named machine from each selected class. "
+        "Any source-verified member is acceptable; do not compare or rank sister machines. "
+        "Put the individual machine name in name and its single designation in designation; "
+        "put the class label in class_name. Never use a class label, hull-number range, or list "
+        "as the machine identity. Retain class-wide counts/ranges only as class metadata. "
+        "Verify the chosen machine belongs to that class and meets the title eligibility. "
+        "Do not select two machines from the same class. Research and images must match the chosen machine."
+    )
+
+
+def representative_warnings(title: str, roster: list) -> list[str]:
+    class_based = bool(re.search(r"\bclass(?:es)?\b", title, re.I)) or any(
+        isinstance(row, dict) and (row.get("class_name") or re.search(r"\bclass(?:es)?\b", str(row.get("name", "")), re.I))
+        for row in roster
+    )
+    if not class_based:
+        return []
+    warnings = []
+    seen = set()
+    for row in roster:
+        if not isinstance(row, dict):
+            warnings.append("Class selections require a named machine with class_name metadata")
+            continue
+        name = str(row.get("name") or row.get("title") or "").strip()
+        designation = str(row.get("designation") or row.get("code") or "").strip()
+        class_name = str(row.get("class_name") or "").strip()
+        if not name or re.search(r"\bclass(?:es)?\b", name, re.I):
+            warnings.append(f"{name or designation}: choose one named machine, not a class")
+        if re.search(r"\b(?:through|to)\b|[,;/+]|\d\s*[-–—]\s*(?:[A-Za-z]+-?)?\d", designation, re.I):
+            warnings.append(f"{designation}: choose one machine designation, not a range or list")
+        if not class_name:
+            warnings.append(f"{name}: record the selected machine's class_name")
+        else:
+            key = re.sub(r"[\W_]+", " ", class_name.casefold()).strip()
+            key = re.sub(r"\s+class$", "", key)
+            if key in seen:
+                warnings.append(f"{class_name}: select only one machine per class")
+            seen.add(key)
+    return warnings
 
 
 def selection_subject(title: str) -> str:
@@ -67,6 +111,7 @@ def selection_fingerprint(title: str, payload: dict) -> str:
     from roster_coverage import selection_scope_policy, SELECTION_AUDIT_VERSION
     material = {
         "audit_version": SELECTION_AUDIT_VERSION,
+        "representative_policy": REPRESENTATIVE_POLICY,
         "eligibility_policy": selection_scope_policy(title),
         "version": VERSION,
         "title": title,
@@ -120,7 +165,7 @@ def selection_validation(title: str, payload: dict) -> dict:
         seen.add(key)
         names.append(name)
     recommended = payload.get("recommended_final_roster")
-    warnings = []
+    warnings = representative_warnings(title, roster)
     if len(names) != target:
         warnings.append(f"selected roster has {len(names)} entries; runtime target is exactly {target}")
     if duplicates:

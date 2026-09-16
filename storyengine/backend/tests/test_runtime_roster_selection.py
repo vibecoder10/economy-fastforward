@@ -78,7 +78,10 @@ def test_selection_subject_retains_eligibility_without_quantity_and_reuses_only_
     prompt=_build_selection_prompt(title, selection_settings(20,1),str(source))
     assert title not in prompt
     assert '55 eligible entries and target 20 means select 20' in prompt
-    draft=_payload(21); bounded=bound_selection_candidates(draft,20)
+    draft=_payload(21)
+    for index, row in enumerate(draft["unit_roster"]):
+        row["class_name"] = f"Example class {index}"
+    bounded=bound_selection_candidates(draft,20)
     assert len(bounded['unit_roster'])==20 and len(draft['unit_roster'])==21
     assert len(bounded['roster_candidate_overflow'])==1
     assert selection_validation(title,bounded)['passed']

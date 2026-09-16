@@ -964,13 +964,15 @@ def _build_research_prompt(
 
 def _build_selection_prompt(topic: str, settings: dict, context: Optional[str]) -> str:
     """A compact research mode used before detailed documentary enrichment."""
-    from roster_selection import selection_subject
+    from roster_selection import selection_subject, representative_policy
     source_data = context or ""
     subject = selection_subject(topic)
     return f"""Select exactly {settings['target_count']} real, distinct, title-fitting documentary units.
 
 ELIGIBILITY SUBJECT: {subject}
 RUNTIME SETTINGS: {json.dumps(settings)}
+
+{representative_policy()}
 
 This is selection only. Review at least two primary, archive, museum, service, manufacturer, or institutional sources. Do not attempt exhaustive completeness, omission hunting, member-hull enumeration, title generation, cinematic guidance, scripts, thumbnails, or narrative writing. Words such as Every or All in the title never override the exact runtime count. Do not pad with weak fits. If N or more distinct eligible entries exist, select N in preferred presentation order. For example, 55 eligible entries and target 20 means select 20, never insufficiency. Only return insufficiency when fewer than N eligible entries exist. The original title quantity wording is deliberately excluded from the eligibility subject.
 
