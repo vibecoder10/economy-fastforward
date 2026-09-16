@@ -26,6 +26,34 @@ def source_fingerprint(machine, package):
     ).encode()).hexdigest()
 
 
+def current_research_briefings(payload, roster, subject_context=''):
+    """Return current saved factual research briefings in locked roster order."""
+    from machine_research_summary import research_summary_ready
+    from pipeline_executor import _research_card_for_machine, _verified_source_package_for_machine
+
+    payload = _object(payload)
+    briefings = []
+    for scene, machine in enumerate(roster or [], 1):
+        card = _research_card_for_machine(payload, machine) or {}
+        package = _verified_source_package_for_machine(payload, machine)
+        summary = card.get('research_summary') if isinstance(card, dict) else None
+        if not research_summary_ready(machine, package, summary, subject_context):
+            continue
+        briefings.append({
+            'machine': machine,
+            'scene': scene,
+            'paragraph': summary['paragraph'],
+            'claim_map': summary['claim_map'],
+            'sources': summary['sources'],
+        })
+    return briefings
+
+
+def factual_research_readiness(payload, roster, subject_context='') -> bool:
+    """Require one current saved factual research briefing for every locked unit."""
+    return bool(roster) and len(current_research_briefings(payload, roster, subject_context)) == len(roster)
+
+
 def factual_script_readiness(video, roster) -> bool:
     """Return whether every factual block is approved for this exact subject and source set."""
     from factual_machine_summary import REVIEW_CONTEXT_VERSION
@@ -78,6 +106,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         if row.get('voice_over_url') or row.get('voice_status') == 'Done'
     }
     subject_context = str(video.get('video_title') or video.get('headline') or '')
+    research_briefings = current_research_briefings(_object(video.get('research_payload')), roster, subject_context)
     failures = []
     results = []
     for scene, machine in selected:
@@ -190,6 +219,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
             summary = await generate_factual_machine_summary(
                 machine, package, client, subject_context=subject_context,
                 previous_summary=prior_review,
+                research_briefings=research_briefings,
             )
             summary = {**summary, 'length_target_attempted': True}
         block = {**summary, 'machine': machine, 'scene': scene,

@@ -1283,6 +1283,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
       machine_script_previews: payload.machine_script_previews && typeof payload.machine_script_previews === "object" && !Array.isArray(payload.machine_script_previews)
         ? payload.machine_script_previews
         : {},
+      machine_script_contract: payload.machine_script_contract || null,
     };
   }, [video]);
 
@@ -1318,6 +1319,19 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
   }, [selectedSourcePackage]);
   const selectedResearchReadiness = machineResearchReadiness(selectedResearchCard);
   const selectedResearchReady = selectedResearchReadiness.ready;
+  const factualResearch = research?.machine_script_contract === "factual_100_v1";
+  const selectedSavedResearchSummary = selectedResearchCard?.research_summary;
+  const selectedSavedResearchSummarySources = Array.isArray(selectedSavedResearchSummary?.sources)
+    ? selectedSavedResearchSummary.sources
+    : [];
+  const selectedSavedResearchSummaryReady = Boolean(
+    selectedResearchReady
+    && selectedSavedResearchSummary?.passed === true
+    && String(selectedSavedResearchSummary?.paragraph || "").trim()
+    && Array.isArray(selectedSavedResearchSummary?.claim_map)
+    && selectedSavedResearchSummary.claim_map.length > 0
+    && selectedSavedResearchSummarySources.length > 0
+  );
   const selectedResearchStatusMessage = selectedResearchReady
     ? selectedSourcePackageStatus.message
     : selectedResearchReadiness.message;
@@ -1777,6 +1791,44 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                         <li key={i} style={{ color: "var(--orange)" }}>• {warning}</li>
                       ))}
                     </ul>
+                  )}
+                </div>
+              )}
+              {factualResearch && (
+                <div className="mt-3 rounded-md p-3" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Saved research summary</div>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: selectedSavedResearchSummaryReady ? "var(--green)" : "var(--orange)" }}>
+                      {selectedSavedResearchSummaryReady ? "Saved and passed" : selectedSavedResearchSummary ? "Needs review" : "Not yet saved"}
+                    </span>
+                  </div>
+                  {selectedSavedResearchSummary ? (
+                    <>
+                      {String(selectedSavedResearchSummary.paragraph || "").trim() && (
+                        <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-primary)" }}>
+                          {selectedSavedResearchSummary.paragraph}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedSavedResearchSummarySources.map((source: any, sourceIndex: number) => {
+                          const url = String(source?.source_url || source?.url || "").trim();
+                          const label = String(source?.source_title || source?.title || url || `Source ${sourceIndex + 1}`).trim();
+                          return /^https?:\/\//i.test(url) ? (
+                            <a key={`${url}-${sourceIndex}`} href={url} target="_blank" rel="noreferrer" className="max-w-full truncate rounded px-2 py-1 text-[10px]" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.08)" }}>
+                              {label}
+                            </a>
+                          ) : (
+                            <span key={`${label}-${sourceIndex}`} className="max-w-full truncate rounded px-2 py-1 text-[10px]" style={{ color: "var(--text-tertiary)", background: "rgba(255,255,255,.05)" }}>
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      A sourced summary has not been saved for this machine yet.
+                    </p>
                   )}
                 </div>
               )}

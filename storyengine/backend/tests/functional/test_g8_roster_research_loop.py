@@ -90,6 +90,14 @@ VIDEO = "video-1"
 _ROSTER = ["Machine A", "Machine B", "Machine C"]
 
 
+async def _false_async(*_args, **_kwargs):
+    return False
+
+
+async def _completed_image_state():
+    return {"status": "completed"}
+
+
 def _units(passed_map=None):
     passed_map = passed_map or {}
     return [{"machine": m, "passed": bool(passed_map.get(m, False))} for m in _ROSTER]
@@ -162,6 +170,10 @@ class _FakeExecutor:
 def _stub_pipeline_and_routes(fake_executor_factory):
     fake_pe = types.ModuleType("pipeline_executor")
     fake_pe.PipelineExecutor = fake_executor_factory
+    fake_pe._machine_documentary_hold_roster = lambda video: list(
+        ((video.get("research_payload") or {}).get("unit_roster") or [])
+    )
+    fake_pe._verified_source_package_for_machine = lambda _payload, machine: {"machine": machine}
     statuses: list[tuple] = []
 
     def _fake_set_task_status(video_id, status, message, tenant_id=None):
@@ -210,6 +222,8 @@ def _run_autobuild(after_research_row, machine_results=None, cap_probe=None):
 
     with patch.object(actions, "execute", fake_execute), \
          patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.object(actions, "_static_image_coverage_missing", _false_async), \
+         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
          patch("asyncio.sleep", _fast_sleep):
         step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
@@ -292,11 +306,14 @@ def test_runtime_roster_selection_advances_on_phase_then_researches_saved_roster
         if "SELECT status FROM videos" in query: return {"status": "idea_logged"}
         return None
     async def no_coverage(*_args, **_kwargs): return False
+    fake_images = types.ModuleType("roster_images")
+    fake_images.roster_image_state = lambda *_args, **_kwargs: _completed_image_state()
     with patch.object(actions, "execute", fake_execute), \
          patch.object(actions, "fetch_one", fake_fetch_one), \
          patch.object(actions, "_static_image_coverage_missing", no_coverage), \
          patch.object(actions, "_factual_image_recheck_needed", no_coverage), \
-         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_routes}):
+         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_routes,
+                                  "roster_images": fake_images}):
         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
     assert holder[0].selection_calls == 1
     assert holder[0].unit_calls == 1
@@ -438,6 +455,8 @@ def _run_surgical_repair(*, repair_passes=False, repair_error=None,
 
     with patch.object(actions, "execute", fake_execute), \
          patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.object(actions, "_static_image_coverage_missing", _false_async), \
+         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
          patch("asyncio.sleep", fast_sleep):
         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
@@ -569,6 +588,8 @@ def _run_persisted_repair(db, repair_outcome):
 
     with patch.object(actions, "execute", fake_execute), \
          patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.object(actions, "_static_image_coverage_missing", _false_async), \
+         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
          patch("asyncio.sleep", fast_sleep):
         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())

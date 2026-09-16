@@ -19,7 +19,7 @@ import re
 import hashlib
 import unicodedata
 from datetime import datetime, timezone
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -1208,7 +1208,8 @@ def _opening_assignment_warnings(machine: str, paragraph: str, opening_assignmen
     return []
 
 
-def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -> list[str]:
+def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
+                                     matcher: Optional[Callable[[str, str], bool]] = None) -> list[str]:
     import re as _re
 
     cleaned = " ".join(str(text or "").split())
@@ -1224,7 +1225,7 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
     seen: set[str] = set()
     for span in (1, 2, 3):
         for index, sentence in enumerate(raw_sentences):
-            if not _mentions_machine(sentence, machine) or index + span > len(raw_sentences):
+            if not (matcher or _mentions_machine)(sentence, machine) or index + span > len(raw_sentences):
                 continue
             window = " ".join(raw_sentences[index:index + span]).strip()
             if len(window) < 45 or len(window) > 720:
@@ -4208,6 +4209,7 @@ def _research_card_contract_warnings(
     card: dict,
     source_package: Optional[dict] = None,
     require_source_package: bool = False,
+    factual_subject_context: Optional[str] = None,
 ) -> list[str]:
     """Shared DVsU one-machine research-card contract before save or spend.
 
@@ -4218,7 +4220,17 @@ def _research_card_contract_warnings(
     import copy as _copy
     if isinstance(card, dict) and card.get("machine_research_contract") == "factual_100_v1":
         from factual_machine_research import factual_card_contract_warnings
-        return factual_card_contract_warnings(machine, card, source_package)
+        warnings = factual_card_contract_warnings(machine, card, source_package)
+        # New factual cards carry an independently reviewed research briefing.
+        # Preserve excerpt-only legacy cards as resumable inputs, but never let
+        # a stored failed/stale briefing be revalidated as a passing card.
+        if "research_summary" in card:
+            from machine_research_summary import research_summary_ready
+            context = (str(factual_subject_context) if factual_subject_context is not None
+                       else str((card.get("research_summary") or {}).get("subject_context") or ""))
+            if not research_summary_ready(machine, source_package, card.get("research_summary"), context):
+                warnings.append("factual research summary is missing, failed, or stale for the current sources/context")
+        return list(dict.fromkeys(warnings))
     warnings: list[str] = []
     if not isinstance(card, dict):
         return ["research card was not an object"]
@@ -4783,7 +4795,12 @@ def _merge_card_into_review_cards(existing_cards: list, card: dict, machine: str
     return merged
 
 
-def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: list[str]) -> dict:
+def _hold_validation_with_unit_verdict(
+    payload: dict,
+    machine: str,
+    warnings: list[str],
+    locked_roster: Optional[list[str]] = None,
+) -> dict:
     """Update one machine's entry inside unit_research_hold_validation.
 
     G14, 2026-07-31: passed is computed from BLOCKING warnings only; the
@@ -4792,9 +4809,36 @@ def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: li
     validation = payload.get("unit_research_hold_validation")
     validation = dict(validation) if isinstance(validation, dict) else {}
     units = [dict(unit) for unit in (validation.get("units") or []) if isinstance(unit, dict)]
-    code = _normalized_unit_code(machine)
     blocking = _blocking_warnings(warnings)
     entry = {"machine": machine, "passed": not blocking, "warnings": list(warnings)}
+    if locked_roster:
+        # A partial verdict list is never a completed roster. Resolve using the
+        # roster's display-name-first index helper so colliding normalized codes
+        # cannot overwrite a different unit.
+        prior_by_index = {
+            index: unit for unit in units
+            if (index := _roster_index_for_identity(locked_roster, unit.get("machine") or "")) is not None
+        }
+        target_index = _roster_index_for_identity(locked_roster, machine)
+        normalized_units = []
+        for index, roster_machine in enumerate(locked_roster, start=1):
+            if index == target_index:
+                normalized_units.append(entry)
+            elif index in prior_by_index:
+                normalized_units.append(prior_by_index[index])
+            else:
+                normalized_units.append({
+                    "machine": roster_machine,
+                    "passed": False,
+                    "warnings": ["Factual research summary pending"],
+                })
+        validation["units"] = normalized_units
+        validation["passed"] = bool(normalized_units) and all(unit.get("passed") for unit in normalized_units)
+        validation["in_progress"] = False
+        validation["target_machine"] = machine
+        validation["target_machine_passed"] = not blocking
+        return validation
+    code = _normalized_unit_code(machine)
     replaced = False
     for index, unit in enumerate(units):
         if _normalized_unit_code(str(unit.get("machine") or "")) == code:
@@ -9607,7 +9651,10 @@ class PipelineExecutor:
         ):
             return cached
 
-        from factual_machine_research import is_factual_machine_contract, factual_package_contract_warnings
+        from factual_machine_research import (
+            candidate_mentions_machine, factual_package_contract_warnings,
+            factual_research_subject, is_factual_machine_contract,
+        )
         from factual_source_search import discover_sources, guard_public_request, SourceDiscoveryError
         factual_search = is_factual_machine_contract(payload)
         search_key = await get_secret("kie_ai_api_key" if factual_search else "tavily_api_key", self.tenant_id)
@@ -9634,6 +9681,7 @@ class PipelineExecutor:
         skipped_search_queries: list[str] = []
         headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
         discovery = None
+        discovery_requests: list[dict] = []
         hooks = {"request": [guard_public_request]} if factual_search else None
         async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers, event_hooks=hooks) as client:
             search_passes = [(query, None) for query in queries]
@@ -9700,7 +9748,11 @@ class PipelineExecutor:
                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
 
             if factual_search:
-                search_results, discovery = await discover_sources(client, search_key, title, machine)
+                search_results, discovery = await discover_sources(
+                    client, search_key, title, machine,
+                    subject=factual_research_subject(machine),
+                )
+                discovery_requests.append(discovery)
             else:
                 for query, include_domains in search_passes:
                     await _run_search_pass(query, include_domains)
@@ -9709,6 +9761,7 @@ class PipelineExecutor:
             candidate_excerpts: list[dict] = []
             search_result_audit: list[dict] = []
             seen_urls: set[str] = set()
+            empty_capture_hosts: set[str] = set()
 
             async def _process_search_result(item: dict) -> None:
                 url = str(item.get("url") or "").strip()
@@ -9736,7 +9789,7 @@ class PipelineExecutor:
                         "source_capture_method": capture_method,
                         "text_chars": len(source_text or ""),
                         "text_hash": _source_text_fingerprint(source_text) if source_text else "",
-                        "mentions_machine": bool(source_text and _mentions_machine(source_text, machine)),
+                        "mentions_machine": bool(source_text and (candidate_mentions_machine(source_text, machine) if factual_search else _mentions_machine(source_text, machine))),
                     }
                     if not source_text:
                         variant_row["rejected_reason"] = "empty_capture"
@@ -9746,7 +9799,10 @@ class PipelineExecutor:
                         variant_row["rejected_reason"] = "machine_not_found_in_capture"
                         variant_audit.append(variant_row)
                         return False
-                    excerpt_candidates = _sentence_candidates_from_source(source_text, machine, limit=10)
+                    excerpt_candidates = _sentence_candidates_from_source(
+                        source_text, machine, limit=10,
+                        matcher=candidate_mentions_machine if factual_search else None,
+                    )
                     variant_row["excerpt_count"] = len(excerpt_candidates)
                     if not excerpt_candidates:
                         variant_row["rejected_reason"] = "no_sentence_excerpt_candidates"
@@ -9780,6 +9836,10 @@ class PipelineExecutor:
                         _register_variant(fallback_method, fallback_text, -1)
 
                 if not source_variants:
+                    if not fetched_text and not raw_content:
+                        host = (urlparse(url).hostname or "").lower()
+                        if host:
+                            empty_capture_hosts.add(host)
                     search_result_audit.append({
                         "url": url,
                         "title": title_text,
@@ -9870,6 +9930,23 @@ class PipelineExecutor:
                     break
                 await _process_search_result(item)
 
+            # Factual Kie discovery gets one alternate lead wave only when its
+            # fetched candidates produced no usable exact-subject excerpts.
+            # Preserve first-wave audits/evidence and avoid hosts that were
+            # wholly unreadable in that wave.
+            if factual_search and not candidate_excerpts:
+                alternate_results, alternate_discovery = await discover_sources(
+                    client, search_key, title, machine,
+                    subject=factual_research_subject(machine),
+                    attempted_urls=list(seen_urls),
+                    excluded_hosts=sorted(empty_capture_hosts),
+                )
+                discovery_requests.append(alternate_discovery)
+                for item in alternate_results:
+                    if len(candidate_excerpts) >= 60:
+                        break
+                    await _process_search_result(item)
+
             # G13, 2026-07-31: naval steering (base queries + domain-grouped
             # calls above) can still land zero Tier 1-2 candidates - Duke of
             # York and Anson both did, with no fetch errors, the domains just
@@ -9916,6 +9993,7 @@ class PipelineExecutor:
         )
         if discovery is not None:
             package["source_discovery"] = discovery
+            package["source_discovery_requests"] = discovery_requests
         if factual_search:
             quality_errors = factual_package_contract_warnings(machine, package)
             package["passed"] = not quality_errors
@@ -12549,7 +12627,29 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "started", f"Researching {len(roster)} locked machines")
             payload = await self._run_unit_research_hold(video_id, title, payload, roster)
             validation = payload.get("unit_research_hold_validation") or {}
-            passed = bool(validation.get("passed"))
+            factual_contract = payload.get("machine_script_contract") == "factual_100_v1"
+            if factual_contract:
+                from factual_machine_pipeline import factual_research_readiness
+                passed = factual_research_readiness(payload, roster, title)
+                validation["passed"] = passed
+                units = validation.get("units") if isinstance(validation.get("units"), list) else []
+                pending = [
+                    machine for machine in roster
+                    if not factual_research_readiness(payload, [machine], title)
+                ]
+                warnings_by_index = {
+                    _roster_index_for_identity(roster, unit.get("machine") or ""): unit.get("warnings") or []
+                    for unit in units if isinstance(unit, dict)
+                }
+                named_warnings = []
+                for machine in pending:
+                    unit_warnings = warnings_by_index.get(_roster_index_for_identity(roster, machine)) or []
+                    detail = "; ".join(str(w) for w in unit_warnings if str(w).strip())
+                    named_warnings.append(f"{machine}: {detail or 'factual research summary pending'}")
+                validation["warnings"] = named_warnings
+                payload["unit_research_hold_validation"] = validation
+            else:
+                passed = bool(validation.get("passed"))
             next_status = "ready_for_scripting" if passed else (video.get("status") or "idea_logged")
 
             import json as _json
@@ -12567,14 +12667,24 @@ class PipelineExecutor:
                 return {"status": "cancelled", "video_id": video_id,
                         "message": "Stopped; completed research and sources are saved."}
 
-            completed = len(payload.get("unit_research_cards") or [])
+            completed = sum(
+                1 for machine in roster
+                if factual_contract and factual_research_readiness(payload, [machine], title)
+            ) if factual_contract else len(payload.get("unit_research_cards") or [])
             if passed:
                 await self._log_activity(bot_name, video_id, "completed", f"Machine research complete: {completed}/{len(roster)}")
                 return {"status": next_status, "video_id": video_id, "message": f"Machine research complete: {completed}/{len(roster)}"}
 
             warning = "; ".join(str(w) for w in validation.get("warnings", [])) or "Machine research validation failed"
             await self._log_activity(bot_name, video_id, "failed", warning[:800])
-            return {"status": "failed", "video_id": video_id, "error": warning}
+            return {
+                "status": "needs_review" if factual_contract else "failed",
+                "video_id": video_id,
+                "error": warning,
+                "completed": completed,
+                "total": len(roster),
+                "next_action": "run_one_machine_research_refresh" if factual_contract else "review_machine_research",
+            }
         except Exception as e:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
@@ -12826,6 +12936,11 @@ class PipelineExecutor:
             factual_package_contract_warnings,
             is_factual_machine_contract,
         )
+        from machine_research_summary import (
+            is_recoverable_research_error,
+            research_summary_ready,
+            saved_research_summary,
+        )
         if is_factual_machine_contract(payload):
             if not target_code:
                 # The bulk entrypoint remains an ordered coordinator. Each
@@ -12834,9 +12949,11 @@ class PipelineExecutor:
                 for roster_machine in roster:
                     existing = _research_card_for_machine(payload, roster_machine)
                     existing_package = _verified_source_package_for_machine(payload, roster_machine)
-                    if not factual_card_contract_warnings(roster_machine, existing, existing_package):
+                    existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
+                    if (not factual_card_contract_warnings(roster_machine, existing, existing_package)
+                            and research_summary_ready(roster_machine, existing_package, existing_summary, title)):
                         payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                            payload, roster_machine, [],
+                            payload, roster_machine, [], locked_roster=roster,
                         )
                         continue
                     fresh_video = await self._get_video(video_id) or {}
@@ -12845,7 +12962,7 @@ class PipelineExecutor:
                     if max_spend is not None and total_cost >= float(max_spend):
                         payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
                             payload, roster_machine,
-                            ["Video budget reached; completed factual research cards are saved."],
+                            ["Video budget reached; completed factual research cards are saved."], locked_roster=roster,
                         )
                         return payload
                     should_cancel = getattr(self._pipeline, "should_cancel", None)
@@ -12857,12 +12974,51 @@ class PipelineExecutor:
                         if cancelled:
                             payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
                                 payload, roster_machine,
-                                ["Research cancellation requested; completed factual research cards are saved."],
+                            ["Research cancellation requested; completed factual research cards are saved."], locked_roster=roster,
                             )
                             return payload
-                    payload = await self._run_unit_research_hold(
-                        video_id, title, payload, roster, target_machine=roster_machine,
-                    )
+                    try:
+                        payload = await self._run_unit_research_hold(
+                            video_id, title, payload, roster, target_machine=roster_machine,
+                        )
+                    except Exception as exc:
+                        # A single exhausted transport request must leave an
+                        # explicit reviewable verdict but must not strand later
+                        # independent machines.  Do not catch credentials,
+                        # credits, cancellation, database conflicts, or local
+                        # programming errors here: those are chain-wide stops.
+                        if not is_recoverable_research_error(exc):
+                            raise
+                        warning = (
+                            f"{roster_machine}: transient factual research transport failure: "
+                            f"{str(exc)[:160]}"
+                        )
+                        payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                            payload, roster_machine, [warning], locked_roster=roster,
+                        )
+                        checkpoint = await self._checkpoint_one_machine_research_result(
+                            video_id,
+                            payload.get("unit_research_cards") or [],
+                            payload["unit_research_hold_validation"],
+                            locked_roster_snapshot,
+                        )
+                        if self._db_write_missed(checkpoint):
+                            payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                                payload, roster_machine,
+                                ["persisted unit_roster changed concurrently; factual research checkpoint refused"],
+                                locked_roster=roster,
+                            )
+                            return payload
+                        continue
+                    validation_units = payload.get("unit_research_hold_validation", {}).get("units") or []
+                    target_warnings = next((
+                        unit.get("warnings") or [] for unit in validation_units
+                        if isinstance(unit, dict)
+                        and _roster_index_for_identity(roster, unit.get("machine") or "")
+                        == _roster_index_for_identity(roster, roster_machine)
+                    ), [])
+                    if any("checkpoint refused" in str(warning).lower() for warning in target_warnings):
+                        return payload
                 return payload
 
             cache_key = _verified_source_cache_key(target_machine or "")
@@ -12881,12 +13037,22 @@ class PipelineExecutor:
             if self._db_write_missed(package_checkpoint):
                 warnings = ["persisted unit_roster changed concurrently; raw source package checkpoint refused"]
                 payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                    payload, target_machine or "", warnings,
+                    payload, target_machine or "", warnings, locked_roster=roster,
                 )
                 return payload
 
-            discovery = verified_source_package.get("source_discovery") or {}
-            if discovery.get("provider") == "kie" and discovery.get("request_id") and discovery.get("credits_consumed") is not None:
+            discoveries = verified_source_package.get("source_discovery_requests")
+            if not isinstance(discoveries, list):
+                discoveries = [verified_source_package.get("source_discovery") or {}]
+            seen_discovery_ids: set[str] = set()
+            for discovery in discoveries:
+                if not isinstance(discovery, dict):
+                    continue
+                request_id = str(discovery.get("request_id") or "").strip()
+                if (discovery.get("provider") != "kie" or not request_id
+                        or discovery.get("credits_consumed") is None or request_id in seen_discovery_ids):
+                    continue
+                seen_discovery_ids.add(request_id)
                 from generation_ledger import record_ledger_entry
                 from factual_source_search import USD_PER_CREDIT
                 credits = float(discovery["credits_consumed"])
@@ -12894,17 +13060,56 @@ class PipelineExecutor:
                     tenant_id=self.tenant_id, video_id=video_id, stage="research",
                     model="kie/" + str(discovery.get("model") or "gpt-5-2"),
                     units=credits, unit_cost=USD_PER_CREDIT, actual_cost=credits * USD_PER_CREDIT,
-                    kie_task_id=str(discovery["request_id"]),
+                    kie_task_id=request_id,
                 )
 
             package_warnings = factual_package_contract_warnings(
                 target_machine or "", verified_source_package,
             )
+            existing = _research_card_for_machine(payload, target_machine or "")
+            existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
             card = build_factual_evidence_card(target_machine or "", verified_source_package)
-            warnings = package_warnings + factual_card_contract_warnings(
+            card_warnings = factual_card_contract_warnings(
                 target_machine or "", card, verified_source_package,
             )
-            warnings = list(dict.fromkeys(warnings))
+            summary_warnings = []
+            if not package_warnings and not card_warnings:
+                if research_summary_ready(target_machine or "", verified_source_package, existing_summary, title):
+                    card["research_summary"] = existing_summary
+                else:
+                    from factual_machine_summary import generate_factual_machine_summary
+                    try:
+                        summary_result = await generate_factual_machine_summary(
+                            target_machine or "", verified_source_package,
+                            getattr(self._pipeline, "anthropic", None),
+                            subject_context=title, purpose="research",
+                        )
+                    except ValueError as exc:
+                        # Invalid local generation setup is reviewable for this
+                        # machine. Provider/account failures still propagate so
+                        # their existing budget/credential stop paths remain
+                        # authoritative.
+                        summary_result = {"passed": False, "warnings": [str(exc)]}
+                    saved_summary = saved_research_summary(
+                        target_machine or "", verified_source_package, summary_result, title,
+                    )
+                    # The model's self-reported pass is insufficient.  The
+                    # stored artifact must meet the exact reusable-summary
+                    # contract (including claims and citations) before this
+                    # unit can advance or be reused.
+                    if not research_summary_ready(
+                        target_machine or "", verified_source_package, saved_summary, title,
+                    ):
+                        saved_summary["passed"] = False
+                        saved_summary["warnings"] = list(dict.fromkeys(
+                            list(saved_summary.get("warnings") or [])
+                            + ["Factual research summary is missing required claims or citations"]
+                        ))
+                    card["research_summary"] = saved_summary
+                    if not saved_summary.get("passed"):
+                        summary_warnings = list(summary_result.get("warnings") or ["Factual research summary failed review"])
+                        summary_warnings.extend(saved_summary.get("warnings") or [])
+            warnings = list(dict.fromkeys(package_warnings + card_warnings + summary_warnings))
             current_cards = [
                 item for item in (payload.get("unit_research_cards") or [])
                 if isinstance(item, dict)
@@ -12913,7 +13118,7 @@ class PipelineExecutor:
                     item.get("unit") or item.get("machine") or item.get("name") or item.get("designation") or "",
                 ) != roster.index(target_machine or "") + 1
             ]
-            if not warnings:
+            if not package_warnings and not card_warnings:
                 card["locked_roster_index"] = roster.index(target_machine or "") + 1
                 card["source_package_key"] = target_code
                 current_cards = _merge_card_into_review_cards(
@@ -12921,7 +13126,7 @@ class PipelineExecutor:
                 )
             payload["unit_research_cards"] = current_cards
             payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                payload, target_machine or "", warnings,
+                payload, target_machine or "", warnings, locked_roster=roster,
             )
             card_checkpoint = await self._checkpoint_one_machine_research_result(
                 video_id,
@@ -12932,12 +13137,12 @@ class PipelineExecutor:
             if self._db_write_missed(card_checkpoint):
                 conflict = "persisted unit_roster changed concurrently; factual research checkpoint refused"
                 payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                    payload, target_machine or "", [conflict],
+                    payload, target_machine or "", [conflict], locked_roster=roster,
                 )
                 return payload
-            if not warnings:
+            if not package_warnings and not card_warnings:
                 roster_index = roster.index(target_machine or "") + 1
-                verdict = {"machine": target_machine, "passed": True, "warnings": []}
+                verdict = {"machine": target_machine, "passed": not warnings, "warnings": warnings}
                 await self._upsert_machine_research_card(
                     video_id, target_machine or "", roster_index, card, verdict,
                 )
@@ -16290,6 +16495,7 @@ scenes."""
             card,
             source_package,
             require_source_package=True,
+            factual_subject_context=str(video.get("video_title") or video.get("headline") or ""),
         )
         # G21a: same tier-floor-is-advisory fix as the generation gate above -
         # readiness must agree with what generation will actually do, or the

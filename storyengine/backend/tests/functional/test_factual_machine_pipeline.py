@@ -55,6 +55,22 @@ def test_saved_factual_section_resumes_without_another_model_call(state):
     assert ex._save_machine_script_block.await_args.kwargs['advance_status'] is False
 
 
+def test_script_writer_receives_current_saved_research_briefing(state):
+    ex,video,machine,package,writer=state
+    from machine_research_summary import saved_research_summary
+    summary=saved_research_summary(machine,package,{
+        'passed':True, 'paragraph':'Argus was commissioned with a full flight deck.',
+        'claim_map':[{'sentence':'Argus was commissioned with a full flight deck.','citations':[{'excerpt_id':'S1'}]}],
+        'sources':[{'excerpt_id':'S1','source_url':'https://example.test/argus'}],
+        'review_context_version':fs.REVIEW_CONTEXT_VERSION,
+    },video['video_title'])
+    video['research_payload']['unit_research_cards']=[{'machine':machine,'research_summary':summary}]
+    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+    briefings=writer.await_args.kwargs['research_briefings']
+    assert briefings == [{'machine':machine,'scene':1,'paragraph':summary['paragraph'],
+                          'claim_map':summary['claim_map'],'sources':summary['sources']}]
+
+
 def test_changed_sources_invalidate_saved_summary(state):
     ex,video,machine,package,writer=state
     asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))

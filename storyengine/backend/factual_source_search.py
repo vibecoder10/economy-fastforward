@@ -54,9 +54,15 @@ async def guard_public_request(request) -> None:
         raise ValueError("Source host does not resolve to a public address")
 
 
-async def discover_sources(client, api_key: str, title: str, machine: str) -> tuple[list[dict], dict]:
+async def discover_sources(client, api_key: str, title: str, machine: str, *, subject: str | None = None,
+                           attempted_urls: list[str] | None = None,
+                           excluded_hosts: list[str] | None = None) -> tuple[list[dict], dict]:
+    subject = str(subject or machine).strip()
+    prior = list(dict.fromkeys(str(url).strip() for url in (attempted_urls or []) if str(url).strip()))
+    blocked = list(dict.fromkeys(str(host).strip() for host in (excluded_hosts or []) if str(host).strip()))
     prompt = (
-        f"Use web search to find 6 real source pages specifically about {machine!r} "
+        f"Use web search to find 6 real source pages specifically about the subject {subject!r} "
+        f"(locked roster identity: {machine!r}) "
         f"for a factual documentary titled {title!r}. Prefer official government, manufacturer, "
         "museum and archive history/fact-sheet pages. Include service, development, production "
         "and design facts. Match the exact aircraft variant or named vessel; do not substitute "
@@ -64,6 +70,10 @@ async def discover_sources(client, api_key: str, title: str, machine: str) -> tu
         "Return only a compact JSON array of objects with title and exact_source_url. "
         "Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
     )
+    if prior:
+        prompt += " Do not repeat these already attempted URLs: " + ", ".join(prior[:24]) + "."
+    if blocked:
+        prompt += " Avoid these hosts because they produced no readable capture: " + ", ".join(blocked[:12]) + "."
     try:
         response = await client.post(ENDPOINT, headers={"Authorization": "Bearer " + api_key}, json={
             "messages": [{"role": "user", "content": prompt}],
@@ -121,5 +131,5 @@ async def discover_sources(client, api_key: str, title: str, machine: str) -> tu
     return leads, {
         "provider": "kie", "model": MODEL, "request_id": data.get("id"),
         "credits_consumed": credits, "usage": data.get("usage"),
-        "lead_count": len(leads), "search_tool": "web_search",
+        "lead_count": len(leads), "search_tool": "web_search", "subject": subject,
     }

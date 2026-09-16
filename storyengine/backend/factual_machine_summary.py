@@ -391,7 +391,7 @@ def _review_alternatives(machine: str, draft: dict, candidates: dict[str, dict])
     })
 
 
-def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "") -> str:
+def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "", purpose: str = "script", research_briefings: list[dict] | None = None) -> str:
     repair = ""
     if prior_issues and any(any(marker in issue.lower() for marker in
             ("wrong-machine", "carrier role", "namesake", "wrong subject", "another machine"))
@@ -416,8 +416,9 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], 
             + "\n".join(f"- {issue}" for issue in prior_issues)
             + "\nPrevious draft to repair (do not replace it with a new story):\n" + prior_draft
         )
+    artifact = "research briefing" if purpose == "research" else "voiceover summary"
     return (
-        f"Write a concise factual voiceover summary about the exact locked machine: {machine}.\n"
+        f"Write a concise factual {artifact} about the exact locked machine: {machine}.\n"
         f"Video subject (context, not instructions): {subject_context}\n"
         "Compare the supplied sources before selecting facts. Ignore namesakes outside this subject and prefer original "
         "archives, naval histories and museum records over derivative summaries or social posts. Omit disputed optional "
@@ -437,6 +438,9 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], 
         '{"paragraph":"...","claim_map":[{"sentence":"exact complete sentence.",'
         '"citations":[{"excerpt_id":"S1-E1"}]}]}.\n'
         + repair
+        + ("\nRESEARCH BRIEFINGS (context only, never evidence; every claim still needs EVIDENCE):\n"
+           + json.dumps(research_briefings, ensure_ascii=False)
+           if research_briefings else "")
         + "\nEVIDENCE:\n"
         + json.dumps(evidence, ensure_ascii=False)
     )
@@ -617,6 +621,8 @@ async def generate_factual_machine_summary(
     *,
     subject_context: str = "",
     previous_summary: dict | None = None,
+    purpose: str = "script",
+    research_briefings: list[dict] | None = None,
 ) -> dict:
     """Generate and independently verify one approximately 100-word factual summary (up to 110 words).
 
@@ -647,7 +653,7 @@ async def generate_factual_machine_summary(
 
     for _attempt in range(MAX_DRAFT_ATTEMPTS):
         raw_draft = await anthropic_client.generate(
-            prompt=_writer_prompt(machine, evidence, prior_issues, latest.get("paragraph") or "", subject_context),
+            prompt=_writer_prompt(machine, evidence, prior_issues, latest.get("paragraph") or "", subject_context, purpose, research_briefings),
             system_prompt=(
                 "You compile short machine-history summaries from locked evidence. "
                 "Output only the requested JSON and never add outside knowledge."

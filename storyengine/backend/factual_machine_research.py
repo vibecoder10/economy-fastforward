@@ -30,6 +30,80 @@ def _identity_key(value: Any) -> str:
     return "".join(_words(value))
 
 
+_NAVAL_HULL_PREFIX_RE = re.compile(
+    r"^(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)(?:\s*(?:,|through|to|range)\s*(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)?)*\s+",
+    re.IGNORECASE,
+)
+
+
+def factual_research_subject(machine: Any) -> str:
+    """Return a searchable factual subject without changing locked identity.
+
+    Documentary roster display names can begin with a naval hull range.  That
+    range is useful bookkeeping, but it is not normally repeated in source
+    prose about the class.  Remove only that syntactic prefix; retain the
+    actual class/variant words, including single-letter class names.
+    """
+    raw = str(machine or "").strip()
+    return _NAVAL_HULL_PREFIX_RE.sub("", raw).strip() or raw
+
+
+def _matches_designation(text: str, machine: str) -> bool:
+    """True only for a complete designation from the locked display name."""
+    for code in re.findall(r"\b(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?\b", machine, re.I):
+        pieces = re.findall(r"[A-Za-z]+|[0-9]+", code.rstrip("+"))
+        pattern = r"(?<![a-z0-9])" + r"[\s.\-‐‑–—]*".join(re.escape(piece) for piece in pieces) + r"(?![a-z0-9])"
+        if re.search(pattern, text, re.I):
+            return True
+    return False
+
+
+def _matches_class_subject(text: str, subject: str) -> bool:
+    """Match a meaningful class phrase, never a bare class/range token."""
+    words = _words(subject)
+    if len(words) < 2 or words[-1] != "class" or all(word in {"class", "through"} for word in words):
+        return False
+    pattern = r"(?<![a-z0-9])" + r"[^a-z0-9]+".join(re.escape(word) for word in words) + r"(?![a-z0-9])"
+    return bool(re.search(pattern, text, re.I))
+
+
+def _matches_class_lead_with_designation(text: str, machine: str, subject: str) -> bool:
+    """Require both the distinctive lead-vessel name and a locked hull code."""
+    lead_words = _words(re.sub(r"\bclass\b", "", subject, flags=re.I))
+    if not lead_words or not _matches_designation(text, machine):
+        return False
+    lead = r"[^a-z0-9]+".join(re.escape(word) for word in lead_words)
+    return bool(re.search(r"(?<![a-z0-9])" + lead + r"(?![a-z0-9])", text, re.I))
+
+
+def _matches_single_hull_lead(text: str, machine: str, subject: str) -> bool:
+    """Accept a named lead vessel only for a single locked hull identity.
+
+    Some historic one-boat source pages call the vessel by its name rather than
+    repeat its hull code or class label.  Keep this narrow: range labels never
+    use it, and the same sentence must tie the name to a Navy submarine event.
+    """
+    hulls = re.findall(r"\b(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\b", machine, re.I)
+    lead_words = _words(re.sub(r"\bclass\b", "", subject, flags=re.I))
+    if len(hulls) != 1 or not lead_words:
+        return False
+    lead = r"[\s.\-‐‑–—']+".join(re.escape(word) for word in lead_words)
+    name = re.compile(r"(?<![a-z0-9])" + lead + r"(?![a-z0-9])", re.I)
+    vessel_event = re.compile(
+        r"\b(?:navy\s+(?:trials|purchased|commissioned)|"
+        r"(?:trials|modifications)\s+(?:to|of)|"
+        r"purchased\s+(?:the\s+)?submarine|"
+        r"commissioned\s+(?:the\s+)?submarine)\b",
+        re.I,
+    )
+    return any(
+        name.search(sentence)
+        and "submarine" in sentence.casefold()
+        and vessel_event.search(sentence)
+        for sentence in re.split(r"[.!?;]+", text)
+    )
+
+
 def is_factual_machine_contract(payload: Any) -> bool:
     return isinstance(payload, dict) and payload.get("machine_script_contract") == FACTUAL_MACHINE_SCRIPT_CONTRACT
 
@@ -56,6 +130,15 @@ def candidate_mentions_machine(text: Any, machine: Any) -> bool:
     """Match exact aircraft designations or distinctive vessel names."""
     raw_machine = str(machine or "").strip()
     source_text = str(text or "")
+    subject = factual_research_subject(raw_machine)
+    # Class display labels with naval range bookkeeping require the actual
+    # class phrase, or both a distinctive lead-vessel name and exact hull.
+    # Do this before the legacy named-vessel guard, whose ordered-token fallback would otherwise
+    # require source prose to repeat words such as "through".
+    if re.search(r"\bclass\b", subject, re.I):
+        return (_matches_class_subject(source_text, subject)
+                or _matches_class_lead_with_designation(source_text, raw_machine, subject)
+                or _matches_single_hull_lead(source_text, raw_machine, subject))
     # Match aircraft designations before nickname tokenization. Dropping the
     # digit in XNBL-1 made the old phrase impossible to find; using only
     # Superfortress admitted B-50 evidence for a B-29. Named ships retain

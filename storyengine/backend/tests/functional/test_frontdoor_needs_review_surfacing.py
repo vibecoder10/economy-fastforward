@@ -88,7 +88,8 @@ class _StubPipelineExecutor:
         pass
 
 
-_stub("pipeline_executor", PipelineExecutor=_StubPipelineExecutor)
+_stub("pipeline_executor", PipelineExecutor=_StubPipelineExecutor,
+      _unit_display_name=lambda unit: str(unit))
 
 from routes import pipeline as pipeline_mod  # noqa: E402
 import script_quality  # noqa: E402
@@ -102,10 +103,10 @@ def _reset():
 
 
 # ---------------------------------------------------------------------------
-# (a) _set_task_status: needs_review is additive, DB/enum status unchanged
+# (a) _set_task_status: needs_review is actionable and durable
 # ---------------------------------------------------------------------------
 
-def test_needs_review_normalizes_to_completed_but_flags_the_extra_field():
+def test_needs_review_persists_as_failed_and_flags_the_extra_field():
     _reset()
     pipeline_mod._set_task_status(
         VIDEO, "needs_review",
@@ -114,16 +115,11 @@ def test_needs_review_normalizes_to_completed_but_flags_the_extra_field():
     )
     task = pipeline_mod._get_task_status(VIDEO, TENANT)
     assert task is not None
-    # Every existing poller's running->done detection keys off "completed" —
-    # this MUST still be exactly that, unchanged.
-    assert task["status"] == "completed", (
-        f"needs_review must still normalize to 'completed' (existing pollers "
-        f"only recognize running/completed/failed), got {task['status']!r}"
-    )
-    # ...but the additive flag distinguishes it for the one consumer that cares.
+    assert task["status"] == "failed"
     assert task["needs_review"] is True
+    assert task["error"] == "Something went wrong. Please try again."
     assert "needs another look" in task["message"]
-    print("✅ test_needs_review_normalizes_to_completed_but_flags_the_extra_field")
+    print("✅ test_needs_review_persists_as_failed_and_flags_the_extra_field")
 
 
 def test_ordinary_completion_has_needs_review_false():
@@ -145,7 +141,7 @@ def test_get_task_status_route_exposes_needs_review():
         VIDEO, "needs_review", "needs another look", tenant_id=TENANT,
     )
     result = asyncio.run(pipeline_mod.get_task_status(VIDEO, TENANT))
-    assert result["status"] == "completed"
+    assert result["status"] == "failed"
     assert result["needs_review"] is True
     print("✅ test_get_task_status_route_exposes_needs_review")
 
@@ -158,6 +154,21 @@ def test_failed_task_has_needs_review_false():
     assert task["status"] == "failed"
     assert task["needs_review"] is False
     print("✅ test_failed_task_has_needs_review_false")
+
+
+def test_factual_roster_review_keeps_safe_machine_and_next_action_in_task_error():
+    _reset()
+    pipeline_mod._set_task_status(
+        VIDEO, "needs_review",
+        "[[user-facing]] 19/20 machines researched. Machine B still needs review. "
+        "Open Research to resolve those cards, then resume Run All.",
+        tenant_id=TENANT,
+    )
+    task = asyncio.run(pipeline_mod.get_task_status(VIDEO, TENANT))
+    assert task["status"] == "failed"
+    assert task["needs_review"] is True
+    assert "Machine B" in task["error"]
+    assert "Open Research" in task["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +388,8 @@ def test_autobuild_passing_script_is_unaffected():
     fake_rc._post_approval_gate_for_autobuild = _fake_post_gate
 
     async def _fake_fetch_one(query, *args):
+        if "production_queue" in query:
+            return None
         if "video_characters" in query:
             return {"n": 0}
         raise AssertionError(f"unexpected fetch_one: {query}")
@@ -404,7 +417,7 @@ def test_autobuild_passing_script_is_unaffected():
 
 
 TESTS = [
-    test_needs_review_normalizes_to_completed_but_flags_the_extra_field,
+    test_needs_review_persists_as_failed_and_flags_the_extra_field,
     test_ordinary_completion_has_needs_review_false,
     test_get_task_status_route_exposes_needs_review,
     test_failed_task_has_needs_review_false,

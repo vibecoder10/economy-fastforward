@@ -1538,7 +1538,8 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             if not isinstance(payload, dict):
                 return None
             from factual_machine_research import is_factual_machine_contract
-            if saved_repair_only and is_factual_machine_contract(payload):
+            factual_summary_contract = is_factual_machine_contract(payload)
+            if saved_repair_only and factual_summary_contract:
                 # Factual-card resumes are rebuilt from raw fetched excerpts
                 # inside run_research; never route their old Anton failures
                 # through the narrative surgical ladder.
@@ -1548,20 +1549,66 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 return None  # the roster itself is the problem — not this loop's job
             hold_validation = payload.get("unit_research_hold_validation")
             units = hold_validation.get("units") if isinstance(hold_validation, dict) else None
-            if not isinstance(units, list) or not units:
+            if not isinstance(units, list):
                 return None  # no locked roster (e.g. single-machine static_docu) — unchanged path
-            total = len(units)
-            pending = [
-                (position, str(unit.get("machine") or ""))
-                for position, unit in enumerate(units, start=1)
-                if isinstance(unit, dict) and not unit.get("passed") and str(unit.get("machine") or "").strip()
-            ]
+            subject_context = str(video_row.get("video_title") or video_row.get("headline") or "")
+            if factual_summary_contract:
+                # Factual summaries have a stricter completion law than the
+                # legacy Anton hold. The hold's `units` list can be partial
+                # after an interrupted bulk run, so enumerate the saved locked
+                # roster itself and treat every missing/stale summary verdict as
+                # pending. This never manufactures a pass from a short list.
+                from machine_research_summary import RESEARCH_SUMMARY_VERSION, research_summary_ready
+                from pipeline_executor import _machine_documentary_hold_roster, _verified_source_package_for_machine
+
+                roster = _machine_documentary_hold_roster(video_row)
+                if not roster:
+                    return None
+                unit_by_machine = {
+                    str(unit.get("machine") or "").strip(): unit
+                    for unit in units if isinstance(unit, dict) and str(unit.get("machine") or "").strip()
+                }
+                cards_by_machine = {
+                    str(card.get("unit") or card.get("machine") or card.get("name") or "").strip(): card
+                    for card in (payload.get("unit_research_cards") or [])
+                    if isinstance(card, dict) and str(card.get("unit") or card.get("machine") or card.get("name") or "").strip()
+                }
+
+                def _factual_machine_current(machine):
+                    unit = unit_by_machine.get(machine)
+                    card = cards_by_machine.get(machine)
+                    return bool(unit and unit.get("passed") and research_summary_ready(
+                        machine,
+                        _verified_source_package_for_machine(payload, machine),
+                        (card or {}).get("research_summary"),
+                        subject_context,
+                    ))
+
+                total = len(roster)
+                pending = [
+                    (position, machine) for position, machine in enumerate(roster, start=1)
+                    if not _factual_machine_current(machine)
+                ]
+                factual_retry_identity = (
+                    f"factual-summary:{payload.get('machine_script_contract')}:"
+                    f"summary-v{RESEARCH_SUMMARY_VERSION}:automation-v1"
+                )
+            else:
+                total = len(units)
+                pending = [
+                    (position, str(unit.get("machine") or ""))
+                    for position, unit in enumerate(units, start=1)
+                    if isinstance(unit, dict) and not unit.get("passed") and str(unit.get("machine") or "").strip()
+                ]
+                factual_retry_identity = ""
+                if not units:
+                    return None  # legacy behavior: requires its saved breakdown
             if not pending:
                 return None  # every machine already reads passed but the gate still
                 # refused to advance — a real bug, not something this loop can fix blind.
 
             attempts_raw = payload.get("roster_loop_attempts")
-            attempts: dict[str, int] = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
+            attempts: dict = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
             repair_attempts_raw = payload.get("roster_surgical_repair_attempts")
             repair_attempts: dict[str, int] = (
                 dict(repair_attempts_raw) if isinstance(repair_attempts_raw, dict) else {}
@@ -1605,6 +1652,32 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             done = total - len(pending)
             failures: list[str] = []
 
+            def _prior_attempts(machine: str) -> int:
+                value = attempts.get(machine, 0)
+                if not factual_summary_contract:
+                    return int(value or 0)
+                if isinstance(value, dict):
+                    return int(value.get(factual_retry_identity, 0) or 0)
+                # Safely migrate a legacy scalar without globally resetting it:
+                # retain the old count and leave one bounded attempt for this
+                # versioned factual-summary contract when it was previously capped.
+                legacy_count = int(value or 0)
+                attempts[machine] = {
+                    "legacy": legacy_count,
+                    factual_retry_identity: min(legacy_count, _MAX_AUTO_ATTEMPTS - 1),
+                }
+                return int(attempts[machine][factual_retry_identity])
+
+            def _record_attempt(machine: str, prior_attempts: int) -> None:
+                if factual_summary_contract:
+                    value = attempts.get(machine)
+                    if not isinstance(value, dict):
+                        value = {"legacy": int(value or 0)}
+                    value[factual_retry_identity] = prior_attempts + 1
+                    attempts[machine] = value
+                else:
+                    attempts[machine] = prior_attempts + 1
+
             async def _saved_machine_passed(machine: str) -> bool:
                 """Read the repaired verdict back from the saved video payload."""
                 saved = await ex._get_video(video_id) or {}
@@ -1620,11 +1693,25 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 )
                 units = validation.get("units") if isinstance(validation, dict) else None
                 machine_key = machine.strip().casefold()
-                return any(
+                passed = any(
                     isinstance(unit, dict)
                     and str(unit.get("machine") or "").strip().casefold() == machine_key
                     and bool(unit.get("passed"))
                     for unit in (units or [])
+                )
+                if not (passed and factual_summary_contract):
+                    return passed
+                current_payload = saved_payload if isinstance(saved_payload, dict) else {}
+                current_cards = current_payload.get("unit_research_cards") or []
+                card = next((item for item in current_cards if isinstance(item, dict)
+                             and str(item.get("unit") or item.get("machine") or item.get("name") or "").strip() == machine), None)
+                from machine_research_summary import research_summary_ready
+                from pipeline_executor import _verified_source_package_for_machine
+                return research_summary_ready(
+                    machine,
+                    _verified_source_package_for_machine(current_payload, machine),
+                    (card or {}).get("research_summary"),
+                    str(saved.get("video_title") or saved.get("headline") or subject_context),
                 )
 
             async def _repair_saved_machine(machine: str, position: int) -> tuple[bool, Optional[dict], Optional[dict]]:
@@ -1678,10 +1765,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 policy_error = await _queue_policy_error()
                 if policy_error:
                     return {"status": "paused", "message": policy_error}
-                prior_attempts = int(attempts.get(machine, 0) or 0)
+                prior_attempts = _prior_attempts(machine)
                 load_repair_context = getattr(ex, "_load_machine_repair_context", None)
                 saved_card = False
-                if callable(load_repair_context):
+                if not factual_summary_contract and callable(load_repair_context):
                     repair_context = await load_repair_context(video_id, machine) or {}
                     saved_card = isinstance(repair_context.get("card"), dict)
                 if saved_card:
@@ -1737,10 +1824,27 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     video_id, "running",
                     f"Researching machine {position}/{total}: {machine}",
                     tenant_id=tenant_id)
-                result = await ex.run_one_machine_research(video_id, machine) or {}
+                try:
+                    result = await ex.run_one_machine_research(video_id, machine) or {}
+                except Exception as exc:  # noqa: BLE001 - deliberately narrow classifier below
+                    from machine_research_summary import is_recoverable_research_error
+                    if not factual_summary_contract or not is_recoverable_research_error(exc):
+                        raise
+                    # Continue other independent locked entries, but retain a
+                    # bounded retry record for this machine and give the
+                    # creator a safe card-level next action at the end.
+                    result = {
+                        "status": "needs_review",
+                        "warnings": ["temporary research connection issue; retry this machine from Research"],
+                    }
                 if result.get("status") == "completed":
-                    done += 1
-                    continue
+                    if not factual_summary_contract or await _saved_machine_passed(machine):
+                        done += 1
+                        continue
+                    result = {
+                        "status": "needs_review",
+                        "warnings": ["saved sourced summary was not current after research"],
+                    }
                 _raise_provider_failure(result)
 
                 # The verified one-machine writer already made its two generic
@@ -1750,7 +1854,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # citation repair, and one-field rewrites are the only permitted
                 # actions, bounded by both the video's remaining cap and the
                 # ladder's own four-action/$1 ceiling.
-                if result.get("status") == "needs_review":
+                if not factual_summary_contract and result.get("status") == "needs_review":
                     repaired, repair_result, paused = await _repair_saved_machine(machine, position)
                     if paused:
                         return paused
@@ -1769,11 +1873,26 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 warning = "; ".join(str(w) for w in (result.get("warnings") or [])) \
                     or result.get("error") or "research did not pass review"
                 failures.append(f"{machine}: {warning}"[:220])
-                attempts[machine] = prior_attempts + 1
+                _record_attempt(machine, prior_attempts)
                 await _persist_attempts()
             if saved_repair_only and missing_saved_card:
                 return None
             if failures:
+                if factual_summary_contract:
+                    # Do not funnel arbitrary provider/referee text through a
+                    # user-facing task error. The locked labels are local data,
+                    # and this app-authored next action survives the task-status
+                    # sanitizer without leaking upstream details.
+                    from error_utils import user_facing
+                    named = ", ".join(item.split(":", 1)[0] for item in failures[:4])
+                    return {
+                        "status": "needs_review",
+                        "message": user_facing(
+                            f"{done}/{total} machines have current sourced summaries. "
+                            f"Research still needs review for: {named}. "
+                            "Open Research to resolve those cards, then resume Run All."
+                        ),
+                    }
                 return {
                     "status": "needs_review",
                     "message": (
@@ -1781,6 +1900,27 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         + "; ".join(failures)
                     )[:1500],
                 }
+            if factual_summary_contract:
+                # A worker result is only a claim. Re-read the persisted
+                # package/card graph for the locked roster before allowing
+                # agent-led scripting to consume it.
+                saved = await ex._get_video(video_id) or {}
+                from factual_machine_pipeline import factual_research_readiness
+                from pipeline_executor import _machine_documentary_hold_roster
+                saved_roster = _machine_documentary_hold_roster(saved)
+                if saved_roster != roster or not factual_research_readiness(
+                    saved.get("research_payload") or {},
+                    saved_roster,
+                    str(saved.get("video_title") or saved.get("headline") or subject_context),
+                ):
+                    from error_utils import user_facing
+                    return {
+                        "status": "needs_review",
+                        "message": user_facing(
+                            f"{done}/{total} machines have current sourced summaries. "
+                            "Open Research to resolve those cards, then resume Run All."
+                        ),
+                    }
             await _advance("ready_for_scripting")
             return {"status": "ready_for_scripting"}
 
@@ -1971,6 +2111,23 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                     _set_task_status(video_id, terminal, gathered.get("message") or gathered.get("error") or "Saved-roster images need review.", tenant_id=tenant_id)
                                     return
                                 _set_task_status(video_id, "running", "Researching the saved roster…", tenant_id=tenant_id)
+                                # Factual Run All must enter the bounded
+                                # per-machine loop directly. Calling the bulk
+                                # unit method first can repurchase a failed
+                                # card before roster_loop_attempts gets a say.
+                                from factual_machine_research import is_factual_machine_contract
+                                if is_factual_machine_contract(payload_for_progress):
+                                    repaired = await _run_static_docu_roster_research()
+                                    if repaired is not None:
+                                        if repaired.get("status") == "ready_for_scripting":
+                                            continue
+                                        _set_task_status(
+                                            video_id,
+                                            "completed" if repaired.get("status") == "paused" else repaired.get("status", "failed"),
+                                            repaired.get("message") or "Saved-roster research needs review.",
+                                            tenant_id=tenant_id,
+                                        )
+                                        return
                                 r = await ex.run_unit_research(video_id) or {}
                                 _raise_provider_failure(r)
                                 if r.get("status") == "ready_for_scripting":

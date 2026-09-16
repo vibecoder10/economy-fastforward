@@ -75,10 +75,11 @@ def test_real_gather_routes_factual_research_to_kie_and_only_copies_fetched_text
             "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
         ))
     secret.assert_awaited_once_with("kie_ai_api_key", "tenant-1")
-    assert post.await_count == 1
+    assert post.await_count == (1 if passes else 2)
     assert post.call_args.args[0] == search.ENDPOINT
     assert (not factual_package_contract_warnings(MACHINE, package)) is passes
     assert package["source_discovery"]["credits_consumed"] == 0.32
+    assert len(package["source_discovery_requests"]) == (1 if passes else 2)
     if passes:
         assert package["candidate_excerpts"][0]["text"] == text
         assert package["candidate_excerpts"][0]["source_capture_method"] == "fetched_page"
@@ -93,3 +94,28 @@ def test_factual_route_without_kie_key_does_not_spend_on_tavily():
                 "Every bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
             ))
     secret.assert_awaited_once_with("kie_ai_api_key", "tenant-1")
+
+
+def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
+    executor = object.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+
+    async def fetched(_client, url):
+        if url.endswith("alternate"):
+            return "The Gato-class submarine served in the Pacific during the Second World War."
+        return "An unrelated Balao-class submarine is not evidence for Gato."
+
+    first = response([{"title": "wrong", "exact_source_url": "https://museum.example/first"}])
+    second = response([{"title": "right", "exact_source_url": "https://archive.example/alternate"}])
+    with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
+         patch.object(httpx.AsyncClient, "post", AsyncMock(side_effect=[first, second])) as post:
+        executor._fetch_source_text = fetched
+        package = asyncio.run(executor._gather_verified_machine_source_package(
+            "Every US Submarine Class Ever Built", "SS-212 through SS-284 Gato class",
+            {"machine_script_contract": "factual_100_v1"},
+        ))
+
+    assert post.await_count == 2
+    assert len(package["source_discovery_requests"]) == 2
+    assert [row["url"] for row in package["sources"]] == ["https://archive.example/alternate"]
+    assert package["candidate_excerpts"]

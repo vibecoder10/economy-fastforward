@@ -501,49 +501,45 @@ def _set_task_status(
     (SEC-SSE-001). tenant_id is now required; a missing tenant is a program
     bug, not a recoverable runtime state.
 
-    Normalizes status to: running | completed | failed
-    ('cancelled' reads as completed to pollers — the message tells the story —
-    but persists as 'cancelled' in background_tasks for history.)
-
-    C-frontdoor2 (2026-07-27): a caller can also pass status="needs_review"
-    (a script the quality critic rejected after its bounded edit loop —
-    script_quality.run_critique_and_edit — see actions.py's make_action_step/
-    make_autobuild_step and routes/pipeline.py's direct /script route). This
-    is DELIBERATELY NOT a new bucket in the running/completed/failed
-    normalization every poller (useTaskPoller, useTaskWatcher, the
-    background_tasks.status DB CHECK constraint) already keys its
-    running->done transition off of — widening that enum would silently
-    break every one of those consumers (an unmatched status stops NONE of
-    their branches, so polling would never stop). Instead: normalizes to
-    "completed" exactly as before (byte-identical to every other terminal
-    status), and additively flags `needs_review: True` in the in-memory
-    entry — read by the SSE task_progress stream and the GET /task/{id}
-    poll (both additive fields, ignored by any client that doesn't know
-    about them yet) so the ONE consumer that needs to react differently
-    (ChatCore, which turns this into a visible "the script needs another
-    look" chat message instead of silently treating it as a clean success)
-    can, without touching the shared status vocabulary at all.
+    Normalizes status to: running | completed | failed. `cancelled` remains a
+    completed poller state while preserving `cancelled` in durable task history.
+    A `needs_review` result is a failed terminal task with its review flag
+    retained in the in-memory/SSE shape: incomplete factual research must not
+    look like a clean completed Run All.
     """
     db_status = None
     needs_review = status == "needs_review"
-    # Normalize: anything not running/failed is completed
+    # Normalize: needs_review is terminal and actionable. The durable status
+    # contract already supports failed; do not add an unsupported enum value.
     if status == "cancelled":
         normalized = "completed"
         db_status = "cancelled"
         if not message:
             message = "Stopped — completed work was kept. Run the stage again to resume."
+    elif status == "needs_review":
+        normalized = "failed"
+        db_status = "failed"
     elif status not in ("running", "failed"):
         normalized = "completed"
     else:
         normalized = status
     resolved_error = error
     resolved_message = message
+    review_message_is_safe = bool(
+        needs_review and resolved_message and resolved_message.startswith(USER_FACING_PREFIX)
+    )
     # user_facing() markers are consumed by humanize_error on the error path;
     # strip them from the message path too so the raw marker never shows.
     if resolved_message and resolved_message.startswith(USER_FACING_PREFIX):
         resolved_message = resolved_message[len(USER_FACING_PREFIX):]
     if normalized == "failed" and not resolved_error:
-        resolved_error = resolved_message
+        # A caller may deliberately mark concise application-authored review
+        # guidance safe. Preserve it through humanize_error so an incomplete
+        # roster names the next action instead of collapsing to a generic error.
+        resolved_error = (
+            USER_FACING_PREFIX + resolved_message
+            if review_message_is_safe else resolved_message
+        )
     # Humanize failure errors at the write boundary so raw str(e) from
     # ~15 call sites never reaches the UI via /task-status polling.
     # The raw error is logged to WARNING with a [humanize_error] prefix
