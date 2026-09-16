@@ -106,12 +106,20 @@ def selection_settings(duration_minutes: Any, minutes_per_machine: Any = 1) -> d
     }
 
 
+def selection_search_budget(payload: dict) -> int:
+    """Bound independent-review search capacity to the saved roster size."""
+    roster = payload.get("unit_roster") if isinstance(payload, dict) else []
+    count = len(roster) if isinstance(roster, list) else 0
+    return max(12, min(40, count + 4))
+
+
 def selection_fingerprint(title: str, payload: dict) -> str:
     settings = (payload.get("roster_selection") or {}).get("settings")
     from roster_coverage import selection_scope_policy, SELECTION_AUDIT_VERSION
     material = {
         "audit_version": SELECTION_AUDIT_VERSION,
         "representative_policy": REPRESENTATIVE_POLICY,
+        "search_budget": selection_search_budget(payload),
         "eligibility_policy": selection_scope_policy(title),
         "version": VERSION,
         "title": title,

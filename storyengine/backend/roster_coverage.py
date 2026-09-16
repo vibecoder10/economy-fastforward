@@ -99,7 +99,7 @@ async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
     """Audit selected rows only; exhaustive coverage stays in the legacy gate."""
     if selection_audit_is_current(title, payload):
         return payload["independent_selection_audit"]
-    from roster_selection import selection_fingerprint
+    from roster_selection import selection_fingerprint, selection_search_budget
     from shared.clients.anthropic_client import WEB_SEARCH_TOOL
     from orchestrator.pipeline_constants import Models
     from shared.json_utils import parse_json_response
@@ -119,7 +119,7 @@ async def audit_roster_selection(client, title, payload, checkpoint_scope=None):
         "\nELIGIBILITY POLICY: " + policy + "\nREPRESENTATIVE POLICY: " + representative_policy() + "\nSELECTED ROSTER: " + json.dumps(payload.get("unit_roster") or [])
     )
     system_prompt = "You are an independent historical fact checker. Runtime target controls quantity; audit eligibility only."
-    tools = [dict(WEB_SEARCH_TOOL, max_uses=12)]
+    tools = [dict(WEB_SEARCH_TOOL, max_uses=selection_search_budget(payload))]
     response = await client.generate(prompt=prompt, system_prompt=system_prompt,
                                      model=Models.CLAUDE_SONNET, max_tokens=3000, temperature=0.2,
                                      tools=tools, complete_response=True,
