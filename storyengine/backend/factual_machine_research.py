@@ -25,7 +25,7 @@ _NAMED_SUBMARINE_HULL_RE = re.compile(
     re.IGNORECASE,
 )
 _NAMED_SUBMARINE_TARGET_RE = re.compile(
-    r"^\s*(?:AGSS|SSBN|SSGN|SSN|SSG|SS)[\s\-]?\d+\s+USS\s+(?P<name>[A-Za-z0-9][A-Za-z0-9 .,'’\-–—/]*)\s*$",
+    r"^\s*(?:AGSS|SSBN|SSGN|SSN|SSG|SS)[\s\-]?\d+(?:\s+|\s*[-–—]\s*)USS\s+(?P<name>[A-Za-z0-9][A-Za-z0-9 .,'’\-–—/]*)\s*$",
     re.IGNORECASE,
 )
 

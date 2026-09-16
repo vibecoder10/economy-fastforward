@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
 import factual_machine_research as factual
 import pipeline_executor as pipeline
 
@@ -27,6 +32,36 @@ def test_all_accepted_named_submarines_require_name_and_exact_hull():
         assert parsed is not None, target
         text = f"USS {parsed['name']} ({parsed['prefix']} {parsed['number']}) was commissioned by the Navy."
         assert factual.candidate_mentions_machine(text, target), target
+
+
+def test_named_submarine_display_separators_resolve_canonical_identity_and_slot():
+    canonical = "SS-1 USS Holland"
+    separators = [" ", " - ", " – ", " — "]
+    for target in SUBMARINES:
+        for separator in separators:
+            label = target.replace(" USS", f"{separator}USS", 1)
+            assert factual.named_submarine_target(label) is not None, label
+            assert pipeline._locked_roster_item_for_machine(SUBMARINES, label) == target
+            assert pipeline._roster_index_for_identity(SUBMARINES, label) == SUBMARINES.index(target) + 1
+
+    display_labels = [canonical, "SS-1 - USS Holland", "SS-1 – USS Holland", "SS-1 — USS Holland"]
+    for label in display_labels:
+        parsed = factual.named_submarine_target(label)
+        assert parsed is not None, label
+        assert parsed["prefix"] == "SS"
+        assert parsed["number"] == "1"
+        assert parsed["name"] == "Holland"
+        assert pipeline._locked_roster_item_for_machine([canonical], label) == canonical
+        assert pipeline._roster_index_for_identity([canonical], label) == 1
+
+
+def test_named_submarine_roster_rejects_wrong_or_incomplete_identity_labels():
+    roster = ["SS-1 USS Holland"]
+    for label in ("SS-2 USS Holland", "SS-1 USS Plunger", "SS-999 USS Unknown"):
+        assert pipeline._locked_roster_item_for_machine(roster, label) is None
+        assert pipeline._roster_index_for_identity(roster, label) is None
+    for label in ("SS-1 Holland", "SS-1", "SS-1 USS Holland class"):
+        assert factual.named_submarine_target(label) is None
 
 
 def test_named_submarine_rejects_wrong_hull_even_with_exact_name():
@@ -76,3 +111,64 @@ def test_generic_aircraft_and_class_identity_behavior_remains_available():
     assert factual.candidate_mentions_machine("The B-52 Stratofortress entered service.", "B-52 Stratofortress")
     assert factual.candidate_mentions_machine("The Gato-class submarine served in the Pacific.", "SS-212 through SS-284 Gato class")
     assert pipeline._roster_index_for_identity(["B-52 Stratofortress"], "B-52") == 1
+
+
+@pytest.mark.asyncio
+async def test_machine_script_preview_accepts_em_dash_display_label_without_production_save():
+    canonical = "SS-1 USS Holland"
+    video = {
+        "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "machine_documentary",
+            "unit_roster": [{"designation": "SS-1", "name": "USS Holland"}],
+        },
+    }
+    hold = AsyncMock(return_value={"status": "completed", "preview": {"machine": canonical}})
+    executor = SimpleNamespace(
+        tenant_id="tenant-test",
+        _ensure_initialized=AsyncMock(),
+        _get_video=AsyncMock(return_value=video),
+        _load_prompt_overrides=AsyncMock(),
+        _run_static_script_hold=hold,
+    )
+
+    result = await pipeline.PipelineExecutor.run_machine_script_preview(
+        executor, "video-test", "SS-1 — USS Holland"
+    )
+
+    assert result["status"] == "completed"
+    executor._ensure_initialized.assert_awaited_once_with()
+    executor._get_video.assert_awaited_once_with("video-test")
+    executor._load_prompt_overrides.assert_awaited_once_with(video)
+    hold.assert_awaited_once_with("video-test", video, [canonical], target_machine=canonical)
+    assert hold.await_args.kwargs.get("save_target_script") is None
+
+
+@pytest.mark.asyncio
+async def test_machine_script_preview_rejects_wrong_named_submarine_without_hold():
+    canonical = "SS-1 USS Holland"
+    video = {
+        "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "machine_documentary",
+            "unit_roster": [{"designation": "SS-1", "name": "USS Holland"}],
+        },
+    }
+    hold = AsyncMock()
+    executor = SimpleNamespace(
+        tenant_id="tenant-test",
+        _ensure_initialized=AsyncMock(),
+        _get_video=AsyncMock(return_value=video),
+        _load_prompt_overrides=AsyncMock(),
+        _run_static_script_hold=hold,
+    )
+
+    result = await pipeline.PipelineExecutor.run_machine_script_preview(
+        executor, "video-test", "SS-1 — USS Plunger"
+    )
+
+    assert result == {
+        "status": "failed",
+        "error": "Machine is not in the locked roster: SS-1 — USS Plunger",
+    }
+    hold.assert_not_awaited()
