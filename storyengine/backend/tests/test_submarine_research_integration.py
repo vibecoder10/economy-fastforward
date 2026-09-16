@@ -68,3 +68,22 @@ def test_conflict_only_assessment_keeps_both_sources_and_holds_briefing():
     assert not result['unit_research_hold_validation']['passed']
     assert 'no supported claims' in str(result['unit_research_hold_validation'])
     writer.assert_not_awaited()
+
+
+def test_full_roster_completion_clears_last_child_target_marker():
+    ex,payload,client,writer=setup_case()
+    payload=run_case(ex,payload,writer)
+    assert payload['unit_research_hold_validation']['target_machine']==MACHINE
+    ex._ensure_initialized=AsyncMock();ex._install_cancel_support=AsyncMock()
+    ex._pipeline.should_cancel=AsyncMock(return_value=False)
+    ex._get_video=AsyncMock(return_value={'id':'video','status':'idea_logged','render_mode':'static_docu','video_title':TITLE,'research_payload':payload})
+    ex._run_unit_research_hold=AsyncMock(return_value=payload)
+    execute=AsyncMock(return_value='UPDATE 1')
+    with patch.object(pe,'_live_roster_gate',return_value={'passed':True}), patch.object(pe,'execute',execute), patch('drive_workspace.sync_video_workspace_fail_soft',new=AsyncMock()):
+        result=asyncio.run(ex.run_unit_research('video'))
+    assert result['status']=='ready_for_scripting',result
+    saved=json.loads(execute.call_args_list[-1].args[1])
+    assert saved['unit_research_hold_validation']['passed']
+    assert 'target_machine' not in saved['unit_research_hold_validation']
+    assert 'target_machine_passed' not in saved['unit_research_hold_validation']
+    assert client.generate.await_count==1 and writer.await_count==1

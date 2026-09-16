@@ -12667,6 +12667,9 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "started", f"Researching {len(roster)} locked machines")
             payload = await self._run_unit_research_hold(video_id, title, payload, roster)
             validation = payload.get("unit_research_hold_validation") or {}
+            # This entrypoint validates the full roster, not the last child card.
+            validation.pop("target_machine", None)
+            validation.pop("target_machine_passed", None)
             factual_contract = payload.get("machine_script_contract") == "factual_100_v1"
             if factual_contract:
                 from factual_machine_pipeline import factual_research_readiness
