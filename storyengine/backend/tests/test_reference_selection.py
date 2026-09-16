@@ -196,3 +196,74 @@ def test_dashboard_retains_old_photo_but_blocks_without_review():
     result=reference_dashboard_state(old,failure)
     assert result['reason_code']=='provider_error' and result['hosted_url']=='old'
     assert reference_dashboard_state(cache())['status']=='verified'
+
+
+def typography_cache():
+    row=cache();better=candidate('b') | judgment('b',status='uncertain',score=5)
+    better['evidence'][0]['text']='USS Exact , is a member of Example class .'
+    better['identity']['evidence'][0]['quote']='USS Exact, is a member of Example class.'
+    better['reason_code']='unverified_identity_evidence'
+    row['selection_review']['candidates']=[candidate() | judgment(),better]
+    return row
+
+
+def test_typography_matching_preserves_words_numbers_and_source():
+    c=candidate();c['evidence'][0]['text']='USS Barracuda ( SF-4 / SS-163 ) , lead ship of the “ V-boats , ” class.'
+    identity=judgment()['identity'];identity['evidence'][0]['quote']='USS Barracuda (SF-4/SS-163), lead ship of the "V-boats" class.'
+    assert rs._valid_citations(c,identity)
+    for quote in ('USS Barracuda (SF-4/SS-164), lead ship of the V-boats class.',
+                  'USS Barracuda (SF-4/SS-163), lead ship of class.',
+                  'USS Barracuda (SF-4/SS-163), not lead ship of the V-boats class.'):
+        bad=copy.deepcopy(identity);bad['evidence'][0]['quote']=quote
+        assert not rs._valid_citations(c,bad)
+    bad=copy.deepcopy(identity);bad['evidence'][0]['url']='https://wrong-source'
+    assert not rs._valid_citations(c,bad)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed', [False,True])
+async def test_saved_typography_recovery_selects_better_photo_without_discovery_or_model(flow,failed):
+    reads,writes,collect,judge,host=flow;row=typography_cache()
+    if failed:
+        review=copy.deepcopy(row['selection_review']);review.update(status='needs_review',selected=None,reason_code='insufficient_evidence')
+        reads.side_effect=[None,{'receipt':review}]
+    else:reads.return_value=row
+    result=await rs.select_reference('t','v','Exact',0)
+    assert result['status']=='selected' and result['selected']['id']=='b' and result['selected']['score']==100
+    assert result.get('reason_code') is None
+    assert rs.selection_ready({'reference_kind':'photo','source_url':result['selected']['image_url'],
+                              'hosted_url':result['selected']['hosted_url'],'selection_review':result})
+    collect.assert_not_called();judge.assert_not_called();host.assert_awaited_once()
+    assert '_original' not in json.dumps(result) and '_vision' not in json.dumps(result)
+    assert rs._rerank_saved_review(result) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_saved_upgrade_keeps_original_cache(flow):
+    reads,writes,collect,judge,host=flow;row=typography_cache();reads.return_value=row
+    host.side_effect=RuntimeError('host unavailable')
+    assert await rs.select_reference('t','v','Exact',0)==row['selection_review']
+    writes.assert_not_called();collect.assert_not_called();judge.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_gather_dispatches_only_cached_review_that_has_better_recovered_candidate(monkeypatch):
+    import static_docu,pipeline_executor
+    monkeypatch.setattr(pipeline_executor,'_machine_documentary_hold_roster_entries',lambda _: [{'name':'Exact'}])
+    async def fetch(query,*args):return {'id':'v'} if 'FROM videos' in query else typography_cache()
+    monkeypatch.setattr(static_docu,'fetch_one',fetch)
+    monkeypatch.setattr(static_docu,'_ensure_ref_cache_schema',AsyncMock())
+    monkeypatch.setattr(rs,'ensure_selection_schema',AsyncMock())
+    select=AsyncMock(return_value=True);monkeypatch.setattr(static_docu,'_prefetch_one_machine',select)
+    result=await static_docu.prefetch_roster_references('v','t')
+    assert result['verified']==1;select.assert_awaited_once()
+
+
+def test_equivalent_source_url_encoding_matches_but_different_paths_or_queries_do_not():
+    c=candidate();c['evidence'][0]['url']='https://commons.wikimedia.org/wiki/File:USS_Example_(SS-163).jpg'
+    ident=judgment()['identity'];ident['evidence'][0]['url']='https://commons.wikimedia.org/wiki/File:USS_Example_%28SS-163%29.jpg'
+    assert rs._valid_citations(c,ident)
+    for bad in ['https://commons.wikimedia.org/wiki/File:USS_Example_%28SS-164%29.jpg',
+                'https://commons.wikimedia.org/wiki/File:USS_Example_%28SS-163%29.jpg?different=1']:
+        ident['evidence'][0]['url']=bad
+        assert not rs._valid_citations(c,ident)

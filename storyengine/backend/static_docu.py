@@ -4736,7 +4736,7 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
 
     await _ensure_ref_cache_schema()
 
-    from reference_selection import ensure_selection_schema, selection_ready
+    from reference_selection import ensure_selection_schema, selection_ready, selection_needs_rerank
     await ensure_selection_schema()
     verified, missed, never_built, processed = 0, 0, 0, 0
     for i, entry in enumerate(entries):
@@ -4752,7 +4752,7 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
                 "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
                 "WHERE tenant_id=$1 AND machine_key=$2 "
                 "AND reference_kind='photo'", tenant_id, mkey)
-            if selection_ready(cached):
+            if selection_ready(cached) and not selection_needs_rerank(cached):
                 verified += 1
                 # C8: this machine already carries a tenant-global verified
                 # reference (perhaps seeded/prefetched via a different

@@ -8,7 +8,7 @@ import json
 import math
 import re
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -35,6 +35,17 @@ def selection_receipt(value):
     return value if isinstance(value, dict) else {}
 
 
+def _quote_words(value):
+    # Inline HTML and typography can insert spaces around punctuation. Keep
+    # every word/number in order; this does not permit paraphrases or omissions.
+    return " " + " ".join(re.findall(r"\w+", str(value).casefold())) + " "
+
+
+def _citation_url(value):
+    parts = urlsplit(str(value or ""))
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), unquote(parts.path), parts.query, ""))
+
+
 def _valid_citations(candidate, identity):
     citations, sources = identity.get("evidence"), candidate.get("evidence")
     if not isinstance(citations, list) or not citations or not isinstance(sources, list):
@@ -46,8 +57,9 @@ def _valid_citations(candidate, identity):
         quote, url = citation.get("quote"), citation.get("url")
         if not isinstance(quote, str) or not 12 <= len(quote.strip()) <= 1500:
             return False
-        matching = [e for e in sources if isinstance(e, dict) and e.get("url") == url
-                    and quote.strip() in str(e.get("text") or "")]
+        words = _quote_words(quote)
+        matching = [e for e in sources if isinstance(e, dict) and _citation_url(e.get("url")) == _citation_url(url)
+                    and words.strip() and words in _quote_words(e.get("text") or "")]
         if not matching:
             return False
         caption_cited |= any(e.get("kind") == "image_caption" for e in matching)
@@ -211,6 +223,37 @@ def choose_candidate(candidates, judgments):
     return primary, support
 
 
+def _rerank_saved_review(receipt):
+    """Recover typography-only citation failures without another model call."""
+    candidates = [dict(c) for c in receipt.get("candidates", [])
+                  if isinstance(c, dict) and isinstance(c.get("scores"), dict)
+                  and isinstance(c.get("identity"), dict)]
+    repaired = False
+    for candidate in candidates:
+        if (candidate.get("reason_code") == "unverified_identity_evidence"
+                and _valid_citations(candidate, candidate["identity"])):
+            candidate["identity"] = dict(candidate["identity"], status="confirmed",
+                reason="The cited source words and machine designations match the retrieved evidence; typography differences were normalized.")
+            candidate.pop("reason_code", None)
+            repaired = True
+    if not repaired:
+        return None
+    try:
+        fields = ("id", "identity", "usable", "scores", "view", "reason", "limitations")
+        judgments = validate_judgment({"candidates": [{k: c[k] for k in fields} for c in candidates]}, candidates)
+        primary, _ = choose_candidate(candidates, judgments)
+    except (SelectionFailure, KeyError, TypeError):
+        return None
+    old_score = (receipt.get("selected") or {}).get("score", 0)
+    if not primary or primary[0] <= old_score:
+        return None
+    return candidates, primary
+
+
+def selection_needs_rerank(row):
+    return bool(_rerank_saved_review(selection_receipt((row or {}).get("selection_review"))))
+
+
 async def _judge(tenant_id, machine, candidates, facts, aliases=None, *, video_id=None):
     from static_docu import CLAUDE_MODELS
     from vault import get_secret
@@ -270,8 +313,39 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
     await ensure_selection_schema()
     key = _machine_key(machine)
     cached = await fetch_one("SELECT hosted_url,source_url,reference_kind,selection_review FROM static_reference_cache WHERE tenant_id=$1 AND machine_key=$2 AND reference_kind='photo'", tenant_id, key)
-    if not manual_url and selection_ready(cached):
-        return selection_receipt(cached["selection_review"])
+    ready = selection_ready(cached)
+    if not manual_url:
+        saved = selection_receipt((cached or {}).get("selection_review"))
+        if not ready:
+            latest = await fetch_one("SELECT receipt FROM static_reference_reviews WHERE tenant_id=$1 AND video_id=$2 AND machine_key=$3",
+                tenant_id, video_id, key)
+            saved = selection_receipt((latest or {}).get("receipt"))
+        upgraded = _rerank_saved_review(saved)
+        if ready and not upgraded:
+            return saved
+    else:
+        upgraded = None
+    if upgraded:
+        candidates, (score, _, candidate, judgment) = upgraded
+        try:
+            candidate.update(await _fetch_image(candidate["image_url"]))
+            hosted = await _host(candidate, video_id, tenant_id, f"selection_{roster_index}_citation_recovery")
+            if not hosted:
+                return saved
+        except Exception:
+            return saved
+        selected = _summary(candidate) | judgment | {"score": score, "hosted_url": hosted}
+        receipt = dict(saved, status="selected", reason_code=None, selected=selected, supporting=[], checked_at=datetime.now(timezone.utc).isoformat(),
+            candidates=[_summary(c) | {k: c[k] for k in ("identity", "usable", "scores", "view", "limitations")}
+                        for c in candidates],
+            reason="Selected a clearer view from the saved comparison after matching source quotation typography.")
+        await execute("""INSERT INTO static_reference_cache
+            (tenant_id,machine_key,machine,hosted_url,source_url,reference_kind,selection_review)
+            VALUES ($1,$2,$3,$4,$5,'photo',$6::jsonb) ON CONFLICT (tenant_id,machine_key) DO UPDATE
+            SET machine=$3,hosted_url=$4,source_url=$5,reference_kind='photo',selection_review=$6::jsonb,verified_at=now()""",
+            tenant_id, key, machine, hosted, selected["image_url"], json.dumps(receipt))
+        await _save_review(tenant_id, video_id, machine, receipt)
+        return receipt
     receipt = {"version": VERSION, "status": "needs_review", "machine": machine, "machine_key": key,
         "checked_at": datetime.now(timezone.utc).isoformat(), "discovered_count": 0, "compared_count": 0,
         "selected": None, "supporting": [], "candidates": [], "reason_code": None, "reason": ""}
