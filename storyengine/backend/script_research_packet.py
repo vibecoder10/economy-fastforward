@@ -5,11 +5,11 @@ import hashlib
 import json
 from typing import Any
 
-COMPILER_VERSION = 1
+COMPILER_VERSION = 2
 MAX_PACKET_BYTES = 32000
 MAX_INPUT_TOKEN_UPPER_BOUND = 48000
 MODEL_CONTEXT_TOKENS = 200000
-PROMPT_RULES_VERSION = 1
+PROMPT_RULES_VERSION = 2
 
 
 class ScriptPacketError(ValueError):
@@ -76,6 +76,16 @@ def _category(claim: dict) -> str:
 
 
 _CATEGORY_ORDER = ("identity", "purpose", "design", "service", "outcome", "other")
+_NARRATIVE_ROLES = ("intended_role", "design", "actual_use", "outcome")
+
+
+def _narrative_roles(claim: dict) -> list[str]:
+    """Return only the assessor's validated, writer-safe narrative roles."""
+    raw = claim.get("narrative_roles")
+    if not isinstance(raw, list):
+        return []
+    return sorted({role.strip() for role in raw
+                   if isinstance(role, str) and role.strip() in _NARRATIVE_ROLES})
 
 
 def _source_tier(candidate: dict) -> int:
@@ -194,7 +204,9 @@ def compile_script_packet(machine: Any, source_package: Any, assessment: Any, ca
         supported.append({"fact_id": _fact_id(machine, claim, evidence),
                           "assessment_claim_id": str(claim.get("id") or f"C{index}"),
                           "category": _category(claim), "claim": claim["claim"], "scope": claim["scope"],
-                          "evidence": evidence, "_tier": min(_source_tier(candidates[item["excerpt_id"]]) for item in evidence)})
+                          "evidence": evidence,
+                          **({"narrative_roles": _narrative_roles(claim)} if "narrative_roles" in claim else {}),
+                          "_tier": min(_source_tier(candidates[item["excerpt_id"]]) for item in evidence)})
     if not supported:
         _fail("Script packet requires at least one supported claim.")
     supported.sort(key=lambda row: (_CATEGORY_ORDER.index(row["category"]), row["_tier"], row["fact_id"], row["assessment_claim_id"]))
@@ -218,7 +230,7 @@ def compile_script_packet(machine: Any, source_package: Any, assessment: Any, ca
         if row["category"] not in seen_categories:
             chosen.append(row); seen_categories.add(row["category"])
     for row in supported:
-        if len(chosen) >= 8:
+        if len(chosen) >= 12:
             break
         if row not in chosen:
             chosen.append(row)
@@ -236,9 +248,9 @@ def compile_script_packet(machine: Any, source_package: Any, assessment: Any, ca
     # consumes a selection slot, so a later compact fact can backfill it.
     prioritized = chosen + [row for row in supported if row not in chosen]
     for row_index, row in enumerate(prioritized):
-        fact = {key: row[key] for key in ("fact_id", "assessment_claim_id", "category", "claim", "scope", "evidence")}
+        fact = {key: row[key] for key in ("fact_id", "assessment_claim_id", "category", "claim", "scope", "evidence", "narrative_roles") if key in row}
         future_limit = []
-        if len(base["facts"]) + 1 == 8:
+        if len(base["facts"]) + 1 == 12:
             future_limit = [{"assessment_claim_id": later["assessment_claim_id"], "status": "supported", "reason_code": "selection_limit"}
                             for later in prioritized[row_index + 1:]]
         trial_excluded = sorted(excluded + future_limit, key=lambda item: (item["assessment_claim_id"], item["status"], item["reason_code"]))

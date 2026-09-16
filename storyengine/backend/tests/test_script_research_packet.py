@@ -111,13 +111,13 @@ def test_full_fact_skip_failure_and_configuration_invalidation():
 def test_selection_limit_and_reordered_claim_evidence_lists_are_stable():
     package = _package(); assessment = _assessment(package)
     base = assessment["claims"][0]
-    for number in range(4, 13):
+    for number in range(4, 16):
         copied = copy.deepcopy(base); copied["id"] = f"C{number}"; copied["claim"] = f"USS Example served in {number}."; copied["scope"] = "service"
         assessment["claims"].append(copied)
     candidates = {r["excerpt_id"]: r for r in package["candidate_excerpts"]}
     packet = compile_script_packet(MACHINE, package, assessment, candidates, subject_context="Submarines")
-    assert len(packet["facts"]) == 8
-    assert sum(row["reason_code"] == "selection_limit" for row in packet["excluded_claims"]) == 3
+    assert len(packet["facts"]) == 12
+    assert sum(row["reason_code"] == "selection_limit" for row in packet["excluded_claims"]) == 2
     reordered = copy.deepcopy(assessment); reordered["claims"].reverse()
     assert packet["packet_fingerprint"] == compile_script_packet(MACHINE, package, reordered, candidates, subject_context="Submarines")["packet_fingerprint"]
 
@@ -130,6 +130,17 @@ def test_duplicate_facts_choose_lowest_claim_id_and_preserve_category_output_ord
     assert [row["assessment_claim_id"] for row in packet["facts"] if row["category"] == "service"] == ["C0"]
     assert any(row["reason_code"] == "duplicate_fact" and row["assessment_claim_id"] == "C1" for row in packet["excluded_claims"])
     assert [row["category"] for row in packet["facts"]] == sorted([row["category"] for row in packet["facts"]], key=("identity", "purpose", "design", "service", "outcome", "other").index)
+
+
+def test_validated_narrative_roles_are_copied_and_change_packet_identity():
+    package = _package(); assessment = _assessment(package)
+    candidates = {row["excerpt_id"]: row for row in package["candidate_excerpts"]}
+    baseline = compile_script_packet(MACHINE, package, assessment, candidates, subject_context="Submarines")
+    assessment["claims"][1]["narrative_roles"] = ["intended_role", "design", "invalid", "design"]
+    with_roles = compile_script_packet(MACHINE, package, assessment, candidates, subject_context="Submarines")
+    fact = next(row for row in with_roles["facts"] if row["assessment_claim_id"] == "C2")
+    assert fact["narrative_roles"] == ["design", "intended_role"]
+    assert with_roles["packet_fingerprint"] != baseline["packet_fingerprint"]
 
 
 def test_tight_limit_fails_when_no_whole_fact_can_fit(monkeypatch):

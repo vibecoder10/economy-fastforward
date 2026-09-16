@@ -212,6 +212,21 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
 
 const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
 const FACTUAL_REVIEW_CONTEXT_VERSION = 6;
+const DVSU_COMPILER_VERSION = 2;
+const DVSU_EDITORIAL_VERSION = 1;
+
+export function machinePreviewPassesEditorialGate(preview: any): boolean {
+  const audit = preview?.editorial_review;
+  const words = String(preview?.paragraph || "").trim().split(/\s+/).filter(Boolean).length;
+  return Boolean(preview?.compiler_version === DVSU_COMPILER_VERSION
+    && preview?.factual_passed === true
+    && preview?.editorial_review_version === DVSU_EDITORIAL_VERSION
+    && audit?.version === DVSU_EDITORIAL_VERSION && audit?.passed === true
+    && Array.isArray(audit?.issues) && audit.issues.length === 0
+    && ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"]
+      .every((key) => audit?.checks?.[key] === true)
+    && words >= 80 && words <= 110);
+}
 
 export function machinePreviewPassesContract(
   preview: any,
@@ -224,6 +239,7 @@ export function machinePreviewPassesContract(
   return Boolean(
     preview?.passed === true
     && String(preview?.paragraph || "").trim()
+    && machinePreviewPassesEditorialGate(preview)
     && machinePreviewHasCurrentFactualIdentity(preview, machine, scene, subjectContext)
   );
 }
@@ -296,6 +312,10 @@ function machinePreviewReviewMessages(preview: any): string[] {
         .filter(Boolean)
     : [];
   const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows]));
+  if (preview?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT
+      && !machinePreviewPassesEditorialGate(preview) && messages.length === 0) {
+    messages.push("This saved draft has not passed the current DVSU writing checks. Check research readiness before generating a replacement.");
+  }
   return preview?.research_source === "readiness_preflight" ? messages : messages.slice(0, 6);
 }
 

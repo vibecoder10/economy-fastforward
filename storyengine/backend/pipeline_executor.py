@@ -9788,9 +9788,13 @@ class PipelineExecutor:
                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
 
             if factual_search:
+                recovery = payload.get("_dvsu_source_recovery") or {}
+                recovery = recovery if recovery.get("machine") == machine else {}
                 search_results, discovery = await discover_sources(
                     client, search_key, title, machine,
                     subject=factual_research_subject(machine),
+                    **({"missing_fields": recovery.get("missing_fields"),
+                        "attempted_urls": recovery.get("attempted_urls")} if recovery else {}),
                 )
                 discovery_requests.append(discovery)
             else:
@@ -12985,6 +12989,7 @@ class PipelineExecutor:
             saved_research_summary,
         )
         if is_factual_machine_contract(payload):
+            from dvsu_research_handoff import package_brief_warnings, supplement_missing_research
             if not target_code:
                 # The bulk entrypoint remains an ordered coordinator. Each
                 # missing or stale card goes through the same exact locked
@@ -12994,7 +12999,8 @@ class PipelineExecutor:
                     existing_package = _verified_source_package_for_machine(payload, roster_machine)
                     existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
                     if (not factual_card_contract_warnings(roster_machine, existing, existing_package)
-                            and research_summary_ready(roster_machine, existing_package, existing_summary, title)):
+                            and research_summary_ready(roster_machine, existing_package, existing_summary, title)
+                            and not package_brief_warnings(roster_machine, existing_package, title)):
                         payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
                             payload, roster_machine, [], locked_roster=roster,
                         )
@@ -13067,7 +13073,9 @@ class PipelineExecutor:
             cache_key = _verified_source_cache_key(target_machine or "")
             cached_package = ((payload.get("machine_raw_source_packages") or {}).get(cache_key))
             if not factual_package_contract_warnings(target_machine or "", cached_package):
-                verified_source_package = cached_package
+                verified_source_package = await supplement_missing_research(
+                    self, title, target_machine or "", payload, cached_package, cache_key,
+                )
             else:
                 verified_source_package = await self._gather_verified_machine_source_package(
                     title, target_machine or "", payload,
@@ -13180,7 +13188,11 @@ class PipelineExecutor:
                     if not saved_summary.get("passed"):
                         summary_warnings = list(summary_result.get("warnings") or ["Factual research summary failed review"])
                         summary_warnings.extend(saved_summary.get("warnings") or [])
-            warnings = list(dict.fromkeys(package_warnings + card_warnings + summary_warnings))
+            narrative_warnings = (package_brief_warnings(target_machine or "", verified_source_package, title)
+                                  if not package_warnings and not assessment_warnings else [])
+            card["script_brief_readiness"] = {"passed": not narrative_warnings,
+                                              "warnings": narrative_warnings}
+            warnings = list(dict.fromkeys(package_warnings + card_warnings + summary_warnings + narrative_warnings))
             current_cards = [
                 item for item in (payload.get("unit_research_cards") or [])
                 if isinstance(item, dict)
@@ -16568,6 +16580,11 @@ scenes."""
             require_source_package=True,
             factual_subject_context=str(video.get("video_title") or video.get("headline") or ""),
         )
+        if rp.get("machine_script_contract") == "factual_100_v1":
+            from dvsu_research_handoff import package_brief_warnings
+            source_errors.extend(package_brief_warnings(
+                matched, source_package, str(video.get("video_title") or video.get("headline") or ""),
+            ))
         # G21a: same tier-floor-is-advisory fix as the generation gate above -
         # readiness must agree with what generation will actually do, or the
         # UI badge says "not ready" for a machine that writes fine. Only a

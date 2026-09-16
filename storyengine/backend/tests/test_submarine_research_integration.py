@@ -12,7 +12,15 @@ TEXT='USS Nautilus (SSN-571) was commissioned in 1954.'
 def setup_case(raw=None, checkpoint=None):
     package={'machine':MACHINE,'candidate_excerpts':[{'excerpt_id':'E1','source_id':'S1','text':TEXT,'source_url':'https://history.test/nautilus','source_title':'Nautilus history','source_capture_method':'fetched_page','locator':'p1'}]}
     if raw is None:
+        story = MACHINE + ' was designed for extended submerged operation, used nuclear propulsion, served on submerged voyages, and was preserved as a museum.'
+        package['candidate_excerpts'].append(dict(package['candidate_excerpts'][0], excerpt_id='E2', text=story))
         raw=json.dumps({'claims':[{'claim':'Nautilus was commissioned in 1954.','scope':'SSN-571 commissioning','status':'supported','reason':'Explicit date.','evidence':[{'excerpt_id':'E1','quote':TEXT}],'counterevidence':[]}]})
+    if 'story' in locals():
+        parsed = json.loads(raw)
+        parsed['claims'].append({'claim': story, 'scope': 'synthetic narrative protocol fixture',
+            'narrative_roles': ['intended_role', 'design', 'actual_use', 'outcome'], 'status': 'supported',
+            'reason': 'Exact fixture', 'evidence': [{'excerpt_id':'E2', 'quote':story}], 'counterevidence':[]})
+        raw = json.dumps(parsed)
     client=SimpleNamespace(generate=AsyncMock(return_value=raw))
     payload={'machine_script_contract':'factual_100_v1','unit_roster':[MACHINE],'unit_research_cards':[],'machine_raw_source_packages':{'SSN571':package}}
     ex=pe.PipelineExecutor.__new__(pe.PipelineExecutor);ex.tenant_id='tenant';ex._pipeline=SimpleNamespace(anthropic=client)

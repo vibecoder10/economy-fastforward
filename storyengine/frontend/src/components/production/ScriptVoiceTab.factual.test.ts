@@ -33,6 +33,9 @@ const helperSource = `
   const fullMachineResearchGatePassed = (validation: any, verifiedCount: number, rosterCount: number) => Boolean(validation?.passed && verifiedCount === rosterCount && validation?.units?.length >= rosterCount && !validation?.target_machine);
   const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
   const FACTUAL_REVIEW_CONTEXT_VERSION = ${FACTUAL_REVIEW_CONTEXT_VERSION};
+  const DVSU_COMPILER_VERSION = ${numericConstant(source, "DVSU_COMPILER_VERSION")};
+  const DVSU_EDITORIAL_VERSION = ${numericConstant(source, "DVSU_EDITORIAL_VERSION")};
+  ${exportedFunction("machinePreviewPassesEditorialGate")}
   ${exportedFunction("factualMachineIdentityMatches")}
   ${exportedFunction("machinePreviewHasCurrentFactualIdentity")}
   ${exportedFunction("machinePreviewPassesContract")}
@@ -46,7 +49,10 @@ const { machinePreviewPassesContract, machineResearchGatePassesContract } = new 
 
 const currentFactualBlock = {
   passed: true,
-  paragraph: "USS Holland was the United States Navy's first submarine.",
+  paragraph: "SS-1 USS Holland " + Array(90).fill("fixture").join(" "),
+  compiler_version: 2, factual_passed: true, editorial_review_version: 1,
+  editorial_review: {version: 1, passed: true, issues: [], checks: Object.fromEntries(
+    ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"].map(key => [key, true]))},
   machine: "SS-1 USS Holland",
   scene: 1,
   machine_script_contract: "factual_100_v1",
@@ -58,6 +64,9 @@ const currentFactualBlock = {
 describe("factual machine script UI truth", () => {
   it("keeps the UI factual review version aligned with the backend", () => {
     expect(FACTUAL_REVIEW_CONTEXT_VERSION).toBe(BACKEND_REVIEW_CONTEXT_VERSION);
+    const compiler = readFileSync(new URL("../../../../backend/script_research_packet.py", import.meta.url), "utf8");
+    expect(numericConstant(source, "DVSU_COMPILER_VERSION")).toBe(numericConstant(compiler, "COMPILER_VERSION"));
+    expect(numericConstant(source, "DVSU_EDITORIAL_VERSION")).toBe(numericConstant(backendSource, "EDITORIAL_REVIEW_VERSION"));
   });
 
   it("accepts the current Holland factual block with an em dash display label", () => {
@@ -83,6 +92,14 @@ describe("factual machine script UI truth", () => {
       { ...currentFactualBlock, passed: false, review_context_version: 6 }, true,
       "SS-1 — USS Holland", 1, currentFactualBlock.subject_context,
     )).toBe(false);
+  });
+
+  it("rejects thin drafts and old factual-only approvals", () => {
+    for (const changes of [{paragraph: "SS-1 USS Holland was a submarine."}, {compiler_version: 1},
+      {editorial_review: undefined}, {editorial_review: {...currentFactualBlock.editorial_review, passed: false}}]) {
+      expect(machinePreviewPassesContract({...currentFactualBlock, ...changes}, true,
+        "SS-1 — USS Holland", 1, currentFactualBlock.subject_context)).toBe(false);
+    }
   });
 
   it("keeps legacy previews behind the Anton audit", () => {

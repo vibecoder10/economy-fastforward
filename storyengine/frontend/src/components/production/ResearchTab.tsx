@@ -1119,7 +1119,9 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
       setSelectedMachine(machine);
       if (!(await confirmPaidOneMachineAction(
         confirmDialog,
-        `Run paid one-machine research refresh for ${machine}? This calls Tavily search plus Claude card writing, then replaces only this machine's raw package/card/preview artifacts.`
+        payload?.machine_script_contract === "factual_100_v1"
+          ? `Research ${machine}? This uses paid research services to fill missing design, actual-use, and outcome evidence while preserving existing sources. It refreshes only this machine's research and clears its outdated preview.`
+          : `Run paid one-machine research refresh for ${machine}? This calls Tavily search plus Claude card writing, then replaces only this machine's raw package/card/preview artifacts.`
       ))) {
         toast.error("One-machine research refresh canceled before any provider call.");
         return;

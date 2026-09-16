@@ -24,6 +24,21 @@ SUBJECT = "Every US Submarine Class Ever Built"
 URL = "https://navy.example/holland"
 
 
+# Synthetic source fixture for protocol tests, not production research.
+PARAGRAPH = (
+    "SS-1 USS Holland was designed to test a practical submarine for the Navy. "
+    "Its gasoline engine powered surface running, while electric motors drove it underwater. "
+    "That arrangement separated the demands of surface travel from the confined work of submerged operation. "
+    "The vessel served as a training platform, giving crews a place to learn the machinery and practice handling it. "
+    "It was eventually retired, but the experience remained useful to the submarine force that followed. "
+    "The design offered a working boat; service turned that boat into a working school."
+)
+
+def _editorial():
+    return {"version": 1, "passed": True, "issues": [], "checks": dict.fromkeys(
+        ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"], True)}
+
+
 class FakeClient:
     def __init__(self, *responses):
         self.responses = list(responses)
@@ -61,6 +76,13 @@ def _package():
         {"id": "C4", "claim": "SS-1 USS Holland was sunk in battle.", "scope": "outcome", "status": "insufficient",
          "reason": "no source", "evidence": [], "counterevidence": []},
     ]
+    package["candidate_excerpts"].append({"excerpt_id": "E4", "source_id": "N1", "source_url": URL,
+        "source_title": "Synthetic protocol fixture", "source_tier": 1, "locator": "E4",
+        "source_capture_method": "fetched_page", "text": PARAGRAPH})
+    claims.append({"id": "C5", "claim": PARAGRAPH, "scope": "synthetic narrative protocol fixture",
+        "narrative_roles": ["intended_role", "design", "actual_use", "outcome"],
+        "status": "supported", "reason": "exact test fixture", "evidence": [{"excerpt_id": "E4", "quote": PARAGRAPH}],
+        "counterevidence": []})
     # Store the same normalized receipt shape produced by the assessor; the
     # packet compiler must only accept this current, traceable ledger.
     package["claim_assessment"] = _assessed_receipt(
@@ -71,12 +93,12 @@ def _package():
 
 
 def _writer_response(fact_ids):
-    sentence = "SS-1 USS Holland was the first commissioned submarine in the United States Navy."
-    return json.dumps({"paragraph": sentence, "claim_map": [{"sentence": sentence, "fact_ids": [fact_ids[0]]}]})
+    return json.dumps({"paragraph": PARAGRAPH, "claim_map": [
+        {"sentence": sentence, "fact_ids": [fact_ids[0]]} for sentence in summary._sentences(PARAGRAPH)]})
 
 
 def _fact_for_sentence(compiled):
-    return next(row for row in compiled["facts"] if "first commissioned submarine" in row["claim"])
+    return next(row for row in compiled["facts"] if row["claim"] == PARAGRAPH)
 
 
 @pytest.fixture
@@ -109,10 +131,10 @@ def assessed_pipeline_state(monkeypatch):
     return ex, video, package
 
 
-def _compiled_block(package, *, paragraph="SS-1 USS Holland was the first commissioned submarine in the United States Navy.", passed=True, warnings=None):
+def _compiled_block(package, *, paragraph=PARAGRAPH, passed=True, warnings=None):
     packet = fp._expected_script_packet(MACHINE, package, SUBJECT, [{"scene": 1, "machine": MACHINE}], "")
     fact = _fact_for_sentence(packet)
-    return {"passed": passed, "paragraph": paragraph, "word_count": len(paragraph.split()),
+    return {"passed": passed, "factual_passed": passed, "editorial_review_version": 1, "editorial_review": _editorial(), "paragraph": paragraph, "word_count": len(paragraph.split()),
             "warnings": list(warnings or []), "claim_map": [{"sentence": paragraph, "fact_ids": [fact["fact_id"]], "citations": fact["evidence"]}],
             "sources": fact["evidence"], "review_context_version": summary.REVIEW_CONTEXT_VERSION,
             "subject_context": SUBJECT, "compiler_version": packet["compiler_version"],
@@ -123,7 +145,7 @@ def _compiled_block(package, *, paragraph="SS-1 USS Holland was the first commis
 @pytest.mark.asyncio
 async def test_assessed_writer_locks_fact_ids_and_runs_independent_referee():
     package = _package()
-    client = FakeClient(_writer_response(["ignored"]), json.dumps({"passed": True, "issues": []}))
+    client = FakeClient(_writer_response(["ignored"]), json.dumps({"passed": True, "issues": [], "editorial_review": _editorial()}))
     # Substitute the selected ID after compilation to retain a fake provider
     # response while exercising the full writer -> materializer -> referee path.
     from factual_machine_summary import _eligible_candidates
@@ -193,9 +215,9 @@ async def test_rejected_referee_section_never_passes_and_retains_packet_receipt(
     compiled = compile_script_packet(MACHINE, package, package["claim_assessment"],
         _eligible_candidates(MACHINE, package, SUBJECT), subject_context=SUBJECT, model=summary._model_name())
     client = FakeClient(
-        _writer_response([compiled["facts"][0]["fact_id"]]),
+        _writer_response([_fact_for_sentence(compiled)["fact_id"]]),
         json.dumps({"passed": False, "issues": ["unselected claim"], "rejected_sentences": []}),
-        _writer_response([compiled["facts"][0]["fact_id"]]),
+        _writer_response([_fact_for_sentence(compiled)["fact_id"]]),
         json.dumps({"passed": False, "issues": ["unselected claim"], "rejected_sentences": []}),
     )
     result = await summary.generate_factual_machine_summary(MACHINE, package, client, subject_context=SUBJECT,

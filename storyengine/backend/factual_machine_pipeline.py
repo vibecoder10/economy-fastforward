@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import re
+from dvsu_script_brief import script_editorial_ready
 
 CONTRACT = 'factual_100_v1'
 
@@ -53,7 +54,11 @@ def current_research_briefings(payload, roster, subject_context=''):
 
 def factual_research_readiness(payload, roster, subject_context='') -> bool:
     """Require one current saved factual research briefing for every locked unit."""
-    return bool(roster) and len(current_research_briefings(payload, roster, subject_context)) == len(roster)
+    from dvsu_research_handoff import package_brief_warnings
+    from pipeline_executor import _verified_source_package_for_machine
+    return (bool(roster) and len(current_research_briefings(payload, roster, subject_context)) == len(roster)
+            and all(not package_brief_warnings(machine, _verified_source_package_for_machine(_object(payload), machine),
+                                               subject_context) for machine in roster))
 
 
 def _episode_outline(roster):
@@ -114,7 +119,7 @@ def factual_script_readiness(video, roster) -> bool:
         # Assessed blocks are compiler-versioned. A stale/invalid assessment
         # cannot quietly fall back to the old unassessed cache contract.
         if isinstance(package, dict) and "claim_assessment" in package:
-            if not packet:
+            if not packet or not script_editorial_ready(block):
                 return False
             if (block.get("compiler_version") != packet.get("compiler_version")
                     or block.get("packet_fingerprint") != packet.get("packet_fingerprint")):
@@ -243,7 +248,8 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         ))
         saved_is_current = (saved_matches and saved.get('passed') is True
                 and saved.get('review_context_version') == REVIEW_CONTEXT_VERSION
-                and saved.get('subject_context') == subject_context and saved_packet_matches)
+                and saved.get('subject_context') == subject_context and saved_packet_matches
+                and (not assessed_package or script_editorial_ready(saved)))
         if saved_is_current and assessed_package:
             # Accepted compiled packets are immutable cache hits, including
             # intentionally short sections; do not spend a model call expanding them.
@@ -269,7 +275,8 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         ))
         preview_is_current = (preview_matches and preview.get('passed') is True
             and preview.get('review_context_version') == REVIEW_CONTEXT_VERSION
-            and preview.get('subject_context') == subject_context and preview_packet_matches)
+            and preview.get('subject_context') == subject_context and preview_packet_matches
+            and (not assessed_package or script_editorial_ready(preview)))
         # A restarted worker consumes its last exact persisted draft, including
         # a rejected one, instead of inventing a new story and losing the repair.
         if assessed_package:

@@ -56,7 +56,8 @@ async def guard_public_request(request) -> None:
 
 async def discover_sources(client, api_key: str, title: str, machine: str, *, subject: str | None = None,
                            attempted_urls: list[str] | None = None,
-                           excluded_hosts: list[str] | None = None) -> tuple[list[dict], dict]:
+                           excluded_hosts: list[str] | None = None,
+                           missing_fields: list[str] | None = None) -> tuple[list[dict], dict]:
     subject = str(subject or machine).strip()
     prior = list(dict.fromkeys(str(url).strip() for url in (attempted_urls or []) if str(url).strip()))
     blocked = list(dict.fromkeys(str(host).strip() for host in (excluded_hosts or []) if str(host).strip()))
@@ -64,11 +65,17 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
         f"Use web search to find 6 real source pages specifically about the subject {subject!r} "
         f"(locked roster identity: {machine!r}) "
         f"for a factual documentary titled {title!r}. Prefer official government, manufacturer, "
-        "museum and archive history/fact-sheet pages. Include service, development, production "
-        "and design facts. Match the exact aircraft variant or named vessel; do not substitute "
+        "museum and archive history/fact-sheet pages. Specifically find the original intended role or problem, "
+        "distinctive engineering decisions, actual operational/training/testing use, and fate or lasting consequence. "
+        "Prioritize exact-machine service histories over designer biographies and repeated component lists. "
+        "A launch or commissioning date alone does not establish actual use. Seek evidence of the designed-versus-used "
+        "relationship without assuming there was a reversal. Include supported production and memorable details where available. "
+        "Match the exact aircraft variant or named vessel; do not substitute "
         "a related model. Prefer substantive article pages over photo-gallery listings. "
         "Return only a compact JSON array of objects with title and exact_source_url. "
         "Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
+        + (" Missing research fields to prioritize: " + ", ".join(field for field in missing_fields
+            if field in {"intended_role", "design", "actual_use", "outcome"}) + "." if missing_fields else "")
     )
     if prior:
         prompt += " Do not repeat these already attempted URLs: " + ", ".join(prior[:24]) + "."
