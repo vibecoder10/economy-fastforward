@@ -2583,7 +2583,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                     {productionDone
                       ? `Scene ${scene?.sceneNumber || index + 1} has script text.`
                       : isFactualMachineScript && preview
-                        ? (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass.")
+                        ? (previewPassed
+                          ? "Reviewed preview saved. Run All adds it to the production script."
+                          : (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass."))
                       : researchReady
                         ? cardSourceStatus.message
                         : isFactualMachineScript

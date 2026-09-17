@@ -92,7 +92,7 @@ test("factual roster renders runnable cards, labels previews separately, and har
     }) });
   });
   let scriptPosts = 0;
-  let releaseScriptPost: (() => void) | null = null;
+  let releaseScriptPost!: () => void;
   await page.route(`**/api/pipeline/script/${VIDEO_ID}`, async (route) => {
     scriptPosts += 1;
     await new Promise<void>((resolve) => { releaseScriptPost = resolve; });
@@ -102,6 +102,8 @@ test("factual roster renders runnable cards, labels previews separately, and har
   await page.goto(`/pipeline/${VIDEO_ID}`);
   await expect(page.getByText("0/20 production scenes passed current factual review; 2/20 script previews passed.")).toBeVisible();
   await expect(page.getByText("Script preview passed")).toHaveCount(2);
+  await expect(page.getByText("Reviewed preview saved. Run All adds it to the production script.")).toHaveCount(2);
+  await expect(page.getByText("Current factual review did not pass.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Research check needed")).toHaveCount(18);
   await expect(page.getByRole("button", { name: "Run All Script Cards" })).toBeEnabled();
   const runCards = page.getByRole("button", { name: "Run Script", exact: true });
@@ -127,7 +129,7 @@ test("factual roster renders runnable cards, labels previews separately, and har
   await page.getByTestId("confirm-modal-confirm").click();
   await expect.poll(() => scriptPosts).toBe(1);
   await expect(runCards.first()).toBeDisabled();
-  releaseScriptPost?.();
+  releaseScriptPost();
 });
 
 test("nonfactual roster remains held by its saved research gate", async ({ page }) => {
