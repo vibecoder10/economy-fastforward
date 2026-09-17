@@ -14,9 +14,28 @@ MODEL = "gpt-5-2"
 ENDPOINT = "https://api.kie.ai/gpt-5-2/v1/chat/completions"
 USD_PER_CREDIT = 0.005  # Same configured conversion as the existing Kie adapters.
 
+_MISSING_FIELD_NEEDS = {
+    "intended_role": "the original mission, design objective, or problem the machine was meant to address (not classification, launch, or commissioning alone)",
+    "design": "a documented engineering decision or configuration",
+    "actual_use": "documented operations, testing, or training",
+    "outcome": "a documented consequence, fate, or lasting result",
+}
+
 
 class SourceDiscoveryError(RuntimeError):
     """Stop the research chain without entering the legacy card-repair loop."""
+
+
+def _sanitized_missing_fields(missing_fields: list[str] | None) -> list[str]:
+    return list(dict.fromkeys(
+        field for field in (missing_fields or [])
+        if isinstance(field, str) and field in _MISSING_FIELD_NEEDS
+    ))
+
+
+def _sanitized_query(prompt: str) -> str:
+    """Store a bounded, single-line discovery query without request credentials."""
+    return " ".join(str(prompt or "").split())[:6000]
 
 
 def public_source_url(value: object) -> str | None:
@@ -61,6 +80,7 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
     subject = str(subject or machine).strip()
     prior = list(dict.fromkeys(str(url).strip() for url in (attempted_urls or []) if str(url).strip()))
     blocked = list(dict.fromkeys(str(host).strip() for host in (excluded_hosts or []) if str(host).strip()))
+    requested_fields = _sanitized_missing_fields(missing_fields)
     prompt = (
         f"Use web search to find 6 real source pages specifically about the subject {subject!r} "
         f"(locked roster identity: {machine!r}) "
@@ -70,13 +90,16 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
         "Prioritize exact-machine service histories over designer biographies and repeated component lists. "
         "A launch or commissioning date alone does not establish actual use. Seek evidence of the designed-versus-used "
         "relationship without assuming there was a reversal. Include supported production and memorable details where available. "
+        "A class or generation history is usable only when it explicitly names the exact locked machine and states how the claim applies; "
+        "never assume a class or generation fact applies to this machine. "
         "Match the exact aircraft variant or named vessel; do not substitute "
         "a related model. Prefer substantive article pages over photo-gallery listings. "
         "Return only a compact JSON array of objects with title and exact_source_url, plus optional pdf_page "
         "when the source is a PDF and its relevant page is known. pdf_page must be a positive page number. "
         "Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
-        + (" Missing research fields to prioritize: " + ", ".join(field for field in missing_fields
-            if field in {"intended_role", "design", "actual_use", "outcome"}) + "." if missing_fields else "")
+        + (" Target these current evidence needs: " + "; ".join(
+            _MISSING_FIELD_NEEDS[field] for field in requested_fields
+        ) + "." if requested_fields else "")
     )
     if prior:
         prompt += " Do not repeat these already attempted URLs: " + ", ".join(prior[:24]) + "."
@@ -151,4 +174,6 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
         "provider": "kie", "model": MODEL, "request_id": data.get("id"),
         "credits_consumed": credits, "usage": data.get("usage"),
         "lead_count": len(leads), "search_tool": "web_search", "subject": subject,
+        "query": _sanitized_query(prompt), "missing_fields": requested_fields,
+        "lead_urls": [lead["url"] for lead in leads],
     }

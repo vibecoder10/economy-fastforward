@@ -89,12 +89,15 @@ def _candidate_rows(candidates: Any) -> dict[str, dict] | None:
         if excerpt_id in rows:
             return None
         text = str(candidate.get("text") or "")
+        from factual_class_context import is_verified_class_context
+        class_context = is_verified_class_context(text, locked_machine)
         # Do not trust a model- or cache-supplied flag.  This is recomputed
         # from the locked identity every time a review is accepted.
         rows[excerpt_id] = {
             "candidate": candidate,
             "locked_machine": locked_machine,
-            "identity_requires_review": contextual_named_excerpt(text, locked_machine),
+            "identity_requires_review": class_context or contextual_named_excerpt(text, locked_machine),
+            "context_scope": "class_design" if class_context else "",
         }
     return rows
 

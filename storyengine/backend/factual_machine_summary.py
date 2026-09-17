@@ -72,6 +72,7 @@ def _eligible_candidates(machine: str, source_package: dict, subject_context: st
                          include_identity_pending: bool = False) -> dict[str, dict]:
     from factual_machine_research import _candidate_traceable
     from contextual_source_identity import contextual_named_excerpt
+    from factual_class_context import is_verified_class_context
     registry = {_compact(row.get("source_id")): row
                 for row in source_package.get("sources") or []
                 if isinstance(row, dict) and _compact(row.get("source_id"))}
@@ -82,13 +83,17 @@ def _eligible_candidates(machine: str, source_package: dict, subject_context: st
         excerpt_id = _compact(raw.get("excerpt_id") or raw.get("locator"))
         source_id = _compact(raw.get("source_id"))
         url, text = _compact(raw.get("source_url")), _compact(raw.get("text"))
+        structural_text = str(raw.get("text") or "")
         parsed_url = urlparse(url)
         if not (excerpt_id and url and text and parsed_url.scheme in {"http", "https"} and parsed_url.netloc):
             continue
         registered = registry.get(source_id)
         if registry and (registered is None or _compact(registered.get("url")) != url):
             continue
-        if candidate_mentions_machine(text, machine):
+        if is_verified_class_context(structural_text, machine):
+            pending[excerpt_id] = {**raw, "identity_requires_review": True,
+                                   "context_scope": "class_design", "_locked_machine": machine}
+        elif candidate_mentions_machine(text, machine):
             eligible[excerpt_id] = {**raw, "identity_requires_review": False, "_locked_machine": machine}
         elif contextual_named_excerpt(text, machine):
             pending[excerpt_id] = {**raw, "identity_requires_review": True, "_locked_machine": machine}

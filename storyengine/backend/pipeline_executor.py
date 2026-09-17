@@ -1257,9 +1257,11 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
 
     from factual_machine_research import named_submarine_target
     from factual_source_sections import has_foreign_ship, anchored_section_prefix
+    from factual_class_context import class_context_candidate
     strict_named = matcher is not None and named_submarine_target(machine) is not None
     if strict_named and "\n\n" in str(text):
         whole, short = [], []
+        class_context = class_context_candidate(text, machine)
         for section in str(text).split("\n\n"):
             section = " ".join(section.split())
             if not section or not matcher(section, machine):
@@ -1274,7 +1276,7 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
         # Whole publisher sections retain later service paragraphs without
         # injecting a synthetic identity prefix or crossing another heading.
         whole.sort(key=lambda s: (not bool(_re.search(r"\b(?:train\w*|served|operated|patrol\w*)\b", s, _re.I)), len(s)))
-        return list(dict.fromkeys(whole + short))[:limit]
+        return list(dict.fromkeys(([class_context] if class_context else []) + whole + short))[:limit]
 
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
@@ -1332,6 +1334,14 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
         if len(selected) >= limit:
             break
     return selected[:limit]
+
+
+def _factual_discovery_capture_match(text: str, machine: str, discovery_match: Callable[[str, str], bool]) -> bool:
+    """Admit a verified class-context capture only into pending assessment."""
+    if discovery_match(text, machine):
+        return True
+    from factual_class_context import class_context_candidate
+    return bool(class_context_candidate(text, machine))
 
 
 def _machine_source_variant_score(excerpts: list[str], machine: str) -> tuple[int, int, int]:
@@ -9634,7 +9644,11 @@ class PipelineExecutor:
         if not url:
             return ""
         try:
-            response = await client.get(url)
+            response = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+                "Accept": "text/html",
+            })
             if response.status_code >= 400:
                 return ""
             content_type = str(response.headers.get("content-type") or "").lower()
@@ -9867,7 +9881,10 @@ class PipelineExecutor:
                         "source_capture_method": capture_method,
                         "text_chars": len(source_text or ""),
                         "text_hash": _source_text_fingerprint(source_text) if source_text else "",
-                        "mentions_machine": bool(source_text and (discovery_match(source_text, machine) if factual_search else _mentions_machine(source_text, machine))),
+                        "mentions_machine": bool(source_text and (
+                            _factual_discovery_capture_match(source_text, machine, discovery_match)
+                            if factual_search else _mentions_machine(source_text, machine)
+                        )),
                     }
                     if not source_text:
                         variant_row["rejected_reason"] = "empty_capture"

@@ -74,12 +74,16 @@ def _quote_rows(rows: Any, candidates: dict[str, dict]) -> list[dict] | None:
         source_quote = _source_quote_slice(str(candidate.get("text") or ""), quote) if candidate else None
         if not excerpt_id or not quote or not candidate or source_quote is None:
             return None
-        output.append({
+        normalized = {
             "excerpt_id": excerpt_id, "quote": source_quote,
             "source_url": str(candidate.get("source_url") or "").strip(),
             "source_title": str(candidate.get("source_title") or "").strip(),
             "locator": str(candidate.get("locator") or excerpt_id).strip(),
-        })
+        }
+        from factual_class_context import is_verified_class_context
+        if is_verified_class_context(candidate.get("text"), candidate.get("_locked_machine")):
+            normalized["context_scope"] = "class_design"
+        output.append(normalized)
     return output
 
 
@@ -106,6 +110,17 @@ def _validated_claims(raw: Any, candidates: dict[str, dict]) -> list[dict] | Non
                 return None
             pairs = {(row["excerpt_id"], row["quote"]) for row in evidence}
             if all((row["excerpt_id"], row["quote"]) in pairs for row in counter):
+                return None
+        class_context_ids = {
+            row["excerpt_id"] for row in evidence
+            if row.get("context_scope") == "class_design"
+        }
+        if class_context_ids and status == "supported":
+            roles = item.get("narrative_roles")
+            if (scope != "class" or not isinstance(roles, list) or not roles
+                    or any(role not in {"intended_role", "design"} for role in roles)):
+                return None
+            if status == "supported" and not item.get("identity_reviews"):
                 return None
         # A model selects an exact anchor ID; code supplies its immutable
         # identity text if the selected partial quote omitted the hull. This
@@ -177,7 +192,8 @@ def _prompt(machine: str, candidates: dict[str, dict], subject_context: str) -> 
     evidence = [{"excerpt_id": excerpt_id, "source_url": str(row.get("source_url") or ""),
                  "source_title": str(row.get("source_title") or ""),
                  "locator": str(row.get("locator") or excerpt_id), "text": str(row.get("text") or ""),
-                 "identity_requires_review": bool(row.get("identity_requires_review"))}
+                 "identity_requires_review": bool(row.get("identity_requires_review")),
+                 "context_scope": str(row.get("context_scope") or "")}
                 for excerpt_id, row in candidates.items()]
     return (
         f"Assess source-grounded atomic historical claims for the exact locked machine {machine}. "
@@ -198,6 +214,7 @@ def _prompt(machine: str, candidates: dict[str, dict], subject_context: str) -> 
         "For each such excerpt used in a supported claim add identity_reviews:[{excerpt_id,status:'same_machine',anchor_excerpt_id,reason}]. "
         "The same claim evidence must quote both the contextual source and its exact-hull anchor (including name and hull in the anchor quote). "
         "Keep identities separate; never inject the hull into original source text. "
+        "An excerpt with context_scope='class_design' is class-level context, never asserted machine history. It may support only a claim with scope 'class' and nonempty narrative_roles limited to intended_role/design, after the same-claim identity review and exact-hull anchor. Never import a prototype or sister vessel's operations, dates, fate, or outcome; bare membership alone fills no role. "
         "Leave unsupported fields unfilled. Do not estimate numerical probability. For each claim set status to supported, disputed, insufficient, or out_of_scope. "
         "Supported needs one or more exact excerpt quotes and no counterevidence. Disputed needs exact evidence and counterevidence quotes from different excerpt/quote pairs. "
         "Insufficient/out_of_scope may retain exact excerpts that show partial support or a different scope. Quotes must be exact substrings from the listed excerpts. Return only JSON: "
