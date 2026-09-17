@@ -129,6 +129,7 @@ async def test_factual_pass_editorial_failure_is_rejected_without_sentence_pruni
         allow_sentence_removal=True, claim_assessment={}, script_packet=packet)
 
     assert result["passed"] is False
+    assert result["factual_passed"] is True
     assert result["warnings"] == ["Editorial review: The verdict is not sharp enough."]
     assert result["paragraph"] == text
     assert len(client.calls) == 1
@@ -184,6 +185,24 @@ def test_packet_staleness_starts_fresh_but_factual_repair_keeps_prior_draft():
     assert "Start fresh from the DVSU BRIEF" in stale
     assert "OLD PARAGRAPH" not in stale
     assert "Previous draft to repair:\nOLD PARAGRAPH" in repair
+
+
+def test_compiled_editorial_prompt_accepts_explicit_training_and_lineage_without_extra_requirements():
+    prompt = summary._review_prompt(
+        MACHINE,
+        {"paragraph": PARAGRAPH, "claim_map": []},
+        [],
+        "American submarines",
+        {},
+        _packet(PARAGRAPH),
+    )
+
+    assert "'served as a training vessel' qualifies as actual use" in prompt
+    assert "commissioning alone does not" in prompt
+    assert "'improved successors were ordered' qualifies" in prompt
+    assert "do not require events, richness, or context outside the saved brief" in prompt
+    assert "Any false check must name its exact missing condition" in prompt
+    assert "cannot claim a present fact is absent" in prompt
 
 
 def test_support_audit_rejects_global_pass_with_unsupported_causal_clause():

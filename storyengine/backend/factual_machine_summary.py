@@ -511,7 +511,7 @@ def _script_writer_prompt(brief: dict, prior_issues: list[str], prior_draft: str
         "Name the exact locked machine early; an opener may state its purpose instead of mechanically listing its name. "
         "Select one useful fact for each of the four fields, not every available fact; use at most two specifications, only when they prove the choice, use, or consequence. "
         "End with a distinct concluding judgment in a single-hammer, antithesis, concede-then-cut, or triad form, never a summary, recap, new fact, or unsupported causation. "
-        "Preserve attribution, timing and uncertainty: an officer endorsing a machine after it was built is not its original design motive. "
+        "Preserve attribution, timing and uncertainty: an officer endorsing a machine after it was built is not its original design motive. When an intended-role fact is an attributed proposal or endorsement, retain that attribution and name the subject in the same statement; do not turn it into 'answered that call' or another invented origin. "
         "Documented training does not prove the boat never patrolled; a compartment is not evidence of an engineering gamble or cramped conditions. "
         "An endorsement must remain an attributed endorsement, never become built to prove a concept. "
         "State documented use directly without inventing an alternative activity. A license supports permission to manufacture, not fleet adoption. "
@@ -664,14 +664,15 @@ def _review_prompt(machine: str, draft: dict, alternatives: list[dict], subject_
            "Return editorial_review exactly as {\"version\":1,\"passed\":true|false,\"issues\":[\"actionable issue\"],"
            "\"checks\":{\"design_intent\":true|false,\"actual_use\":true|false,\"consequence\":true|false,"
            "\"gap_or_supported_substitute\":true|false,\"verdict\":true|false,\"spoken_style\":true|false}}. "
-           "design_intent requires the original job or problem; actual_use requires what happened in service/training/testing, "
-           "not just a launch or commissioning date. consequence requires a supported fate/result/legacy. "
+           "Judge each editorial check only from the relevant draft clauses and matching selected field facts; do not require events, richness, or context outside the saved brief. "
+           "design_intent requires the original job or problem. actual_use requires documented service, training, testing, or deployment explicitly stated in those facts: 'served as a training vessel' qualifies as actual use, while commissioning alone does not. Do not demand battle, patrol, exercise, or anecdote beyond the brief. "
+           "consequence requires a supported follow-on class or orders, establishment of service, adoption, fate, or legacy: 'improved successors were ordered' qualifies. Do not demand decommissioning or fate when supported lineage is present. "
            "gap_or_supported_substitute requires a clear design-versus-use relationship, or supported lineage, timing or used-as-designed legacy; "
            "never demand an invented reversal. verdict requires a sharpened supported conclusion in a single-hammer, antithesis, "
            "concede-then-cut or triad form, not an inventory, specification, commissioning recap, or parallel fact list. "
            "It must be a distinct concluding judgment of eighteen words or fewer and cannot introduce a new fact or unsupported causation. spoken_style requires natural voiceover rhythm without filler, hype, "
            "designer-biography padding or a component-list paragraph. Reject padding that exists only to meet the word count. "
-           "Editorial review passes only when every check is true and issues is empty.\n" if compiler_constraints else "")
+           "Any false check must name its exact missing condition and cannot claim a present fact is absent. Editorial review passes only when every check is true and issues is empty.\n" if compiler_constraints else "")
         + "Return only JSON: {\"passed\":true|false,\"issues\":[\"specific issue\"],"
         "\"rejected_sentences\":[\"exact full sentence from draft\"]}"
         + (" plus support_audit and editorial_review.\n" if compiler_constraints else ".\n")
@@ -935,6 +936,7 @@ async def review_existing_factual_summary(
     if editorial_warnings:
         result["warnings"] = editorial_warnings
         if editorial is not None:
+            result["factual_passed"] = True
             result["editorial_review"] = editorial
             result["editorial_review_version"] = EDITORIAL_REVIEW_VERSION
         return result
