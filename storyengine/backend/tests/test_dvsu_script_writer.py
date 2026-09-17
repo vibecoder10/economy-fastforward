@@ -178,6 +178,16 @@ async def test_compiled_long_closing_is_rejected_before_referee(monkeypatch):
     assert client.calls == []
 
 
+def test_compiled_closing_rejects_stock_necessity_verdict_without_mutating_it():
+    old = {"claim_map": [{"sentence": "Plunger became a teacher by necessity."}]}
+    revised = {"claim_map": [{"sentence": "Plunger became a teacher in practice."}]}
+
+    assert summary._compiled_closing_warning(old) == [
+        "DVSU concluding verdict uses the stock phrase 'by necessity'; rewrite the closing with supported, specific language."
+    ]
+    assert summary._compiled_closing_warning(revised) == []
+
+
 def test_packet_staleness_starts_fresh_but_factual_repair_keeps_prior_draft():
     stale = summary._script_writer_prompt({"machine": MACHINE}, ["Script packet does not match the current script packet."], "OLD PARAGRAPH")
     repair = summary._script_writer_prompt({"machine": MACHINE}, ["Remove unsupported detail."], "OLD PARAGRAPH")
