@@ -138,7 +138,7 @@ def _sentences(paragraph: str) -> list[str]:
     protected = {
         match.end() - 1
         for match in re.finditer(
-            r"\b(?:U\.S\.|U\.K\.)(?=\s+(?:[a-z]|Air\b|Navy\b|Army\b|Marine\b|Space\b|Coast\b))",
+            r"\b(?:U\.S\.|U\.K\.)(?=\s+(?:[a-z]|Air\b|Navy\b|Naval\b|Army\b|Marine\b|Space\b|Coast\b))",
             text,
         )
     }
@@ -917,6 +917,26 @@ async def generate_factual_machine_summary(
         ])
     candidates = dict(list(all_candidates.items())[:60])
     evidence = _evidence_payload(candidates)
+    # Resume a saved draft rejected only by sentence parsing when the parser
+    # now validates it. Reuse its text, but still require the normal referee.
+    if purpose == "research" and isinstance(previous_summary, dict):
+        from factual_machine_pipeline import source_fingerprint
+        from machine_research_summary import RESEARCH_SUMMARY_VERSION
+        old_warnings = previous_summary.get("warnings") or []
+        parser_only = bool(old_warnings) and all(
+            (str(w).startswith("claim_map row ") and "sentence is not an exact sentence" in str(w))
+            or str(w) == "claim_map must cover every paragraph sentence exactly once."
+            or str(w) == "Factual research summary is missing required claims or citations"
+            for w in old_warnings)
+        if (parser_only and previous_summary.get("passed") is False
+                and previous_summary.get("schema_version") == RESEARCH_SUMMARY_VERSION
+                and previous_summary.get("review_context_version") == REVIEW_CONTEXT_VERSION
+                and previous_summary.get("subject_context") == subject_context
+                and previous_summary.get("source_fingerprint") == source_fingerprint(machine, source_package)
+                and previous_summary.get("claim_assessment") == assessment
+                and not _validate_draft(machine, previous_summary, candidates)[1]):
+            return await review_existing_factual_summary(machine, source_package, anthropic_client,
+                previous_summary, subject_context=subject_context, claim_assessment=assessment)
     compiled_packet = script_packet
     if purpose == "script" and assessment is not None:
         try:

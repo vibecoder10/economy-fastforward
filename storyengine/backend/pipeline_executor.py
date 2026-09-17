@@ -13194,7 +13194,7 @@ class PipelineExecutor:
                         summary_result = await generate_factual_machine_summary(
                             target_machine or "", verified_source_package,
                             getattr(self._pipeline, "anthropic", None),
-                            subject_context=title, purpose="research",
+                            subject_context=title, purpose="research", previous_summary=existing_summary,
                         )
                     except ValueError as exc:
                         # Invalid local generation setup is reviewable for this

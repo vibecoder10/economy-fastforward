@@ -185,3 +185,27 @@ def test_saved_assessment_replays_with_materialized_identity_quote_without_new_c
     assert any('USS Holland (SS 1)' in r['quote'] for r in assessment['claims'][0]['evidence'])
     package['claim_assessment'] = assessment
     assert current_assessment(MACHINE,package,TITLE) == assessment
+
+
+def test_naval_academy_draft_reuses_saved_text_and_still_calls_referee():
+    import factual_machine_summary as summary
+    from machine_research_summary import saved_research_summary
+    _, package = capture_pair()
+    assessor = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package))))
+    package['claim_assessment'] = asyncio.run(assess_verified_package(MACHINE,package,assessor,TITLE))
+    anchor = next(r for r in _eligible_candidates(MACHINE,package,TITLE).values()
+                  if not r['identity_requires_review'] and 'training submarine' in r['text'])
+    text = 'SS-1 USS Holland served at the U.S. Naval Academy as a training submarine.'
+    assert summary._sentences(text) == [text]
+    assert summary._sentences('She traveled to the U.S. Holland followed.') == ['She traveled to the U.S.', 'Holland followed.']
+    draft = {'paragraph':text,'claim_map':[{'sentence':text,'citations':[{'excerpt_id':anchor['excerpt_id'],'quote':anchor['text']}]}],
+             'sources':[anchor], 'passed':False,'warnings':['claim_map row 1 sentence is not an exact sentence in the paragraph.','claim_map must cover every paragraph sentence exactly once.']}
+    saved = saved_research_summary(MACHINE,package,draft,TITLE)
+    calls=[]
+    async def generate(**kw):
+        calls.append(kw)
+        assert 'independent factual referee' in kw['system_prompt']
+        return json.dumps({'passed':True,'issues':[]})
+    result=asyncio.run(summary.generate_factual_machine_summary(MACHINE,package,SimpleNamespace(generate=generate),
+        subject_context=TITLE,purpose='research',previous_summary=saved))
+    assert result['passed'] and result['paragraph']==text and len(calls)==1
