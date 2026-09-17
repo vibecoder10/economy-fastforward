@@ -87,8 +87,8 @@ def _quote_rows(rows: Any, candidates: dict[str, dict]) -> list[dict] | None:
     return output
 
 
-def _validated_claims(raw: Any, candidates: dict[str, dict]) -> list[dict] | None:
-    if not isinstance(raw, list) or not 1 <= len(raw) <= 12:
+def _validated_claims(raw: Any, candidates: dict[str, dict], *, max_claims: int = 12) -> list[dict] | None:
+    if not isinstance(max_claims, int) or max_claims < 1 or not isinstance(raw, list) or not 1 <= len(raw) <= max_claims:
         return None
     output = []
     for index, item in enumerate(raw, 1):
@@ -167,7 +167,9 @@ def _validated_claims(raw: Any, candidates: dict[str, dict]) -> list[dict] | Non
 def _valid_receipt(machine: str, package: Any, receipt: Any, subject_context: str = "") -> dict | None:
     receipt = _object(receipt)
     candidates = _eligible(machine, package, subject_context)
-    claims = _validated_claims(receipt.get("claims"), candidates)
+    class_review = _object(receipt.get("class_context_review"))
+    max_claims = 15 if (class_review.get("version") == 1 and class_review.get("status") == "completed") else 12
+    claims = _validated_claims(receipt.get("claims"), candidates, max_claims=max_claims)
     if not claims or receipt.get("version") != CLAIM_ASSESSMENT_VERSION or receipt.get("status") != "assessed":
         return None
     if (receipt.get("claims") != claims or receipt.get("machine") != machine or receipt.get("subject_context") != str(subject_context or "")
@@ -218,7 +220,7 @@ def _prompt(machine: str, candidates: dict[str, dict], subject_context: str) -> 
         "Leave unsupported fields unfilled. Do not estimate numerical probability. For each claim set status to supported, disputed, insufficient, or out_of_scope. "
         "Supported needs one or more exact excerpt quotes and no counterevidence. Disputed needs exact evidence and counterevidence quotes from different excerpt/quote pairs. "
         "Insufficient/out_of_scope may retain exact excerpts that show partial support or a different scope. Quotes must be exact substrings from the listed excerpts. Return only JSON: "
-        '{"claims":[{"claim":"...","scope":"machine/variant/event/time","narrative_roles":["intended_role"],"status":"supported|disputed|insufficient|out_of_scope","reason":"...","evidence":[{"excerpt_id":"...","quote":"..."}],"counterevidence":[{"excerpt_id":"...","quote":"..."}]}]}.\nEVIDENCE:\n'
+        '{"claims":[{"claim":"...","scope":"machine/variant/event/time/class","narrative_roles":["intended_role"],"status":"supported|disputed|insufficient|out_of_scope","reason":"...","evidence":[{"excerpt_id":"...","quote":"..."}],"counterevidence":[{"excerpt_id":"...","quote":"..."}],"identity_reviews":[{"excerpt_id":"...","status":"same_machine","anchor_excerpt_id":"...","reason":"..."}]}]}.\nEVIDENCE:\n'
         + json.dumps(evidence, ensure_ascii=False)
     )
 
@@ -268,6 +270,12 @@ async def assess_verified_package(
     """Reuse a current receipt or make one bounded source-assessment request."""
     current = current_assessment(machine, package, subject_context)
     if current and (not require_narrative_roles or _narrative_current(current)):
+        if require_narrative_roles:
+            from class_context_assessment import assess_class_context_gap
+            return await assess_class_context_gap(
+                machine, package, current, client, subject_context,
+                _eligible(machine, package, subject_context),
+            )
         return current
     candidates = _eligible(machine, package, subject_context)
     saved = _object(package).get("claim_assessment")
