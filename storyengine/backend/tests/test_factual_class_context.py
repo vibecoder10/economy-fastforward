@@ -31,6 +31,20 @@ PUBLISHER_SECTION_FIXTURE = "\n\n".join((
 ))
 
 
+def _tabular_context(*, row: str = "SS2 Plunger, A1", technical: bool = True,
+                     history: bool = True, extra: str = "") -> str:
+    sections = [
+        '"A" submarines (1903)',
+        "Ships No Name Yard No Builder " + row,
+    ]
+    if technical:
+        sections.append("Technical data Machinery gasoline engine / electric motor")
+    if history:
+        sections.append("Project history These submarines were intended for port defense.")
+    sections.append("Naval service NEXT_SERVICE_ONLY")
+    return "\n\n".join(sections) + extra
+
+
 def test_class_context_is_contiguous_original_text_with_target_member_and_design_marker():
     source = _context()
     candidate = class_context_candidate(source, MACHINE)
@@ -53,6 +67,58 @@ def test_class_context_rejects_over_cap_without_truncating():
     source = _context(extra=" " + ("construction detail " * 500))
     assert len(source) > 8000
     assert class_context_candidate(source, MACHINE) == ""
+
+
+def test_tabular_class_context_is_exact_bounded_and_excludes_following_service():
+    source = _tabular_context()
+    candidate = class_context_candidate(source, MACHINE)
+    assert candidate == "\n\n".join(source.split("\n\n")[:-1])
+    assert "Ships No Name" in candidate and "Technical data" in candidate
+    assert "intended for port defense" in candidate
+    assert "NEXT_SERVICE_ONLY" not in candidate
+    assert is_verified_class_context(candidate, MACHINE)
+
+
+def test_tabular_class_context_rejects_wrong_hull_name_or_missing_required_structure():
+    assert class_context_candidate(_tabular_context(row="SS3 Plunger, A2"), MACHINE) == ""
+    assert class_context_candidate(_tabular_context(row="SS2 Plunger, A1 SS3 Plunger, A2"), MACHINE) == ""
+    assert class_context_candidate(_tabular_context(row="SS2 Grayling, A1"), MACHINE) == ""
+    assert class_context_candidate(_tabular_context(technical=False), MACHINE) == ""
+    assert class_context_candidate(_tabular_context(history=False), MACHINE) == ""
+    assert class_context_candidate("Ships No Name SS2 Plunger, A1\n\nTechnical data\n\nProject history intended port defense", MACHINE) == ""
+    assert class_context_candidate(_tabular_context(row="SS2 Plunger, " + ("x" * 8000)), MACHINE) == ""
+
+
+def test_tabular_context_does_not_cross_another_class_or_service_boundary():
+    cross_class = "\n\n".join((
+        '"A" submarines (1903)', "Ships No Name SS2 Plunger, A1",
+        '"B" submarines (1905)', "Technical data gasoline engine",
+        "Project history intended for port defense.",
+    ))
+    after_service = "\n\n".join((
+        '"A" submarines (1903)', "Ships No Name SS2 Plunger, A1",
+        "Naval service target operations.", "Technical data gasoline engine",
+        "Project history intended for port defense.",
+    ))
+    assert class_context_candidate(cross_class, MACHINE) == ""
+    assert class_context_candidate(after_service, MACHINE) == ""
+
+
+def test_tabular_context_is_pending_until_exact_anchor_review():
+    context = class_context_candidate(_tabular_context(), MACHINE)
+    assert context
+    package = _package()
+    package["candidate_excerpts"][0]["text"] = context
+    pending = _eligible_candidates(MACHINE, package, include_identity_pending=True)
+    assert pending["S1-E1"]["identity_requires_review"] is True
+    raw = [{
+        "claim": "The A class was intended for port defense.", "scope": "class", "status": "supported", "reason": "quoted project history",
+        "narrative_roles": ["intended_role"],
+        "evidence": [{"excerpt_id": "S1-E1", "quote": context}, {"excerpt_id": "S1-E2", "quote": "USS Plunger (SS-2) was commissioned as the named submarine."}],
+        "counterevidence": [],
+        "identity_reviews": [{"excerpt_id": "S1-E1", "status": "same_machine", "anchor_excerpt_id": "S1-E2", "reason": "The same claim has an exact SS-2 anchor."}],
+    }]
+    assert _validated_claims(raw, pending)
 
 
 def _package():
