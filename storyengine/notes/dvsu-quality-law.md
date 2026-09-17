@@ -33,6 +33,10 @@ These laws are reverse-engineered from Anton's 14 shipped scripts (369 entries, 
 
 ## Section 1 - SCRIPT LAWS
 
+### Terminology
+
+- For submarine entries, refer to the subject and its successors as **submarine/submarines** or **vessel/vessels**, never **boat/boats**. This applies to generated narration only; preserve quoted research evidence verbatim.
+
 ### Writing craft
 
 | ID | Law (testable) | Evidence (counts) | Triangle - B / R / G | Sev |

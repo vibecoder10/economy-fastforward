@@ -512,7 +512,7 @@ def _script_writer_prompt(brief: dict, prior_issues: list[str], prior_draft: str
         "Select one useful fact for each of the four fields, not every available fact; use at most two specifications, only when they prove the choice, use, or consequence. "
         "End with a distinct concluding judgment in a single-hammer, antithesis, concede-then-cut, or triad form, never a summary, recap, new fact, or unsupported causation. "
         "Preserve attribution, timing and uncertainty: an officer endorsing a machine after it was built is not its original design motive. When an intended-role fact is an attributed proposal or endorsement, retain that attribution and name the subject in the same statement; do not turn it into 'answered that call' or another invented origin. "
-        "Documented training does not prove the boat never patrolled; a compartment is not evidence of an engineering gamble or cramped conditions. "
+        "For submarine topics, refer to the subject and its successors as a submarine/submarines or vessel/vessels, never boat/boats; do not alter quoted research evidence. Documented training does not prove the submarine never patrolled; a compartment is not evidence of an engineering gamble or cramped conditions. "
         "An endorsement must remain an attributed endorsement, never become built to prove a concept. "
         "State documented use directly without inventing an alternative activity. A license supports permission to manufacture, not fleet adoption. "
         "Do not invent dialogue, motives, causation or a lesson the facts do not support. Target 95–105 spoken words; 80–110 is the hard range. "
