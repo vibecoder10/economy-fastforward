@@ -145,7 +145,7 @@ def merge_research_sources(original, supplement):
 
 
 async def supplement_missing_research(ex, title, machine, payload, package, cache_key, *,
-                                      assess=None, checkpoint=None, guard=None):
+                                      assess=None, checkpoint=None, guard=None, video_id=None):
     """Called only inside an authorized research run; never by script generation."""
     brief = package_brief(machine, package, title)
     fields = [f for f in brief.get('missing_fields', []) if f in _NARRATIVE_FIELDS]
@@ -216,7 +216,7 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
                            if s.get('url') or s.get('source_url')],
     }
     gather_payload['_dvsu_source_recovery']['missing_fields'] = fields
-    supplement = await ex._gather_verified_machine_source_package(title, machine, gather_payload)
+    supplement = await ex._gather_verified_machine_source_package(title, machine, gather_payload, **({"video_id": video_id} if video_id else {}))
     merged, discoveries, added = merge_research_sources(marked, supplement)
     if not added:
         # Preserve the unchanged archive, but attach discovery receipts so the

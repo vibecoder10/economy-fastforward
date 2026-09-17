@@ -86,23 +86,25 @@ async def test_empty_supplement_preserves_original_evidence(monkeypatch):
     ex._gather_verified_machine_source_package.assert_awaited_once()
 
 
-def test_intended_training_is_not_actual_use_and_unknown_gaps_fail_closed():
+def test_intended_training_role_is_advisory_and_unknown_blockers_fail_closed():
     brief = build_dvsu_brief({'machine': MACHINE, 'facts': [{'fact_id': 'F1',
         'claim': 'Holland was intended for training.', 'scope': 'purpose'}]})
-    assert 'actual_use' in brief['missing_fields']
+    assert brief['ready'] is True
+    assert 'actual_use' in brief['missing_narrative_roles']
     assert brief_warnings({'ready': False, 'missing_fields': ['current_claim_assessment']})
 
 @pytest.mark.asyncio
-async def test_incomplete_real_packet_stops_writer_without_provider_calls():
+async def test_stale_real_packet_stops_writer_without_provider_calls():
     from factual_machine_summary import generate_factual_machine_summary
     from research_claim_assessment import _assessed_receipt
     package = _package()
     claims = [c for c in package['claim_assessment']['claims'] if c['scope'] != 'synthetic narrative protocol fixture']
     package['claim_assessment'] = _assessed_receipt(MACHINE, package, SUBJECT, claims)
+    package['claim_assessment']['source_fingerprint'] = 'stale-receipt'
     client = SimpleNamespace(generate=AsyncMock(side_effect=AssertionError('Incomplete research must not spend on writing')))
     result = await generate_factual_machine_summary(MACHINE, package, client, subject_context=SUBJECT)
     assert result['passed'] is False
-    assert any('intended_role' in w for w in result['warnings'])
+    assert any('stale' in w for w in result['warnings'])
     client.generate.assert_not_awaited()
 
 

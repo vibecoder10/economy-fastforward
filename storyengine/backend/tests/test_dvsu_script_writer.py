@@ -53,10 +53,9 @@ def _packet(text):
             }], "excluded_claims": []}
 
 
-def _editorial(*, passed=True, issues=None, checks=None):
-    return {"version": 1, "passed": passed, "issues": list(issues or []), "checks": checks or {
-        "design_intent": True, "actual_use": True, "consequence": True,
-        "gap_or_supported_substitute": True, "verdict": True, "spoken_style": True,
+def _editorial(*, version=2, passed=True, issues=None, checks=None):
+    return {"version": version, "passed": passed, "issues": list(issues or []), "checks": checks or {
+        "evidence_led": True, "coherent": True, "spoken_style": True,
     }}
 
 
@@ -109,8 +108,8 @@ async def test_compiled_script_requires_factual_and_separate_editorial_receipts(
         claim_assessment={}, script_packet=packet)
 
     assert result["passed"] is True
-    assert result["editorial_review_version"] == 1
-    assert result["editorial_review"]["checks"]["verdict"] is True
+    assert result["editorial_review_version"] == 2
+    assert result["editorial_review"]["checks"]["evidence_led"] is True
     assert "editorial_review" in client.calls[0]["prompt"]
 
 
@@ -121,8 +120,8 @@ async def test_factual_pass_editorial_failure_is_rejected_without_sentence_pruni
     monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
     raw = _raw(text)
     client = FakeClient(json.dumps({"passed": True, "issues": [], "editorial_review": _editorial(
-        passed=False, issues=["The verdict is not sharp enough."],
-        checks={**_editorial()["checks"], "verdict": False},
+        passed=False, issues=["The narration does not form a coherent paragraph."],
+        checks={**_editorial()["checks"], "coherent": False},
     )}))
 
     result = await summary.review_existing_factual_summary(MACHINE, _package(text), client, raw,
@@ -130,7 +129,7 @@ async def test_factual_pass_editorial_failure_is_rejected_without_sentence_pruni
 
     assert result["passed"] is False
     assert result["factual_passed"] is True
-    assert result["warnings"] == ["Editorial review: The verdict is not sharp enough."]
+    assert result["warnings"] == ["Editorial review: The narration does not form a coherent paragraph."]
     assert result["paragraph"] == text
     assert len(client.calls) == 1
 
@@ -152,7 +151,7 @@ async def test_missing_editorial_audit_fails_closed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_compiled_long_closing_is_rejected_before_referee(monkeypatch):
+async def test_compiled_long_closing_reaches_factual_referee_without_a_verdict_gate(monkeypatch):
     sentences = (
         "Admiral Dewey attributed great value to submarines for harbor and coast defense based on favorable Navy officer reports, and SS-1 USS Holland embodied that potential.",
         "Her hull incorporated dual propulsion systems, a hydrodynamic shape, and separate ballast systems, while her interior space formed one contiguous compartment.",
@@ -164,28 +163,18 @@ async def test_compiled_long_closing_is_rejected_before_referee(monkeypatch):
     closing = sentences[-1]
     packet = _packet(text)
     monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
-    client = FakeClient()
+    client = FakeClient(json.dumps({"passed": True, "issues": [], "editorial_review": _editorial()}))
 
     raw = {"paragraph": text, "claim_map": [{"sentence": sentence, "fact_ids": ["F1"]} for sentence in sentences]}
     result = await summary.review_existing_factual_summary(MACHINE, _package(text), client, raw,
         claim_assessment={}, script_packet=packet)
 
-    assert result["passed"] is False
+    assert result["passed"] is True
     assert result["word_count"] == 110
     assert result["paragraph"] == text
     assert result["claim_map"][-1]["sentence"] == closing
-    assert result["warnings"] == ["DVSU concluding verdict exceeds 18 words; rewrite the closing sentence without truncating or dropping it."]
-    assert client.calls == []
-
-
-def test_compiled_closing_rejects_stock_necessity_verdict_without_mutating_it():
-    old = {"claim_map": [{"sentence": "Plunger became a teacher by necessity."}]}
-    revised = {"claim_map": [{"sentence": "Plunger became a teacher in practice."}]}
-
-    assert summary._compiled_closing_warning(old) == [
-        "DVSU concluding verdict uses the stock phrase 'by necessity'; rewrite the closing with supported, specific language."
-    ]
-    assert summary._compiled_closing_warning(revised) == []
+    assert result["warnings"] == []
+    assert len(client.calls) == 1
 
 
 def test_packet_staleness_starts_fresh_but_factual_repair_keeps_prior_draft():
@@ -197,7 +186,7 @@ def test_packet_staleness_starts_fresh_but_factual_repair_keeps_prior_draft():
     assert "Previous draft to repair:\nOLD PARAGRAPH" in repair
 
 
-def test_compiled_editorial_prompt_accepts_explicit_training_and_lineage_without_extra_requirements():
+def test_compiled_editorial_prompt_uses_evidence_led_contract_without_required_roles():
     prompt = summary._review_prompt(
         MACHINE,
         {"paragraph": PARAGRAPH, "claim_map": []},
@@ -207,12 +196,24 @@ def test_compiled_editorial_prompt_accepts_explicit_training_and_lineage_without
         _packet(PARAGRAPH),
     )
 
-    assert "'served as a training vessel' qualifies as actual use" in prompt
-    assert "commissioning alone does not" in prompt
-    assert "'improved successors were ordered' qualifies" in prompt
-    assert "do not require events, richness, or context outside the saved brief" in prompt
-    assert "Any false check must name its exact missing condition" in prompt
-    assert "cannot claim a present fact is absent" in prompt
+    assert '"evidence_led":true|false' in prompt
+    assert "do not demand a purpose, consequence, gap, lineage, event, or closing verdict" in prompt
+    assert "invented intent, reversal, causation, or verdict" in prompt
+
+
+@pytest.mark.asyncio
+async def test_valid_v1_editorial_receipt_remains_accepted(monkeypatch):
+    text = PARAGRAPH
+    packet = _packet(text)
+    monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
+    legacy = {"version": 1, "passed": True, "issues": [], "checks": {
+        "design_intent": True, "actual_use": True, "consequence": True,
+        "gap_or_supported_substitute": True, "verdict": True, "spoken_style": True}}
+    result = await summary.review_existing_factual_summary(
+        MACHINE, _package(text), FakeClient(json.dumps({"passed": True, "issues": [], "editorial_review": legacy})),
+        _raw(text), claim_assessment={}, script_packet=packet)
+    assert result["passed"] is True
+    assert result["editorial_review_version"] == 1
 
 
 def test_support_audit_rejects_global_pass_with_unsupported_causal_clause():

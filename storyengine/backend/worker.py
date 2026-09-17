@@ -11,7 +11,7 @@ from urllib.parse import urlparse as _urlparse
 from arq.connections import RedisSettings
 from arq.worker import func
 from job_queue import make_job_id
-from error_utils import is_kie_block, humanize_error
+from error_utils import USER_FACING_PREFIX, is_kie_block, humanize_error
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ async def _run_stage(
     from the matching `arq_run_*` handler below.
     """
     from pipeline_executor import PipelineExecutor
+    from factual_source_search import SourceDiscoveryError
     from task_store import db_persist_task
 
     logger.info(
@@ -81,7 +82,42 @@ async def _run_stage(
         message=f"{stage} running (attempt {attempt})",
         job_id=job_id,
         attempt=attempt,
+        required=True,
     )
+
+    def _source_failure(result_or_error) -> dict:
+        """Keep adapter-owned source retries out of ARQ and UI-safe."""
+        source = result_or_error if isinstance(result_or_error, dict) else {}
+        raw_error = source.get("error") if source else result_or_error
+        safe_error = humanize_error(raw_error)
+        raw_code = (source.get("code") or source.get("failure_code")) if source else (
+            getattr(result_or_error, "code", None) or getattr(result_or_error, "failure_code", None)
+        )
+        failure_code = raw_code if isinstance(raw_code, str) and raw_code.replace("_", "").isalnum() else "source_discovery_failed"
+        raw_attempts = source.get("attempts") if source else getattr(result_or_error, "attempts", 0)
+        attempts = raw_attempts if isinstance(raw_attempts, int) and not isinstance(raw_attempts, bool) else 0
+        raw_retryable = source.get("retryable") if source else getattr(result_or_error, "retryable", True)
+        raw_next = source.get("next_action") if source else getattr(result_or_error, "next_action", None)
+        next_action = raw_next[len(USER_FACING_PREFIX):] if isinstance(raw_next, str) and raw_next.startswith(USER_FACING_PREFIX) else raw_next
+        raw_stage = source.get("stage") if source else getattr(result_or_error, "stage", None)
+        raw_provider_failure = source.get("provider_operation_failed") if source else getattr(result_or_error, "provider_operation_failed", None)
+        failure = {
+            "status": "failed", "error": safe_error, "source_search_failed": True,
+            "failure_code": failure_code[:80], "retryable": raw_retryable if isinstance(raw_retryable, bool) else True,
+            "attempts": max(0, min(attempts, 4)),
+            "next_action": next_action if isinstance(next_action, str) and next_action else "resume",
+        }
+        for field in ("machine", "operation_id", "saved_progress"):
+            value = source.get(field) if source else getattr(result_or_error, field, None)
+            if field == "operation_id" and value is None and not source:
+                value = (getattr(result_or_error, "receipt", {}) or {}).get(field)
+            if isinstance(value, (str, bool)):
+                failure[field] = value
+        if isinstance(raw_stage, str) and raw_stage:
+            failure["stage"] = raw_stage
+        if isinstance(raw_provider_failure, bool):
+            failure["provider_operation_failed"] = raw_provider_failure
+        return failure
 
     try:
         executor = PipelineExecutor(tenant_id)
@@ -89,6 +125,14 @@ async def _run_stage(
         result = await method(video_id, **method_kwargs)
 
         status = result.get("status", "unknown")
+        if isinstance(result, dict) and result.get("source_search_failed"):
+            source_result = _source_failure(result)
+            await db_persist_task(
+                tenant_id, video_id, stage, "failed", error=source_result["error"],
+                job_id=job_id, attempt=attempt,
+            )
+            logger.warning("[%s] source discovery stopped video=%s code=%s", stage, video_id, source_result["failure_code"])
+            return source_result
         if status == "cancelled":
             await db_persist_task(
                 tenant_id,
@@ -101,6 +145,15 @@ async def _run_stage(
             )
             logger.info("[%s] cancelled by user video=%s", stage, video_id)
             return result
+        if status == "paused":
+            paused = {**result, "paused": True}
+            await db_persist_task(
+                tenant_id, video_id, stage, "completed",
+                message=result.get("message") or result.get("error") or "Paused; completed work is saved.",
+                job_id=job_id, attempt=attempt,
+            )
+            logger.info("[%s] paused video=%s", stage, video_id)
+            return paused
         if status == "needs_review":
             # D6-3b (systemic fix, not S3-specific): a stage's own gate
             # (quality critic, a deterministic law like STORY-LAWS S3, or
@@ -187,6 +240,14 @@ async def _run_stage(
         logger.info("[%s] completed video=%s", stage, video_id)
         return result or {"status": "completed"}
 
+    except SourceDiscoveryError as exc:
+        source_result = _source_failure(exc)
+        await db_persist_task(
+            tenant_id, video_id, stage, "failed", error=source_result["error"],
+            job_id=job_id, attempt=attempt,
+        )
+        logger.warning("[%s] source discovery stopped video=%s code=%s", stage, video_id, source_result["failure_code"])
+        return source_result
     except Exception as exc:
         error_msg = str(exc)
         logger.exception("[%s] failed video=%s: %s", stage, video_id, error_msg)

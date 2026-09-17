@@ -41,22 +41,22 @@ def test_targeted_recovery_suppresses_alternate_discovery_wave():
     assert "not payload.get('_dvsu_source_recovery')" in source
 
 
-def test_preview_prepares_factual_once_then_reloads_and_writes(monkeypatch):
+def test_preview_returns_needs_review_for_unready_factual_evidence_without_research(monkeypatch):
     ex = object.__new__(executor.PipelineExecutor)
     video = {'research_payload': {'machine_script_contract': 'factual_100_v1'}}
     monkeypatch.setattr(executor, '_machine_documentary_hold_roster', lambda _: [MACHINE])
     monkeypatch.setattr(executor, '_locked_roster_item_for_machine', lambda _r, _m: MACHINE)
     ex._ensure_initialized = AsyncMock(); ex._install_cancel_support = AsyncMock()
-    ex._get_video = AsyncMock(side_effect=[video, video]); ex._load_prompt_overrides = AsyncMock()
-    ex.check_machine_script_preview_readiness = AsyncMock(side_effect=[
-        {'ready': False, 'preparable': True}, {'ready': True}])
-    ex.run_one_machine_research = AsyncMock(return_value={'status': 'completed'})
-    ex._run_static_script_hold = AsyncMock(return_value={'status': 'completed', 'preview': True})
+    ex._get_video = AsyncMock(return_value=video); ex._load_prompt_overrides = AsyncMock()
+    ex.check_machine_script_preview_readiness = AsyncMock(return_value={'ready': False, 'warnings': ['stale assessment']})
+    ex.run_one_machine_research = AsyncMock(side_effect=AssertionError('preview must not prepare research'))
+    ex._run_static_script_hold = AsyncMock(side_effect=AssertionError('unready evidence must not write'))
     result = asyncio.run(ex.run_machine_script_preview('video', MACHINE))
-    assert result['preview'] is True
-    ex.run_one_machine_research.assert_awaited_once_with('video', MACHINE)
-    assert ex.check_machine_script_preview_readiness.await_count == 2
-    ex._run_static_script_hold.assert_awaited_once_with('video', video, [MACHINE], target_machine=MACHINE)
+    assert result['status'] == 'needs_review'
+    assert result['next_action'] == 'review_saved_evidence_in_research'
+    assert result['preparation_required'] is False
+    ex.run_one_machine_research.assert_not_awaited()
+    ex._run_static_script_hold.assert_not_awaited()
 
 
 def test_preview_keeps_nonfactual_path_and_cancelled_prepare(monkeypatch):
@@ -85,8 +85,8 @@ def test_ready_factual_preview_bypasses_research(monkeypatch):
     ex.run_one_machine_research.assert_not_awaited()
 
 
-@pytest.mark.parametrize(('base_errors', 'expected'), [(['identity package mismatch'], False), ([], True)])
-def test_readiness_marks_only_pure_narrative_gap_preparable(monkeypatch, base_errors, expected):
+@pytest.mark.parametrize('base_errors', [['identity package mismatch'], []])
+def test_readiness_never_marks_evidence_gaps_preparable(monkeypatch, base_errors):
     ex = object.__new__(executor.PipelineExecutor)
     ex.tenant_id = 'tenant'; ex._ensure_initialized = AsyncMock(); ex._get_video = AsyncMock(return_value={
         'video_title': TITLE, 'research_payload': {'machine_script_contract': 'factual_100_v1'}})
@@ -103,8 +103,8 @@ def test_readiness_marks_only_pure_narrative_gap_preparable(monkeypatch, base_er
     monkeypatch.setattr(handoff, 'package_brief', lambda *_: {'ready': False, 'missing_fields': ['design']})
     monkeypatch.setattr('research_claim_assessment.current_assessment', lambda *_: {'status': 'assessed'})
     result = asyncio.run(ex.check_machine_script_preview_readiness('video', MACHINE))
-    assert result['ready'] is False and result['preparable'] is expected
-    assert result['preparation_required'] is expected
+    assert result['ready'] is False and result['preparable'] is False
+    assert result['preparation_required'] is False
 
 
 def test_recovery_keeps_recapture_and_discovery_and_orders_checkpoints(monkeypatch):

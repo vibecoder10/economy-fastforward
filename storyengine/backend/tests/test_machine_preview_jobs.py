@@ -153,6 +153,63 @@ async def test_run_job_provider_failure_is_terminal_and_does_not_retry(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_run_job_required_start_persistence_failure_prevents_executor(monkeypatch):
+    import machine_preview_jobs as jobs
+    state = {"id": "job-persist", "tenant_id": "tenant-1", "video_id": "video-1", "machine": "SS-2 USS Plunger", "status": "pending"}
+    async def get_pool(): return _Pool(_Connection(state))
+    monkeypatch.setattr(jobs, "get_pool", get_pool)
+    persisted = []
+    async def persist(*args, **kwargs):
+        persisted.append((args, kwargs))
+        if kwargs.get("required"):
+            raise RuntimeError("activity database unavailable")
+    monkeypatch.setattr(jobs, "db_persist_task", persist)
+    monkeypatch.setattr(jobs.generation_claims, "release_owned", AsyncMock())
+    class Executor:
+        def __init__(self, _tenant):
+            raise AssertionError("executor must not start before durable activity persistence")
+    monkeypatch.setitem(sys.modules, "pipeline_executor", types.SimpleNamespace(PipelineExecutor=Executor))
+
+    result = await jobs.run_job("job-persist")
+    assert result == {"status": "failed", "error": "activity database unavailable"}
+    assert state["status"] == "failed"
+    assert persisted[0][1]["required"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_source_error_is_ui_safe_and_records_bounded_details(monkeypatch):
+    from error_utils import user_facing
+    from factual_source_search import SourceDiscoveryError
+    import machine_preview_jobs as jobs
+    state = {"id": "job-source", "tenant_id": "tenant-1", "video_id": "video-1", "machine": "SS-2 USS Plunger", "status": "pending"}
+    async def get_pool(): return _Pool(_Connection(state))
+    monkeypatch.setattr(jobs, "get_pool", get_pool)
+    monkeypatch.setattr(jobs, "db_persist_task", AsyncMock())
+    monkeypatch.setattr(jobs.generation_claims, "release_owned", AsyncMock())
+    monkeypatch.setitem(sys.modules, "cancel_registry", types.SimpleNamespace(is_cancel_requested=lambda *_: _false()))
+    error = SourceDiscoveryError(
+        user_facing("Saved research needs a retry."), code="malformed",
+        retryable=True, attempts=2, next_action="review", machine="S1",
+    )
+    class Executor:
+        def __init__(self, _tenant): pass
+        async def run_machine_script_preview(self, *_args):
+            raise error
+    monkeypatch.setitem(sys.modules, "pipeline_executor", types.SimpleNamespace(PipelineExecutor=Executor))
+
+    result = await jobs.run_job("job-source")
+    assert result["status"] == "failed"
+    assert "[[user-facing]]" not in result["error"]
+    assert result["error"] == "Saved research needs a retry."
+    assert {key: result[key] for key in ("stage", "machine", "failure_code", "retryable", "attempts", "saved_progress", "next_action")} == {
+        "stage": "research", "machine": "S1", "failure_code": "malformed",
+        "retryable": True, "attempts": 2, "saved_progress": False,
+        "next_action": "review",
+    }
+    assert "[[user-facing]]" not in state["error"]
+
+
+@pytest.mark.asyncio
 async def test_run_job_does_not_release_claim_when_terminal_persistence_fails(monkeypatch):
     import machine_preview_jobs as jobs
 

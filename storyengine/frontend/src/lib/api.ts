@@ -8,10 +8,11 @@ export class ApiError extends Error {
   code?: string;
   retryable: boolean;
   retryAfter?: number;
+  details?: Record<string, unknown>;
 
   constructor(
     message: string,
-    options: { status: number; code?: string; retryable?: boolean; retryAfter?: number }
+    options: { status: number; code?: string; retryable?: boolean; retryAfter?: number; details?: Record<string, unknown> }
   ) {
     super(message);
     this.name = "ApiError";
@@ -19,6 +20,7 @@ export class ApiError extends Error {
     this.code = options.code;
     this.retryable = options.retryable ?? false;
     this.retryAfter = options.retryAfter;
+    this.details = options.details;
   }
 }
 
@@ -1064,6 +1066,13 @@ export type MachineScriptPreviewResponse = {
   video_id?: string;
   preview: MachineScriptPreview;
   research_payload?: Record<string, unknown>;
+  stage?: string;
+  machine?: string;
+  failure_code?: string;
+  retryable?: boolean;
+  attempts?: number;
+  saved_progress?: boolean;
+  next_action?: string;
 };
 
 export const runMachineScriptPreview = async (
@@ -1120,7 +1129,9 @@ export const runMachineScriptPreview = async (
     if (job.status === "completed" && job.result?.preview) return job.result;
     if (job.status === "needs_review" && job.result?.preview) return job.result;
     if (job.status === "needs_review") throw new Error((job.result as any)?.warnings?.join("; ") || (job.result as any)?.summary || job.error || "Preview preparation needs review");
-    throw new Error(job.error || `Preview job ${job.status}`);
+    const failure = job.result as any;
+    const message = String(job.error || `Preview job ${job.status}`).replace(/\[\[user-facing\]\]\s*/g, "");
+    throw new ApiError(message, { status: 500, code: failure?.failure_code || "preview_failed", retryable: failure?.retryable === true, details: failure });
   } catch (error) {
     // A deadline or uncertain acknowledgement deliberately retains the same id for resume.
     throw error;

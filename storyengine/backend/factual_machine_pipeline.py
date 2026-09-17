@@ -190,105 +190,58 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         if _machine_documentary_hold_roster(fresh) != fresh_roster:
             return {'status': 'failed', 'error': 'Locked roster changed during script generation'}
         package = _verified_source_package_for_machine(payload, machine)
-        carrier_topic = bool(re.search(r'\baircraft\s+carriers?\b', subject_context, re.I))
-        search_queries = [
-            str(query).strip()
-            for query in ((package or {}).get('search_queries') or [])
-            if str(query).strip()
-        ]
-        carrier_scoped = bool(search_queries) and all(
-            re.search(r'\baircraft\s+carriers?\b', query, re.I)
-            for query in search_queries
-        )
-        eligible_urls = {
-            str(row.get('source_url') or '').strip()
-            for row in (_eligible_candidates(machine, package or {}, subject_context) or {}).values()
-            if str(row.get('source_url') or '').strip()
-        }
-        refresh_sources = getattr(ex, '_run_unit_research_hold', None)
-        if carrier_topic and len(eligible_urls) < 2 and not carrier_scoped and callable(refresh_sources):
-            # Old factual packages predate subject-scoped naval queries. Remove
-            # only this machine from a deep copy so the existing research hold
-            # performs its normal guarded gather/checkpoint path while every
-            # other machine's fetched evidence remains intact.
-            refresh_payload = copy.deepcopy(payload)
-            package_key = _verified_source_cache_key(machine)
-            packages = refresh_payload.get('machine_raw_source_packages')
-            if isinstance(packages, dict):
-                packages.pop(package_key, None)
-            await refresh_sources(
-                video_id,
-                subject_context,
-                refresh_payload,
-                fresh_roster,
-                target_machine=machine,
-            )
-            fresh = await ex._get_video(video_id)
-            if not fresh:
-                return {'status': 'failed', 'error': 'Video disappeared after source refresh'}
-            if _machine_documentary_hold_roster(fresh) != fresh_roster:
-                return {'status': 'failed', 'error': 'Locked roster changed during source refresh'}
-            payload = _object(fresh.get('research_payload'))
-            package = _verified_source_package_for_machine(payload, machine)
-
-        # The full factual batch is allowed to repair only the selected
-        # machine's resumable research-summary gap.  Keep this gate scoped to
-        # assessed packages: legacy/unassessed batches retain their existing
-        # compatibility path, while current factual packages use the same
-        # no-spend readiness/preparation contract as a single-machine preview.
+        # The writer consumes saved evidence only. Research is an explicit
+        # operation; neither a category gap nor a stale prose summary launches it.
         assessed_package = isinstance(package, dict) and 'claim_assessment' in package
-        if not target_machine and assessed_package:
+        if assessed_package:
             readiness = await ex.check_machine_script_preview_readiness(video_id, machine)
             if not readiness.get('ready'):
-                if not readiness.get('preparable'):
-                    detail = (readiness.get('error') or readiness.get('summary')
-                              or '; '.join(str(w) for w in (readiness.get('warnings') or []))
-                              or 'research preparation is not available')
-                    failures.append(f"{machine}: {detail}")
-                    continue
-                prepared = await ex.run_one_machine_research(video_id, machine)
-                if prepared.get('status') in {'cancelled', 'paused'}:
-                    return prepared
-                if prepared.get('status') != 'completed':
-                    detail = (prepared.get('error') or prepared.get('message')
-                              or 'research preparation did not complete')
-                    failures.append(f"{machine}: {detail}")
-                    continue
-                fresh = await ex._get_video(video_id)
-                if not fresh:
-                    return {'status': 'failed', 'error': 'Video disappeared after research preparation'}
-                if _machine_documentary_hold_roster(fresh) != fresh_roster:
-                    return {'status': 'failed', 'error': 'Locked roster changed during research preparation'}
-                readiness = await ex.check_machine_script_preview_readiness(video_id, machine)
-                if not readiness.get('ready'):
-                    detail = (readiness.get('error') or readiness.get('summary')
-                              or '; '.join(str(w) for w in (readiness.get('warnings') or []))
-                              or 'research preparation did not satisfy the evidence gate')
-                    failures.append(f"{machine}: {detail}")
-                    continue
-            # Readiness may persist an enriched/current evidence receipt.  Do
-            # not compile a packet from the preflight snapshot, even when it
-            # was already ready: reload and recheck the mutable stop gates.
-            fresh = await ex._get_video(video_id)
-            if not fresh:
-                return {'status': 'failed', 'error': 'Video disappeared after research readiness check'}
-            if _machine_documentary_hold_roster(fresh) != fresh_roster:
-                return {'status': 'failed', 'error': 'Locked roster changed during research readiness check'}
-            cap = fresh.get('max_spend')
-            if cap is not None and float(fresh.get('total_cost') or 0) >= float(cap):
-                return {'status': 'paused', 'message': 'Video budget reached; completed sections are saved.'}
-            cancel = getattr(ex._pipeline, 'should_cancel', None)
-            if callable(cancel):
-                cancelled = cancel()
-                if inspect.isawaitable(cancelled):
-                    cancelled = await cancelled
-                if cancelled:
-                    return {'status': 'cancelled', 'message': 'Stopped; completed sections are saved.'}
-            payload = _object(fresh.get('research_payload'))
-            package = _verified_source_package_for_machine(payload, machine)
+                detail = (readiness.get('error') or readiness.get('summary')
+                          or '; '.join(str(w) for w in readiness.get('warnings', []))
+                          or 'Saved evidence requires review in Research')
+                failures.append(f"{machine}: {detail}")
+                continue
+        # Readiness may race an edit/cancel; reload before compiling or spending.
+        fresh = await ex._get_video(video_id)
+        if not fresh or _machine_documentary_hold_roster(fresh) != fresh_roster:
+            return {'status': 'failed', 'error': 'Locked roster changed during script readiness check'}
+        cap = fresh.get('max_spend')
+        if cap is not None and float(fresh.get('total_cost') or 0) >= float(cap):
+            return {'status': 'paused', 'message': 'Video budget reached; completed sections are saved.'}
+        if callable(cancel):
+            cancelled = cancel()
+            if inspect.isawaitable(cancelled): cancelled = await cancelled
+            if cancelled:
+                return {'status': 'cancelled', 'message': 'Stopped; completed sections are saved.'}
+        payload = _object(fresh.get('research_payload'))
+        package = _verified_source_package_for_machine(payload, machine)
         current_briefing = _current_briefing_paragraph(payload, machine, subject_context)
         script_packet = _expected_script_packet(machine, package, subject_context, outline, current_briefing)
         fingerprint = source_fingerprint(machine, package)
+        script_client = client
+        if assessed_package:
+            from dvsu_script_operations import DurableScriptClient
+            async def _before_script_call():
+                latest = await ex._get_video(video_id)
+                if not latest or _machine_documentary_hold_roster(latest) != fresh_roster:
+                    return False
+                if str(latest.get('video_title') or latest.get('headline') or '') != subject_context:
+                    return False
+                current_package = _verified_source_package_for_machine(_object(latest.get('research_payload')), machine)
+                if source_fingerprint(machine, current_package) != fingerprint:
+                    return False
+                cap = latest.get('max_spend')
+                if cap is not None and float(latest.get('total_cost') or 0) >= float(cap):
+                    return False
+                callback = getattr(ex._pipeline, 'should_cancel', None)
+                if callable(callback):
+                    stopped = callback()
+                    if inspect.isawaitable(stopped): stopped = await stopped
+                    if stopped: return False
+                return True
+            script_client = DurableScriptClient(client, ex.tenant_id, video_id, machine,
+                                                script_packet.get('packet_fingerprint') if script_packet else fingerprint,
+                                                _before_script_call)
         validation = _object(fresh.get('script_validation'))
         saved = (validation.get('machine_script_blocks') or {}).get(machine) or {}
         summary = None
@@ -378,7 +331,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
             cached = None
         if cached and prior_review is None:
             prior_review = await review_existing_factual_summary(
-                machine, package, client, cached, allow_sentence_removal=True,
+                machine, package, script_client, cached, allow_sentence_removal=True,
                 subject_context=subject_context, script_packet=script_packet,
             )
         length_attempted_for_context = bool(
@@ -395,7 +348,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
         await ex._log_activity('Script Bot', video_id, 'running', f'Writing sourced section {scene}/{len(roster)}: {machine} (about 100 words, up to 110)')
         if summary is None:
             summary = await generate_factual_machine_summary(
-                machine, package, client, subject_context=subject_context,
+                machine, package, script_client, subject_context=subject_context,
                 previous_summary=prior_review,
                 episode_outline=outline, current_briefing=current_briefing,
                 script_packet=script_packet,

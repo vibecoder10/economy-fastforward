@@ -204,6 +204,10 @@ Only the calls that genuinely need you. Each carries my recommendation.
 Governing ruling: freedom in HOW it is said, zero freedom in WHAT is claimed.
 Gates flag unverifiable CLAIMS, not unfamiliar words.
 
+### Evidence-led writer contract (v1)
+
+The writer may use any nonempty packet of saved, supported facts. Narrative roles (intended role, design, actual use, outcome) are optional coverage guidance, never a readiness gate. Scripts remain 80–110 spoken words with locked identity, citations, and factual clause audit. Editorial review requires evidence-led, coherent, spoken narration; it must not require an invented purpose, reversal, consequence, or closing verdict. A final sentence remains subject to factual support, but has no separate length or prescribed-form gate. Valid legacy editorial v1 receipts remain reusable.
+
 | ID | Law | Basis | Sev |
 |---|---|---|---|
 | QD-1 | Closer freedom: the final sentence may use any editorial or abstract vocabulary; it may NOT introduce new named entities (other than the locked machine), events, numbers, or designations. | Anton's own closers fail the current check ("The price was written in blood over German skies"). Corpus is law. | hard-gate (on the banned classes only) |

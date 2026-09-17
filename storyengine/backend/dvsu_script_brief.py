@@ -11,18 +11,23 @@ MIN_SCRIPT_WORDS = 80
 TARGET_SCRIPT_WORDS = 100
 MAX_SCRIPT_WORDS = 110
 MAX_BRIEF_BYTES = 6000
-EDITORIAL_VERSION = 1
+EDITORIAL_VERSION = 2
+_LEGACY_EDITORIAL_VERSION = 1
 
 
 def script_editorial_ready(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
     audit = block.get("editorial_review")
+    if not isinstance(audit, dict):
+        return False
     count = len(str(block.get("paragraph") or "").split())
-    required = ("design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style")
+    version = audit.get("version")
+    required = (("design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style")
+                if version == _LEGACY_EDITORIAL_VERSION else ("evidence_led", "coherent", "spoken_style"))
     return bool(isinstance(audit, dict) and block.get("factual_passed") is True
-                and block.get("editorial_review_version") == EDITORIAL_VERSION
-                and audit.get("version") == EDITORIAL_VERSION and audit.get("passed") is True
+                and block.get("editorial_review_version") == version
+                and version in {_LEGACY_EDITORIAL_VERSION, EDITORIAL_VERSION} and audit.get("passed") is True
                 and audit.get("issues") == [] and isinstance(audit.get("checks"), dict)
                 and all(audit["checks"].get(name) is True for name in required)
                 and MIN_SCRIPT_WORDS <= count <= MAX_SCRIPT_WORDS)
@@ -145,15 +150,19 @@ def build_dvsu_brief(packet: Any) -> dict:
 
     facts.sort(key=lambda fact: fact["fact_id"])
     fields = {field: sorted(assignments[field]) for field in _FIELDS}
-    missing_fields = [field for field in _FIELDS if not fields[field]]
+    # Narrative categories help a writer find useful coverage, but absence of
+    # one is not an evidence failure. A nonempty selected packet is sufficient.
+    missing_narrative_roles = [field for field in _FIELDS if not fields[field]]
+    missing_fields = [] if facts else ["supported_facts"]
     brief = {
         "version": BRIEF_VERSION,
         "machine": machine,
         "subject_context": subject_context,
         "fields": fields,
         "facts": facts,
-        "ready": not missing_fields,
+        "ready": bool(facts) and not missing_fields,
         "missing_fields": missing_fields,
+        "missing_narrative_roles": missing_narrative_roles,
     }
     if len(_compact_json(brief)) > MAX_BRIEF_BYTES:
         brief["ready"] = False

@@ -6,6 +6,8 @@ import logging
 
 import generation_claims
 from database import get_pool
+from error_utils import USER_FACING_PREFIX, humanize_error
+from factual_source_search import SourceDiscoveryError
 from task_store import db_persist_task
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,32 @@ def _row(row):
     if isinstance(data.get("result"), str):
         data["result"] = json.loads(data["result"])
     return data
+
+
+def _source_discovery_failure(error: SourceDiscoveryError, machine: str) -> tuple[str, dict]:
+    """Return bounded, UI-safe details without retaining provider responses."""
+    safe_error = humanize_error(error)
+    raw_code = getattr(error, "code", None) or getattr(error, "failure_code", None)
+    failure_code = raw_code if isinstance(raw_code, str) and raw_code.replace("_", "").isalnum() else "source_discovery_failed"
+    raw_attempts = getattr(error, "attempts", 0)
+    attempts = raw_attempts if isinstance(raw_attempts, int) and not isinstance(raw_attempts, bool) else 0
+    raw_next = getattr(error, "next_action", None)
+    next_action = raw_next[len(USER_FACING_PREFIX):] if isinstance(raw_next, str) and raw_next.startswith(USER_FACING_PREFIX) else raw_next
+    stage = getattr(error, "stage", None)
+    error_machine = getattr(error, "machine", None)
+    provider_operation_failed = getattr(error, "provider_operation_failed", None)
+    details = {
+        "stage": stage if isinstance(stage, str) and stage else "research",
+        "machine": error_machine if isinstance(error_machine, str) and error_machine else machine,
+        "failure_code": failure_code[:80],
+        "retryable": getattr(error, "retryable", True) if isinstance(getattr(error, "retryable", True), bool) else True,
+        "attempts": max(0, min(attempts, 4)),
+        "saved_progress": getattr(error, "saved_progress", False) if isinstance(getattr(error, "saved_progress", False), bool) else False,
+        "next_action": next_action if isinstance(next_action, str) and next_action else "resume",
+    }
+    if isinstance(provider_operation_failed, bool):
+        details["provider_operation_failed"] = provider_operation_failed
+    return safe_error, details
 
 
 async def get_job(tenant_id: str, video_id: str, job_id: str):
@@ -48,7 +76,8 @@ async def run_job(job_id: str) -> dict:
     owner = f"machine-preview:{job_id}"
     try:
         await db_persist_task(job["tenant_id"], job["video_id"], "machine_preview", "running",
-                              message=f"Preparing preview for {job['machine']}", job_id=f"machine-preview:{job_id}")
+                              message=f"Preparing preview for {job['machine']}", job_id=f"machine-preview:{job_id}",
+                              required=True)
         pool = await get_pool()
         async with pool.acquire() as conn:
             claim = await conn.fetchrow(
@@ -87,6 +116,21 @@ async def run_job(job_id: str) -> dict:
         activity_error = error or ("Preview needs review" if status == "needs_review" else None)
         await db_persist_task(job["tenant_id"], job["video_id"], "machine_preview", activity_status,
                               message=f"Preview {status}", error=activity_error, job_id=f"machine-preview:{job_id}")
+        return result
+    except SourceDiscoveryError as exc:
+        safe_error, details = _source_discovery_failure(exc, job["machine"])
+        logger.info("machine preview source discovery stopped id=%s code=%s", job_id, details["failure_code"])
+        result = {"status": "failed", "error": safe_error, **details}
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            updated = await conn.execute(
+                "UPDATE machine_preview_jobs SET status='failed', result=$2::jsonb, error=$3, updated_at=now() "
+                "WHERE id=$1 AND status='running'", job_id, json.dumps(result), safe_error,
+            )
+        if updated.endswith(" 0"):
+            raise
+        await db_persist_task(job["tenant_id"], job["video_id"], "machine_preview", "failed",
+                              error=safe_error, job_id=f"machine-preview:{job_id}")
         return result
     except Exception as exc:
         logger.exception("machine preview job failed id=%s", job_id)

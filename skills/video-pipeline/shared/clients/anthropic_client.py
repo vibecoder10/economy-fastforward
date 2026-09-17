@@ -256,6 +256,7 @@ class AnthropicClient:
         tools: list = None,
         complete_response: bool = False,
         checkpoint_path=None,
+        no_resubmit: bool = False,
     ) -> str:
         """Generate a completion using Claude.
 
@@ -266,6 +267,9 @@ class AnthropicClient:
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
             tools: Optional list of tool definitions (e.g. [WEB_SEARCH_TOOL])
+            no_resubmit: Use one SDK request with SDK retries disabled. This is
+                for durable callers that journal an uncertain submission before
+                they decide whether it is safe to retry.
 
         Returns:
             The generated text response
@@ -275,6 +279,9 @@ class AnthropicClient:
                           the initial call and the retry.
         """
         import asyncio as _asyncio
+
+        if no_resubmit and complete_response:
+            raise ValueError("no_resubmit does not support complete_response continuations")
 
         messages = [{"role": "user", "content": prompt}]
 
@@ -291,15 +298,17 @@ class AnthropicClient:
         if tools:
             kwargs["tools"] = tools
 
+        request_client = self.client.with_options(max_retries=0) if no_resubmit else self.client
+
         def _create():
             if self._gateway_mode or complete_response:
                 # Kie's gateway 500s when a non-streaming response takes longer
                 # than ~110s to generate (verified live: every 16k-token research
                 # call failed; the same call streamed completes fine). Stream
                 # and accumulate so long generations survive.
-                with self.client.messages.stream(**kwargs) as stream:
+                with request_client.messages.stream(**kwargs) as stream:
                     return stream.get_final_message()
-            return self.client.messages.create(**kwargs)
+            return request_client.messages.create(**kwargs)
 
         async def _create_with_5xx_retry():
             """The SDK already retries transient statuses internally; this outer
@@ -368,11 +377,15 @@ class AnthropicClient:
                     kwargs.pop("tools", None)
                 messages[:] = _continuation_messages(prompt, retained)
 
-        response = await _create_with_5xx_retry()
+        response = (await _asyncio.to_thread(_create) if no_resubmit
+                    else await _create_with_5xx_retry())
 
         text = self._extract_text(response)
         if text:
             return text
+
+        if no_resubmit:
+            raise RuntimeError("Anthropic API returned empty content on the single no_resubmit attempt")
 
         # Empty content — retry once after a short delay
         print("    ⚠️ API returned empty content, retrying in 2s...")

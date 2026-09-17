@@ -354,32 +354,21 @@ def _install_source_packages(monkeypatch, video, machine, packages):
     return key
 
 
-def test_old_single_typed_source_refreshes_before_writer_and_uses_new_fingerprint(state, monkeypatch):
+def test_old_single_typed_source_never_refreshes_before_writer(state, monkeypatch):
     ex,video,machine,_package,writer=state
     video['video_title']='Every British Aircraft Carrier Class Ever Built'
     old={'search_queries':['HMS Argus history'],'typed_urls':['https://old.example/argus']}
-    refreshed={'search_queries':['HMS Argus aircraft carrier history'],
-               'typed_urls':['https://new.example/argus','https://archive.example/argus']}
     other={'machine':'Other','search_queries':['Other history']}
     key=_install_source_packages(monkeypatch,video,machine,{'target':old,'other':other})
     original_payload=video['research_payload']
 
-    async def refresh(_video_id,title,payload,roster,target_machine=None):
-        assert title==video['video_title']
-        assert roster==[machine] and target_machine==machine
-        assert payload is not original_payload
-        assert key not in payload['machine_raw_source_packages']
-        payload['machine_raw_source_packages'][key]=refreshed
-        video['research_payload']=copy.deepcopy(payload)
-        return payload
-
-    ex._run_unit_research_hold=AsyncMock(side_effect=refresh)
+    ex._run_unit_research_hold=AsyncMock(side_effect=AssertionError('writer must not refresh research'))
     result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
     assert result['status']=='completed'
-    ex._run_unit_research_hold.assert_awaited_once()
-    assert writer.await_args.args[1]==refreshed
+    ex._run_unit_research_hold.assert_not_awaited()
+    assert writer.await_args.args[1] == old
     saved=video['script_validation']['machine_script_blocks'][machine]
-    assert saved['source_fingerprint']==fp.source_fingerprint(machine,refreshed)
+    assert saved['source_fingerprint']==fp.source_fingerprint(machine,old)
 
 
 def test_already_carrier_scoped_thin_package_does_not_refresh_again(state, monkeypatch):
@@ -455,19 +444,16 @@ def test_assessed_batch_checks_ready_cache_without_writer_or_preparation(state, 
     writer.assert_not_awaited()
 
 
-def test_assessed_batch_prepares_only_preparable_machine_then_writes(state, monkeypatch):
+def test_assessed_batch_returns_needs_review_for_unready_saved_evidence(state, monkeypatch):
     ex, video, machine, package, writer = state
     _enable_assessed_batch(monkeypatch, ex, video, machine, package)
-    ex.check_machine_script_preview_readiness.side_effect = [
-        {'ready': False, 'preparable': True}, {'ready': True},
-    ]
+    ex.check_machine_script_preview_readiness.return_value = {'ready': False, 'summary': 'saved evidence needs review'}
 
     result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
 
-    assert result['status'] == 'completed'
-    ex.run_one_machine_research.assert_awaited_once_with('video', machine)
-    assert ex.check_machine_script_preview_readiness.await_count == 2
-    writer.assert_awaited_once()
+    assert result['status'] == 'needs_review'
+    ex.run_one_machine_research.assert_not_awaited()
+    writer.assert_not_awaited()
 
 
 def test_assessed_batch_compiles_from_payload_reloaded_after_ready_preflight(state, monkeypatch):
@@ -546,7 +532,7 @@ def test_assessed_batch_keeps_later_machine_after_one_hard_readiness_failure(sta
     assert other in video['script_validation']['machine_script_blocks']
 
 
-def test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c(state, monkeypatch):
+def test_assessed_full_batch_reuses_a_and_skips_unready_b_and_c(state, monkeypatch):
     ex, video, machine, package, writer = state
     second, third = 'HMS Courageous', 'HMS Glorious'
     _enable_assessed_batch(monkeypatch, ex, video, machine, package)
@@ -571,7 +557,7 @@ def test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c(s
     }}}
     readiness = {
         machine: [{'ready': True}],
-        second: [{'ready': False, 'preparable': True}, {'ready': True}],
+        second: [{'ready': False, 'summary': 'saved evidence needs review'}],
         third: [{'ready': False, 'preparable': False, 'summary': 'source identity is unresolved'}],
     }
 
@@ -588,49 +574,38 @@ def test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c(s
     result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine, second, third]))
 
     assert result['status'] == 'needs_review'
-    ex.run_one_machine_research.assert_awaited_once_with('video', second)
-    assert writer.await_count == 1
-    assert writer.await_args.args[0] == second
+    ex.run_one_machine_research.assert_not_awaited()
+    assert writer.await_count == 0
     assert video['script_validation']['machine_script_blocks'][machine]['paragraph'] == cached_a
     assert third in result['error']
 
 
-def test_assessed_batch_post_preparation_gate_blocks_writer(state, monkeypatch):
+def test_assessed_batch_unready_gate_blocks_writer_without_preparation(state, monkeypatch):
     ex, video, machine, package, writer = state
     _enable_assessed_batch(monkeypatch, ex, video, machine, package)
-    ex.check_machine_script_preview_readiness.side_effect = [
-        {'ready': False, 'preparable': True},
-        {'ready': False, 'preparable': False, 'summary': 'summary remains stale'},
-    ]
+    ex.check_machine_script_preview_readiness.return_value = {'ready': False, 'summary': 'summary remains stale'}
 
     result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
 
     assert result['status'] == 'needs_review'
-    ex.run_one_machine_research.assert_awaited_once_with('video', machine)
+    ex.run_one_machine_research.assert_not_awaited()
     writer.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    ('prepared', 'mutate', 'expected'),
-    [
-        ({'status': 'cancelled'}, None, 'cancelled'),
-        ({'status': 'paused'}, None, 'paused'),
-        ({'status': 'completed'}, lambda video, machine: video.update({'max_spend': 0}), 'paused'),
-    ],
-)
-def test_assessed_batch_stops_after_preparation_on_cancel_or_budget(state, monkeypatch, prepared, mutate, expected):
+@pytest.mark.parametrize(('mutation', 'expected'), [
+    ('cancel', 'cancelled'), ('budget', 'paused'),
+])
+def test_assessed_batch_rechecks_cancel_or_budget_after_readiness(state, monkeypatch, mutation, expected):
     ex, video, machine, package, writer = state
     _enable_assessed_batch(monkeypatch, ex, video, machine, package)
-    ex.check_machine_script_preview_readiness.side_effect = [
-        {'ready': False, 'preparable': True}, {'ready': True},
-    ]
+    async def ready(*_args):
+        if mutation == 'cancel':
+            ex._pipeline.should_cancel.return_value = True
+        else:
+            video['max_spend'] = 0
+        return {'ready': True}
 
-    async def prepare(*_args):
-        if mutate:
-            mutate(video, machine)
-        return prepared
-
-    ex.run_one_machine_research.side_effect = prepare
+    ex.check_machine_script_preview_readiness.side_effect = ready
     result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
 
     assert result['status'] == expected
@@ -644,17 +619,14 @@ def test_assessed_batch_stops_when_roster_drifts_during_preparation(state, monke
         pe, '_machine_documentary_hold_roster',
         lambda row: ['Other machine'] if row.get('drift') else [machine],
     )
-    ex.check_machine_script_preview_readiness.side_effect = [
-        {'ready': False, 'preparable': True}, {'ready': True},
-    ]
-
-    async def prepare(*_args):
+    async def ready(*_args):
         video['drift'] = True
-        return {'status': 'completed'}
+        return {'ready': True}
 
-    ex.run_one_machine_research.side_effect = prepare
+    ex.check_machine_script_preview_readiness.side_effect = ready
     result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
 
     assert result['status'] == 'failed'
     assert 'roster changed' in result['error']
+    ex.run_one_machine_research.assert_not_awaited()
     writer.assert_not_awaited()

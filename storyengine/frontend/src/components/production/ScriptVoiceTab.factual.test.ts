@@ -136,3 +136,15 @@ describe("factual machine script UI truth", () => {
     )).toBe(false);
   });
 });
+
+
+describe("evidence-led editorial compatibility", () => {
+  it("accepts v2 without legacy narrative categories and retains v1", () => {
+    const block = {...currentFactualBlock, editorial_review_version: 2,
+      editorial_review: {version: 2, passed: true, issues: [], checks: {evidence_led: true, coherent: true, spoken_style: true}}};
+    expect(machinePreviewPassesContract(block, true, block.machine, 1, block.subject_context)).toBe(true);
+    expect(machinePreviewPassesContract(currentFactualBlock, true, block.machine, 1, block.subject_context)).toBe(true);
+    expect(machinePreviewPassesContract({...block, editorial_review: null}, true, block.machine, 1, block.subject_context)).toBe(false);
+    expect(machinePreviewPassesContract({...block, factual_passed: false}, true, block.machine, 1, block.subject_context)).toBe(false);
+  });
+});

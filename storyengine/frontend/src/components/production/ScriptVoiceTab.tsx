@@ -213,18 +213,21 @@ function machinePreviewPassesAntonGate(preview: any): boolean {
 const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
 const FACTUAL_REVIEW_CONTEXT_VERSION = 6;
 const DVSU_COMPILER_VERSION = 2;
-const DVSU_EDITORIAL_VERSION = 1;
+const DVSU_EDITORIAL_VERSION = 2;
 
 export function machinePreviewPassesEditorialGate(preview: any): boolean {
   const audit = preview?.editorial_review;
   const words = String(preview?.paragraph || "").trim().split(/\s+/).filter(Boolean).length;
+  const version = audit?.version;
+  const checks = version === 1
+    ? ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"]
+    : ["evidence_led", "coherent", "spoken_style"];
   return Boolean(preview?.compiler_version === DVSU_COMPILER_VERSION
     && preview?.factual_passed === true
-    && preview?.editorial_review_version === DVSU_EDITORIAL_VERSION
-    && audit?.version === DVSU_EDITORIAL_VERSION && audit?.passed === true
+    && preview?.editorial_review_version === version
+    && (version === 1 || version === DVSU_EDITORIAL_VERSION) && audit?.passed === true
     && Array.isArray(audit?.issues) && audit.issues.length === 0
-    && ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"]
-      .every((key) => audit?.checks?.[key] === true)
+    && checks.every((key) => audit?.checks?.[key] === true)
     && words >= 80 && words <= 110);
 }
 
@@ -2351,7 +2354,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
         setMachinePreview(null);
         setPreviewMachine(readiness.machine || machine);
         invalidateAll();
-        toast.info(`Research check needed: ${readiness.summary || readiness.warnings?.[0] || "Preparation is required"}. Run Script checks and prepares research before writing.`);
+        toast.info(`Research check needed: ${readiness.summary || readiness.warnings?.[0] || "Preparation is required"}. Review the saved evidence in Research before writing.`);
         return;
       }
       if (!readiness.ready) {
@@ -2589,7 +2592,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                       : researchReady
                         ? cardSourceStatus.message
                         : isFactualMachineScript
-                          ? "Run Script checks and prepares research before writing."
+                          ? "Review the saved evidence in Research before writing."
                           : cardReadiness.needsRevalidate
                             ? "Revalidate needed - re-run research on the Research tab to compute readiness."
                             : (cardReadiness.warnings[0] || "Run or fix this machine on the Research tab before scripting.")}

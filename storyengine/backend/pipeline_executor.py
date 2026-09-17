@@ -9716,7 +9716,7 @@ class PipelineExecutor:
                 return text, f"{_WAYBACK_CAPTURE_METHOD_PREFIX}{snapshot_url}"
         return "", ""
 
-    async def _gather_verified_machine_source_package(self, title: str, machine: str, payload: dict) -> dict:
+    async def _gather_verified_machine_source_package(self, title: str, machine: str, payload: dict, *, video_id: str | None = None) -> dict:
         """Search the live internet, fetch pages, and save exact excerpt candidates for one machine.
 
         This is deliberately pre-LLM. Claude may summarize or select after this,
@@ -9758,6 +9758,34 @@ class PipelineExecutor:
                 "candidate_excerpts": [],
                 "sources": [],
             }
+
+        async def _discover(client, **parameters):
+            if not video_id:
+                raise SourceDiscoveryError(user_facing("Source research has no durable video context; no request was sent."))
+            from source_discovery_journal import SourceDiscoveryJournal
+            journal = await SourceDiscoveryJournal.open(self.tenant_id, video_id, machine, title, parameters)
+            async def guard(state):
+                from cancel_registry import is_cancel_requested
+                fresh = await self._get_video(video_id)
+                if not fresh or await is_cancel_requested(self.tenant_id, video_id):
+                    return False
+                if machine not in _machine_documentary_hold_roster(fresh):
+                    return False
+                cap = fresh.get('max_spend')
+                if cap is not None and float(fresh.get('total_cost') or 0) >= float(cap):
+                    return False
+                # Do not spend again when the preceding provider response has
+                # unknown charges. Keep its durable receipt for reconciliation.
+                receipt = state.get('receipt') or {}
+                if cap is not None and state.get('attempts', 0):
+                    import math as _source_math
+                    try: prior_credits = float(receipt.get('credits_consumed'))
+                    except (TypeError, ValueError): return False
+                    if not _source_math.isfinite(prior_credits) or prior_credits < 0 or not receipt.get('request_id'):
+                        return False
+                return True
+            return await discover_sources(client, search_key, title, machine,
+                operation_state=journal.state, checkpoint=journal.checkpoint, guard=guard, **parameters)
 
         queries = _verified_machine_source_queries(title, machine)
         is_naval = _is_naval_gather_context(title, machine)
@@ -9838,8 +9866,8 @@ class PipelineExecutor:
             if factual_search:
                 recovery = payload.get("_dvsu_source_recovery") or {}
                 recovery = recovery if recovery.get("machine") == machine else {}
-                search_results, discovery = await discover_sources(
-                    client, search_key, title, machine,
+                search_results, discovery = await _discover(
+                    client,
                     subject=factual_research_subject(machine),
                     **({"missing_fields": recovery.get("missing_fields"),
                         "attempted_urls": recovery.get("attempted_urls")} if recovery else {}),
@@ -10027,8 +10055,8 @@ class PipelineExecutor:
             # wholly unreadable in that wave.
             if (factual_search and not payload.get('_dvsu_source_recovery')
                     and not any(candidate_mentions_machine(row.get("text"), machine) for row in candidate_excerpts)):
-                alternate_results, alternate_discovery = await discover_sources(
-                    client, search_key, title, machine,
+                alternate_results, alternate_discovery = await _discover(
+                    client,
                     subject=factual_research_subject(machine),
                     attempted_urls=list(seen_urls),
                     excluded_hosts=sorted(empty_capture_hosts),
@@ -13128,6 +13156,8 @@ class PipelineExecutor:
 
             cache_key = _verified_source_cache_key(target_machine or "")
             cached_package = ((payload.get("machine_raw_source_packages") or {}).get(cache_key))
+            from factual_machine_pipeline import source_fingerprint as _evidence_fingerprint
+            original_package_fingerprint = _evidence_fingerprint(target_machine or '', cached_package)
             prior_discovery_ids = {
                 str(row.get('request_id') or '').strip()
                 for row in ((cached_package or {}).get('source_discovery_requests') or [])
@@ -13173,10 +13203,12 @@ class PipelineExecutor:
             async def _handoff_assess(candidate, stage):
                 if not await _handoff_guard(stage):
                     raise RecoveryStopped('Research recovery guard stopped before narrative assessment.')
-                from research_claim_assessment import assess_verified_package
+                from research_claim_assessment import assess_verified_package, current_assessment
+                if current_assessment(target_machine or '', candidate, title) is not None:
+                    return candidate
                 candidate['claim_assessment'] = await assess_verified_package(
                     target_machine or '', candidate, getattr(self._pipeline, 'anthropic', None),
-                    subject_context=title, require_narrative_roles=True,
+                    subject_context=title, require_narrative_roles=False,
                 )
                 return candidate
             if not factual_package_contract_warnings(target_machine or "", cached_package):
@@ -13194,7 +13226,7 @@ class PipelineExecutor:
                 try:
                     verified_source_package = await supplement_missing_research(
                         self, title, target_machine or "", payload, cached_package, cache_key,
-                        assess=_handoff_assess, checkpoint=_handoff_checkpoint, guard=_handoff_guard,
+                        assess=_handoff_assess, checkpoint=_handoff_checkpoint, guard=_handoff_guard, video_id=video_id,
                     )
                 except RecoveryStopped as exc:
                     payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
@@ -13206,10 +13238,11 @@ class PipelineExecutor:
                         payload, target_machine or '', ['research recovery guard refused initial source capture'], locked_roster=roster)
                     return payload
                 verified_source_package = await self._gather_verified_machine_source_package(
-                    title, target_machine or "", payload,
+                    title, target_machine or "", payload, video_id=video_id,
                 )
             payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
-            _clear_machine_preview_artifacts(payload, target_code)
+            if _evidence_fingerprint(target_machine or '', verified_source_package) != original_package_fingerprint:
+                _clear_machine_preview_artifacts(payload, target_code)
             package_checkpoint = await self._checkpoint_machine_raw_source_package(
                 video_id, target_code, verified_source_package, locked_roster_snapshot,
             )
@@ -16675,22 +16708,8 @@ scenes."""
         readiness = await self.check_machine_script_preview_readiness(video_id, matched)
         factual = (rp.get('machine_script_contract') == 'factual_100_v1')
         if factual and not readiness.get('ready'):
-            if not readiness.get('preparable'):
-                return {**readiness, 'status': 'needs_review'}
-            prepared = await self.run_one_machine_research(video_id, matched)
-            if prepared.get('status') in {'cancelled', 'paused'}:
-                return prepared
-            if prepared.get('status') != 'completed':
-                return {**prepared, 'status': 'needs_review', 'preparation_required': True}
-            # Reload after durable preparation and recheck both the exact
-            # roster and the no-spend evidence gate before a writer can run.
-            video = await self._get_video(video_id)
-            if not video or _machine_documentary_hold_roster(video) != roster:
-                return {'status': 'needs_review', 'ready': False,
-                        'error': 'Locked roster changed during preview preparation'}
-            readiness = await self.check_machine_script_preview_readiness(video_id, matched)
-            if not readiness.get('ready'):
-                return {**readiness, 'status': 'needs_review', 'preparation_required': True}
+            return {**readiness, 'status': 'needs_review', 'preparation_required': False,
+                    'preparable': False, 'next_action': 'review_saved_evidence_in_research'}
         return await self._run_static_script_hold(video_id, video, roster, target_machine=matched)
 
     async def check_machine_script_preview_readiness(self, video_id: str, machine: str) -> dict:
@@ -16741,6 +16760,9 @@ scenes."""
             require_source_package=True,
             factual_subject_context=str(video.get("video_title") or video.get("headline") or ""),
         )
+        if rp.get("machine_script_contract") == "factual_100_v1":
+            base_source_errors = [warning for warning in base_source_errors
+                if warning != "factual research summary is missing, failed, or stale for the current sources/context"]
         brief = None
         source_errors = list(base_source_errors)
         if rp.get("machine_script_contract") == "factual_100_v1":
@@ -16771,22 +16793,8 @@ scenes."""
             current_assessment_receipt = current_assessment(
                 matched, source_package, str(video.get("video_title") or video.get("headline") or ""),
             )
-        brief_is_preparable = bool(
-            isinstance(brief, dict) and (
-                brief.get("ready") is True
-                or (
-                    brief.get("ready") is False
-                    and bool(brief.get("missing_fields"))
-                    and all(field in {"intended_role", "design", "actual_use", "outcome"}
-                            for field in brief.get("missing_fields", []))
-                )
-            )
-        )
-        preparable = bool(
-            current_assessment_receipt is not None
-            and brief_is_preparable
-            and not _blocking_warnings(base_errors_for_preparation)
-        )
+        # Script never schedules source discovery or summary generation.
+        preparable = False
         # Self-heal stale stored verdicts: this no-spend check just computed the
         # freshest strict verdict, so persist it (validation column ONLY - never
         # card text from a read path; UPDATE-only, failure-tolerant) and patch
@@ -17070,6 +17078,7 @@ scenes."""
                     pass
 
         await self._ensure_initialized()
+        from dvsu_script_operations import ScriptOperationError
         bot_name = "Script Bot"
 
         try:
@@ -17437,6 +17446,12 @@ scenes."""
                 "video_id": video_id,
             }
 
+        except ScriptOperationError as e:
+            return {'status': 'failed', 'error': str(e), 'provider_operation_failed': True,
+                    'source_search_failed': True, 'stage': 'script', 'machine': e.machine,
+                    'failure_code': e.code, 'retryable': False, 'attempts': e.attempts,
+                    'saved_progress': True, 'next_action': e.next_action,
+                    'operation_id': e.receipt.get('operation_id')}
         except Exception as e:
             import traceback
             error_msg = str(e)
@@ -17476,6 +17491,25 @@ scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            import json as _voice_json
+            payload = video.get('research_payload') or {}
+            if isinstance(payload, str):
+                payload = _voice_json.loads(payload)
+            if payload.get('machine_script_contract') == 'factual_100_v1':
+                from factual_machine_pipeline import factual_script_readiness
+                roster = _machine_documentary_hold_roster(video)
+                if not factual_script_readiness(video, roster):
+                    return {'status': 'needs_review', 'error': 'Complete and review the saved factual script before generating voice.',
+                            'next_action': 'complete_script', 'stage': 'script'}
+                script_rows = await fetch_all('SELECT scene,scene_text FROM scripts WHERE tenant_id=$1 AND video_id=$2 ORDER BY scene', self.tenant_id, video_id)
+                validation = video.get('script_validation') or {}
+                if isinstance(validation, str): validation = _voice_json.loads(validation)
+                blocks = validation.get('machine_script_blocks') or {}
+                actual = {int(row.get('scene') or 0): str(row.get('scene_text') or '').strip() for row in script_rows}
+                if any(actual.get(index) != str((blocks.get(machine) or {}).get('paragraph') or '').strip()
+                       for index, machine in enumerate(roster, 1)):
+                    return {'status': 'needs_review', 'error': 'Production scenes do not match the reviewed factual script.',
+                            'next_action': 'save_reviewed_script', 'stage': 'script'}
             await _report("Preparing the voice track…")
 
             current_status = video.get("status")

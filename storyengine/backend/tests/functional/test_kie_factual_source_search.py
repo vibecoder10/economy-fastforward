@@ -8,10 +8,43 @@ import pytest
 
 import factual_source_search as search
 import pipeline_executor as pe
+import source_discovery_journal as journal_module
 from factual_machine_research import factual_package_contract_warnings
 
 
 MACHINE = "General Dynamics FB-111A Aardvark"
+
+
+class _MemoryJournal:
+    def __init__(self):
+        self.state = {}
+        self.snapshots = []
+
+    async def checkpoint(self, state):
+        self.state.clear()
+        self.state.update(state)
+        self.snapshots.append(dict(state))
+        return True
+
+
+@pytest.fixture(autouse=True)
+def durable_source_context(monkeypatch):
+    async def open_journal(*_args):
+        return _MemoryJournal()
+
+    async def not_cancelled(*_args):
+        return False
+
+    monkeypatch.setattr(journal_module.SourceDiscoveryJournal, "open", open_journal)
+    monkeypatch.setattr("cancel_registry.is_cancel_requested", not_cancelled)
+
+
+def _with_durable_video(executor, machine):
+    executor._get_video = AsyncMock(return_value={
+        "render_mode": "static_docu", "max_spend": 10, "total_cost": 0,
+        "research_payload": {"documentary_style": "dvsu", "unit_roster": [machine]},
+    })
+    return executor
 
 
 def response(rows=None, **extra):
@@ -67,12 +100,13 @@ def test_model_prose_is_never_returned_as_raw_evidence():
 def test_real_gather_routes_factual_research_to_kie_and_only_copies_fetched_text(text, passes):
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
+    _with_durable_video(executor, MACHINE)
     executor._fetch_source_text = AsyncMock(return_value=text)
     executor._fetch_source_fallback_text = AsyncMock(return_value=("", ""))
     with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")) as secret, \
          patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response())) as post:
         package = asyncio.run(executor._gather_verified_machine_source_package(
-            "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
+            "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"}, video_id="video",
         ))
     secret.assert_awaited_once_with("kie_ai_api_key", "tenant-1")
     assert post.await_count == (1 if passes else 2)
@@ -88,6 +122,7 @@ def test_real_gather_routes_factual_research_to_kie_and_only_copies_fetched_text
 def test_factual_route_without_kie_key_does_not_spend_on_tavily():
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
+    _with_durable_video(executor, "SS-212 through SS-284 Gato class")
     with patch.object(pe, "get_secret", AsyncMock(return_value=None)) as secret:
         with pytest.raises(search.SourceDiscoveryError, match="Missing Kie"):
             asyncio.run(executor._gather_verified_machine_source_package(
@@ -99,6 +134,7 @@ def test_factual_route_without_kie_key_does_not_spend_on_tavily():
 def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
+    _with_durable_video(executor, "SS-212 through SS-284 Gato class")
 
     async def fetched(_client, url):
         if url.endswith("alternate"):
@@ -113,7 +149,7 @@ def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
         executor._fetch_source_fallback_text = AsyncMock(return_value=("", ""))
         package = asyncio.run(executor._gather_verified_machine_source_package(
             "Every US Submarine Class Ever Built", "SS-212 through SS-284 Gato class",
-            {"machine_script_contract": "factual_100_v1"},
+            {"machine_script_contract": "factual_100_v1"}, video_id="video",
         ))
 
     assert post.await_count == 2
@@ -125,6 +161,7 @@ def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
 def test_factual_route_uses_verified_archive_fallback_when_direct_page_fails():
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
+    _with_durable_video(executor, MACHINE)
     text = "The FB-111A was a strategic bomber operated by Strategic Air Command."
     capture = "wayback:https://web.archive.org/web/20250101000000/https://www.sacmuseum.org/aircraft/fb-111a"
     executor._fetch_source_text = AsyncMock(return_value="")
@@ -132,7 +169,7 @@ def test_factual_route_uses_verified_archive_fallback_when_direct_page_fails():
     with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
          patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response())) as post:
         package = asyncio.run(executor._gather_verified_machine_source_package(
-            "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
+            "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"}, video_id="video",
         ))
     assert post.await_count == 1
     executor._fetch_source_fallback_text.assert_awaited_once()
@@ -146,6 +183,7 @@ def test_captured_holland_html_survives_fetch_and_package_assembly():
     url = "https://navalunderseamuseum.org/undersea-pioneers2/"
     executor = object.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-1"
+    _with_durable_video(executor, "SS-1 USS Holland")
     executor._fetch_source_fallback_text = AsyncMock(side_effect=AssertionError("direct source is usable"))
     with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
          patch.object(httpx.AsyncClient, "post", AsyncMock(return_value=response([
@@ -156,7 +194,7 @@ def test_captured_holland_html_survives_fetch_and_package_assembly():
          ))):
         package = asyncio.run(executor._gather_verified_machine_source_package(
             "Every US Submarine Class Ever Built", "SS-1 USS Holland",
-            {"machine_script_contract": "factual_100_v1"},
+            {"machine_script_contract": "factual_100_v1"}, video_id="video",
         ))
     assert post.await_count == 1
     excerpts = package["candidate_excerpts"]
@@ -170,6 +208,7 @@ def test_captured_holland_html_survives_fetch_and_package_assembly():
 def test_context_only_first_wave_still_searches_for_exact_identity_anchor():
     ex=object.__new__(pe.PipelineExecutor)
     ex.tenant_id='tenant'
+    _with_durable_video(ex, 'SS-1 USS Holland')
     async def fetch(_client,url):
         if url.endswith('context'):
             return 'USS Holland was endorsed by an admiral as a useful submarine for harbor and coast defense.'
@@ -182,6 +221,6 @@ def test_context_only_first_wave_still_searches_for_exact_identity_anchor():
              response([{'title':'Identity anchor','exact_source_url':'https://museum.example/anchor'}]),
          ])) as post:
         package=asyncio.run(ex._gather_verified_machine_source_package(
-            'Every US Submarine Class Ever Built','SS-1 USS Holland',{'machine_script_contract':'factual_100_v1'}))
+            'Every US Submarine Class Ever Built','SS-1 USS Holland',{'machine_script_contract':'factual_100_v1'}, video_id='video'))
     assert post.await_count==2
     assert package['passed']

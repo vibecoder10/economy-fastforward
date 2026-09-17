@@ -25,8 +25,9 @@ def test_saved_ss2_weak_labels_leave_intended_role_and_design_missing_without_lo
     brief = build_dvsu_brief(packet)
 
     assert BRIEF_VERSION == 2
-    assert brief["ready"] is False
-    assert brief["missing_fields"] == ["intended_role", "design"]
+    assert brief["ready"] is True
+    assert brief["missing_fields"] == []
+    assert brief["missing_narrative_roles"] == ["intended_role", "design"]
     assert brief["fields"]["actual_use"] == ["C4", "C6"]
     assert brief["fields"]["outcome"] == ["C7"]
     assert {fact["fact_id"] for fact in brief["facts"]} == {fact["fact_id"] for fact in packet["facts"]}
