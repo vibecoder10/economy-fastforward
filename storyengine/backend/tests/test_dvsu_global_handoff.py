@@ -136,9 +136,12 @@ def test_invalid_assessment_is_checkpointed_before_stop(monkeypatch):
         'sources': [{'source_id': 'R', 'url': 'https://r.test'}], 'candidate_excerpts': [{'source_id': 'R', 'excerpt_id': 'R1', 'source_url': 'https://r.test', 'text': 'recapture'}]}))
     stages=[]
     async def checkpoint(_package, stage): stages.append(stage); return True
-    async def assess(package, _stage): package['claim_assessment'] = {'status': 'needs_review'}; return package
+    async def assess(package, _stage):
+        package['claim_assessment'] = {'status': 'needs_review', 'diagnostics': {
+            'rejected_claims': [{'index': 2, 'reason': 'quote_mismatch'}]}}
+        return package
     ex=SimpleNamespace(_gather_verified_machine_source_package=AsyncMock())
-    with pytest.raises(handoff.RecoveryStopped, match='invalid'):
+    with pytest.raises(handoff.RecoveryStopped, match='invalid.*claim 2 was rejected: quote_mismatch'):
         asyncio.run(handoff.supplement_missing_research(ex, TITLE, MACHINE,
             {}, {'machine': MACHINE, 'sources': [{'url': 'https://old.test'}], 'candidate_excerpts': []}, 'SS2',
             assess=assess, checkpoint=checkpoint, guard=lambda _: True))

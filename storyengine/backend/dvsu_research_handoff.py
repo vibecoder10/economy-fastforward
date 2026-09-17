@@ -40,6 +40,21 @@ def _stopped(package, source_fingerprint, stage, missing_fields, warning):
     return result
 
 
+def _assessment_stop_detail(package):
+    """Return one bounded, non-raw reason for an invalid saved assessment."""
+    assessment = package.get('claim_assessment') if isinstance(package, dict) else None
+    diagnostics = assessment.get('diagnostics') if isinstance(assessment, dict) else None
+    rejected = diagnostics.get('rejected_claims') if isinstance(diagnostics, dict) else None
+    if isinstance(rejected, list) and rejected and isinstance(rejected[0], dict):
+        index, reason = rejected[0].get('index'), rejected[0].get('reason')
+        if isinstance(index, int) and isinstance(reason, str) and reason:
+            return f'claim {index} was rejected: {reason[:120]}'
+    warnings = assessment.get('warnings') if isinstance(assessment, dict) else None
+    if isinstance(warnings, list) and warnings and isinstance(warnings[0], str):
+        return warnings[0][:160]
+    return 'source-backed claim assessment is missing, invalid, or stale'
+
+
 async def _call(callback, *args):
     if callback is None:
         return True
@@ -171,7 +186,7 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
             if not await _call(checkpoint, merged, 'recapture_assessment'):
                 raise RecoveryStopped('Research recovery assessment checkpoint was refused.')
             if assess is not None and current_assessment(machine, merged, title) is None:
-                raise RecoveryStopped('Narrative assessment is invalid after recapture.')
+                raise RecoveryStopped(f'Narrative assessment is invalid after recapture: {_assessment_stop_detail(merged)}.')
             package = merged
             fields = _missing_fields(machine, merged, title)
             if not fields:
@@ -222,5 +237,5 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
     if not await _call(checkpoint, merged, 'discovery_completed'):
         raise RecoveryStopped('Research recovery final checkpoint was refused.')
     if assess is not None and current_assessment(machine, merged, title) is None:
-        raise RecoveryStopped('Narrative assessment is invalid after targeted discovery.')
+        raise RecoveryStopped(f'Narrative assessment is invalid after targeted discovery: {_assessment_stop_detail(merged)}.')
     return merged

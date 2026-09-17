@@ -1,11 +1,17 @@
 """Offline contract coverage for source-grounded research claim assessments."""
 
 import json
+import copy
+from pathlib import Path
 
 import pytest
 
 from factual_machine_summary import generate_factual_machine_summary
 from research_claim_assessment import (
+    _assessed_receipt,
+    _partition_claim_response,
+    _replay_failed_assessment,
+    _validated_claims,
     _quote_rows,
     assessment_fingerprint,
     assess_verified_package,
@@ -181,3 +187,121 @@ def test_assessment_fingerprint_excludes_only_the_saved_receipt():
     before = assessment_fingerprint(MACHINE, package, CONTEXT)
     package["claim_assessment"] = {"status": "assessed"}
     assert assessment_fingerprint(MACHINE, package, CONTEXT) == before
+
+
+@pytest.mark.asyncio
+async def test_saved_ss105_response_replays_eight_valid_claims_without_provider():
+    snapshot = Path(__file__).parent / "fixtures/ss105-failed-assessment-response.json"
+    package = json.loads(snapshot.read_text())
+    machine = package["machine"]
+    context = package["claim_assessment"]["subject_context"]
+    package["claim_assessment"]["source_fingerprint"] = assessment_fingerprint(machine, package, context)
+    original = copy.deepcopy(package)
+    client = ScriptedClient()
+
+    replayed = await assess_verified_package(machine, package, client, context)
+
+    assert replayed["status"] == "assessed"
+    assert replayed["diagnostics"]["accepted_claim_count"] == 8
+    assert len(replayed["claims"]) == 8
+    assert all("modified in 1922" not in claim["claim"] for claim in replayed["claims"])
+    assert replayed["diagnostics"]["rejected_claims"] == [{"index": 2, "reason": "quote_mismatch"}]
+    assert current_assessment(machine, package, context) == replayed
+    assert current_assessment(machine, package, context) == replayed
+    assert package == original
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_partition_rejects_whole_malformed_response_and_never_retries_exact_saved_failure():
+    package = _package()
+    malformed = {"claims": _claims()["claims"] * 13}
+    package["claim_assessment"] = {"version": 1, "status": "needs_review", "machine": MACHINE,
+        "subject_context": CONTEXT, "source_fingerprint": assessment_fingerprint(MACHINE, package, CONTEXT),
+        "raw_response": json.dumps(malformed), "raw_response_truncated": False}
+    client = ScriptedClient(json.dumps(_claims()))
+
+    assert _replay_failed_assessment(MACHINE, package, CONTEXT) is None
+    assert current_assessment(MACHINE, package, CONTEXT) is None
+    assert await assess_verified_package(MACHINE, package, client, CONTEXT) == package["claim_assessment"]
+    assert client.calls == []
+
+
+def test_partition_drops_bad_identity_and_counterevidence_rows_without_relaxing_validator():
+    package = _package()
+    candidates = {row["excerpt_id"]: row for row in package["candidate_excerpts"]}
+    bad_identity = _claims()["claims"][0] | {"identity_reviews": [{"excerpt_id": "S1-E1", "status": "same_machine",
+        "anchor_excerpt_id": "S1-E1", "reason": "not applicable"}]}
+    bad_counter = _claims()["claims"][0] | {"status": "disputed", "counterevidence": [{"excerpt_id": "S1-E1", "quote": QUOTE}]}
+    accepted, diagnostics = _partition_claim_response({"claims": [bad_identity, bad_counter]}, candidates)
+
+    assert accepted == []
+    assert [row["reason"] for row in diagnostics["rejected_claims"]] == ["claim_contract", "claim_contract"]
+
+
+def test_prior_supported_claim_is_retained_only_with_current_exact_evidence_and_integrity():
+    package = _package()
+    candidates = {row["excerpt_id"]: row for row in package["candidate_excerpts"]}
+    prior_claims = _validated_claims(_claims()["claims"], candidates)
+    prior = _assessed_receipt(MACHINE, package, CONTEXT, prior_claims)
+    invalid = _claims()["claims"][0] | {"evidence": [{"excerpt_id": "S1-E1", "quote": "altered quote"}]}
+    package["prior_claim_assessments"] = [prior]
+    package["claim_assessment"] = {"version": 1, "status": "needs_review", "machine": MACHINE,
+        "subject_context": CONTEXT, "source_fingerprint": assessment_fingerprint(MACHINE, package, CONTEXT),
+        "raw_response": json.dumps({"claims": [invalid]}), "raw_response_truncated": False}
+
+    recovered = _replay_failed_assessment(MACHINE, package, CONTEXT)
+    assert recovered and recovered["claims"] == prior_claims
+
+    prior["claims_fingerprint"] = "tampered"
+    package["claim_assessment"]["source_fingerprint"] = assessment_fingerprint(MACHINE, package, CONTEXT)
+    assert _replay_failed_assessment(MACHINE, package, CONTEXT) is None
+
+    package["candidate_excerpts"][0]["text"] = "USS Plunger (SS-2) was commissioned in 1904."
+    assert _replay_failed_assessment(MACHINE, package, CONTEXT) is None
+
+
+@pytest.mark.asyncio
+async def test_fresh_partition_retains_latest_intact_prior_supported_claims_after_new_rows():
+    package = _package()
+    candidates = {row["excerpt_id"]: row for row in package["candidate_excerpts"]}
+    prior_claims = _validated_claims(_claims()["claims"], candidates)
+    package["prior_claim_assessments"] = [_assessed_receipt(MACHINE, package, CONTEXT, prior_claims)]
+    fresh = _claims()["claims"][0] | {"claim": "Plunger's record gives a 1903 commissioning."}
+
+    receipt = await assess_verified_package(MACHINE, package, ScriptedClient(json.dumps({"claims": [fresh]})), CONTEXT)
+
+    assert [claim["claim"] for claim in receipt["claims"]] == [fresh["claim"], prior_claims[0]["claim"]]
+
+
+@pytest.mark.asyncio
+async def test_malformed_fresh_response_cannot_promote_valid_prior_claims():
+    package = _package()
+    candidates = {row["excerpt_id"]: row for row in package["candidate_excerpts"]}
+    prior_claims = _validated_claims(_claims()["claims"], candidates)
+    package["prior_claim_assessments"] = [_assessed_receipt(MACHINE, package, CONTEXT, prior_claims)]
+    client = ScriptedClient(json.dumps({"claims": _claims()["claims"] * 13}))
+
+    receipt = await assess_verified_package(MACHINE, package, client, CONTEXT)
+
+    assert receipt["status"] == "needs_review"
+    assert receipt["claims"] == []
+    assert client.calls
+
+
+@pytest.mark.parametrize("case", ["wrong_machine", "wrong_context", "truncated", "stale_source"])
+def test_exact_failed_replay_rejects_wrong_binding_or_stale_capture(case):
+    fixture = Path(__file__).parent / "fixtures/ss105-failed-assessment-response.json"
+    package = json.loads(fixture.read_text())
+    machine, context = package["machine"], package["claim_assessment"]["subject_context"]
+    package["claim_assessment"]["source_fingerprint"] = assessment_fingerprint(machine, package, context)
+    if case == "wrong_machine":
+        machine = "SS-999 USS Other"
+    elif case == "wrong_context":
+        context = "Different documentary"
+    elif case == "truncated":
+        package["claim_assessment"]["raw_response_truncated"] = True
+    else:
+        package["candidate_excerpts"][0]["text"] += " changed"
+
+    assert _replay_failed_assessment(machine, package, context) is None

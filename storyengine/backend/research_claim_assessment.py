@@ -181,9 +181,132 @@ def _valid_receipt(machine: str, package: Any, receipt: Any, subject_context: st
     return {**receipt, "claims": claims}
 
 
+def _failed_binding(machine: str, package: Any, saved: Any, subject_context: str) -> dict | None:
+    """Return one exactly-bound saved failed assessment, otherwise ``None``."""
+    saved = _object(saved)
+    if (saved.get("version") != CLAIM_ASSESSMENT_VERSION or saved.get("status") != "needs_review"
+            or saved.get("machine") != machine or saved.get("subject_context") != str(subject_context or "")
+            or saved.get("source_fingerprint") != assessment_fingerprint(machine, package, subject_context)):
+        return None
+    return saved
+
+
+def _claim_failure_reason(row: Any, candidates: dict[str, dict]) -> str:
+    """Name the first compact reason a strict one-row normalization rejects."""
+    if not isinstance(row, dict):
+        return "schema"
+    for field in ("evidence", "counterevidence"):
+        rows = row.get(field)
+        if not isinstance(rows, list):
+            return "schema"
+        for evidence in rows:
+            if not isinstance(evidence, dict):
+                return "schema"
+            excerpt_id, quote = evidence.get("excerpt_id"), evidence.get("quote")
+            if not isinstance(excerpt_id, str) or not isinstance(quote, str):
+                return "schema"
+            candidate = candidates.get(excerpt_id.strip())
+            if not candidate:
+                return "unknown_excerpt"
+            if not excerpt_id.strip() or not quote.strip():
+                return "schema"
+            if _source_quote_slice(str(candidate.get("text") or ""), quote.strip()) is None:
+                return "quote_mismatch"
+    evidence = _quote_rows(row.get("evidence"), candidates)
+    if evidence and any(candidates[item["excerpt_id"]].get("identity_requires_review") for item in evidence):
+        return "identity_contract"
+    return "claim_contract"
+
+
+def _partition_claim_response(parsed: Any, candidates: dict[str, dict]) -> tuple[list[dict] | None, dict]:
+    """Strictly retain valid individual rows from one bounded model response."""
+    parsed = _object(parsed)
+    raw_claims = parsed.get("claims")
+    diagnostics = {"version": 1, "rejected_claims": []}
+    if not isinstance(raw_claims, list) or not 1 <= len(raw_claims) <= 12:
+        diagnostics["response_reason"] = "schema"
+        return None, diagnostics
+    accepted = []
+    for index, row in enumerate(raw_claims, 1):
+        normalized = _validated_claims([row], candidates)
+        if normalized:
+            accepted.append(normalized[0])
+        else:
+            diagnostics["rejected_claims"].append({"index": index, "reason": _claim_failure_reason(row, candidates)})
+    diagnostics["raw_claim_count"] = len(raw_claims)
+    diagnostics["accepted_claim_count"] = len(accepted)
+    return accepted, diagnostics
+
+
+def _prior_supported_claims(machine: str, package: Any, subject_context: str,
+                           candidates: dict[str, dict]) -> list[dict]:
+    """Recover only intact supported engineering claims from the latest prior receipt."""
+    prior_rows = _object(package).get("prior_claim_assessments")
+    if not isinstance(prior_rows, list) or not prior_rows or not isinstance(prior_rows[-1], dict):
+        return []
+    prior = prior_rows[-1]
+    claims = prior.get("claims")
+    if (prior.get("version") != CLAIM_ASSESSMENT_VERSION or prior.get("status") != "assessed"
+            or prior.get("machine") != machine or prior.get("subject_context") != str(subject_context or "")
+            or prior.get("method") != "model_source_assessment" or not isinstance(claims, list)
+            or prior.get("claims_fingerprint") != _claims_fingerprint(claims)):
+        return []
+    output = []
+    for claim in claims:
+        if not isinstance(claim, dict) or claim.get("status") != "supported":
+            continue
+        normalized = _validated_claims([claim], candidates)
+        if normalized and {key: value for key, value in normalized[0].items() if key != "id"} == {
+                key: value for key, value in claim.items() if key != "id"}:
+            output.append(claim)
+    return output
+
+
+def _dedupe_claims(claims: list[dict]) -> list[dict]:
+    """Keep response order while removing semantically identical retained claims."""
+    output, seen = [], set()
+    for claim in claims:
+        key = json.dumps({key: claim.get(key) for key in (
+            "claim", "scope", "status", "narrative_roles", "evidence", "counterevidence", "identity_reviews",
+        )},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if key not in seen:
+            seen.add(key)
+            output.append(claim)
+    return output
+
+
+def _replay_failed_assessment(machine: str, package: Any, subject_context: str = "") -> dict | None:
+    """Purely rebuild a current receipt from one exact, untruncated failed response."""
+    saved = _failed_binding(machine, package, _object(package).get("claim_assessment"), subject_context)
+    if not saved or saved.get("raw_response_truncated") is not False or not isinstance(saved.get("raw_response"), str):
+        return None
+    from factual_machine_summary import _parse_json_object
+    parsed = _parse_json_object(saved["raw_response"])
+    if not isinstance(parsed, dict):
+        return None
+    candidates = _eligible(machine, package, subject_context)
+    accepted, diagnostics = _partition_claim_response(parsed, candidates)
+    if accepted is None:
+        return None
+    retained = _prior_supported_claims(machine, package, subject_context, candidates)
+    claims = _dedupe_claims(accepted + retained)[:12]
+    claims = _validated_claims(claims, candidates) if claims else None
+    if not claims:
+        return None
+    replayed = _assessed_receipt(machine, package, subject_context, claims)
+    replayed["diagnostics"] = diagnostics
+    if saved.get("previous_assessment"):
+        replayed["previous_assessment"] = saved["previous_assessment"]
+    if saved.get("narrative_contract_version") == NARRATIVE_CONTRACT_VERSION:
+        _narrative_receipt(replayed, _object(saved.get("previous_assessment")))
+    return _valid_receipt(machine, package, replayed, subject_context)
+
+
 def current_assessment(machine: str, package: Any, subject_context: str = "") -> dict | None:
-    """Return only a structurally current receipt; stale/failed receipts never pass."""
-    return _valid_receipt(machine, package, _object(package).get("claim_assessment"), subject_context)
+    """Return a current strict receipt or an exactly-bound, strict replay reconstruction."""
+    current = _valid_receipt(machine, package, _object(package).get("claim_assessment"), subject_context)
+    return current or _replay_failed_assessment(machine, package, subject_context)
 
 
 def has_supported_claim(receipt: Any) -> bool:
@@ -277,24 +400,15 @@ async def assess_verified_package(
                 _eligible(machine, package, subject_context),
             )
         return current
-    candidates = _eligible(machine, package, subject_context)
     saved = _object(package).get("claim_assessment")
     saved = _object(saved)
-    failed_binding = (saved.get("version") == CLAIM_ASSESSMENT_VERSION and saved.get("status") == "needs_review"
-            and saved.get("machine") == machine and saved.get("subject_context") == str(subject_context or "")
-            and saved.get("source_fingerprint") == assessment_fingerprint(machine, package, subject_context))
-    replay_eligible = (failed_binding and saved.get("raw_response_truncated") is False
-                       and isinstance(saved.get("raw_response"), str))
-    if replay_eligible:
-        from factual_machine_summary import _parse_json_object
-        replay_claims = _validated_claims(_object(_parse_json_object(saved["raw_response"])).get("claims"), candidates)
-        if replay_claims:
-            replayed = _assessed_receipt(machine, package, subject_context, replay_claims)
-            if require_narrative_roles:
-                _narrative_receipt(replayed, _object(saved.get("previous_assessment")))
-            valid = _valid_receipt(machine, package, replayed, subject_context)
-            if valid and (not require_narrative_roles or _has_explicit_narrative_roles(valid)):
-                return valid
+    failed_binding = _failed_binding(machine, package, saved, subject_context)
+    if failed_binding and failed_binding.get("raw_response_truncated") is False and isinstance(failed_binding.get("raw_response"), str):
+        replayed = _replay_failed_assessment(machine, package, subject_context)
+        if replayed and (not require_narrative_roles or _has_explicit_narrative_roles(replayed)):
+            return replayed
+        return saved
+    candidates = _eligible(machine, package, subject_context)
     if (require_narrative_roles and failed_binding
             and saved.get("narrative_contract_version") == NARRATIVE_CONTRACT_VERSION):
         return saved
@@ -307,14 +421,22 @@ async def assess_verified_package(
         model=os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-5-20251101"), max_tokens=4500, temperature=0.0)
     from factual_machine_summary import _parse_json_object
     parsed = _parse_json_object(raw) if isinstance(raw, str) else raw
-    claims = _validated_claims(_object(parsed).get("claims"), candidates)
+    claims, diagnostics = _partition_claim_response(parsed, candidates)
+    if claims is not None:
+        retained = _prior_supported_claims(machine, package, subject_context, candidates)
+        claims = _dedupe_claims(claims + retained)[:12]
+        claims = _validated_claims(claims, candidates) if claims else None
     if not claims:
         failed = _failed(machine, subject_context, "Assessment returned invalid or unsupported claim evidence.", package, raw)
+        if diagnostics.get("rejected_claims"):
+            failed["diagnostics"] = diagnostics
         return _narrative_receipt(failed, saved) if require_narrative_roles else failed
     if require_narrative_roles and not _has_explicit_narrative_roles({"claims": claims}):
         failed = _failed(machine, subject_context, "Assessment omitted explicit narrative roles.", package, raw)
         return _narrative_receipt(failed, saved)
     receipt = _assessed_receipt(machine, package, subject_context, claims)
+    if diagnostics.get("rejected_claims"):
+        receipt["diagnostics"] = diagnostics
     if require_narrative_roles:
         _narrative_receipt(receipt, saved)
     valid = _valid_receipt(machine, package, receipt, subject_context)

@@ -1,0 +1,241 @@
+{
+  "machine": "SS-105 USS S-1",
+  "sources": [
+    {
+      "url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS S-1' (locked roster identity: 'SS-105 USS S-1') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "USS S-1 (Submarine No. 105, later SS-105), 1920–1942 — Naval History and Heritage Command Photographic Archives",
+      "source_id": "S1",
+      "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+      "text_chars": 8799,
+      "source_tier": 3,
+      "source_tier_label": "Tier 3 reference/secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+          "text_chars": 8799,
+          "excerpt_count": 10,
+          "method_priority": 1,
+          "covered_slot_count": 3,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+            "text_chars": 8799,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "covered_slot_count": 3,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "title": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_id": "DVSU1",
+      "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+      "text_chars": 8803,
+      "source_tier": 3,
+      "source_capture_method": "fetched_page"
+    }
+  ],
+  "candidate_excerpts": [
+    {
+      "text": "NAVY SHIPS -- USS S-1 (Submarine # 105, later SS-105), 1920-1942 USS S-1 , first of a numerous class of Electric Boat Company type 854-ton submarines, was built at Quincy, Massachusetts.",
+      "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS S-1' (locked roster identity: 'SS-105 USS S-1') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "4f5b0413d5826374ed5cc1fc0ca882b7c2112c61cb15363bc99ee616fc4ebc1c",
+      "excerpt_id": "S1-E1",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "USS S-1 (Submarine No. 105, later SS-105), 1920–1942 — Naval History and Heritage Command Photographic Archives",
+      "anton_slot_hints": [
+        "engineering_decision",
+        "reality"
+      ],
+      "source_tier_label": "Tier 3 reference/secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+          "text_chars": 8799,
+          "excerpt_count": 10,
+          "method_priority": 1,
+          "covered_slot_count": 3,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+            "text_chars": 8799,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "covered_slot_count": 3,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Online Image: 79KB; 740 x 585 pixels Photo #: NH 41987 USS S-1 (SS-105) Underway, while fitted with an aircraft hangar aft of her fairwater, circa the mid-1920s.",
+      "locator": "S1-E7; query=Use web search to find 6 real source pages specifically about the subject 'USS S-1' (locked roster identity: 'SS-105 USS S-1') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "e6ff9c44a09a94e7967a7a2b43549e322fab5d203dc01b5851a20197a1b9e6a7",
+      "excerpt_id": "S1-E7",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "USS S-1 (Submarine No. 105, later SS-105), 1920–1942 — Naval History and Heritage Command Photographic Archives",
+      "anton_slot_hints": [
+        "engineering_decision"
+      ],
+      "source_tier_label": "Tier 3 reference/secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+          "text_chars": 8799,
+          "excerpt_count": 10,
+          "method_priority": 1,
+          "covered_slot_count": 3,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+            "text_chars": 8799,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "covered_slot_count": 3,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Online Image: 76KB; 740 x 575 pixels Photo #: NH 41986 USS S-1 (SS-105) With a Martin MS-1 seaplane on her deck, circa the mid-1920s.",
+      "locator": "S1-E8; query=Use web search to find 6 real source pages specifically about the subject 'USS S-1' (locked roster identity: 'SS-105 USS S-1') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "52b63cc6a66b31ac21d327756685489ff8248897cb314fea9088988c4ef7a1f3",
+      "excerpt_id": "S1-E8",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "USS S-1 (Submarine No. 105, later SS-105), 1920–1942 — Naval History and Heritage Command Photographic Archives",
+      "anton_slot_hints": [
+        "engineering_decision"
+      ],
+      "source_tier_label": "Tier 3 reference/secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+          "text_chars": 8799,
+          "excerpt_count": 10,
+          "method_priority": 1,
+          "covered_slot_count": 3,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+            "text_chars": 8799,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "covered_slot_count": 3,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Online Image: 54KB; 740 x 305 pixels Photo #: NH 72793 USS S-1 (SS-105) With a Martin MS-1 scouting floatplane (Bureau # A-6525) on her after deck, probably at Norfolk, Virginia, on 24 October 1923.",
+      "locator": "S1-E10; query=Use web search to find 6 real source pages specifically about the subject 'USS S-1' (locked roster identity: 'SS-105 USS S-1') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "b4260daee87961e24a2bdebcacc5db6bc46e1b8c3a7e76c492b910529d92306e",
+      "excerpt_id": "S1-E10",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "USS S-1 (Submarine No. 105, later SS-105), 1920–1942 — Naval History and Heritage Command Photographic Archives",
+      "anton_slot_hints": [
+        "engineering_decision"
+      ],
+      "source_tier_label": "Tier 3 reference/secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+          "text_chars": 8799,
+          "excerpt_count": 10,
+          "method_priority": 1,
+          "covered_slot_count": 3,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "8b29afae47f12971f668edca3065dbaa5787315c155fc279a79c18a759dfae8e",
+            "text_chars": 8799,
+            "excerpt_count": 10,
+            "method_priority": 1,
+            "covered_slot_count": 3,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "USS S-1 (Submarine # 105, later SS-105), 1920-1942 USS S-1 , first of a numerous class of Electric Boat Company type 854-ton submarines, was built at Quincy, Massachusetts. Commissioned in June 1920, she mainly served in New England waters until 1922, when she was modified to both bring her up to current standards with a larger deck gun and to fit her for experimental use as a base for a small scouting seaplane. S-1 spent the next several years conducting tests with Martin MS-1 aircraft, then returned to regular operational use. During the later 1920s she made several deployments to the Caribbean area, and in 1930 was transferred to Pearl Harbor, Hawaii. S-1 was based in Hawaii for seven years, returning to the East Coast in July 1937 to be laid up. She decommissioned at the Philadelphia Navy Yard in October of that year and remained in reserve until recalled to active duty in October 1940, part of the Nation's response to the outbreak of World War II more than a year earlier. While operating in a training capacity in 1940-1941 S-1 made two trips to Bermuda. In April 1942 she was decommissioned and transferred to the United Kingdom.",
+      "locator": "DVSU1-E1; R1-E1; source=https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_id": "DVSU1",
+      "text_hash": "53b4814fd1c8be334ae676da5f900bd40c7e7bed517e64cd4742afc66155afc6",
+      "excerpt_id": "DVSU1-E1",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "original_excerpt_id": "R1-E1",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "text": "USS S-1 (Submarine # 105, later SS-105), 1920-1942 USS S-1 , first of a numerous class of Electric Boat Company type 854-ton submarines, was built at Quincy, Massachusetts.",
+      "locator": "DVSU1-E4; R1-E5; source=https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_id": "DVSU1",
+      "text_hash": "b8d362a31a0ccaa5f11447f4895b26f0efcce08169641bbc514d8619d7b49f88",
+      "excerpt_id": "DVSU1-E4",
+      "source_url": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "source_tier": 3,
+      "source_title": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "original_excerpt_id": "R1-E5",
+      "source_capture_method": "fetched_page"
+    }
+  ],
+  "claim_assessment": {
+    "version": 1,
+    "status": "needs_review",
+    "machine": "SS-105 USS S-1",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "source_fingerprint": "18e6628b94657827a48dc071bee3e89ec7cc7c988260855069400a11cac0a891",
+    "raw_response": "```json\n{\n  \"claims\": [\n    {\n      \"claim\": \"USS S-1 (SS-105) was the first of a numerous class of Electric Boat Company type 854-ton submarines.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\"],\n      \"status\": \"supported\",\n      \"reason\": \"Multiple excerpts confirm S-1 was first of the Electric Boat Company type 854-ton submarine class.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"S1-E1\", \"quote\": \"USS S-1 , first of a numerous class of Electric Boat Company type 854-ton submarines\"},\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"USS S-1 , first of a numerous class of Electric Boat Company type 854-ton submarines\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) was modified in 1922 to fit her for experimental use as a base for a small scouting seaplane, including installation of a seaplane hangar aft of her fairwater.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\", \"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source confirms 1922 modification for experimental seaplane operations and photo evidence shows aircraft hangar installation.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"in 1922, when she was modified to both bring her up to current standards with a larger deck gun and to fit her for experimental use as a base for a small scouting seaplane\"},\n        {\"excerpt_id\": \"S1-E7\", \"quote\": \"USS S-1 (SS-105) Underway, while fitted with an aircraft hangar aft of her fairwater, circa the mid-1920s\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) spent several years conducting tests with Martin MS-1 aircraft during the mid-1920s.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Multiple sources confirm S-1 conducted tests with Martin MS-1 seaplanes in the mid-1920s.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"S-1 spent the next several years conducting tests with Martin MS-1 aircraft\"},\n        {\"excerpt_id\": \"S1-E8\", \"quote\": \"USS S-1 (SS-105) With a Martin MS-1 seaplane on her deck, circa the mid-1920s\"},\n        {\"excerpt_id\": \"S1-E10\", \"quote\": \"USS S-1 (SS-105) With a Martin MS-1 scouting floatplane (Bureau # A-6525) on her after deck, probably at Norfolk, Virginia, on 24 October 1923\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) made several deployments to the Caribbean area during the later 1920s.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly states Caribbean deployments in the later 1920s.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"During the later 1920s she made several deployments to the Caribbean area\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) was transferred to Pearl Harbor, Hawaii in 1930 and based there for seven years.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source confirms 1930 transfer to Pearl Harbor and seven-year basing period.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"in 1930 was transferred to Pearl Harbor, Hawaii. S-1 was based in Hawaii for seven years\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) operated in a training capacity in 1940-1941, making two trips to Bermuda.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source confirms training operations and Bermuda trips during 1940-1941.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"While operating in a training capacity in 1940-1941 S-1 made two trips to Bermuda\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) was decommissioned in April 1942 and transferred to the United Kingdom.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"outcome\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly states April 1942 decommissioning and transfer to UK.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"In April 1942 she was decommissioned and transferred to the United Kingdom\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) was built at Quincy, Massachusetts.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\"],\n      \"status\": \"supported\",\n      \"reason\": \"Multiple sources confirm construction location at Quincy, Massachusetts.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"S1-E1\", \"quote\": \"was built at Quincy, Massachusetts\"},\n        {\"excerpt_id\": \"DVSU1-E4\", \"quote\": \"was built at Quincy, Massachusetts\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    },\n    {\n      \"claim\": \"USS S-1 (SS-105) mainly served in New England waters from commissioning in June 1920 until 1922.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source confirms New England service from June 1920 commissioning until 1922 modification.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU1-E1\", \"quote\": \"Commissioned in June 1920, she mainly served in New England waters until 1922\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": []\n    }\n  ]\n}\n```",
+    "raw_response_truncated": false
+  }
+}
