@@ -60,7 +60,7 @@ def merge_research_sources(original, supplement):
         old_excerpt = row.get('excerpt_id')
         row['source_id'] = source_id
         row['excerpt_id'] = f'{source_id}-E{n}'
-        row['locator'] = row['excerpt_id']
+        row['locator'] = row['excerpt_id'] + '; ' + str(row.get('locator') or row.get('source_url') or '')
         row['original_excerpt_id'] = old_excerpt
         excerpts.append(row)
         used_excerpts.add(row['excerpt_id'])
@@ -89,8 +89,25 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
     brief = package_brief(machine, package, title)
     fields = [f for f in brief.get('missing_fields', [])
               if f in {'intended_role', 'design', 'actual_use', 'outcome'}]
-    if not fields:
+    known = payload.get('_dvsu_known_sources') or {}
+    explicit_urls = known.get('urls', []) if known.get('machine') == machine else []
+    if not fields and not explicit_urls:
         return package
+    from factual_source_recapture import recapture_sources
+    urls = list(dict.fromkeys(explicit_urls + [s.get('url') or s.get('source_url')
+        for s in package.get('sources', []) if s.get('url') or s.get('source_url')]))[:6]
+    if urls:
+        captured = await recapture_sources(ex, title, machine, urls)
+        merged, _, added = merge_research_sources(package, captured)
+        if added:
+            merged['source_recapture'] = {'urls': urls, 'added_excerpt_count': added,
+                                         'errors': captured.get('errors', []), 'paid_search_calls': 0}
+            return merged
+        if explicit_urls:
+            # An explicit citation repair never silently spends on rediscovery.
+            merged['dvsu_research_last_gap'] = {'missing_fields': fields, 'added_excerpt_count': 0,
+                'errors': captured.get('errors', []), 'paid_search_calls': 0}
+            return merged
     gather_payload = copy.deepcopy(payload)
     gather_payload.setdefault('machine_raw_source_packages', {}).pop(cache_key, None)
     gather_payload['_dvsu_source_recovery'] = {

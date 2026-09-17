@@ -1274,11 +1274,17 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
         return []
-    raw_sentences = [
-        " ".join(sentence.split()).strip()
-        for sentence in _re.split(r"(?<=[.!?])\s+", cleaned)
-        if " ".join(sentence.split()).strip()
-    ]
+    # Preserve original characters while keeping historical U.S.S. names
+    # together. Otherwise a sentence split discards their identity prefix.
+    protected = {index for match in _re.finditer(r"\bU\.\s*S\.\s*S\.(?=\s+[A-Z])", cleaned, _re.I)
+                 for index in range(match.start(), match.end()) if cleaned[index] == "."} if strict_named else set()
+    raw_sentences, start = [], 0
+    for boundary in _re.finditer(r"(?<=[.!?])\s+", cleaned):
+        if boundary.start() - 1 in protected:
+            continue
+        raw_sentences.append(cleaned[start:boundary.start()])
+        start = boundary.end()
+    raw_sentences.append(cleaned[start:])
     candidates: list[str] = []
     slot_candidates: dict[str, str] = {}
     seen: set[str] = set()
@@ -9627,12 +9633,9 @@ class PipelineExecutor:
             if response.status_code >= 400:
                 return ""
             content_type = str(response.headers.get("content-type") or "").lower()
-            if "pdf" in content_type or url.lower().split("?")[0].endswith(".pdf"):
-                import io
-                from pypdf import PdfReader
-
-                reader = PdfReader(io.BytesIO(response.content))
-                return " ".join((page.extract_text() or "") for page in reader.pages[:8])
+            if "pdf" in content_type or urlparse(url).path.lower().endswith(".pdf"):
+                from factual_pdf_source import extract_pdf_source
+                return extract_pdf_source(response.content, url)
             return _html_to_visible_text(response.text, preserve_sections=True)
         except Exception as exc:  # noqa: BLE001 - source fetch failures are represented in validation.
             _logger.info("[machine-source] fetch failed for %s: %s", url[:140], str(exc)[:120])
@@ -9720,6 +9723,9 @@ class PipelineExecutor:
         )
         from factual_source_search import discover_sources, guard_public_request, SourceDiscoveryError
         factual_search = is_factual_machine_contract(payload)
+        from contextual_source_identity import contextual_named_excerpt
+        def discovery_match(text, target):
+            return candidate_mentions_machine(text, target) or contextual_named_excerpt(text, target)
         search_key = await get_secret("kie_ai_api_key" if factual_search else "tavily_api_key", self.tenant_id)
         if factual_search and not search_key:
             raise SourceDiscoveryError(user_facing("Missing Kie API key for source research. Add it in Settings, then resume; completed research is saved."))
@@ -9856,7 +9862,7 @@ class PipelineExecutor:
                         "source_capture_method": capture_method,
                         "text_chars": len(source_text or ""),
                         "text_hash": _source_text_fingerprint(source_text) if source_text else "",
-                        "mentions_machine": bool(source_text and (candidate_mentions_machine(source_text, machine) if factual_search else _mentions_machine(source_text, machine))),
+                        "mentions_machine": bool(source_text and (discovery_match(source_text, machine) if factual_search else _mentions_machine(source_text, machine))),
                     }
                     if not source_text:
                         variant_row["rejected_reason"] = "empty_capture"
@@ -9868,7 +9874,7 @@ class PipelineExecutor:
                         return False
                     excerpt_candidates = _sentence_candidates_from_source(
                         source_text, machine, limit=10,
-                        matcher=candidate_mentions_machine if factual_search else None,
+                        matcher=discovery_match if factual_search else None,
                     )
                     variant_row["excerpt_count"] = len(excerpt_candidates)
                     if not excerpt_candidates:
@@ -9964,7 +9970,7 @@ class PipelineExecutor:
                         "source_tier_label": source_tier["label"],
                         "source_capture_method": capture_method,
                         "source_variant_selection": variant_selection,
-                        "locator": f"{excerpt_id}; query={item.get('_query')}",
+                        "locator": f"{excerpt_id}; source={url}; query={item.get('_query')}",
                         "text": excerpt,
                         "text_hash": _source_text_fingerprint(excerpt),
                     })
@@ -11472,7 +11478,7 @@ class PipelineExecutor:
             from factual_source_search import SourceDiscoveryError
             return {"status": "failed", "error": error_msg, "source_search_failed": isinstance(e, SourceDiscoveryError)}
 
-    async def run_one_machine_research(self, video_id: str, machine: str) -> dict:
+    async def run_one_machine_research(self, video_id: str, machine: str, source_urls: Optional[list[str]] = None) -> dict:
         """Refresh one locked machine card without paying for or replacing the rest of the roster."""
         await self._ensure_initialized()
         video = await self._get_video(video_id)
@@ -11492,6 +11498,11 @@ class PipelineExecutor:
         locked_roster_snapshot = _json_one.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False)
         title = video.get("video_title") or video.get("headline") or "Untitled documentary"
         original_status = video.get("status") or "idea_logged"
+        if source_urls:
+            from factual_source_recapture import validated_source_urls
+            import copy
+            payload = copy.deepcopy(payload)
+            payload["_dvsu_known_sources"] = {"machine": matched, "urls": validated_source_urls(source_urls)}
         payload = await self._run_unit_research_hold(
             video_id, title, payload, roster, target_machine=matched
         )

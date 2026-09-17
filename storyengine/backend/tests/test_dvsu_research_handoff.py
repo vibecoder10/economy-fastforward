@@ -64,7 +64,7 @@ async def test_gap_recovery_one_gather_preserves_other_machine_and_original(monk
     supplement = {'sources': [{'source_id': 'N1', 'url': 'https://new.example/history'}],
         'candidate_excerpts': [{'source_id': 'N1', 'excerpt_id': 'E1', 'source_url': 'https://new.example/history',
             'text': 'Holland served as a training vessel.'}]}
-    ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock(return_value=supplement))
+    ex = SimpleNamespace(_fetch_source_text=AsyncMock(return_value=""), _gather_verified_machine_source_package=AsyncMock(return_value=supplement))
     result = await handoff.supplement_missing_research(ex, SUBJECT, MACHINE, payload, package, 'SS1')
     ex._gather_verified_machine_source_package.assert_awaited_once()
     gather_payload = ex._gather_verified_machine_source_package.await_args.args[2]
@@ -79,7 +79,7 @@ async def test_gap_recovery_one_gather_preserves_other_machine_and_original(monk
 async def test_empty_supplement_preserves_original_evidence(monkeypatch):
     monkeypatch.setattr(handoff, 'package_brief', lambda *a: {'ready': False, 'missing_fields': ['actual_use']})
     package = _package()
-    ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock(return_value={'sources': [], 'candidate_excerpts': []}))
+    ex = SimpleNamespace(_fetch_source_text=AsyncMock(return_value=''), _gather_verified_machine_source_package=AsyncMock(return_value={'sources': [], 'candidate_excerpts': []}))
     result = await handoff.supplement_missing_research(ex, SUBJECT, MACHINE, {}, package, 'SS1')
     assert result['sources'] == package['sources']
     assert result['candidate_excerpts'] == package['candidate_excerpts']

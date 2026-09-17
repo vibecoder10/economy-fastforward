@@ -68,39 +68,42 @@ def _package_identity_warnings(machine: str, source_package: Any) -> list[str]:
     return [str(warning) for warning in factual_package_contract_warnings(machine, source_package)]
 
 
-def _eligible_candidates(machine: str, source_package: dict, subject_context: str = "") -> dict[str, dict]:
-    registry = {
-        _compact(row.get("source_id")): row
-        for row in source_package.get("sources") or []
-        if isinstance(row, dict) and _compact(row.get("source_id"))
-    }
-    eligible: dict[str, dict] = {}
+def _eligible_candidates(machine: str, source_package: dict, subject_context: str = "", *,
+                         include_identity_pending: bool = False) -> dict[str, dict]:
+    from factual_machine_research import _candidate_traceable
+    from contextual_source_identity import contextual_named_excerpt
+    registry = {_compact(row.get("source_id")): row
+                for row in source_package.get("sources") or []
+                if isinstance(row, dict) and _compact(row.get("source_id"))}
+    eligible, pending = {}, {}
     for raw in source_package.get("candidate_excerpts") or []:
-        if not isinstance(raw, dict):
-            continue
-        # Reuse the factual research contract's exact traceability and subject
-        # rules without inheriting its intentionally bounded writer selection.
-        if not useful_factual_candidates(machine, {"candidate_excerpts": [raw]}, limit=1):
+        if not isinstance(raw, dict) or not _candidate_traceable(raw):
             continue
         excerpt_id = _compact(raw.get("excerpt_id") or raw.get("locator"))
         source_id = _compact(raw.get("source_id"))
-        url = _compact(raw.get("source_url"))
-        locator = _compact(raw.get("locator") or excerpt_id)
-        text = _compact(raw.get("text"))
+        url, text = _compact(raw.get("source_url")), _compact(raw.get("text"))
         parsed_url = urlparse(url)
-        if not (
-            excerpt_id and url and locator and text
-            and parsed_url.scheme in {"http", "https"} and parsed_url.netloc
-            and candidate_mentions_machine(text, machine)
-        ):
+        if not (excerpt_id and url and text and parsed_url.scheme in {"http", "https"} and parsed_url.netloc):
             continue
         registered = registry.get(source_id)
-        if registry and (
-            registered is None
-            or _compact(registered.get("url")) != url
-        ):
+        if registry and (registered is None or _compact(registered.get("url")) != url):
             continue
-        eligible[excerpt_id] = dict(raw)
+        if candidate_mentions_machine(text, machine):
+            eligible[excerpt_id] = {**raw, "identity_requires_review": False, "_locked_machine": machine}
+        elif contextual_named_excerpt(text, machine):
+            pending[excerpt_id] = {**raw, "identity_requires_review": True, "_locked_machine": machine}
+    # A name-only source is never sufficient on its own. Assessment sees it
+    # alongside exact-hull anchors; downstream writing requires its saved review.
+    if eligible and pending:
+        if include_identity_pending:
+            eligible.update(pending)
+        else:
+            from research_claim_assessment import current_assessment
+            assessment = current_assessment(machine, source_package, subject_context)
+            approved = {review["excerpt_id"] for claim in (assessment or {}).get("claims", [])
+                        if claim.get("status") == "supported"
+                        for review in claim.get("identity_reviews", [])}
+            eligible.update({key: row for key, row in pending.items() if key in approved})
     if re.search(r"\baircraft\s+carriers?\b", subject_context, re.I):
         # Require a source to identify its subject as a naval carrier. Keep
         # design/history excerpts from that same source, including conversions.

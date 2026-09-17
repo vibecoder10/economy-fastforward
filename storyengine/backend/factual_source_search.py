@@ -6,7 +6,7 @@ import ipaddress
 import json
 import math
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from error_utils import user_facing
 
@@ -72,7 +72,8 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
         "relationship without assuming there was a reversal. Include supported production and memorable details where available. "
         "Match the exact aircraft variant or named vessel; do not substitute "
         "a related model. Prefer substantive article pages over photo-gallery listings. "
-        "Return only a compact JSON array of objects with title and exact_source_url. "
+        "Return only a compact JSON array of objects with title and exact_source_url, plus optional pdf_page "
+        "when the source is a PDF and its relevant page is known. pdf_page must be a positive page number. "
         "Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
         + (" Missing research fields to prioritize: " + ", ".join(field for field in missing_fields
             if field in {"intended_role", "design", "actual_use", "outcome"}) + "." if missing_fields else "")
@@ -119,6 +120,17 @@ async def discover_sources(client, api_key: str, title: str, machine: str, *, su
         if not isinstance(row, dict):
             continue
         url = public_source_url(row.get("exact_source_url"))
+        supplied_page = row.get("pdf_page")
+        if supplied_page is not None:
+            if isinstance(supplied_page, bool) or not isinstance(supplied_page, int) or not 0 < supplied_page <= 10_000:
+                continue
+            parts = urlsplit(url) if url else None
+            existing = parts.fragment if parts else ""
+            expected = f"page={supplied_page}"
+            if existing and existing != expected:
+                continue
+            if url and not existing:
+                url = urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, expected))
         if url and url not in seen:
             seen.add(url)
             leads.append({"url": url, "title": str(row.get("title") or url)[:300], "_query": prompt})

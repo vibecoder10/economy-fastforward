@@ -123,6 +123,7 @@ class MachineScriptSubmitRequest(BaseModel):
 class MachineResearchRequest(BaseModel):
     machine: str
     confirmed_paid_run: bool = False
+    source_urls: Optional[list[str]] = None
 
 
 class MachineRepairRequest(BaseModel):
@@ -1299,7 +1300,12 @@ async def run_one_machine_research(
         )
     executor = PipelineExecutor(tenant_id)
     try:
-        result = await executor.run_one_machine_research(video_id, machine)
+        if body.source_urls is not None:
+            from factual_source_recapture import validated_source_urls
+            source_urls = validated_source_urls(body.source_urls)
+            result = await executor.run_one_machine_research(video_id, machine, source_urls=source_urls)
+        else:
+            result = await executor.run_one_machine_research(video_id, machine)
     except Exception as e:
         raise HTTPException(
             status_code=400,
