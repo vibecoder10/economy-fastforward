@@ -46,7 +46,17 @@ class FakeClient:
 
     async def generate(self, **kwargs):
         self.calls.append(kwargs)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        # Mock protocol receipt only; this fixture does not judge historical truth.
+        if "REVIEW PACKET:\n" in kwargs.get("prompt", ""):
+            parsed = json.loads(response) if isinstance(response, str) else response
+            packet = json.loads(kwargs["prompt"].split("REVIEW PACKET:\n", 1)[1])
+            if isinstance(parsed, dict) and "editorial_review" in parsed:
+                parsed.setdefault("support_audit", [{"sentence": row["sentence"], "supported": True,
+                    "explanation": "Synthetic fixture support.", "unsupported_claims": []}
+                    for row in packet["draft_with_locked_provenance"]["claim_map"]])
+                return json.dumps(parsed)
+        return response
 
 
 def _package():

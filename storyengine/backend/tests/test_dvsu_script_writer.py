@@ -19,7 +19,17 @@ class FakeClient:
 
     async def generate(self, **kwargs):
         self.calls.append(kwargs)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        # Mock protocol receipt only; this fixture does not judge historical truth.
+        if "REVIEW PACKET:\n" in kwargs.get("prompt", ""):
+            parsed = json.loads(response) if isinstance(response, str) else response
+            packet = json.loads(kwargs["prompt"].split("REVIEW PACKET:\n", 1)[1])
+            if isinstance(parsed, dict) and "editorial_review" in parsed:
+                parsed.setdefault("support_audit", [{"sentence": row["sentence"], "supported": True,
+                    "explanation": "Synthetic fixture support.", "unsupported_claims": []}
+                    for row in packet["draft_with_locked_provenance"]["claim_map"]])
+                return json.dumps(parsed)
+        return response
 
 
 def _package(text):
@@ -130,4 +140,28 @@ async def test_missing_editorial_audit_fails_closed(monkeypatch):
         claim_assessment={}, script_packet=packet)
 
     assert result["passed"] is False
-    assert result["warnings"] == ["Editorial review is missing or invalid."]
+    assert result["passed"] is False
+    assert any("missing" in warning for warning in result["warnings"])
+
+
+def test_support_audit_rejects_global_pass_with_unsupported_causal_clause():
+    sentence = "An officer endorsed the vessel, and it was built to prove him right."
+    draft = {"claim_map": [{"sentence": sentence}]}
+    audit = {"passed": True, "support_audit": [{"sentence": sentence, "supported": True,
+        "explanation": "Endorsement is sourced but design motive is not.",
+        "unsupported_claims": ["Built to prove him right is an invented motive."]}]}
+    assert "invented motive" in summary._support_audit_warnings(audit, draft)[0]
+    audit["support_audit"][0]["unsupported_claims"] = []
+    audit["support_audit"][0]["supported"] = False
+    assert summary._support_audit_warnings(audit, draft)
+
+
+def test_support_audit_requires_ordered_complete_receipt():
+    draft = {"claim_map": [{"sentence": "First."}, {"sentence": "Second."}]}
+    rows = [{"sentence": sentence, "supported": True, "explanation": "Explicitly quoted.",
+             "unsupported_claims": []} for sentence in ["First.", "Second."]]
+    assert summary._support_audit_warnings({"support_audit": rows}, draft) == []
+    for bad in [None, [], rows[:1], rows[::-1], [rows[0], rows[0]]]:
+        assert summary._support_audit_warnings({"support_audit": bad}, draft)
+    rows[0]["explanation"] = ""
+    assert summary._support_audit_warnings({"support_audit": rows}, draft)

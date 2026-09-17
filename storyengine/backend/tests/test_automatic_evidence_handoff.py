@@ -139,7 +139,7 @@ def test_captured_evidence_reaches_real_writer_and_review_protocol_without_large
         calls.append(kwargs)
         if 'DVsU documentary writer' in kwargs['system_prompt']:
             return json.dumps({'paragraph':paragraph,'claim_map':[{'sentence':paragraph,'fact_ids':[f['fact_id'] for f in brief['facts']]}]})
-        return json.dumps({'passed':True,'issues':[],'editorial_review':{'version':1,'passed':True,'issues':[],
+        return json.dumps({'passed':True,'issues':[],'support_audit':[{'sentence':paragraph,'supported':True,'explanation':'Synthetic protocol fixture.','unsupported_claims':[]}],'editorial_review':{'version':1,'passed':True,'issues':[],
             'checks':dict.fromkeys(['design_intent','actual_use','consequence','gap_or_supported_substitute','verdict','spoken_style'],True)}})
     result = asyncio.run(summary.generate_factual_machine_summary(MACHINE, package, SimpleNamespace(generate=generate), subject_context=TITLE))
     assert result['passed'] and result['factual_passed'], result
