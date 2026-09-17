@@ -1696,7 +1696,12 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     try {
       const payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : (video.research_payload || {});
       const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
-      if (video.render_mode === "static_docu" && roster.length > 0) {
+      // A factual roster may contain cards whose research can be prepared by
+      // the batch endpoint. Keep the server's per-card preflight authoritative
+      // for those cards instead of presenting the aggregate saved-readiness
+      // snapshot as a permanent client-side block.
+      if (video.render_mode === "static_docu" && roster.length > 0
+          && payload?.machine_script_contract !== FACTUAL_MACHINE_SCRIPT_CONTRACT) {
         const validation = payload?.unit_research_hold_validation;
         const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
         const verifiedCount = roster.filter((item: any) => {
@@ -1729,13 +1734,34 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       toast.error(blockedReason);
       return;
     }
+    let payload: any = {};
+    try {
+      payload = typeof video.research_payload === "string" ? JSON.parse(video.research_payload || "{}") : (video.research_payload || {});
+    } catch {
+      payload = {};
+    }
+    const roster = Array.isArray(payload?.unit_roster) ? payload.unit_roster : [];
+    const factualRoster = payload?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT && roster.length > 0;
+    if (factualRoster) {
+      const cards = Array.isArray(payload?.unit_research_cards) ? payload.unit_research_cards : [];
+      const preparationNeeded = roster.filter((item: any) => {
+        const card = cards.find((candidate: any) => cardMatchesMachine(candidate, machineLabel(item)));
+        return !machineResearchCardReady(card);
+      }).length;
+      const preparationMessage = preparationNeeded > 0
+        ? `${preparationNeeded} card${preparationNeeded === 1 ? " needs" : "s need"} research preparation before writing.`
+        : "All cards have saved research readiness.";
+      if (!(await confirmDialog({
+        message: `Run all factual script cards? ${preparationMessage} Existing reviewed sections will be reused. The server will check each card before any writing.`,
+      }))) return;
+    }
     setRegeneratingScript(true);
     try {
       await runPipelineStage(video.id, "script");
       setScriptTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
-      if (message.includes("409")) {
+      if (message.includes("409") && !factualRoster) {
         try {
           await clearStaleTask(video.id);
           await runPipelineStage(video.id, "script");
@@ -1749,7 +1775,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       }
       setRegeneratingScript(false);
     }
-  }, [video.id, scriptRegenerationBlockedReason, toast]);
+  }, [video.id, video.research_payload, scriptRegenerationBlockedReason, confirmDialog, toast]);
 
   const handleSplitSentences = useCallback(async () => {
     setSplitting(true);
@@ -2136,6 +2162,18 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     }
     return findFactualPreview(factualScriptBlocks);
   };
+  const factualProductionBlockForMachine = (machine: string, scene: number): MachineScriptPreview | null => {
+    const previews = factualScriptBlocks;
+    if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
+    const match = Object.entries(previews).find(([key, preview]: [string, any]) => (
+      factualMachineIdentityMatches(key, machine)
+      || factualMachineIdentityMatches(preview?.machine, machine)
+    ));
+    const block = (match?.[1] as MachineScriptPreview) || null;
+    return machinePreviewHasCurrentFactualIdentity(
+      block, machine, scene, String(video.video_title || video.headline || ""),
+    ) ? block : null;
+  };
   const factualScriptRosterGate = isFactualMachineScript ? (() => {
     const failures = machineRoster.map((item: any, index: number) => {
       const machine = machineLabel(item);
@@ -2161,6 +2199,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.complete_title
     && (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.passed === false,
   );
+  // This narrow eligibility gate applies only to the factual batch start
+  // control. Other downstream script/voice gates keep the shared roster hold.
+  const runAllScriptBlockedByRoster = isFactualMachineScript ? false : scriptGenerationBlockedByRoster;
   const scriptRosterGatePanel = activeRosterGate ? (
     <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
       <div className="flex items-start justify-between gap-3 mb-2">
@@ -2306,6 +2347,13 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       }
       setPreviewMachine(readiness.machine || machine);
       invalidateAll();
+      if (!readiness.ready && readiness.preparable) {
+        setMachinePreview(null);
+        setPreviewMachine(readiness.machine || machine);
+        invalidateAll();
+        toast.info(`Research check needed: ${readiness.summary || readiness.warnings?.[0] || "Preparation is required"}. Run Script checks and prepares research before writing.`);
+        return;
+      }
       if (!readiness.ready) {
         const message = readiness.summary || readiness.warnings?.[0] || "Single-machine preview readiness check failed.";
         setMachinePreview(previewErrorArtifact(
@@ -2419,10 +2467,14 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     )
   )).length;
   const factualScriptProductionCount = machineRosterLabels.filter((machine: string, index: number) => (
-    machinePreviewPassesContract(
-      factualPreviewForMachine(machine, index + 1), true, machine, index + 1,
-      String(video.video_title || video.headline || ""),
-    )
+    (() => {
+      const block = factualProductionBlockForMachine(machine, index + 1);
+      const sceneText = scenes.find((candidate) => candidate.sceneNumber === index + 1)?.narrationText?.trim();
+      return machinePreviewPassesContract(
+        block, true, machine, index + 1,
+        String(video.video_title || video.headline || ""),
+      ) && Boolean(sceneText && sceneText === String(block?.paragraph || "").trim());
+    })()
   )).length;
   const machineScriptProductionCount = isFactualMachineScript
     ? factualScriptProductionCount
@@ -2440,13 +2492,13 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           </div>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             {isFactualMachineScript
-              ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes passed current factual review. ${machineScriptPanelDone ? "Script complete." : "Review or rerun the remaining script cards."}`
+              ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes passed current factual review; ${machineScriptPreviewPassCount}/${machineRosterLabels.length} script previews passed. ${machineScriptPanelDone ? "Script complete." : "Review or rerun the remaining script cards."}`
               : machineScriptProductionCount > machineScriptPreviewPassCount
               ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes scripted. ${machineScriptProductionCount === machineRosterLabels.length ? "Script complete." : "Run remaining cards, or run all script cards to finish the rest."}`
               : `${machineScriptPreviewPassCount}/${machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.`}
           </p>
           <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (Math.max(machineScriptPreviewPassCount, machineScriptProductionCount) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }} />
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, ((isFactualMachineScript ? machineScriptProductionCount : Math.max(machineScriptPreviewPassCount, machineScriptProductionCount)) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }} />
           </div>
         </div>
         <ActionButton
@@ -2454,7 +2506,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           variant="filled"
           icon={regeneratingScript || scriptTaskRunning ? Loader2 : Pencil}
           onClick={handleRegenerateScript}
-          disabled={regeneratingScript || scriptTaskRunning || previewGenerating || scriptGenerationBlockedByRoster}
+          disabled={regeneratingScript || scriptTaskRunning || previewGenerating || runAllScriptBlockedByRoster}
           className="w-full lg:w-auto"
         >
           {scriptTaskRunning ? scriptTaskMessage || "Running all..." : regeneratingScript ? "Starting..." : "Run All Script Cards"}
@@ -2480,19 +2532,25 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             ? scriptHold.units.find((unit: any) => machineLabelMatches(unit?.machine || unit?.unit, machine))
             : null;
           const scene = scenes.find((candidate) => candidate.sceneNumber === index + 1);
+          const productionBlock = isFactualMachineScript ? factualProductionBlockForMachine(machine, index + 1) : null;
           const productionDone = isFactualMachineScript
-            ? previewPassed
+            ? Boolean(
+              machinePreviewPassesContract(
+                productionBlock, true, machine, index + 1,
+                String(video.video_title || video.headline || ""),
+              ) && scene?.narrationText?.trim() === String(productionBlock?.paragraph || "").trim(),
+            )
             : Boolean(holdUnit?.passed || scene?.narrationText?.trim());
           const selected = machineLabelMatches(activePreviewMachine, machine);
           const statusLabel = productionDone
             ? "Production scene"
             : previewPassed
-              ? "Script test passed"
+              ? (isFactualMachineScript ? "Script preview passed" : "Script test passed")
               : preview
                 ? "Needs review"
                 : researchReady ? "Ready to script"
-                  : cardReadiness.needsRevalidate ? "Revalidate needed"
-                    : "Research blocked";
+                  : isFactualMachineScript ? "Research check needed"
+                    : cardReadiness.needsRevalidate ? "Revalidate needed" : "Research blocked";
           const statusColor = productionDone || previewPassed ? "var(--green)" : researchReady ? "var(--orange)" : "var(--text-tertiary)";
           const runningThisPreview = previewGeneratingMachine === machine;
           const checkingThisMachine = readinessCheckingMachine === machine;
@@ -2528,16 +2586,18 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                         ? (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass.")
                       : researchReady
                         ? cardSourceStatus.message
-                        : cardReadiness.needsRevalidate
-                          ? "Revalidate needed - re-run research on the Research tab to compute readiness."
-                          : (cardReadiness.warnings[0] || "Run or fix this machine on the Research tab before scripting.")}
+                        : isFactualMachineScript
+                          ? "Run Script checks and prepares research before writing."
+                          : cardReadiness.needsRevalidate
+                            ? "Revalidate needed - re-run research on the Research tab to compute readiness."
+                            : (cardReadiness.warnings[0] || "Run or fix this machine on the Research tab before scripting.")}
                   </p>
                 </button>
                 <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:justify-end">
                   <button
                     type="button"
                     onClick={() => handleMachinePreview(machine)}
-                    disabled={previewGenerating || scriptTaskRunning || regeneratingScript || !researchReady}
+                    disabled={previewGenerating || scriptTaskRunning || regeneratingScript || (!isFactualMachineScript && !researchReady)}
                     className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
                     style={{ background: previewPassed ? "transparent" : "var(--orange)", color: previewPassed ? "var(--orange)" : "var(--bg-void)", border: "1px solid var(--orange)" }}
                   >

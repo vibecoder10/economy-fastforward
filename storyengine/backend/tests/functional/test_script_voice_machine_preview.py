@@ -149,8 +149,11 @@ def test_script_voice_full_script_generation_waits_for_full_machine_research_gat
 
     assert "const scriptRegenerationBlockedReason" in text
     assert "Machine research is incomplete:" in text
-    assert "fullMachineResearchGatePassed(validation, verifiedCount, roster.length)" in text
-    assert "fullMachineResearchGatePassed(validation, verifiedMachineResearchCount, roster.length)" in text
+    # Nonfactual channels retain the aggregate gate; factual batches defer
+    # missing-card preparation to the server-side selected-machine preflight.
+    assert "return fullMachineResearchGatePassed(validation, verifiedCount, rosterCount);" in text
+    assert "payload?.machine_script_contract !== FACTUAL_MACHINE_SCRIPT_CONTRACT" in text
+    assert "machineResearchGatePassesContract(" in text
     # The full-script gate now counts verified cards via the served readiness verdict only.
     assert "return machineResearchCardReady(card);" in text
     assert "sourcePackageReady(sourcePackage, label)" not in text
@@ -226,7 +229,7 @@ def test_script_voice_preview_button_calls_only_isolated_preview_route():
     assert handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < handler.index("runMachineScriptPreview(video.id, machine, true)")
     assert handler.index("confirmPaidOneMachineAction(") < handler.index("runMachineScriptPreview(video.id, machine, true)")
     assert "Single-machine script preview canceled before any provider call." in handler
-    assert "if (!readiness.ready)" in handler
+    assert "if (!readiness.ready && !readiness.preparable)" in handler
     assert '"readiness_preflight"' in handler
     assert '"Readiness preflight"' in handler
     assert "setMachinePreview(result.preview)" in handler
@@ -244,8 +247,8 @@ def test_script_voice_preview_evidence_map_shows_claims_and_excerpts():
     assert "previewEvidenceById" in text
     assert "previewFormulaSentences" in text
     assert "previewFormulaRows" in text
-    assert "machinePreviewPassesAntonGate(result.preview)" in text
-    assert "const machinePreviewPassed = machinePreviewPassesAntonGate(activeMachinePreview)" in text
+    assert "machinePreviewPassesContract(\n        result.preview," in text
+    assert "const machinePreviewPassed = machinePreviewPassesContract(" in text
     assert "function machinePreviewReviewMessages" in text
     assert "const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview)" in text
     assert "preview?.quality_audit?.passed === false && preview?.quality_audit?.summary" in text
@@ -301,7 +304,7 @@ def test_script_voice_run_script_gate_uses_served_readiness():
     assert "function machineResearchReadiness" in text
     assert "const cardReadiness = machineResearchReadiness(researchCard)" in text
     assert "const researchReady = cardReadiness.ready" in text
-    assert "disabled={previewGenerating || scriptTaskRunning || regeneratingScript || !researchReady}" in text
+    assert "disabled={previewGenerating || scriptTaskRunning || regeneratingScript || (!isFactualMachineScript && !researchReady)}" in text
 
     # readiness === null renders a Revalidate needed state (not ready).
     assert "cardReadiness.needsRevalidate" in text
