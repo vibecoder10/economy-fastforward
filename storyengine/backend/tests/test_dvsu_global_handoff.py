@@ -101,6 +101,7 @@ def test_readiness_marks_only_pure_narrative_gap_preparable(monkeypatch, base_er
     monkeypatch.setattr(executor, '_verified_source_package_for_machine', lambda *_: payload['machine_raw_source_packages']['SS2'])
     monkeypatch.setattr(executor, '_research_card_contract_warnings', lambda *_a, **_k: list(base_errors))
     monkeypatch.setattr(handoff, 'package_brief', lambda *_: {'ready': False, 'missing_fields': ['design']})
+    monkeypatch.setattr('research_claim_assessment.current_assessment', lambda *_: {'status': 'assessed'})
     result = asyncio.run(ex.check_machine_script_preview_readiness('video', MACHINE))
     assert result['ready'] is False and result['preparable'] is expected
     assert result['preparation_required'] is expected

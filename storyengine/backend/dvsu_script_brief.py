@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-BRIEF_VERSION = 1
+BRIEF_VERSION = 2
 MIN_SCRIPT_WORDS = 80
 TARGET_SCRIPT_WORDS = 100
 MAX_SCRIPT_WORDS = 110
@@ -50,18 +50,57 @@ _OUTCOME_RE = re.compile(
     r"preserved|museum|cancelled|withdrawn)\b",
     re.I,
 )
+_CLASSIFICATION_ONLY_RE = re.compile(
+    r"\b(?:classified\s+as|classification\s+(?:was|is)|(?:is|was)\s+an?\s+\w+(?:[- ]\w+)*\s+class)\b",
+    re.I,
+)
+_ROLE_PURPOSE_RE = re.compile(
+    r"\b(?:designed|intended|built|developed|created)\s+(?:to|for)\b|"
+    r"\b(?:job|purpose|mission|role)\s+(?:was|is|of|to|for)\b|"
+    r"\btasked\s+(?:with|to|for)\b",
+    re.I,
+)
+_BUILDER_ONLY_RE = re.compile(
+    r"\b(?:built\s+(?:at|by)|builder|shipyard|shipbuilding|subcontract(?:or|ed)?|constructed\s+(?:at|by))\b",
+    re.I,
+)
+_WEIGHT_ONLY_RE = re.compile(r"\b(?:displacement|weight|weighed|tons?)\b", re.I)
+_ENGINEERING_CONFIGURATION_RE = re.compile(
+    r"\b(?:engine|motor|propulsion|hull|armament|armor|armour|ballast|deck|torpedo|boiler|"
+    r"turbine|diesel|electric|gasoline|weapon|gun|missile|battery|wingspan|diameter)\b",
+    re.I,
+)
+_RENAME_ONLY_RE = re.compile(r"\b(?:renamed|re[- ]?designated|redesignated|redesignation|renumbered)\b", re.I)
+_USE_CONTEXT_RE = re.compile(
+    r"\b(?:served|operated|patrolled|tested|testing|conducted|used\s+as|deployed|saw\s+service|"
+    r"took\s+part|training|trained|exercise(?:d)?|conversion|converted)\b",
+    re.I,
+)
 
 
 def _compact_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _role_is_usable(role: str, text: str) -> bool:
+    """Reject only role labels attached to an otherwise non-narrative fact."""
+    if role == "intended_role":
+        return not (_CLASSIFICATION_ONLY_RE.search(text) and not _ROLE_PURPOSE_RE.search(text))
+    if role == "design":
+        configuration = bool(_ENGINEERING_CONFIGURATION_RE.search(text))
+        return not ((_BUILDER_ONLY_RE.search(text) or _WEIGHT_ONLY_RE.search(text)) and not configuration)
+    if role == "actual_use":
+        return not (_RENAME_ONLY_RE.search(text) and not _USE_CONTEXT_RE.search(text))
+    return True
+
+
 def _roles(fact: dict[str, Any]) -> list[str]:
+    claim = str(fact.get("claim") or "")
+    text = f"{claim} {fact.get('scope') or ''}"
     explicit = fact.get("narrative_roles")
     if isinstance(explicit, list):
         validated = sorted({role for role in explicit if isinstance(role, str) and role in _FIELDS})
-        return validated
-    text = f"{fact.get('claim') or ''} {fact.get('scope') or ''}"
+        return [role for role in validated if _role_is_usable(role, claim)]
     inferred = []
     if _INTENDED_ROLE_RE.search(text):
         inferred.append("intended_role")
@@ -71,7 +110,7 @@ def _roles(fact: dict[str, Any]) -> list[str]:
         inferred.append("actual_use")
     if _OUTCOME_RE.search(text):
         inferred.append("outcome")
-    return inferred
+    return [role for role in inferred if _role_is_usable(role, claim)]
 
 
 def build_dvsu_brief(packet: Any) -> dict:

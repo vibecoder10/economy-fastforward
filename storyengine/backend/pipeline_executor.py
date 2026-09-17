@@ -16736,15 +16736,35 @@ scenes."""
         # advisory-only list (tier_floor_advisory / caution_only_sources_advisory)
         # is surfaced in `warnings` either way, never silently dropped.
         blocking_source_errors = _blocking_warnings(source_errors)
-        # Only an otherwise-valid factual package with a current assessment
-        # and narrative-field gaps is preparable. Missing cards, malformed
-        # packages, identity failures, and general errors remain hard blocks.
+        # A failed/stale summary is resumable only from an otherwise-current
+        # assessed factual package.  Do not turn any other base-card failure
+        # into a preparation path: the exact summary warning is the sole
+        # exception, while identity, package, and card errors stay blocked.
+        summary_gap_warning = "factual research summary is missing, failed, or stale for the current sources/context"
+        base_errors_for_preparation = [
+            warning for warning in base_source_errors if warning != summary_gap_warning
+        ]
+        current_assessment_receipt = None
+        if rp.get("machine_script_contract") == "factual_100_v1":
+            from research_claim_assessment import current_assessment
+            current_assessment_receipt = current_assessment(
+                matched, source_package, str(video.get("video_title") or video.get("headline") or ""),
+            )
+        brief_is_preparable = bool(
+            isinstance(brief, dict) and (
+                brief.get("ready") is True
+                or (
+                    brief.get("ready") is False
+                    and bool(brief.get("missing_fields"))
+                    and all(field in {"intended_role", "design", "actual_use", "outcome"}
+                            for field in brief.get("missing_fields", []))
+                )
+            )
+        )
         preparable = bool(
-            isinstance(brief, dict) and not brief.get('ready')
-            and brief.get('missing_fields')
-            and all(field in {'intended_role', 'design', 'actual_use', 'outcome'}
-                    for field in brief.get('missing_fields', []))
-            and not _blocking_warnings(base_source_errors)
+            current_assessment_receipt is not None
+            and brief_is_preparable
+            and not _blocking_warnings(base_errors_for_preparation)
         )
         # Self-heal stale stored verdicts: this no-spend check just computed the
         # freshest strict verdict, so persist it (validation column ONLY - never

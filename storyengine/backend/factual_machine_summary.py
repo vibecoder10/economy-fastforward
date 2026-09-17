@@ -436,6 +436,42 @@ def _compact_assessment_constraints(assessment: dict | None) -> list[dict]:
                   key=lambda row: (row["assessment_claim_id"], row["status"]))
 
 
+def _compact_research_assessment(assessment: dict | None) -> dict:
+    """Project the current claim ledger without replaying archival receipts.
+
+    Research writer and referee prompts already receive the exact fetched
+    evidence separately.  Their ledger is only a constraint, so retain the
+    current claim semantics and its excerpt references, never quotes, raw
+    model output, fingerprints, recovery state, or ``previous_assessment``.
+    """
+    claims = []
+    for raw in (assessment or {}).get("claims") or []:
+        if not isinstance(raw, dict):
+            continue
+        def excerpt_ids(field: str) -> list[str]:
+            return sorted({
+                _compact(row.get("excerpt_id"))
+                for row in raw.get(field) or []
+                if isinstance(row, dict) and _compact(row.get("excerpt_id"))
+            })
+        claims.append({
+            "id": _compact(raw.get("id")),
+            "claim": _compact(raw.get("claim")),
+            "scope": _compact(raw.get("scope")),
+            "status": _compact(raw.get("status")),
+            "narrative_roles": sorted({
+                _compact(role) for role in raw.get("narrative_roles") or []
+                if _compact(role)
+            }),
+            "evidence_excerpt_ids": excerpt_ids("evidence"),
+            "counterevidence_excerpt_ids": excerpt_ids("counterevidence"),
+        })
+    return {
+        "status": _compact((assessment or {}).get("status")),
+        "claims": sorted(claims, key=lambda row: (row["id"], row["claim"], row["status"])),
+    }
+
+
 def _review_packet_constraints(packet: dict | None) -> dict | None:
     if not packet:
         return None
@@ -537,22 +573,28 @@ def _compiled_closing_warning(draft: dict) -> list[str]:
 
 def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "", purpose: str = "script", research_briefings: list[dict] | None = None, claim_assessment: dict | None = None) -> str:
     repair = ""
+    if (not _compact(prior_draft) and prior_issues
+            and any("input budget" in _compact(issue).lower() for issue in prior_issues)):
+        repair = (
+            "\nThe previous attempt stopped before a draft was produced because its local input budget was exceeded. "
+            "Write a fresh summary from the current EVIDENCE and constraints; there is no previous draft to preserve or repair.\n"
+        )
     if prior_issues and any(any(marker in issue.lower() for marker in
             ("wrong-machine", "carrier role", "namesake", "wrong subject", "another machine"))
             for issue in prior_issues):
         repair = ("\nThe previous draft used the wrong subject or source identity. Discard that draft. "
                   "Write a new section using the correct locked machine and video category from EVIDENCE; "
                   "do not preserve facts from the namesake.\n" + "\n".join(prior_issues))
-    elif prior_issues and prior_issues[0].startswith("Expand this sourced draft"):
+    elif not repair and prior_issues and prior_issues[0].startswith("Expand this sourced draft"):
         repair = "\n" + prior_issues[0] + "\nPrevious sourced draft:\n" + prior_draft
-    elif prior_issues and all("lacks independent corroboration" in issue for issue in prior_issues):
+    elif not repair and prior_issues and all("lacks independent corroboration" in issue for issue in prior_issues):
         repair = (
             "\nRemove the unsupported historical record/count qualifications listed below while keeping ordinary "
             "supported identity, design and service facts. You may add other ordinary facts from EVIDENCE to stay "
             "near 100 words. Do not replace a disputed record/count with another record/count.\n"
             + "\n".join(prior_issues) + "\nPrevious sourced draft:\n" + prior_draft
         )
-    elif prior_issues:
+    elif not repair and prior_issues:
         repair = (
             "\nThe previous draft failed for these exact reasons. Remove the disputed details entirely. "
             "Keep only uncontested facts already in the previous draft; do not introduce replacement dates, events, "
@@ -583,7 +625,7 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], 
         '"citations":[{"excerpt_id":"S1-E1"}]}]}.\n'
         + repair
         + ("\nCLAIM ASSESSMENT (constraints only, never evidence): use supported claims only; omit disputed, insufficient, and out_of_scope claims. Every claim still needs EVIDENCE:\n"
-           + json.dumps(claim_assessment, ensure_ascii=False) if claim_assessment else "")
+           + json.dumps(_compact_research_assessment(claim_assessment), ensure_ascii=False) if claim_assessment else "")
         + ("\nEPISODE OUTLINE (context only, never evidence; every claim still needs EVIDENCE):\n"
            + json.dumps(_compatibility_briefing_context(research_briefings, machine)[0], ensure_ascii=False)
            if research_briefings else "")
@@ -598,7 +640,7 @@ def _review_prompt(machine: str, draft: dict, alternatives: list[dict], subject_
     assessment_payload = (
         {"assessment_status_constraints_not_evidence": _compact_assessment_constraints(claim_assessment),
          "script_packet_constraints_not_evidence": _review_packet_constraints(script_packet)}
-        if compiler_constraints else claim_assessment
+        if compiler_constraints else _compact_research_assessment(claim_assessment)
     )
     compiler_rule = (
         "For a compiler draft, verify each sentence is supported by the selected facts named in that same row's fact_ids; "
