@@ -1,5 +1,5 @@
 import { API_URL, RUBRIC_URL } from "./env";
-import { runMachinePreviewWithGatewayRecovery } from "./machine-preview-recovery";
+import { machinePreviewPendingKey, pollMachinePreviewJob, type MachinePreviewJob } from "./machine-preview-job";
 
 export const DRAIN_MODE_EVENT = "storyengine:drain-mode";
 
@@ -1048,6 +1048,9 @@ export type MachineScriptPreviewReadiness = {
   warnings?: string[];
   next_action?: string;
   research_payload?: Record<string, unknown>;
+  preparable?: boolean;
+  preparation_required?: boolean;
+  missing_fields?: string[];
 };
 
 export const checkMachineScriptPreviewReadiness = (videoId: string, machine: string) =>
@@ -1068,27 +1071,60 @@ export const runMachineScriptPreview = async (
   machine: string,
   confirmedPaidRun: true,
 ): Promise<MachineScriptPreviewResponse> => {
-  // Capture the persisted baseline before the paid request. If this read fails,
-  // stop before spending: without it a later gateway recovery could mistake an
-  // older matching preview for this run's completion.
-  return runMachinePreviewWithGatewayRecovery({
-    machine,
-    readVideo: (timeoutMs = DEFAULT_TIMEOUT_MS) =>
-      fetchApi<VideoDetail>(`/api/videos/${videoId}`, undefined, timeoutMs),
-    post: () => fetchApi<MachineScriptPreviewResponse>(
-      `/api/pipeline/machine-script-preview/${videoId}`,
-      { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
-      90_000,
-    ),
-    isGatewayError: (error) => error instanceof ApiError && (error.status === 502 || error.status === 504),
-    sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
-    recoveredResult: (recovered) => ({
-      status: "completed",
-      video_id: videoId,
-      preview: recovered.preview as MachineScriptPreview,
-      ...(recovered.video.research_payload ? { research_payload: recovered.video.research_payload } : {}),
-    }),
-  });
+  const tenant = getActiveTenant();
+  const key = machinePreviewPendingKey(tenant, videoId, machine);
+  let requestId: string | null = null;
+  try {
+    requestId = typeof window === "undefined" ? null : localStorage.getItem(key);
+  } catch {}
+  const resumed = Boolean(requestId);
+  if (!requestId) {
+    requestId = crypto.randomUUID();
+    try { if (typeof window !== "undefined") localStorage.setItem(key, requestId); } catch {}
+  }
+  type JobResult = MachineScriptPreviewResponse;
+  type Job = MachinePreviewJob<JobResult>;
+  let postAcknowledgementUncertain = false;
+  const get = async () => {
+    try {
+      return await fetchApi<Job>(`/api/pipeline/machine-script-preview-jobs/${videoId}/${requestId}`, undefined, 30_000);
+    } catch (error) {
+      if (postAcknowledgementUncertain && error instanceof ApiError && error.status === 404) {
+        throw new ApiError("Preview submission acknowledgement is uncertain; the saved request id was retained for safe resume.", { status: 404, code: "preview_acknowledgement_uncertain" });
+      }
+      throw error;
+    }
+  };
+  try {
+    if (!resumed) try {
+      await fetchApi<Job>(`/api/pipeline/machine-script-preview-jobs/${videoId}`, {
+        method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun, request_id: requestId }),
+      }, 30_000);
+    } catch (error) {
+      // An acknowledgement may fail after the durable insert; polling the same id is the only safe follow-up.
+      if (error instanceof ApiError && (error.code === "preview_not_started" || [400, 403].includes(error.status))) {
+        try { if (typeof window !== "undefined") localStorage.removeItem(key); } catch {}
+        throw error;
+      }
+      postAcknowledgementUncertain = true;
+    }
+    const job = await pollMachinePreviewJob<JobResult>({
+      requestId,
+      get,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      transient: (error) => error instanceof ApiError
+        ? [0, 502, 503, 504].includes(error.status)
+        : error instanceof TypeError || (error instanceof Error && error.name === "AbortError"),
+    });
+    try { if (typeof window !== "undefined") localStorage.removeItem(key); } catch {}
+    if (job.status === "completed" && job.result?.preview) return job.result;
+    if (job.status === "needs_review" && job.result?.preview) return job.result;
+    if (job.status === "needs_review") throw new Error((job.result as any)?.warnings?.join("; ") || (job.result as any)?.summary || job.error || "Preview preparation needs review");
+    throw new Error(job.error || `Preview job ${job.status}`);
+  } catch (error) {
+    // A deadline or uncertain acknowledgement deliberately retains the same id for resume.
+    throw error;
+  }
 };
 
 export type OneMachineResearchResult = {

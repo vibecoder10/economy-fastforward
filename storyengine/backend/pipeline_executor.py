@@ -14,6 +14,7 @@ Usage:
 import os
 import sys
 import asyncio
+import inspect
 import uuid
 import re
 import hashlib
@@ -10003,7 +10004,8 @@ class PipelineExecutor:
             # fetched candidates produced no usable exact-subject excerpts.
             # Preserve first-wave audits/evidence and avoid hosts that were
             # wholly unreadable in that wave.
-            if factual_search and not any(candidate_mentions_machine(row.get("text"), machine) for row in candidate_excerpts):
+            if (factual_search and not payload.get('_dvsu_source_recovery')
+                    and not any(candidate_mentions_machine(row.get("text"), machine) for row in candidate_excerpts)):
                 alternate_results, alternate_discovery = await discover_sources(
                     client, search_key, title, machine,
                     subject=factual_research_subject(machine),
@@ -13022,7 +13024,7 @@ class PipelineExecutor:
             saved_research_summary,
         )
         if is_factual_machine_contract(payload):
-            from dvsu_research_handoff import package_brief_warnings, supplement_missing_research
+            from dvsu_research_handoff import package_brief_warnings, supplement_missing_research, RecoveryStopped
             if not target_code:
                 # The bulk entrypoint remains an ordered coordinator. Each
                 # missing or stale card goes through the same exact locked
@@ -13105,11 +13107,83 @@ class PipelineExecutor:
 
             cache_key = _verified_source_cache_key(target_machine or "")
             cached_package = ((payload.get("machine_raw_source_packages") or {}).get(cache_key))
-            if not factual_package_contract_warnings(target_machine or "", cached_package):
-                verified_source_package = await supplement_missing_research(
-                    self, title, target_machine or "", payload, cached_package, cache_key,
+            prior_discovery_ids = {
+                str(row.get('request_id') or '').strip()
+                for row in ((cached_package or {}).get('source_discovery_requests') or [])
+                if isinstance(row, dict) and str(row.get('request_id') or '').strip()
+            }
+            prior_singleton = (cached_package or {}).get('source_discovery')
+            if isinstance(prior_singleton, dict) and str(prior_singleton.get('request_id') or '').strip():
+                prior_discovery_ids.add(str(prior_singleton['request_id']).strip())
+            async def _handoff_guard(_stage):
+                """Recheck mutable stop conditions before every recovery provider phase."""
+                try:
+                    fresh = await self._get_video(video_id)
+                except Exception:
+                    return False
+                if not fresh or _machine_documentary_hold_roster(fresh) != roster:
+                    return False
+                fresh_payload = fresh.get('research_payload') or {}
+                if isinstance(fresh_payload, str):
+                    try:
+                        fresh_payload = _json_uh.loads(fresh_payload)
+                    except (TypeError, ValueError):
+                        return False
+                if _json_uh.dumps((fresh_payload or {}).get('unit_roster'), sort_keys=True, ensure_ascii=False) != locked_roster_snapshot:
+                    return False
+                cap = fresh.get('max_spend')
+                if cap is not None and float(fresh.get('total_cost') or 0) >= float(cap):
+                    return False
+                try:
+                    from cancel_registry import is_cancel_requested
+                    return not await is_cancel_requested(self.tenant_id, video_id)
+                except Exception:
+                    return False
+
+            async def _handoff_checkpoint(candidate, _stage):
+                if not await _handoff_guard(_stage):
+                    return False
+                payload.setdefault('machine_raw_source_packages', {})[target_code] = candidate
+                result = await self._checkpoint_machine_raw_source_package(
+                    video_id, target_code, candidate, locked_roster_snapshot,
                 )
+                return not self._db_write_missed(result)
+
+            async def _handoff_assess(candidate, stage):
+                if not await _handoff_guard(stage):
+                    raise RecoveryStopped('Research recovery guard stopped before narrative assessment.')
+                from research_claim_assessment import assess_verified_package
+                candidate['claim_assessment'] = await assess_verified_package(
+                    target_machine or '', candidate, getattr(self._pipeline, 'anthropic', None),
+                    subject_context=title, require_narrative_roles=True,
+                )
+                return candidate
+            if not factual_package_contract_warnings(target_machine or "", cached_package):
+                # Migrate saved immutable evidence before any recapture/search.
+                try:
+                    cached_package = await _handoff_assess(cached_package, 'saved_assessment')
+                except RecoveryStopped as exc:
+                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or '', [str(exc)], locked_roster=roster)
+                    return payload
+                if not await _handoff_checkpoint(cached_package, 'saved_assessment'):
+                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or '', ['research recovery guard or checkpoint refused'], locked_roster=roster)
+                    return payload
+                try:
+                    verified_source_package = await supplement_missing_research(
+                        self, title, target_machine or "", payload, cached_package, cache_key,
+                        assess=_handoff_assess, checkpoint=_handoff_checkpoint, guard=_handoff_guard,
+                    )
+                except RecoveryStopped as exc:
+                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or '', [str(exc)], locked_roster=roster)
+                    return payload
             else:
+                if not await _handoff_guard('before_initial_gather'):
+                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or '', ['research recovery guard refused initial source capture'], locked_roster=roster)
+                    return payload
                 verified_source_package = await self._gather_verified_machine_source_package(
                     title, target_machine or "", payload,
                 )
@@ -13134,7 +13208,8 @@ class PipelineExecutor:
                     continue
                 request_id = str(discovery.get("request_id") or "").strip()
                 if (discovery.get("provider") != "kie" or not request_id
-                        or discovery.get("credits_consumed") is None or request_id in seen_discovery_ids):
+                        or discovery.get("credits_consumed") is None or request_id in seen_discovery_ids
+                        or request_id in prior_discovery_ids):
                     continue
                 seen_discovery_ids.add(request_id)
                 from generation_ledger import record_ledger_entry
@@ -13155,9 +13230,14 @@ class PipelineExecutor:
                 from research_claim_assessment import (
                     assess_verified_package, current_assessment, has_supported_claim,
                 )
+                if not await _handoff_guard('before_final_assessment'):
+                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                        payload, target_machine or '', ['research recovery guard stopped before final assessment'], locked_roster=roster)
+                    return payload
                 assessment = await assess_verified_package(
                     target_machine or "", verified_source_package,
                     getattr(self._pipeline, "anthropic", None), subject_context=title,
+                    require_narrative_roles=True,
                 )
                 verified_source_package["claim_assessment"] = assessment
                 # Source capture is already durable above. Persist the assessment
@@ -13190,6 +13270,10 @@ class PipelineExecutor:
                     card["research_summary"] = existing_summary
                 else:
                     from factual_machine_summary import generate_factual_machine_summary
+                    if not await _handoff_guard('before_research_summary'):
+                        payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                            payload, target_machine or '', ['research recovery guard stopped before research summary'], locked_roster=roster)
+                        return payload
                     try:
                         summary_result = await generate_factual_machine_summary(
                             target_machine or "", verified_source_package,
@@ -16552,6 +16636,7 @@ scenes."""
     async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
         """Generate one isolated machine paragraph without touching production script rows or status."""
         await self._ensure_initialized()
+        await self._install_cancel_support(video_id)
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
@@ -16566,6 +16651,25 @@ scenes."""
         matched = _locked_roster_item_for_machine(roster, machine)
         if not matched:
             return {"status": "failed", "error": f"Machine is not in the locked roster: {machine}"}
+        readiness = await self.check_machine_script_preview_readiness(video_id, matched)
+        factual = (rp.get('machine_script_contract') == 'factual_100_v1')
+        if factual and not readiness.get('ready'):
+            if not readiness.get('preparable'):
+                return {**readiness, 'status': 'needs_review'}
+            prepared = await self.run_one_machine_research(video_id, matched)
+            if prepared.get('status') in {'cancelled', 'paused'}:
+                return prepared
+            if prepared.get('status') != 'completed':
+                return {**prepared, 'status': 'needs_review', 'preparation_required': True}
+            # Reload after durable preparation and recheck both the exact
+            # roster and the no-spend evidence gate before a writer can run.
+            video = await self._get_video(video_id)
+            if not video or _machine_documentary_hold_roster(video) != roster:
+                return {'status': 'needs_review', 'ready': False,
+                        'error': 'Locked roster changed during preview preparation'}
+            readiness = await self.check_machine_script_preview_readiness(video_id, matched)
+            if not readiness.get('ready'):
+                return {**readiness, 'status': 'needs_review', 'preparation_required': True}
         return await self._run_static_script_hold(video_id, video, roster, target_machine=matched)
 
     async def check_machine_script_preview_readiness(self, video_id: str, machine: str) -> dict:
@@ -16604,16 +16708,23 @@ scenes."""
                 "warnings": [msg],
                 "next_action": "run_one_machine_research_refresh",
                 "research_payload": rp,
+                "preparation_required": False,
+                "preparable": False,
+                "missing_fields": [],
             }
         source_package = _verified_source_package_for_machine(rp, matched)
-        source_errors = _research_card_contract_warnings(
+        base_source_errors = _research_card_contract_warnings(
             matched,
             card,
             source_package,
             require_source_package=True,
             factual_subject_context=str(video.get("video_title") or video.get("headline") or ""),
         )
+        brief = None
+        source_errors = list(base_source_errors)
         if rp.get("machine_script_contract") == "factual_100_v1":
+            from dvsu_research_handoff import package_brief
+            brief = package_brief(matched, source_package, str(video.get("video_title") or video.get("headline") or ""))
             from dvsu_research_handoff import package_brief_warnings
             source_errors.extend(package_brief_warnings(
                 matched, source_package, str(video.get("video_title") or video.get("headline") or ""),
@@ -16625,6 +16736,16 @@ scenes."""
         # advisory-only list (tier_floor_advisory / caution_only_sources_advisory)
         # is surfaced in `warnings` either way, never silently dropped.
         blocking_source_errors = _blocking_warnings(source_errors)
+        # Only an otherwise-valid factual package with a current assessment
+        # and narrative-field gaps is preparable. Missing cards, malformed
+        # packages, identity failures, and general errors remain hard blocks.
+        preparable = bool(
+            isinstance(brief, dict) and not brief.get('ready')
+            and brief.get('missing_fields')
+            and all(field in {'intended_role', 'design', 'actual_use', 'outcome'}
+                    for field in brief.get('missing_fields', []))
+            and not _blocking_warnings(base_source_errors)
+        )
         # Self-heal stale stored verdicts: this no-spend check just computed the
         # freshest strict verdict, so persist it (validation column ONLY - never
         # card text from a read path; UPDATE-only, failure-tolerant) and patch
@@ -16653,6 +16774,9 @@ scenes."""
                 "summary": msg,
                 "warnings": source_errors,
                 "next_action": "run_one_machine_research_refresh",
+                "preparation_required": preparable,
+                "preparable": preparable,
+                "missing_fields": list((brief or {}).get('missing_fields') or []),
                 "research_payload": rp,
             }
         return {
@@ -16664,6 +16788,9 @@ scenes."""
             "summary": "Machine script preview is ready.",
             "warnings": source_errors,
             "next_action": "run_machine_script_preview",
+            "preparation_required": False,
+            "preparable": False,
+            "missing_fields": [],
             # Writer pass 5 wrap-up: informational only - a preview run
             # self-heals these gaps with FREE package promotes before writing.
             "script_audit_gaps": _script_starvation_gaps(card, matched),

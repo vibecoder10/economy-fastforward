@@ -14,14 +14,14 @@ import logging
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from arq.jobs import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
 from auth import get_tenant_id
-from database import fetch_one, fetch_all, execute
+from database import fetch_one, fetch_all, execute, get_pool
 from error_utils import humanize_error, USER_FACING_PREFIX
 from pipeline_executor import PipelineExecutor, _unit_display_name
 from status_map import (
@@ -107,6 +107,10 @@ async def save_roster_settings(
 class MachineScriptPreviewRequest(BaseModel):
     machine: str
     confirmed_paid_run: bool = False
+
+
+class MachineScriptPreviewJobRequest(MachineScriptPreviewRequest):
+    request_id: uuid.UUID
 
 
 class MachineScriptBlockRequest(BaseModel):
@@ -1233,6 +1237,87 @@ async def check_machine_script_preview_readiness(
     if result.get("status") == "failed":
         raise HTTPException(status_code=400, detail=result.get("error") or "Preview readiness check failed")
     return result
+
+
+@router.post("/machine-script-preview-jobs/{video_id}")
+async def create_machine_script_preview_job(
+    video_id: str,
+    body: MachineScriptPreviewJobRequest,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Queue one idempotent, durable isolated-machine preview operation."""
+    def not_started(status_code: int, message: str):
+        return JSONResponse(status_code=status_code, content={"code": "preview_not_started", "message": message})
+    if not body.confirmed_paid_run:
+        return not_started(400, "Paid single-machine script preview requires explicit confirmation.")
+    machine = body.machine.strip()
+    if not machine:
+        return not_started(400, "machine is required")
+    request_id = str(body.request_id)
+    from machine_preview_jobs import get_job
+    existing = await get_job(tenant_id, video_id, request_id)
+    if existing:
+        if existing["machine"] != machine:
+            raise HTTPException(status_code=409, detail="request_id is already bound to another machine")
+        return existing
+    readiness = await PipelineExecutor(tenant_id).check_machine_script_preview_readiness(video_id, machine)
+    if readiness.get("status") == "failed" or not (readiness.get("ready") or readiness.get("preparable")):
+        return JSONResponse(status_code=400, content={"code": "preview_not_started", "message": readiness.get("error") or readiness.get("summary") or "Machine preview is not ready", "warnings": readiness.get("warnings") or [], "missing_fields": readiness.get("missing_fields") or []})
+    arq_pool = _get_arq_pool(request)
+    if not arq_pool:
+        return not_started(503, "The durable worker queue is unavailable. Nothing was started.")
+    owner = f"machine-preview:{request_id}"
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                video = await conn.fetchrow("SELECT id FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+                if not video:
+                    raise HTTPException(status_code=404, detail="Video not found")
+                if not await generation_claims.acquire_conn(conn, tenant_id, video_id, "main", claimed_by=owner):
+                    return not_started(409, "This video is busy")
+                await conn.execute(
+                    "INSERT INTO machine_preview_jobs (id, tenant_id, video_id, machine, status) VALUES ($1,$2,$3,$4,'pending')",
+                    request_id, tenant_id, video_id, machine,
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raced = await get_job(tenant_id, video_id, request_id)
+        if raced and raced["machine"] == machine:
+            return raced
+        return not_started(503, "Could not reserve a durable preview job")
+    try:
+        queued = await arq_pool.enqueue_job("arq_run_machine_script_preview", request_id, _job_id=f"machine-preview:{request_id}")
+        if queued is None:
+            raise RuntimeError("ARQ refused preview job")
+    except Exception as exc:
+        try:
+            queue_status = await Job(f"machine-preview:{request_id}", arq_pool).status()
+        except Exception:
+            # The operation and claim remain durable; caller must resume this exact id.
+            raise HTTPException(status_code=503, detail="Preview queue acknowledgement is uncertain; resume the same request id.") from exc
+        if queue_status == JobStatus.not_found:
+            await execute("UPDATE machine_preview_jobs SET status='failed', error=$2, updated_at=now() WHERE id=$1 AND status='pending'", request_id, "Preview queue was unavailable; nothing was started")
+            await generation_claims.release_owned(tenant_id, video_id, "main", owner)
+            return not_started(503, "The durable worker queue is unavailable. Nothing was started.")
+        raise HTTPException(status_code=503, detail="Preview queue acknowledgement is uncertain; resume the same request id.") from exc
+    await db_persist_task(tenant_id, video_id, "machine_preview", "pending", message=f"Preview queued for {machine}", job_id=f"machine-preview:{request_id}")
+    return await get_job(tenant_id, video_id, request_id)
+
+
+@router.get("/machine-script-preview-jobs/{video_id}/{request_id}")
+async def get_machine_script_preview_job(
+    video_id: str,
+    request_id: uuid.UUID,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    from machine_preview_jobs import get_job
+    job = await get_job(tenant_id, video_id, str(request_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Preview job not found")
+    return job
 
 
 @router.post("/machine-script-block/{video_id}")

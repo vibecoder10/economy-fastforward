@@ -4,6 +4,51 @@ from __future__ import annotations
 import copy
 
 
+RECOVERY_VERSION = 1
+_NARRATIVE_FIELDS = {'intended_role', 'design', 'actual_use', 'outcome'}
+
+
+class RecoveryStopped(RuntimeError):
+    """A guarded recovery phase stopped before another provider call."""
+
+
+def _missing_fields(machine, package, title):
+    return [field for field in package_brief(machine, package, title).get('missing_fields', [])
+            if field in _NARRATIVE_FIELDS]
+
+
+def _recovery(package):
+    assessment = package.get('claim_assessment') if isinstance(package, dict) else None
+    return assessment.get('dvsu_recovery') if isinstance(assessment, dict) else None
+
+
+def _with_recovery(package, source_fingerprint, stage, missing_fields):
+    """Keep recovery state inside the assessment, outside its source fingerprint."""
+    result = copy.deepcopy(package)
+    assessment = result.get('claim_assessment')
+    if isinstance(assessment, dict):
+        assessment['dvsu_recovery'] = {'version': RECOVERY_VERSION, 'source_fingerprint': source_fingerprint,
+                                       'stage': stage, 'missing_fields': list(missing_fields)}
+    return result
+
+
+def _stopped(package, source_fingerprint, stage, missing_fields, warning):
+    result = _with_recovery(package, source_fingerprint, stage, missing_fields)
+    assessment = result.get('claim_assessment')
+    if isinstance(assessment, dict):
+        assessment.setdefault('dvsu_recovery', {}).update({'warning': warning})
+    return result
+
+
+async def _call(callback, *args):
+    if callback is None:
+        return True
+    value = callback(*args)
+    if hasattr(value, '__await__'):
+        value = await value
+    return value
+
+
 def package_brief(machine, package, subject_context=''):
     from factual_machine_summary import _eligible_candidates, _model_name
     from research_claim_assessment import current_assessment
@@ -84,15 +129,25 @@ def merge_research_sources(original, supplement):
     return merged, discoveries, added
 
 
-async def supplement_missing_research(ex, title, machine, payload, package, cache_key):
+async def supplement_missing_research(ex, title, machine, payload, package, cache_key, *,
+                                      assess=None, checkpoint=None, guard=None):
     """Called only inside an authorized research run; never by script generation."""
     brief = package_brief(machine, package, title)
-    fields = [f for f in brief.get('missing_fields', [])
-              if f in {'intended_role', 'design', 'actual_use', 'outcome'}]
+    fields = [f for f in brief.get('missing_fields', []) if f in _NARRATIVE_FIELDS]
     known = payload.get('_dvsu_known_sources') or {}
     explicit_urls = known.get('urls', []) if known.get('machine') == machine else []
     if not fields and not explicit_urls:
         return package
+    from research_claim_assessment import assessment_fingerprint, current_assessment
+    fingerprint = assessment_fingerprint(machine, package, title)
+    recovery = _recovery(package) or {}
+    if not explicit_urls and recovery.get('source_fingerprint') == fingerprint and recovery.get('stage') in {
+            'discovery_started', 'discovery_completed'}:
+        # Preserve the exact completed/uncertain receipt. Its stage is the
+        # durable no-repeat boundary for unchanged evidence.
+        return package
+    if not await _call(guard, 'before_recapture'):
+        raise RecoveryStopped('Research recovery guard stopped before source recapture.')
     from factual_source_recapture import recapture_sources
     urls = list(dict.fromkeys(explicit_urls + [s.get('url') or s.get('source_url')
         for s in package.get('sources', []) if s.get('url') or s.get('source_url')]))[:6]
@@ -102,12 +157,35 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
         if added:
             merged['source_recapture'] = {'urls': urls, 'added_excerpt_count': added,
                                          'errors': captured.get('errors', []), 'paid_search_calls': 0}
-            return merged
+            if not await _call(checkpoint, merged, 'recapture_captured'):
+                raise RecoveryStopped('Research recovery checkpoint was refused after recapture.')
+            if assess is not None:
+                assessed = await _call(assess, merged, 'recapture_assessment')
+                if isinstance(assessed, dict):
+                    merged = assessed
+            if not await _call(checkpoint, merged, 'recapture_assessment'):
+                raise RecoveryStopped('Research recovery assessment checkpoint was refused.')
+            if assess is not None and current_assessment(machine, merged, title) is None:
+                raise RecoveryStopped('Narrative assessment is invalid after recapture.')
+            package = merged
+            fields = _missing_fields(machine, merged, title)
+            if not fields:
+                return merged
         if explicit_urls:
             # An explicit citation repair never silently spends on rediscovery.
             merged['dvsu_research_last_gap'] = {'missing_fields': fields, 'added_excerpt_count': 0,
                 'errors': captured.get('errors', []), 'paid_search_calls': 0}
             return merged
+    # A discovery request may have reached a provider while its response was
+    # lost. Never repeat it on unchanged evidence; surface an honest stop.
+    # Recapture may have changed immutable source evidence, so its new
+    # fingerprint is the restart boundary for the one discovery request.
+    fingerprint = assessment_fingerprint(machine, package, title)
+    marked = _with_recovery(package, fingerprint, 'discovery_started', fields)
+    if not await _call(checkpoint, marked, 'discovery_started'):
+        raise RecoveryStopped('Research recovery checkpoint was refused before targeted discovery.')
+    if not await _call(guard, 'before_discovery'):
+        raise RecoveryStopped('Research recovery guard stopped before targeted discovery.')
     gather_payload = copy.deepcopy(payload)
     gather_payload.setdefault('machine_raw_source_packages', {}).pop(cache_key, None)
     gather_payload['_dvsu_source_recovery'] = {
@@ -115,12 +193,27 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
         'attempted_urls': [s.get('url') or s.get('source_url') for s in package.get('sources', [])
                            if s.get('url') or s.get('source_url')],
     }
+    gather_payload['_dvsu_source_recovery']['missing_fields'] = fields
     supplement = await ex._gather_verified_machine_source_package(title, machine, gather_payload)
-    merged, discoveries, added = merge_research_sources(package, supplement)
+    merged, discoveries, added = merge_research_sources(marked, supplement)
     if not added:
         # Preserve the unchanged archive, but attach discovery receipts so the
         # normal research checkpoint/billing code can account for this request.
         if discoveries:
             merged['source_discovery_requests'] = list(merged.get('source_discovery_requests') or []) + discoveries
         merged['dvsu_research_last_gap'] = {'missing_fields': fields, 'added_excerpt_count': 0}
+    if not await _call(checkpoint, merged, 'discovery_captured'):
+        raise RecoveryStopped('Research recovery checkpoint was refused after targeted discovery.')
+    if assess is not None:
+        assessed = await _call(assess, merged, 'discovery_assessment')
+        if isinstance(assessed, dict):
+            merged = assessed
+    # A fresh valid assessment owns the new source fingerprint; retain the
+    # completed recovery receipt there for no-repeat restart behavior.
+    final_fingerprint = assessment_fingerprint(machine, merged, title)
+    merged = _with_recovery(merged, final_fingerprint, 'discovery_completed', _missing_fields(machine, merged, title))
+    if not await _call(checkpoint, merged, 'discovery_completed'):
+        raise RecoveryStopped('Research recovery final checkpoint was refused.')
+    if assess is not None and current_assessment(machine, merged, title) is None:
+        raise RecoveryStopped('Narrative assessment is invalid after targeted discovery.')
     return merged

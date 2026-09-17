@@ -2354,7 +2354,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           current ? { ...current, research_payload: readiness.research_payload } : current
         ));
       }
-      if (!readiness.ready) {
+      if (!readiness.ready && !readiness.preparable) {
         const message = readiness.summary || readiness.warnings?.[0] || "Single-machine preview readiness check failed.";
         setMachinePreview(previewErrorArtifact(
           readiness.machine || machine,
@@ -2372,7 +2372,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       }
       if (!(await confirmPaidOneMachineAction(
         confirmDialog,
-        `Run paid single-machine script preview for ${readiness.machine || machine}? This calls Claude to compile the Anton-style preview paragraph. Production script remains unchanged.`
+        `Run paid single-machine script preview for ${readiness.machine || machine}? This prepares any missing source-backed research, then writes and reviews the DVSU preview. Production script remains unchanged.`
       ))) {
         toast.error("Single-machine script preview canceled before any provider call.");
         return;

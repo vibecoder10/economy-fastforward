@@ -315,6 +315,12 @@ async def arq_run_upload(
     )
 
 
+async def arq_run_machine_script_preview(ctx: dict, job_id: str) -> dict:
+    """Durable selected-machine preview; the operation row owns its identity."""
+    from machine_preview_jobs import run_job
+    return await run_job(job_id)
+
+
 async def arq_run_autobuild(
     ctx: dict,
     video_id: str,
@@ -692,6 +698,12 @@ class WorkerSettings:
             arq_run_render, name="arq_run_render", timeout=7200, max_tries=2
         ),  # long render
         func(arq_run_upload, name="arq_run_upload", timeout=1800, max_tries=3),
+        func(
+            arq_run_machine_script_preview,
+            name="arq_run_machine_script_preview",
+            timeout=1800,
+            max_tries=1,
+        ),
         func(
             arq_run_autobuild,
             name="arq_run_autobuild",

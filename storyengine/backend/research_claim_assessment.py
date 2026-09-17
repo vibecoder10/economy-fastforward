@@ -8,6 +8,7 @@ from typing import Any
 
 
 CLAIM_ASSESSMENT_VERSION = 1
+NARRATIVE_CONTRACT_VERSION = 1
 _STATUSES = {"supported", "disputed", "insufficient", "out_of_scope"}
 _TYPOGRAPHY_NORMALIZATION = str.maketrans({
     "‘": "'", "’": "'", "“": '"', "”": '"', "\u00a0": " ",
@@ -224,25 +225,52 @@ def _assessed_receipt(machine: str, package: Any, subject_context: str, claims: 
     return receipt
 
 
-async def assess_verified_package(machine: str, package: Any, client: Any, subject_context: str = "") -> dict:
+def _has_explicit_narrative_roles(receipt: dict) -> bool:
+    claims = receipt.get("claims")
+    return isinstance(claims, list) and all(
+        isinstance(claim, dict) and isinstance(claim.get("narrative_roles"), list) for claim in claims
+    )
+
+
+def _narrative_current(receipt: dict) -> bool:
+    return receipt.get("narrative_contract_version") == NARRATIVE_CONTRACT_VERSION or _has_explicit_narrative_roles(receipt)
+
+
+def _narrative_receipt(receipt: dict, previous_assessment: dict) -> dict:
+    receipt["narrative_contract_version"] = NARRATIVE_CONTRACT_VERSION
+    if previous_assessment:
+        receipt["previous_assessment"] = previous_assessment
+    return receipt
+
+
+async def assess_verified_package(
+    machine: str, package: Any, client: Any, subject_context: str = "", *, require_narrative_roles: bool = False,
+) -> dict:
     """Reuse a current receipt or make one bounded source-assessment request."""
     current = current_assessment(machine, package, subject_context)
-    if current:
+    if current and (not require_narrative_roles or _narrative_current(current)):
         return current
     candidates = _eligible(machine, package, subject_context)
     saved = _object(package).get("claim_assessment")
     saved = _object(saved)
-    if (saved.get("version") == CLAIM_ASSESSMENT_VERSION and saved.get("status") == "needs_review"
+    failed_binding = (saved.get("version") == CLAIM_ASSESSMENT_VERSION and saved.get("status") == "needs_review"
             and saved.get("machine") == machine and saved.get("subject_context") == str(subject_context or "")
-            and saved.get("source_fingerprint") == assessment_fingerprint(machine, package, subject_context)
-            and saved.get("raw_response_truncated") is False and isinstance(saved.get("raw_response"), str)):
+            and saved.get("source_fingerprint") == assessment_fingerprint(machine, package, subject_context))
+    replay_eligible = (failed_binding and saved.get("raw_response_truncated") is False
+                       and isinstance(saved.get("raw_response"), str))
+    if replay_eligible:
         from factual_machine_summary import _parse_json_object
         replay_claims = _validated_claims(_object(_parse_json_object(saved["raw_response"])).get("claims"), candidates)
         if replay_claims:
             replayed = _assessed_receipt(machine, package, subject_context, replay_claims)
+            if require_narrative_roles:
+                _narrative_receipt(replayed, _object(saved.get("previous_assessment")))
             valid = _valid_receipt(machine, package, replayed, subject_context)
-            if valid:
+            if valid and (not require_narrative_roles or _has_explicit_narrative_roles(valid)):
                 return valid
+    if (require_narrative_roles and failed_binding
+            and saved.get("narrative_contract_version") == NARRATIVE_CONTRACT_VERSION):
+        return saved
     if not candidates:
         return _failed(machine, subject_context, "No eligible source excerpts.")
     if client is None:
@@ -254,7 +282,16 @@ async def assess_verified_package(machine: str, package: Any, client: Any, subje
     parsed = _parse_json_object(raw) if isinstance(raw, str) else raw
     claims = _validated_claims(_object(parsed).get("claims"), candidates)
     if not claims:
-        return _failed(machine, subject_context, "Assessment returned invalid or unsupported claim evidence.", package, raw)
+        failed = _failed(machine, subject_context, "Assessment returned invalid or unsupported claim evidence.", package, raw)
+        return _narrative_receipt(failed, saved) if require_narrative_roles else failed
+    if require_narrative_roles and not _has_explicit_narrative_roles({"claims": claims}):
+        failed = _failed(machine, subject_context, "Assessment omitted explicit narrative roles.", package, raw)
+        return _narrative_receipt(failed, saved)
     receipt = _assessed_receipt(machine, package, subject_context, claims)
-    return _valid_receipt(machine, package, receipt, subject_context) or _failed(
-        machine, subject_context, "Assessment receipt failed structural validation.")
+    if require_narrative_roles:
+        _narrative_receipt(receipt, saved)
+    valid = _valid_receipt(machine, package, receipt, subject_context)
+    if valid:
+        return valid
+    failed = _failed(machine, subject_context, "Assessment receipt failed structural validation.", package, raw)
+    return _narrative_receipt(failed, saved) if require_narrative_roles else failed
