@@ -10003,7 +10003,7 @@ class PipelineExecutor:
             # fetched candidates produced no usable exact-subject excerpts.
             # Preserve first-wave audits/evidence and avoid hosts that were
             # wholly unreadable in that wave.
-            if factual_search and not candidate_excerpts:
+            if factual_search and not any(candidate_mentions_machine(row.get("text"), machine) for row in candidate_excerpts):
                 alternate_results, alternate_discovery = await discover_sources(
                     client, search_key, title, machine,
                     subject=factual_research_subject(machine),

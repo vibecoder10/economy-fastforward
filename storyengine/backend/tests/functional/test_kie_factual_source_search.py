@@ -165,3 +165,23 @@ def test_captured_holland_html_survives_fetch_and_package_assembly():
     assert excerpts[0]["source_capture_method"] == "fetched_page"
     assert pe._verified_source_candidate_traceable(excerpts[0])
     assert all("USS Other" not in row["text"] for row in excerpts)
+
+
+def test_context_only_first_wave_still_searches_for_exact_identity_anchor():
+    ex=object.__new__(pe.PipelineExecutor)
+    ex.tenant_id='tenant'
+    async def fetch(_client,url):
+        if url.endswith('context'):
+            return 'USS Holland was endorsed by an admiral as a useful submarine for harbor and coast defense.'
+        return 'USS Holland (SS-1) was acquired by the U.S. Navy in 1900 and served as a training submarine.'
+    ex._fetch_source_text=fetch
+    ex._fetch_source_fallback_text=AsyncMock(return_value=('', ''))
+    with patch.object(pe,'get_secret',AsyncMock(return_value='test-key')), \
+         patch.object(httpx.AsyncClient,'post',AsyncMock(side_effect=[
+             response([{'title':'Historic page','exact_source_url':'https://museum.example/context'}]),
+             response([{'title':'Identity anchor','exact_source_url':'https://museum.example/anchor'}]),
+         ])) as post:
+        package=asyncio.run(ex._gather_verified_machine_source_package(
+            'Every US Submarine Class Ever Built','SS-1 USS Holland',{'machine_script_contract':'factual_100_v1'}))
+    assert post.await_count==2
+    assert package['passed']

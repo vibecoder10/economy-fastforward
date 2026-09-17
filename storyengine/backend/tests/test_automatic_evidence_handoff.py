@@ -209,3 +209,39 @@ def test_naval_academy_draft_reuses_saved_text_and_still_calls_referee():
     result=asyncio.run(summary.generate_factual_machine_summary(MACHINE,package,SimpleNamespace(generate=generate),
         subject_context=TITLE,purpose='research',previous_summary=saved))
     assert result['passed'] and result['paragraph']==text and len(calls)==1
+
+
+def test_complete_sentence_selection_keeps_all_fields_and_never_rewrites_words():
+    from factual_machine_summary import _compact_script_rows, _word_count
+    sentences = [
+        ('SS-1 USS Holland was endorsed by Admiral Dewey as a useful boat for harbor and coast defense.', ['F1']),
+        ('Her design brought together dual propulsion systems, separate ballast systems, and a hydrodynamic hull with its equipment inside a single compartment.', ['F2']),
+        ('The optional description also listed several more details about equipment, machinery, layout, and the arrangement of the internal space, none of which is needed to preserve the central design and service account.', ['F2']),
+        ('Additional armament details included a bow torpedo tube and a dynamite gun that was subsequently removed from the vessel.', ['F2']),
+        ('At the U.S. Naval Academy, Holland served as a training submarine, putting the boat to practical use for the Navy.', ['F3']),
+        ('Improved Holland-type boats became the A-class, carrying that design forward and making her contribution part of the submarine force that followed.', ['F4']),
+    ]
+    rows=[{'sentence':s,'fact_ids':ids} for s,ids in sentences]
+    draft={'paragraph':' '.join(r['sentence'] for r in rows),'claim_map':rows}
+    brief={'fields':{name:[fid] for name,fid in zip(['intended_role','design','actual_use','outcome'],['F1','F2','F3','F4'])}}
+    assert _word_count(draft['paragraph'])>110
+    compact=_compact_script_rows(MACHINE,draft,brief)
+    assert 80<=_word_count(compact['paragraph'])<=110
+    assert compact['claim_map'][0]==rows[0] and compact['claim_map'][-1]==rows[-1]
+    assert all(r in rows for r in compact['claim_map'])
+    assert {fid for r in compact['claim_map'] for fid in r['fact_ids']}=={'F1','F2','F3','F4'}
+    assert compact==_compact_script_rows(MACHINE,draft,brief)
+
+
+def test_ordered_citation_partition_handles_abbreviations_without_allowing_omissions():
+    import factual_machine_summary as summary
+    _, package=capture_pair()
+    candidates=_eligible_candidates(MACHINE,package,TITLE)
+    anchor=next(r for r in candidates.values() if 'training submarine' in r['text'])
+    text='SS-1 USS Holland helped establish the U.S. Submarine Force. She served as a training submarine.'
+    parts=['SS-1 USS Holland helped establish the U.S. Submarine Force.', 'She served as a training submarine.']
+    rows=[{'sentence':part,'citations':[{'excerpt_id':anchor['excerpt_id'],'quote':anchor['text']}]} for part in parts]
+    _,warnings,_=summary._validate_draft(MACHINE,{'paragraph':text,'claim_map':rows},candidates)
+    assert not warnings
+    _,warnings,_=summary._validate_draft(MACHINE,{'paragraph':text+' This sentence has no citation.','claim_map':rows},candidates)
+    assert any('cover every' in w for w in warnings)

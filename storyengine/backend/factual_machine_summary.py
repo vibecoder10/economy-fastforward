@@ -238,6 +238,11 @@ def _validate_draft(
         warnings.append(f"Paragraph does not name the exact locked machine {machine}.")
 
     paragraph_sentences = _sentences(paragraph)
+    # Exact ordered coverage is stronger than abbreviation heuristics.
+    if isinstance(raw_claim_map, list) and raw_claim_map:
+        mapped_parts = [_compact(row.get("sentence")) for row in raw_claim_map if isinstance(row, dict)]
+        if len(mapped_parts) == len(raw_claim_map) and all(mapped_parts) and " ".join(mapped_parts) == paragraph:
+            paragraph_sentences = mapped_parts
     if not isinstance(raw_claim_map, list) or not raw_claim_map:
         warnings.append("Every sentence needs a claim_map row with evidence.")
         raw_claim_map = []
@@ -499,9 +504,12 @@ def _script_writer_prompt(brief: dict, prior_issues: list[str], prior_draft: str
         "When the brief does not support a gap, use a supported legacy, lineage, timing, or used-as-designed substitute. "
         "Never invent a reversal, unsupported superlative, filler, or hype. Do not add outside knowledge or inferred dates/numbers. "
         "Name the exact locked machine early; an opener may state its purpose instead of mechanically listing its name. "
-        "Explain the link between design and use, not a catalogue of specifications. End with a supported single-hammer verdict, "
-        "parallel antithesis, concede-then-cut, or triad; a recap is not a verdict. Include a memorable supported detail when available. "
-        "Do not invent dialogue, motives, causation or a lesson the facts do not support. Target 100–110 spoken words; 80–110 is the hard range.\n"
+        "Select one useful fact for each of the four fields, not every available fact. Explain design and use through concrete details. "
+        "End with a specific supported consequence or legacy, without promotional metaphors or exaggerated claims. "
+        "Preserve attribution, timing and uncertainty: an officer endorsing a machine after it was built is not its original design motive. "
+        "Documented training does not prove the boat never patrolled; a compartment is not evidence of an engineering gamble or cramped conditions. "
+        "Do not invent dialogue, motives, causation or a lesson the facts do not support. Target 90–100 spoken words; 80–110 is the hard range. "
+        "Leave headroom below 110 and omit optional counts, dates and secondary specifications. Avoid numerical closing flourishes unless explicitly supported.\n"
         "Every paragraph sentence needs one claim_map row with the exact sentence and one or more fact_ids from the brief, including the verdict sentence. "
         "Do not provide citations; code creates authoritative citations from those IDs. Return only JSON: "
         '{"paragraph":"...","claim_map":[{"sentence":"exact complete sentence.","fact_ids":["F..."]}]}.\n'
@@ -687,6 +695,35 @@ def _failed_result(paragraph: str = "", claim_map: list | None = None, warnings:
     }
 
 
+def _compact_script_rows(machine: str, draft: dict, brief: dict) -> dict:
+    """Select complete optional rows within budget; never truncate prose."""
+    import itertools
+    rows = draft.get("claim_map")
+    if not isinstance(rows, list) or not 3 <= len(rows) <= 10:
+        return draft
+    if _word_count(str(draft.get("paragraph") or "")) <= MAX_WORDS:
+        return draft
+    if any(not isinstance(r, dict) or not isinstance(r.get("sentence"), str) for r in rows):
+        return draft
+    if " ".join(r["sentence"] for r in rows) != draft.get("paragraph"):
+        return draft
+    options = []
+    for n in range(len(rows) - 1):
+        for middle in itertools.combinations(range(1, len(rows)-1), n):
+            indices = (0, *middle, len(rows)-1)
+            kept = [rows[i] for i in indices]
+            text = " ".join(r["sentence"] for r in kept)
+            count = _word_count(text)
+            used = {fid for r in kept for fid in r.get("fact_ids", [])}
+            if (MIN_WORDS <= count <= MAX_WORDS and candidate_mentions_machine(text, machine)
+                    and all(not ids or used.intersection(ids) for ids in brief.get("fields", {}).values())):
+                options.append((abs(100-count), indices, text, kept))
+    if not options:
+        return draft
+    _, _, text, kept = min(options, key=lambda x: (x[0], x[1]))
+    return {**draft, "paragraph": text, "claim_map": kept}
+
+
 async def review_existing_factual_summary(
     machine: str,
     source_package: dict,
@@ -735,6 +772,8 @@ async def review_existing_factual_summary(
             summary = materialize_script_draft(parsed or {}, script_packet)
         except ScriptPacketError as exc:
             return _failed_result(warnings=[str(exc)])
+    if script_packet is not None:
+        summary = _compact_script_rows(machine, summary, build_dvsu_brief(script_packet))
     draft, mechanical_warnings, sources = _validate_draft(
         machine, summary, candidates, minimum_words=MIN_WORDS if script_packet is not None else 0,
     )
