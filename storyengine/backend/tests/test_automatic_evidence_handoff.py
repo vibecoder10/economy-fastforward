@@ -128,18 +128,17 @@ def test_captured_evidence_reaches_real_writer_and_review_protocol_without_large
     assessor = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package))))
     package['claim_assessment'] = asyncio.run(assess_verified_package(MACHINE, package, assessor, TITLE))
     brief = package_brief(MACHINE, package, TITLE)
-    paragraph = ('Admiral Dewey endorsed SS-1 USS Holland for coast and harbor defense; '
-        'the design combined dual propulsion, separate ballast systems and a hydrodynamic hull; '
-        'in service, Holland also became a classroom at the Naval Academy, where she served as a training submarine; '
-        'improved Holland-type boats followed as the A-class; '
-        'that gives the boat a significance beyond its proposed defensive role: it was a submarine the Navy could use to train people, '
-        'as well as a design to improve; Holland helped connect the promise of underwater operations with the practical work of building a submarine force.')
+    paragraph = ('Admiral Dewey endorsed SS-1 USS Holland for coast and harbor defense after studying its practical military potential. '
+        'Its design combined dual propulsion, separate ballast systems, and a hydrodynamic hull that gave early crews a workable underwater craft. '
+        'In service, Holland became a classroom at the Naval Academy, where officers learned machinery, diving procedures, and submerged-operation routines. '
+        'Improved Holland-type boats followed as the A-class, carrying those practical lessons into a growing Navy submarine program. '
+        'Holland connected underwater promise to practical submarine-force training.')
     calls = []
     async def generate(**kwargs):
         calls.append(kwargs)
         if 'DVsU documentary writer' in kwargs['system_prompt']:
-            return json.dumps({'paragraph':paragraph,'claim_map':[{'sentence':paragraph,'fact_ids':[f['fact_id'] for f in brief['facts']]}]})
-        return json.dumps({'passed':True,'issues':[],'support_audit':[{'sentence':paragraph,'supported':True,'explanation':'Synthetic protocol fixture.','unsupported_claims':[]}],'editorial_review':{'version':1,'passed':True,'issues':[],
+            return json.dumps({'paragraph':paragraph,'claim_map':[{'sentence':sentence,'fact_ids':[f['fact_id'] for f in brief['facts']]} for sentence in summary._sentences(paragraph)]})
+        return json.dumps({'passed':True,'issues':[],'support_audit':[{'sentence':sentence,'supported':True,'explanation':'Synthetic protocol fixture.','unsupported_claims':[]} for sentence in summary._sentences(paragraph)],'editorial_review':{'version':1,'passed':True,'issues':[],
             'checks':dict.fromkeys(['design_intent','actual_use','consequence','gap_or_supported_substitute','verdict','spoken_style'],True)}})
     result = asyncio.run(summary.generate_factual_machine_summary(MACHINE, package, SimpleNamespace(generate=generate), subject_context=TITLE))
     assert result['passed'] and result['factual_passed'], result

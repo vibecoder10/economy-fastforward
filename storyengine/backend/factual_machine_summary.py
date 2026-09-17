@@ -493,30 +493,46 @@ def _compiler_review_draft_projection(draft: dict) -> tuple[dict, list[dict]]:
 def _script_writer_prompt(brief: dict, prior_issues: list[str], prior_draft: str = "") -> str:
     """Build the compiled DVsU-only writer prompt without raw research payloads."""
     repair = ""
-    if prior_issues:
+    packet_stale = any("current script packet" in str(issue).casefold() for issue in prior_issues)
+    if packet_stale:
+        repair = ("\nThe previous paragraph belongs to an outdated script packet. Start fresh from the DVSU BRIEF; "
+                  "do not reuse its wording or facts.\n")
+    elif prior_issues:
         repair = ("\nThe previous draft failed for these exact reasons. Repair only those failures using the "
                   "DVSU BRIEF facts.\n" + "\n".join(f"- {issue}" for issue in prior_issues)
                   + ("\nPrevious draft to repair:\n" + prior_draft if prior_draft else ""))
     return (
         f"Write a DVsU documentary voiceover about the exact locked machine: {brief.get('machine')}.\n"
         "Use only the DVSU BRIEF. Write natural spoken prose with varied sentence length, never a component list. "
-        "Follow this arc: intended role, meaningful design detail, actual use, consequence, then a sharpened supported verdict. "
+        "Build one approximately five-sentence paragraph around this arc: original problem or proposed role, meaningful engineering choice, "
+        "documented actual use, supported consequence, then a paragraph-derived verdict of eighteen words or fewer. "
         "When the brief does not support a gap, use a supported legacy, lineage, timing, or used-as-designed substitute. "
         "Never invent a reversal, unsupported superlative, filler, or hype. Do not add outside knowledge or inferred dates/numbers. "
         "Name the exact locked machine early; an opener may state its purpose instead of mechanically listing its name. "
-        "Select one useful fact for each of the four fields, not every available fact. Explain design and use through concrete details. "
-        "End with a specific supported consequence or legacy, without promotional metaphors or exaggerated claims. "
+        "Select one useful fact for each of the four fields, not every available fact; use at most two specifications, only when they prove the choice, use, or consequence. "
+        "End with a distinct concluding judgment in a single-hammer, antithesis, concede-then-cut, or triad form, never a summary, recap, new fact, or unsupported causation. "
         "Preserve attribution, timing and uncertainty: an officer endorsing a machine after it was built is not its original design motive. "
         "Documented training does not prove the boat never patrolled; a compartment is not evidence of an engineering gamble or cramped conditions. "
         "An endorsement must remain an attributed endorsement, never become built to prove a concept. "
         "State documented use directly without inventing an alternative activity. A license supports permission to manufacture, not fleet adoption. "
-        "Do not invent dialogue, motives, causation or a lesson the facts do not support. Target 90–100 spoken words; 80–110 is the hard range. "
+        "Do not invent dialogue, motives, causation or a lesson the facts do not support. Target 95–105 spoken words; 80–110 is the hard range. "
         "Leave headroom below 110 and omit optional counts, dates and secondary specifications. Avoid numerical closing flourishes unless explicitly supported.\n"
         "Every paragraph sentence needs one claim_map row with the exact sentence and one or more fact_ids from the brief, including the verdict sentence. "
         "Do not provide citations; code creates authoritative citations from those IDs. Return only JSON: "
         '{"paragraph":"...","claim_map":[{"sentence":"exact complete sentence.","fact_ids":["F..."]}]}.\n'
         + repair + "\nDVSU BRIEF:\n" + json.dumps(brief, ensure_ascii=False)
     )
+
+
+def _compiled_closing_warning(draft: dict) -> list[str]:
+    """Keep the compiled conclusion short without mutating its sourced sentence map."""
+    rows = draft.get("claim_map") if isinstance(draft, dict) else None
+    if not isinstance(rows, list) or not rows or not isinstance(rows[-1], dict):
+        return []
+    closing = _compact(rows[-1].get("sentence"))
+    if closing and _word_count(closing) > 18:
+        return ["DVSU concluding verdict exceeds 18 words; rewrite the closing sentence without truncating or dropping it."]
+    return []
 
 
 def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "", purpose: str = "script", research_briefings: list[dict] | None = None, claim_assessment: dict | None = None) -> str:
@@ -652,7 +668,8 @@ def _review_prompt(machine: str, draft: dict, alternatives: list[dict], subject_
            "not just a launch or commissioning date. consequence requires a supported fate/result/legacy. "
            "gap_or_supported_substitute requires a clear design-versus-use relationship, or supported lineage, timing or used-as-designed legacy; "
            "never demand an invented reversal. verdict requires a sharpened supported conclusion in a single-hammer, antithesis, "
-           "concede-then-cut or triad form, not a recap. spoken_style requires natural voiceover rhythm without filler, hype, "
+           "concede-then-cut or triad form, not an inventory, specification, commissioning recap, or parallel fact list. "
+           "It must be a distinct concluding judgment of eighteen words or fewer and cannot introduce a new fact or unsupported causation. spoken_style requires natural voiceover rhythm without filler, hype, "
            "designer-biography padding or a component-list paragraph. Reject padding that exists only to meet the word count. "
            "Editorial review passes only when every check is true and issues is empty.\n" if compiler_constraints else "")
         + "Return only JSON: {\"passed\":true|false,\"issues\":[\"specific issue\"],"
@@ -811,6 +828,7 @@ async def review_existing_factual_summary(
         machine, summary, candidates, minimum_words=MIN_WORDS if script_packet is not None else 0,
     )
     if script_packet is not None:
+        mechanical_warnings.extend(_compiled_closing_warning(draft))
         brief = build_dvsu_brief(script_packet)
         mechanical_warnings.extend(brief_warnings(brief))
         used_ids = {fact_id for row in draft["claim_map"] for fact_id in row.get("fact_ids", [])}

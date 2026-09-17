@@ -1,4 +1,5 @@
 import { API_URL, RUBRIC_URL } from "./env";
+import { runMachinePreviewWithGatewayRecovery } from "./machine-preview-recovery";
 
 export const DRAIN_MODE_EVENT = "storyengine:drain-mode";
 
@@ -1055,11 +1056,40 @@ export const checkMachineScriptPreviewReadiness = (videoId: string, machine: str
     { method: "POST", body: JSON.stringify({ machine }) },
   );
 
-export const runMachineScriptPreview = (videoId: string, machine: string, confirmedPaidRun: true) =>
-  fetchApi<{ status: string; preview: MachineScriptPreview; research_payload?: Record<string, unknown> }>(
-    `/api/pipeline/machine-script-preview/${videoId}`,
-    { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
-  );
+export type MachineScriptPreviewResponse = {
+  status: string;
+  video_id?: string;
+  preview: MachineScriptPreview;
+  research_payload?: Record<string, unknown>;
+};
+
+export const runMachineScriptPreview = async (
+  videoId: string,
+  machine: string,
+  confirmedPaidRun: true,
+): Promise<MachineScriptPreviewResponse> => {
+  // Capture the persisted baseline before the paid request. If this read fails,
+  // stop before spending: without it a later gateway recovery could mistake an
+  // older matching preview for this run's completion.
+  return runMachinePreviewWithGatewayRecovery({
+    machine,
+    readVideo: (timeoutMs = DEFAULT_TIMEOUT_MS) =>
+      fetchApi<VideoDetail>(`/api/videos/${videoId}`, undefined, timeoutMs),
+    post: () => fetchApi<MachineScriptPreviewResponse>(
+      `/api/pipeline/machine-script-preview/${videoId}`,
+      { method: "POST", body: JSON.stringify({ machine, confirmed_paid_run: confirmedPaidRun }) },
+      90_000,
+    ),
+    isGatewayError: (error) => error instanceof ApiError && (error.status === 502 || error.status === 504),
+    sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    recoveredResult: (recovered) => ({
+      status: "completed",
+      video_id: videoId,
+      preview: recovered.preview as MachineScriptPreview,
+      ...(recovered.video.research_payload ? { research_payload: recovered.video.research_payload } : {}),
+    }),
+  });
+};
 
 export type OneMachineResearchResult = {
   status: string;

@@ -60,6 +60,12 @@ def _editorial(*, passed=True, issues=None, checks=None):
     }}
 
 
+def _raw(text):
+    return {"paragraph": text, "claim_map": [
+        {"sentence": sentence, "fact_ids": ["F1"]} for sentence in summary._sentences(text)
+    ]}
+
+
 @pytest.mark.asyncio
 async def test_missing_compact_brief_stops_before_any_provider_call(monkeypatch):
     client = FakeClient()
@@ -93,10 +99,10 @@ async def test_compiled_script_below_hard_floor_never_reaches_referee(monkeypatc
 
 @pytest.mark.asyncio
 async def test_compiled_script_requires_factual_and_separate_editorial_receipts(monkeypatch):
-    text = PARAGRAPH.replace(". ", "; ")
+    text = PARAGRAPH
     packet = _packet(text)
     monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
-    raw = {"paragraph": text, "claim_map": [{"sentence": text, "fact_ids": ["F1"]}]}
+    raw = _raw(text)
     client = FakeClient(json.dumps({"passed": True, "issues": [], "editorial_review": _editorial()}))
 
     result = await summary.review_existing_factual_summary(MACHINE, _package(text), client, raw,
@@ -110,10 +116,10 @@ async def test_compiled_script_requires_factual_and_separate_editorial_receipts(
 
 @pytest.mark.asyncio
 async def test_factual_pass_editorial_failure_is_rejected_without_sentence_pruning(monkeypatch):
-    text = PARAGRAPH.replace(". ", "; ")
+    text = PARAGRAPH
     packet = _packet(text)
     monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
-    raw = {"paragraph": text, "claim_map": [{"sentence": text, "fact_ids": ["F1"]}]}
+    raw = _raw(text)
     client = FakeClient(json.dumps({"passed": True, "issues": [], "editorial_review": _editorial(
         passed=False, issues=["The verdict is not sharp enough."],
         checks={**_editorial()["checks"], "verdict": False},
@@ -130,10 +136,10 @@ async def test_factual_pass_editorial_failure_is_rejected_without_sentence_pruni
 
 @pytest.mark.asyncio
 async def test_missing_editorial_audit_fails_closed(monkeypatch):
-    text = PARAGRAPH.replace(". ", "; ")
+    text = PARAGRAPH
     packet = _packet(text)
     monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
-    raw = {"paragraph": text, "claim_map": [{"sentence": text, "fact_ids": ["F1"]}]}
+    raw = _raw(text)
     client = FakeClient(json.dumps({"passed": True, "issues": []}))
 
     result = await summary.review_existing_factual_summary(MACHINE, _package(text), client, raw,
@@ -142,6 +148,42 @@ async def test_missing_editorial_audit_fails_closed(monkeypatch):
     assert result["passed"] is False
     assert result["passed"] is False
     assert any("missing" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_compiled_long_closing_is_rejected_before_referee(monkeypatch):
+    sentences = (
+        "Admiral Dewey attributed great value to submarines for harbor and coast defense based on favorable Navy officer reports, and SS-1 USS Holland embodied that potential.",
+        "Her hull incorporated dual propulsion systems, a hydrodynamic shape, and separate ballast systems, while her interior space formed one contiguous compartment.",
+        "A reloadable bow torpedo tube carried three torpedoes; a pneumatic dynamite gun was fitted but later removed.",
+        "Holland spent most of her ten years in service at the Naval Academy as a training submarine.",
+        "Her commissioning in 1900 established the U.S. Submarine Force, an agreement gave Vickers a license to manufacture Holland-class submarines using Electric Boat patents, and seven improved A-class boats followed.",
+    )
+    text = " ".join(sentences)
+    closing = sentences[-1]
+    packet = _packet(text)
+    monkeypatch.setattr(summary, "compile_script_packet", lambda *args, **kwargs: packet)
+    client = FakeClient()
+
+    raw = {"paragraph": text, "claim_map": [{"sentence": sentence, "fact_ids": ["F1"]} for sentence in sentences]}
+    result = await summary.review_existing_factual_summary(MACHINE, _package(text), client, raw,
+        claim_assessment={}, script_packet=packet)
+
+    assert result["passed"] is False
+    assert result["word_count"] == 110
+    assert result["paragraph"] == text
+    assert result["claim_map"][-1]["sentence"] == closing
+    assert result["warnings"] == ["DVSU concluding verdict exceeds 18 words; rewrite the closing sentence without truncating or dropping it."]
+    assert client.calls == []
+
+
+def test_packet_staleness_starts_fresh_but_factual_repair_keeps_prior_draft():
+    stale = summary._script_writer_prompt({"machine": MACHINE}, ["Script packet does not match the current script packet."], "OLD PARAGRAPH")
+    repair = summary._script_writer_prompt({"machine": MACHINE}, ["Remove unsupported detail."], "OLD PARAGRAPH")
+
+    assert "Start fresh from the DVSU BRIEF" in stale
+    assert "OLD PARAGRAPH" not in stale
+    assert "Previous draft to repair:\nOLD PARAGRAPH" in repair
 
 
 def test_support_audit_rejects_global_pass_with_unsupported_causal_clause():
