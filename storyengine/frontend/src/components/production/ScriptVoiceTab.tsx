@@ -314,7 +314,7 @@ function machinePreviewReviewMessages(preview: any): string[] {
         .map((message: any) => String(message || "").trim())
         .filter(Boolean)
     : [];
-  const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows]));
+  const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows].map((message) => message.replace(/\[\[user-facing\]\]\s*/g, ""))));
   if (preview?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT
       && !machinePreviewPassesEditorialGate(preview) && messages.length === 0) {
     messages.push("This saved draft has not passed the current DVSU writing checks. Check research readiness before generating a replacement.");
@@ -2590,7 +2590,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                           ? "Reviewed preview saved. Run All adds it to the production script."
                           : (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass."))
                       : researchReady
-                        ? cardSourceStatus.message
+                        ? (isFactualMachineScript ? "Saved evidence is ready for writing." : cardSourceStatus.message)
                         : isFactualMachineScript
                           ? "Review the saved evidence in Research before writing."
                           : cardReadiness.needsRevalidate

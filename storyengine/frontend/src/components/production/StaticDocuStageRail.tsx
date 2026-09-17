@@ -514,7 +514,7 @@ export function StaticDocuStageRail({
               <p className="text-sm font-semibold" style={{ color: "var(--red)" }}>
                 Run All stopped at {STAGE_META[visibleRunAllError.stage].label}
               </p>
-              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{visibleRunAllError.message}</p>
+              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{visibleRunAllError.message.replace(/\[\[user-facing\]\]\s*/g, "")}</p>
             </div>
           </div>
         </GlassCard>

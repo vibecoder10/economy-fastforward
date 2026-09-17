@@ -22,7 +22,7 @@ const actions = {
 const roster = {
   total: 1,
   ready: 1,
-  units: [{ reference: { status: "verified" } }],
+  units: [{ machine: "HMS Argus", reference: { status: "verified" } }],
 };
 const assets = [{
   scene: 1,
@@ -93,9 +93,10 @@ describe("StaticDocuStageRail persisted task controls", () => {
 
 
 it("restores the persisted failure on the static documentary rail after reload", () => {
-  const html = renderRail(false, null, "Kie source search is temporarily unavailable. Completed research is saved.");
+  const html = renderRail(false, null, "[[user-facing]] Kie source search is temporarily unavailable. Completed research is saved.");
   expect(html).toContain("Kie source search is temporarily unavailable");
   expect(html).toContain("Run All stopped at");
+  expect(html).not.toContain("[[user-facing]]");
 });
 
 
