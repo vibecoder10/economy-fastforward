@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 import dvsu_research_handoff as handoff
 from dvsu_script_brief import build_dvsu_brief, brief_warnings
-from research_claim_assessment import _validated_claims, _prompt
+from research_claim_assessment import _assessed_receipt, _validated_claims, _prompt, assessment_fingerprint
 from test_script_compiler_integration import _package, MACHINE, SUBJECT
 
 
@@ -104,3 +104,79 @@ async def test_incomplete_real_packet_stops_writer_without_provider_calls():
     assert result['passed'] is False
     assert any('intended_role' in w for w in result['warnings'])
     client.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('recovery_stage', ['discovery_started', 'discovery_completed'])
+async def test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery(monkeypatch, recovery_stage):
+    monkeypatch.setattr(handoff, 'package_brief', lambda *_: {'ready': False, 'missing_fields': ['design']})
+    import factual_source_recapture
+
+    package = _package()
+    old_assessment = copy.deepcopy(package['claim_assessment'])
+    package['claim_assessment']['dvsu_recovery'] = {
+        'version': 1,
+        'source_fingerprint': assessment_fingerprint(MACHINE, package, SUBJECT),
+        'stage': recovery_stage,
+        'missing_fields': ['actual_use'],
+    }
+    historical_assessment = copy.deepcopy(package['claim_assessment'])
+    captured = {
+        'sources': [
+            {'source_id': 'R1', 'url': 'https://source.example/one'},
+            {'source_id': 'R2', 'url': 'https://source.example/two'},
+        ],
+        'candidate_excerpts': [
+            {'source_id': 'R1', 'excerpt_id': 'R1-E1', 'source_url': 'https://source.example/one', 'text': 'First new exact citation.'},
+            {'source_id': 'R2', 'excerpt_id': 'R2-E1', 'source_url': 'https://source.example/two', 'text': 'Second new exact citation.'},
+        ],
+    }
+    recapture = AsyncMock(return_value=captured)
+    monkeypatch.setattr(factual_source_recapture, 'recapture_sources', recapture)
+    ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock())
+    checkpoints = []
+    assessments = []
+
+    async def assess(working, stage):
+        assessments.append(stage)
+        refreshed = copy.deepcopy(working)
+        refreshed['claim_assessment'] = _assessed_receipt(
+            MACHINE, refreshed, SUBJECT, old_assessment['claims'],
+        )
+        return refreshed
+
+    async def checkpoint(working, stage):
+        checkpoints.append((stage, copy.deepcopy(working)))
+        return True
+
+    payload = {'_dvsu_known_sources': {
+        'machine': MACHINE,
+        'urls': ['https://source.example/one', 'https://source.example/two'],
+    }}
+    result = await handoff.supplement_missing_research(
+        ex, SUBJECT, MACHINE, payload, package, 'SS1', assess=assess, checkpoint=checkpoint,
+        guard=lambda _: True,
+    )
+
+    recapture.assert_awaited_once()
+    assert set(recapture.await_args.args[3]) >= {'https://source.example/one', 'https://source.example/two'}
+    ex._gather_verified_machine_source_package.assert_not_awaited()
+    assert assessments == ['recapture_assessment']
+    assessed_checkpoint = next(working for stage, working in checkpoints if stage == 'recapture_assessment')
+    carried = assessed_checkpoint['claim_assessment']['dvsu_recovery']
+    assert carried == {
+        'version': 1,
+        'source_fingerprint': assessment_fingerprint(MACHINE, assessed_checkpoint, SUBJECT),
+        'stage': recovery_stage,
+        'missing_fields': ['design'],
+    }
+    assert result['prior_claim_assessments'][-1] == historical_assessment
+
+    retry = await handoff.supplement_missing_research(
+        ex, SUBJECT, MACHINE, {}, result, 'SS1', assess=assess, checkpoint=checkpoint,
+        guard=lambda _: True,
+    )
+    assert retry is result
+    recapture.assert_awaited_once()
+    ex._gather_verified_machine_source_package.assert_not_awaited()
+    assert assessments == ['recapture_assessment']

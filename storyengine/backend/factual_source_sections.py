@@ -29,8 +29,39 @@ def has_foreign_ship(text: str, machine: str) -> bool:
     name = r'[\s._,\-–—]+'.join(re.escape(w) for w in re.findall(r'[A-Za-z0-9]+', target['name']))
     for prefix in re.finditer(r'\bUSS\s+', text, re.I):
         if not re.match(name + r'(?![A-Za-z0-9])', text[prefix.end():], re.I):
+            # A publisher's explicit rename statement belongs to the anchored
+            # subject. This exception applies only to that occurrence, never
+            # to subsequent passages using the alias or another hull number.
+            if re.search(r'\brenamed\s+$', text[:prefix.start()], re.I):
+                continue
             return True
     return False
+
+
+def anchored_section_prefix(section: str, machine: str, matcher, max_chars: int = 3000) -> str:
+    """Retain original adjacent text, ending before a competing ship identity.
+
+    An anchored heading may govern later specs or pronouns. Never jump over a
+    competing identity, and never manufacture an identity prefix for a quote.
+    """
+    section = ' '.join(section.split())
+    sentences = list(re.finditer(r'.+?(?:[.!?](?=\s)|$)', section))
+    start = None
+    end = None
+    count = 0
+    for sentence in sentences:
+        text = sentence.group().strip()
+        if start is None:
+            if not matcher(text, machine) or has_foreign_ship(text, machine):
+                continue
+            start = sentence.start()
+            while start < sentence.end() and section[start].isspace():
+                start += 1
+        if has_foreign_ship(text, machine) or sentence.end() - start > max_chars:
+            break
+        end = sentence.end()
+        count += 1
+    return section[start:end] if start is not None and end is not None and count > 1 else ''
 
 
 def verified_archive_url(snapshot, original_url: str) -> str:

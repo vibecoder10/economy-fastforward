@@ -1256,7 +1256,7 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
     import re as _re
 
     from factual_machine_research import named_submarine_target
-    from factual_source_sections import has_foreign_ship
+    from factual_source_sections import has_foreign_ship, anchored_section_prefix
     strict_named = matcher is not None and named_submarine_target(machine) is not None
     if strict_named and "\n\n" in str(text):
         whole, short = [], []
@@ -1266,6 +1266,10 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
                 continue
             if 45 <= len(section) <= 3000 and not has_foreign_ship(section, machine):
                 whole.append(section)
+            else:
+                prefix = anchored_section_prefix(section, machine, matcher)
+                if len(prefix) >= 45:
+                    whole.append(prefix)
             short.extend(_sentence_candidates_from_source(section, machine, limit, matcher))
         # Whole publisher sections retain later service paragraphs without
         # injecting a synthetic identity prefix or crossing another heading.

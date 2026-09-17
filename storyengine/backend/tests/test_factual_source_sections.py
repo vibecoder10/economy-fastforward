@@ -67,7 +67,7 @@ def test_wrong_hull_is_rejected_even_when_the_ship_name_matches():
     ) == []
 
 
-def test_long_named_section_keeps_only_bounded_short_windows():
+def test_long_named_section_keeps_bounded_contiguous_prefix_and_short_windows():
     sentences = [
         f"USS Holland (SS 1) completed Navy trials as a submarine in documented phase {index}."
         for index in range(1, 80)
@@ -80,7 +80,11 @@ def test_long_named_section_keeps_only_bounded_short_windows():
     )
 
     assert excerpts
-    assert all(len(excerpt) <= 720 for excerpt in excerpts)
+    assert all(len(excerpt) <= 3000 for excerpt in excerpts)
+    long_prefixes = [excerpt for excerpt in excerpts if len(excerpt) > 720]
+    assert len(long_prefixes) == 1
+    assert long_prefixes[0] in source
+    assert long_prefixes[0].endswith('.')
     assert source not in excerpts
 
 

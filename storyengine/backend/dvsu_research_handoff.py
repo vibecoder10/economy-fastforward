@@ -163,6 +163,11 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
                 assessed = await _call(assess, merged, 'recapture_assessment')
                 if isinstance(assessed, dict):
                     merged = assessed
+            if explicit_urls and recovery.get('stage') in {'discovery_started', 'discovery_completed'}:
+                # Refreshing original citations must not reopen an exhausted
+                # or uncertain paid-discovery attempt for the new evidence.
+                merged = _with_recovery(merged, assessment_fingerprint(machine, merged, title),
+                                        recovery['stage'], _missing_fields(machine, merged, title))
             if not await _call(checkpoint, merged, 'recapture_assessment'):
                 raise RecoveryStopped('Research recovery assessment checkpoint was refused.')
             if assess is not None and current_assessment(machine, merged, title) is None:
@@ -173,7 +178,9 @@ async def supplement_missing_research(ex, title, machine, payload, package, cach
                 return merged
         if explicit_urls:
             # An explicit citation repair never silently spends on rediscovery.
-            merged['dvsu_research_last_gap'] = {'missing_fields': fields, 'added_excerpt_count': 0,
+            # Bookkeeping cannot change the source fingerprint after assessment.
+            merged.setdefault('claim_assessment', {})['dvsu_research_last_gap'] = {
+                'missing_fields': fields, 'added_excerpt_count': added,
                 'errors': captured.get('errors', []), 'paid_search_calls': 0}
             return merged
     # A discovery request may have reached a provider while its response was
