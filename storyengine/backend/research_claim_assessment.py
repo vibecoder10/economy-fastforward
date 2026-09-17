@@ -106,6 +106,27 @@ def _validated_claims(raw: Any, candidates: dict[str, dict]) -> list[dict] | Non
             pairs = {(row["excerpt_id"], row["quote"]) for row in evidence}
             if all((row["excerpt_id"], row["quote"]) in pairs for row in counter):
                 return None
+        # A model selects an exact anchor ID; code supplies its immutable
+        # identity text if the selected partial quote omitted the hull. This
+        # is citation materialization, never invented source text or identity.
+        if status == "supported" and isinstance(item.get("identity_reviews"), list):
+            from factual_machine_research import candidate_mentions_machine
+            for review in item["identity_reviews"]:
+                if not isinstance(review, dict):
+                    continue
+                anchor_id = review.get("anchor_excerpt_id")
+                anchor = candidates.get(anchor_id) if isinstance(anchor_id, str) else None
+                cited = [row for row in evidence if row["excerpt_id"] == anchor_id]
+                if (not anchor or not cited or anchor.get("identity_requires_review")
+                        or not anchor.get("_locked_machine")):
+                    continue
+                if any(candidate_mentions_machine(row["quote"], anchor["_locked_machine"]) for row in cited):
+                    continue
+                text = str(anchor.get("text") or "")
+                if len(text) <= 12000 and candidate_mentions_machine(text, anchor["_locked_machine"]):
+                    identity_rows = _quote_rows([{"excerpt_id": anchor_id, "quote": text}], candidates)
+                    if identity_rows and len(evidence) < 8:
+                        evidence.extend(identity_rows)
         normalized = {"id": f"C{index}", "claim": claim, "scope": scope, "status": status,
                       "reason": reason, "evidence": evidence, "counterevidence": counter}
         if "narrative_roles" in item:

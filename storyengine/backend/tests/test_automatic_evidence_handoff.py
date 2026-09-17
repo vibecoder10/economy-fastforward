@@ -166,3 +166,22 @@ def test_research_route_forwards_only_valid_known_source_urls(monkeypatch):
         asyncio.run(route.run_one_machine_research('video',route.MachineResearchRequest(
             machine=MACHINE,confirmed_paid_run=True,source_urls=['http://127.0.0.1']),tenant_id='tenant'))
     assert len(calls)==1
+
+
+def test_saved_assessment_replays_with_materialized_identity_quote_without_new_call():
+    from research_claim_assessment import _failed
+    _, package = capture_pair()
+    raw = assessment_response(package)
+    first = raw['claims'][0]
+    anchor_id = first['identity_reviews'][0]['anchor_excerpt_id']
+    for row in first['evidence']:
+        if row['excerpt_id'] == anchor_id:
+            row['quote'] = 'USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.'
+    package['claim_assessment'] = _failed(MACHINE,TITLE,'Old strict anchor quote check failed',package,json.dumps(raw))
+    client = SimpleNamespace(generate=AsyncMock(side_effect=AssertionError('Must reuse paid assessment')))
+    assessment = asyncio.run(assess_verified_package(MACHINE,package,client,TITLE))
+    assert assessment['status']=='assessed'
+    client.generate.assert_not_called()
+    assert any('USS Holland (SS 1)' in r['quote'] for r in assessment['claims'][0]['evidence'])
+    package['claim_assessment'] = assessment
+    assert current_assessment(MACHINE,package,TITLE) == assessment
