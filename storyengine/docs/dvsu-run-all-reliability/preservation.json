@@ -1,0 +1,30 @@
+{
+  "video": {
+    "unchanged": true,
+    "rows": 1
+  },
+  "scripts": {
+    "unchanged": true,
+    "rows": 0
+  },
+  "cards": {
+    "unchanged": true,
+    "rows": 20
+  },
+  "assets": {
+    "unchanged": true,
+    "rows": 0
+  },
+  "jobs": {
+    "unchanged": true,
+    "rows": 5
+  },
+  "claims": {
+    "unchanged": true,
+    "rows": 0
+  },
+  "ledger": {
+    "unchanged": true,
+    "rows": 1
+  }
+}

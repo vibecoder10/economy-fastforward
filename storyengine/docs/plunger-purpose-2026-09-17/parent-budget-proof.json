@@ -1,0 +1,16 @@
+{
+  "note": "Offline request projection; inclusion is for conservative size proof, not approval or factual assessment of new source",
+  "class_context_chars": 5565,
+  "writer_budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 37588,
+    "output_tokens_reserved": 900,
+    "context_limit": 200000
+  },
+  "assessment_budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 36054,
+    "output_tokens_reserved": 4500,
+    "context_limit": 200000
+  }
+}

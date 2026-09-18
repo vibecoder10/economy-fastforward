@@ -1,0 +1,38 @@
+{
+  "note": "Unrelated prior or concurrent files; excluded from this task. Hashes are an observation, not a freeze on another task.",
+  "head": "f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "sha256": "e11e3dee20210c860f9512cd6ba176ccc67f5f80a86d89dbfa0e71944985f2d6"
+    },
+    {
+      "path": "storyengine/CLAUDE.md",
+      "sha256": "f136939c042d8dd836746e2d9de4beb30a18a2bad59dba79aa923d4ae92b5b72"
+    },
+    {
+      "path": "storyengine/.claude/launch.json",
+      "sha256": "4577c2e662e99f856b3fa8b91fa5fd1c3b85788a6313a79be8c3be5cccc2badf"
+    },
+    {
+      "path": "storyengine/LAUNCH-CHECKLIST.md",
+      "sha256": "a617347a253cc82aeccd9d6c169f6617a1f8537c83af5dcf1cc0f8ffd02efbd9"
+    },
+    {
+      "path": "storyengine/tasks/dvsu-live-queue-proof.json",
+      "sha256": "222716c496a6dbf464ddfafa774e0adf141829d0d38b40b235406eafcdb054da"
+    },
+    {
+      "path": "storyengine/backend/roster_selection.py",
+      "sha256": "88524b769b7800ecd5b041593a4397966250f584f201fee1ccfeee23239ecaab"
+    },
+    {
+      "path": "storyengine/backend/roster_coverage.py",
+      "sha256": "e875589970eb4412a7363a8722993e435ce75c910906dee1ee312f0cb9e6d9cd"
+    },
+    {
+      "path": "storyengine/backend/tests/test_runtime_roster_selection.py",
+      "sha256": "1e55a05a9603bbee308260247af34d940761692b8e1af220d240c3b90ae6f3e8"
+    }
+  ]
+}

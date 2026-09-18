@@ -1,0 +1,50 @@
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] Loading key: openai_api_key...
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT]   - openai_api_key not found
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] Loading key: gemini_api_key...
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT]   - gemini_api_key not found
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] Creating lightweight pipeline...
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] SupabaseAdapter OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] AnthropicClient OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] GoogleClient OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] SlackClient OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] ImageClient OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 15 19:56:58 srv1318038 arq[3325391]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] GeminiClient OK
+Sep 15 19:56:58 srv1318038 arq[3325391]: [INIT] Pipeline ready!
+Sep 15 19:57:33 srv1318038 arq[3325391]: [humanize_error] (no context) | raw: Factual source research stopped at SS-2 through SS-8 Plunger class: verified factual source package has no traceable exact-machine excerpts; factual evidence card has no source excerpts
+Sep 15 19:58:00 srv1318038 arq[3325391]: [humanize_error] (no context) | raw: Factual source research stopped at SS-2 through SS-8 Plunger class: verified factual source package has no traceable exact-machine excerpts; factual evidence card has no source excerpts
+Sep 15 19:58:22 srv1318038 arq[3325391]: 19:58:22:  84.31s ← autobuild:44dbf2b2-a27a-47ea-a608-4c31c906be9a:5:arq_run_autobuild ● {'status': 'completed', 'message': '1/2 machines researched; 1 still need revie…
+Sep 15 19:58:50 srv1318038 arq[3325391]: 19:58:50: recording health: Sep-15 19:58:50 j_complete=2 j_failed=0 j_retried=0 j_ongoing=0 queued=0
+Sep 15 20:31:46 srv1318038 arq[3338659]: 20:31:46: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 15 20:31:46 srv1318038 arq[3338659]: 20:31:46: redis_version=7.0.15 mem_usage=1.35M clients_connected=2 db_keys=16
+Sep 15 20:33:22 srv1318038 arq[3338659]: 20:33:22:   0.38s → roster_images:44dbf2b2-a27a-47ea-a608-4c31c906be9a:1:arq_run_roster_images('44dbf2b2-a27a-47ea-a608-4c31c906be9a', UUID('561b872d-7b73-45e3-9c44-7f30c3566…)
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Starting pipeline initialization...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: anthropic_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ anthropic_api_key loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: airtable_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   - airtable_api_key not found
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: elevenlabs_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: elevenlabs_model_id...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: kie_ai_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: openai_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   - openai_api_key not found
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Loading key: gemini_api_key...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT]   - gemini_api_key not found
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] Creating lightweight pipeline...
+Sep 15 20:33:23 srv1318038 arq[3338659]: [INIT] SupabaseAdapter OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] AnthropicClient OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] GoogleClient OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] SlackClient OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] ImageClient OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 15 20:33:25 srv1318038 arq[3338659]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] GeminiClient OK
+Sep 15 20:33:25 srv1318038 arq[3338659]: [INIT] Pipeline ready!

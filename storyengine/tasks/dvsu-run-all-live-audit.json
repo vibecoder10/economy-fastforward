@@ -1,0 +1,286 @@
+{
+  "video_id": "3f902e62-3ffa-4472-baf4-d0dfe9a20e49",
+  "title": "Every British Aircraft Carrier Class Ever Built (2026)",
+  "observed_at": "2026-09-12",
+  "status": "idea_logged",
+  "references_verified": 10,
+  "references_missing": [
+    "94 HMS Eagle (1918)",
+    "Courageous class",
+    "I72 HMS Unicorn",
+    "Audacious class",
+    "Queen Elizabeth class"
+  ],
+  "research_cards_ready": 0,
+  "stored_roster_validation": {
+    "gaps": [],
+    "passed": false,
+    "roster": [
+      "I49 HMS Argus",
+      "47 HMS Furious",
+      "95 HMS Hermes (1924)",
+      "94 HMS Eagle (1918)",
+      "Courageous class",
+      "91 Ark Royal (1938)",
+      "Illustrious class",
+      "Implacable class",
+      "I72 HMS Unicorn",
+      "Colossus class",
+      "Majestic class",
+      "Audacious class",
+      "Centaur class",
+      "Invincible class",
+      "Queen Elizabeth class"
+    ],
+    "warnings": [
+      "An 'ever built' title cannot include machines that were not actually built: Illustrious class, Audacious class, Centaur class. Exclude cancelled, merely planned, on-order, and unfinished entries; split mixed class ranges so only completed or launched machines remain."
+    ],
+    "needs_review": false,
+    "review_ready": false,
+    "roster_count": 15,
+    "script_extra": [],
+    "hard_warnings": [
+      "An 'ever built' title cannot include machines that were not actually built: Illustrious class, Audacious class, Centaur class. Exclude cancelled, merely planned, on-order, and unfinished entries; split mixed class ranges so only completed or launched machines remain."
+    ],
+    "soft_warnings": [],
+    "complete_title": true,
+    "script_missing": [],
+    "has_gap_hunt_matrix": true,
+    "machine_bucket_counts": {
+      "core_roster": 15,
+      "built_prototypes": 0,
+      "boundary_disputes": 2,
+      "converted_or_special_variants": 1,
+      "secret_cancelled_or_black_programs": 0
+    },
+    "roster_pacing_targets": {
+      "heuristic_note": "Runtime target for the locked final roster; research a small reserve for exclusions/swaps, not an endless universe.",
+      "extra_good_measure": 2,
+      "minimum_final_roster": 17,
+      "video_length_minutes": 20.0,
+      "expected_final_roster": 20,
+      "candidate_universe_target": 22,
+      "seconds_per_machine_screen_time": 60,
+      "words_per_machine_segment_range": "95-120",
+      "default_words_per_machine_segment": 105
+    },
+    "operator_decision_count": 4,
+    "candidate_universe_count": 37,
+    "has_recommended_final_roster": true
+  },
+  "unit_roster": [
+    {
+      "name": "HMS Argus",
+      "role": "First British aircraft carrier with full-length flush flight deck, converted liner",
+      "years": "Commissioned September 1918, served until 1944 [IWM 2024]",
+      "bucket": "core_roster",
+      "source": "[IWM 2024]",
+      "status": "converted",
+      "built_count": "1 ship completed and commissioned, converted from Italian liner Conte Rosso [IWM 2024]",
+      "designation": "I49",
+      "member_units": []
+    },
+    {
+      "name": "HMS Furious",
+      "role": "Battlecruiser converted to aircraft carrier, first of Courageous-class conversions",
+      "years": "Initially converted 1917, fully reconstructed 1921-1925, served until 1945 [Naval Encyclopedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Naval Encyclopedia 2024]",
+      "status": "converted",
+      "built_count": "1 ship completed, converted battlecruiser, reconstructed with full-length flight deck 1921-1925 [Naval Encyclopedia 2024]",
+      "designation": "47",
+      "member_units": []
+    },
+    {
+      "name": "HMS Hermes (1924)",
+      "role": "First purpose-designed aircraft carrier, laid down as carrier from keel",
+      "years": "Laid down January 1918, commissioned February 1924, sunk April 1942 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "1 ship completed, first purpose-built carrier [Wikipedia 2024]",
+      "designation": "95",
+      "member_units": []
+    },
+    {
+      "name": "HMS Eagle (1918)",
+      "role": "Converted Chilean battleship, unique conversion",
+      "years": "Purchased 1918, commissioned February 1924, sunk August 1942 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "converted",
+      "built_count": "1 ship completed, converted from Chilean battleship Almirante Cochrane [Wikipedia 2024]",
+      "designation": "94",
+      "member_units": []
+    },
+    {
+      "name": "Courageous class",
+      "role": "Battlecruiser conversions to fleet carriers, Washington Treaty conversions",
+      "years": "Conversions completed 1928 (Courageous) and 1930 (Glorious), both sunk 1939-1940 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "converted",
+      "built_count": "2 ships completed as carriers: HMS Courageous and HMS Glorious, converted 1924-1928 and 1924-1930 respectively [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Courageous",
+        "Glorious"
+      ]
+    },
+    {
+      "name": "Ark Royal (1938)",
+      "role": "First modern purpose-designed fleet carrier, interwar flagship design",
+      "years": "Commissioned 1938, sunk November 1941 [Naval Encyclopedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Naval Encyclopedia 2024]",
+      "status": "production",
+      "built_count": "1 ship completed, laid down 1935 [Naval Encyclopedia 2024]",
+      "designation": "91",
+      "member_units": []
+    },
+    {
+      "name": "Illustrious class",
+      "role": "Armoured fleet carriers, first armoured carriers in the world",
+      "years": "In commission 1940-1968 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "4 ships completed out of 6 planned [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Illustrious",
+        "Victorious",
+        "Formidable",
+        "Indomitable"
+      ]
+    },
+    {
+      "name": "Implacable class",
+      "role": "Modified Illustrious design with two-level hangars, faster armoured carriers",
+      "years": "Commissioned 1944 (Indefatigable May, Implacable August), in service 1944-1955 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "2 ships completed: HMS Implacable and HMS Indefatigable [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Implacable",
+        "Indefatigable"
+      ]
+    },
+    {
+      "name": "HMS Unicorn",
+      "role": "Aircraft maintenance carrier, unique support vessel with flight deck",
+      "years": "Commissioned March 1943, scrapped 1959 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "special-purpose",
+      "built_count": "1 ship completed, designed as aircraft repair ship and light carrier [Wikipedia 2024]",
+      "designation": "I72",
+      "member_units": []
+    },
+    {
+      "name": "Colossus class",
+      "role": "Light fleet carriers, 1942 design for rapid wartime construction",
+      "years": "In commission December 1944 onwards, built 1942-1945 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "8 ships completed as aircraft carriers for Royal Navy, plus 2 completed as maintenance carriers (Pioneer, Perseus) [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Colossus",
+        "Glory",
+        "Ocean",
+        "Theseus",
+        "Triumph",
+        "Venerable",
+        "Vengeance",
+        "Warrior"
+      ]
+    },
+    {
+      "name": "Majestic class",
+      "role": "Modified 1942 design light fleet carriers for larger aircraft",
+      "years": "Built 1943-1961, construction suspended 1945, completed postwar for foreign navies [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "5 ships completed (6th, Leviathan, cancelled incomplete), none served in Royal Navy, all sold to foreign navies [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Majestic",
+        "Terrible",
+        "Magnificent",
+        "Hercules",
+        "Powerful"
+      ]
+    },
+    {
+      "name": "Audacious class",
+      "role": "Large fleet carriers, postwar completion of wartime design",
+      "years": "Served 1951-1979, planned in 1940s, completed postwar [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "2 ships completed out of 4 planned: HMS Eagle (ex-Audacious) and HMS Ark Royal [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Eagle",
+        "Ark Royal"
+      ]
+    },
+    {
+      "name": "Centaur class",
+      "role": "Light fleet carriers, final evolution of 1942 design with jet capability",
+      "years": "Built 1944-1959, commissioned 1953-1959 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "4 ships completed out of 8 planned: HMS Centaur, Albion, Bulwark, Hermes [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Centaur",
+        "Albion",
+        "Bulwark",
+        "Hermes"
+      ]
+    },
+    {
+      "name": "Invincible class",
+      "role": "Light VSTOL carriers, through-deck cruisers, Sea Harrier platforms",
+      "years": "Built 1973-1981, in commission 1980-2014 [Wikipedia 2024]",
+      "bucket": "core_roster",
+      "source": "[Wikipedia 2024]",
+      "status": "production",
+      "built_count": "3 ships completed [Wikipedia 2024]",
+      "designation": "",
+      "member_units": [
+        "Invincible",
+        "Illustrious",
+        "Ark Royal"
+      ]
+    },
+    {
+      "name": "Queen Elizabeth class",
+      "role": "Current supercarriers, largest Royal Navy ships ever built, F-35B platforms",
+      "years": "Commissioned 2017 (Queen Elizabeth) and 2019 (Prince of Wales), both currently in service 2026 [Royal Navy 2024]",
+      "bucket": "core_roster",
+      "source": "[Royal Navy 2024]",
+      "status": "production",
+      "built_count": "2 ships completed and in service [Royal Navy 2024]",
+      "designation": "",
+      "member_units": [
+        "Queen Elizabeth",
+        "Prince of Wales"
+      ]
+    }
+  ],
+  "provider_read_only_validation": {
+    "Anthropic": "valid",
+    "ElevenLabs": "valid",
+    "Kie": "valid; 9608 credits returned"
+  },
+  "visual_review": "Inspected all 10 visible reference thumbnails in Chrome. Majestic uses HMAS Melbourne with USS Midway in background; British-built class, Australian operator. No finished video exists.",
+  "authority": "Read-only inspection only; no live roster correction, paid generation or deployment."
+}

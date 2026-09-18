@@ -1,0 +1,7 @@
+{
+  "commit": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "files": {
+    "backend/factual_machine_research.py": "52bb9db5d3dcdb9f7f0010b4de5410581a34db0d95ad48b441b485d8340d82a1",
+    "backend/tests/test_named_submarine_research_identity.py": "e82871aa45108f7866a1e118fae1f6d9801df8a0cacf3de50078c0b4497cd56c"
+  }
+}

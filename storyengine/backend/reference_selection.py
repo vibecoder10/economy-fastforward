@@ -193,7 +193,7 @@ async def _fetch_image(url):
 def view_criteria(machine, facts):
     context = (machine + " " + str((facts or {}).get("role") or "")).lower()
     if re.search(r"submarine|\b(?:agss|ssn|ssbn|ssg|ssgn|ss)-?\d", context):
-        return "Submarine: judge hull profile, bow, stern, sail and visible control surfaces. A readable side or three-quarter view often works well. Penalize water hiding the hull, launch wrapping, cranes, cropping and foreshortening."
+        return "Submarine: the best reference is a dry-dock, launch, or slipway photo showing the full hull out of water - hull profile, bow, stern, sail and visible control surfaces all readable. A surfaced-running photo (hull partly submerged, sail and upper hull visible) is an acceptable second choice when no clear dry-dock/launch photo exists. Penalize water hiding the hull in a surfaced photo, and penalize cranes, scaffolding, support cradles or cropping that hide the hull in a dry-dock photo."
     if re.search(r"ship|naval|carrier|cruiser|destroyer|frigate|battleship|\b(?:hms|uss)\b", context):
         return "Surface ship: judge whole hull, bow/stern, decks, superstructure, masts, funnels and role-specific equipment. Choose the side or three-quarter view revealing those features most clearly."
     if re.search(r"aircraft|airplane|bomber|fighter|helicopter|airframe", context):

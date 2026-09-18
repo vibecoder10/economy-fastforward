@@ -1,0 +1,13 @@
+{
+  "id": "named-machine-images",
+  "title": "Build: verify images for20named boats",
+  "inputSource": "Accepted live20named roster video44dbf2b2-a27a-47ea-a608-4c31c906be9a; tasks/representative-roster-acceptance.json; deployed9919c0d5; reference_selection and normal roster-images endpoint",
+  "action": "Terra read-only route/identity inspection; parent POST normal roster-images once after idle/pass checks. Monitor exact-name cache readiness; inspect saved missing receipts before any bounded repair. Visually review resulting20reference photos and source identity, especially TangSS563 and SeawolfSSN21.",
+  "writeBoundary": "Exact current video roster_images and new exact-name reference-cache records through normal gather; tasks/named-machine-image-* receipts; CHECKLIST/JOURNAL/card. Any code repair needs separate exact plan and Terra bounded implementation.",
+  "expectedOutput": "20/20verified photo references for accepted20named boats, source links and comparison evidence, browser-visible Gather complete",
+  "dependencies": "Astra plan-completeness PASS; user image repair authority; accepted roster unchanged; no active task/drain",
+  "acceptanceEvidence": "Live task completed;20exact-name reference reviews verified; no wrong boat/class substitution; screenshot visual review; roster/history/research preserved; no Research/script/render started",
+  "authorityStop": "User authorizes image-gather provider calls and targeted repair. No blind repeat full sweep, handcrafted ready flag, roster changes, later stages or publication. Stop/review actual saved failure before repair.",
+  "done": false,
+  "evidence": ""
+}

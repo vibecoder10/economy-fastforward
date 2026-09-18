@@ -1,0 +1,34 @@
+{
+  "round": 1,
+  "local_review": "PASS",
+  "backend_tests": 122,
+  "frontend_tests": 7,
+  "frontend_build": "passed",
+  "saved_research_replay": {
+    "machines": 20,
+    "ready": 0,
+    "reason": "Each archive lacks at least one required narrative field",
+    "max_brief_words": 233
+  },
+  "baseline_failures": "6 roster_stage tests also fail unchanged baseline1857c383e; evidence baseline-roster-tests.log",
+  "paid_test": "awaiting user answer",
+  "file_hashes": {
+    "backend/dvsu_script_brief.py": "532460e8a70203c3de713d921dd20d063ec8d4487a2ced7459a5169e5b429496",
+    "backend/dvsu_research_handoff.py": "e9c8eae6336befba411505a5eccd353c4496606adecbeb869317c11e53a6f710",
+    "backend/factual_machine_pipeline.py": "46e2577c9a011d17b2ba4e0bf94b1dd1a21f4dbc683ec30d262046dd344414dc",
+    "backend/factual_machine_summary.py": "fe6a4dadd7185d98a4a5f0c48c7ff0afdee261f87c3bd76659d03e4789aaf32a",
+    "backend/factual_source_search.py": "5abaeead1fa834c36db531bd8fa5c46136bb27f7f8e6243b7ead78c1da2aed10",
+    "backend/pipeline_executor.py": "b35cede5b02dc6fcb114705be4fe3e0a4ae30cda4e136de10cf7533fc17b364e",
+    "backend/research_claim_assessment.py": "60a552343a2d7ea93e0a7dde09a72576a226d3abb8550924e461c2653c7e5486",
+    "backend/script_research_packet.py": "6d7568213f2f4ca63d75c9fbf726844125de038650a3edb68da5f1b060a87525",
+    "backend/tests/test_dvsu_script_brief.py": "5fcea2c5c6f213e58dc74647ee3a1448e8c970a8d55fc5a61fbb3dbc3798928a",
+    "backend/tests/test_dvsu_script_writer.py": "4b38463825d62fdaa26642f11e6467b323d1ac63d0ae72de5f34cb8c581d493b",
+    "backend/tests/test_dvsu_research_handoff.py": "c5928bb91f2d735d7773c38a333f67ac2ba843f3a574a95be5a0061098e26013",
+    "backend/tests/test_script_compiler_integration.py": "7ae4499472f479cee3ff132753af24febae1c2bc87f2e3e9e6fd7ac03d203b20",
+    "backend/tests/test_script_research_packet.py": "d2ae47ccff006b8da55513980c981dbbd147e352cb27154bf6e53f26a80123ec",
+    "backend/tests/test_submarine_research_integration.py": "aa603d8025dc635bb30d4e7e9ad4c464f05b484350db94f86e3541cb9c54646b",
+    "frontend/src/components/production/ResearchTab.tsx": "5756e171b8b18f4d79671a124f1623ed1d4a5f678d162b8a53215b65cccd867b",
+    "frontend/src/components/production/ScriptVoiceTab.tsx": "ed25a49ac23da9939f6b9f4565657e47347d57e14fc2e5e2efa8a72b59b21bd8",
+    "frontend/src/components/production/ScriptVoiceTab.factual.test.ts": "76d910211958564fc4faa2c4858df1aa58c2b764f7676a5f839ab10d387c1fcd"
+  }
+}

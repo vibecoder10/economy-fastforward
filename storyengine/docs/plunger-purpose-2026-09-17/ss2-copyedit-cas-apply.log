@@ -1,0 +1,40 @@
+Traceback (most recent call last):
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-cas-save.py", line 115, in <module>
+    if __name__=='__main__': main()
+                             ^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-cas-save.py", line 113, in main
+    import asyncio; asyncio.run(apply(receipt,baseline))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-cas-save.py", line 105, in apply
+    result=await execute(sql,json.dumps(receipt['new_payload'],ensure_ascii=False),VIDEO,TENANT,json.dumps(old,ensure_ascii=False),s['status'],s['script'],(None if s['script_validation'] is None else json.dumps(s['script_validation'],ensure_ascii=False)),s['max_spend'],s['total_cost'],s['render_mode'],s['video_title'],s['headline'])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/database.py", line 63, in execute
+    return await conn.execute(query, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/asyncpg/connection.py", line 352, in execute
+    _, status, _ = await self._execute(
+                   ^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/asyncpg/connection.py", line 1864, in _execute
+    result, _ = await self.__execute(
+                ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/asyncpg/connection.py", line 1961, in __execute
+    result, stmt = await self._do_execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/asyncpg/connection.py", line 2004, in _do_execute
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/asyncpg/connection.py", line 432, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedFunctionError: operator does not exist: text = jsonb
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.

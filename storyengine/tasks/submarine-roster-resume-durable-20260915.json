@@ -1,0 +1,12 @@
+{
+  "requested_at": "2026-09-15T18:24:58.430610+00:00",
+  "video": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "target": "finish",
+  "http": 200,
+  "response": {
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "running",
+    "message": "Finishing the video and verifying its unlisted YouTube upload",
+    "error": null
+  }
+}

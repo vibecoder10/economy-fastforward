@@ -4,16 +4,74 @@
     {
       "name": "storyengine",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "frontend",
       "port": 3001
     },
     {
       "name": "storyengine-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
+      "runtimeArgs": [
+        "start"
+      ],
       "cwd": "frontend",
       "port": 3001
+    },
+    {
+      "name": "business-brain",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/Users/ryanayler/business-os/integrations/rubric-second-brain/server.js"
+      ],
+      "port": 5210
+    },
+    {
+      "name": "business-brain-demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORT=5212",
+        "BRAIN_STATE_DIR=/tmp/brain-demo-state",
+        "node",
+        "/Users/ryanayler/business-os/integrations/rubric-second-brain/server.js"
+      ],
+      "port": 5212
+    },
+    {
+      "name": "business-brain-pulse-verify",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORT=5211",
+        "node",
+        "/Users/ryanayler/business-os/integrations/rubric-second-brain/server.js"
+      ],
+      "port": 5211
+    },
+    {
+      "name": "slide-demo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8734",
+        "--directory",
+        "/Users/ryanayler/AgentVault/output/agents-explained-demo"
+      ],
+      "port": 8734
+    },
+    {
+      "name": "hermes-deck",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8741",
+        "--directory",
+        "/Users/ryanayler/AgentVault/Projects/hermes-setup-course"
+      ],
+      "port": 8741
     }
   ]
 }

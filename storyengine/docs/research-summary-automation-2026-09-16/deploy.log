@@ -1,0 +1,121 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:research-summary-automation","changed_at":"2026-09-16 19:13:47.386106+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T19:13:47.545542+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:research-summary-automation","changed_at":"2026-09-16 19:13:47.386106+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T19:13:47.908239+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:research-summary-automation","changed_at":"2026-09-16 19:13:47.386106+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T19:13:52.942741+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   f92c863b5..d8b010fdf  main       -> origin/main
+Updating f92c863b5..d8b010fdf
+Fast-forward
+ storyengine/backend/actions.py                     | 191 +++++++++++++--
+ storyengine/backend/factual_machine_pipeline.py    |  30 +++
+ storyengine/backend/factual_machine_research.py    |  83 +++++++
+ storyengine/backend/factual_machine_summary.py     |  12 +-
+ storyengine/backend/factual_source_search.py       |  16 +-
+ storyengine/backend/machine_research_summary.py    | 100 ++++++++
+ storyengine/backend/pipeline_executor.py           | 268 ++++++++++++++++++---
+ storyengine/backend/routes/pipeline.py             |  44 ++--
+ .../fixtures/research-roster-class-labels.json     |  22 ++
+ .../functional/test_factual_machine_pipeline.py    |  16 ++
+ .../functional/test_factual_machine_research.py    | 205 +++++++++++++++-
+ .../test_frontdoor_needs_review_surfacing.py       |  39 ++-
+ .../functional/test_g8_roster_research_loop.py     |  23 +-
+ .../functional/test_kie_factual_source_search.py   |  28 ++-
+ .../backend/tests/test_machine_research_summary.py | 107 ++++++++
+ .../tests/test_research_automation_status.py       | 212 ++++++++++++++++
+ .../backend/tests/test_research_class_identity.py  |  46 ++++
+ .../src/components/production/ResearchTab.tsx      |  52 ++++
+ 18 files changed, 1391 insertions(+), 103 deletions(-)
+ create mode 100644 storyengine/backend/machine_research_summary.py
+ create mode 100644 storyengine/backend/tests/fixtures/research-roster-class-labels.json
+ create mode 100644 storyengine/backend/tests/test_machine_research_summary.py
+ create mode 100644 storyengine/backend/tests/test_research_automation_status.py
+ create mode 100644 storyengine/backend/tests/test_research_class_identity.py
+code: f92c863b5 -> d8b010fdf
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3798486)
+worker code parity: commit=d8b010fdf directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 25.1s
+  Running TypeScript ...
+  Finished TypeScript in 28.2s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 761ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed d8b010fdf; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:research-summary-automation","changed_at":"2026-09-16 19:15:41.352895+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T19:15:41.506679+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:research-summary-automation","changed_at":"2026-09-16T19:15:41.352895+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":0,"limit":9000,"remaining":9000,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":0,"limit":100,"remaining":100},"units_used":0,"ceiling":9000,"remaining":9000}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T19:15:40Z research-summary-automation deployed f92c863b5 -> d8b010fdf --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

@@ -1,0 +1,464 @@
+{
+  "mode": "actual_frontend_no_spend_readiness",
+  "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+  "render_mode": "static_docu",
+  "video_title": "Every US Submarine Class Ever Built (2026)",
+  "machine_count": 20,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1288
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1027
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 934
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 885
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1133
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1057
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 915
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 881
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 906
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 862
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 927
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 977
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1426
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 1136
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 909
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 923
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 948
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 953
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 861
+    },
+    {
+      "method": "POST",
+      "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "status": 200,
+      "duration_ms": 884
+    }
+  ],
+  "results": [
+    {
+      "machine": "SS-1 USS Holland",
+      "status": "completed",
+      "ready": true,
+      "preparable": false,
+      "preparation_required": false,
+      "missing_fields": [],
+      "warnings": [],
+      "summary": "Machine script preview is ready."
+    },
+    {
+      "machine": "SS-2 USS Plunger",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "summary": "Script preview evidence gate failed: SS-2 USS Plunger: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design."
+    },
+    {
+      "machine": "SS-105 USS S-1",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SS-105 USS S-1: Missing intended_role evidence; request targeted research for intended_role.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SS-163 USS Barracuda",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SS-163 USS Barracuda: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SS-212 USS Gato",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SS-212 USS Gato: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "SS-285 USS Balao",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SS-285 USS Balao: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "SS-417 USS Tench",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SS-417 USS Tench: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "SS-563 USS Tang",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SS-563 USS Tang: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "AGSS-569 USS Albacore",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: AGSS-569 USS Albacore: Missing intended_role evidence; request targeted research for intended_role.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SS-580 USS Barbel",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SS-580 USS Barbel: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "SSN-571 USS Nautilus",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-571 USS Nautilus: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SSN-585 USS Skipjack",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-585 USS Skipjack: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    },
+    {
+      "machine": "SSN-593 USS Thresher",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-593 USS Thresher: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design."
+    },
+    {
+      "machine": "SSN-637 USS Sturgeon",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-637 USS Sturgeon: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design."
+    },
+    {
+      "machine": "SSN-688 USS Los Angeles",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-688 USS Los Angeles: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SSN-21 USS Seawolf",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-21 USS Seawolf: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SSN-774 USS Virginia",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SSN-774 USS Virginia: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SSBN-598 USS George Washington",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role."
+      ],
+      "summary": "Script preview evidence gate failed: SSBN-598 USS George Washington: Missing intended_role evidence; request targeted research for intended_role."
+    },
+    {
+      "machine": "SSBN-608 USS Ethan Allen",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "summary": "Script preview evidence gate failed: SSBN-608 USS Ethan Allen: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome."
+    },
+    {
+      "machine": "SSBN-616 USS Lafayette",
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "summary": "Script preview evidence gate failed: SSBN-616 USS Lafayette: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use."
+    }
+  ],
+  "ready_count": 1,
+  "preparable_count": 19,
+  "hardblocked_count": 0,
+  "errors": 0
+}

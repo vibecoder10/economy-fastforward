@@ -1,0 +1,17 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/pipeline/machine-research-one/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": 200,
+    "duration_ms": 14437,
+    "acknowledgement": "received",
+    "source_url_count": 1
+  },
+  {
+    "method": "POST",
+    "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": 200,
+    "duration_ms": 1968,
+    "purpose": "no_spend_readiness"
+  }
+]

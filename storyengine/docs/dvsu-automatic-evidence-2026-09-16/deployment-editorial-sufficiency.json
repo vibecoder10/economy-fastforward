@@ -1,0 +1,25 @@
+{
+  "release": "dvsu-editorial-sufficiency-20260917",
+  "commit": "7af5ab8ff24a59a97a72d9463b0fb9deb666ce2a",
+  "previous_commit": "6a590ed4c9d91d47c0d513551b7ad1d48cb1c716",
+  "deployed_at_utc": "2026-09-17T14:31:45Z",
+  "tests": {"passed": 101, "warnings": 1},
+  "hashes": {
+    "backend/factual_machine_summary.py": "c84aa7d8240b1a9e0382ba144ac5611b8b99728c2787a548ea58c660d43ee936",
+    "backend/script_research_packet.py": "c6f47b92f23e3857b5e8a913fe7edb859433c8002dde490dbc30690b9920eb22"
+  },
+  "verification": {
+    "origin_main_matches_head": true,
+    "backend": "active",
+    "worker": "active",
+    "worker_directory": "/home/clawd/projects/economy-fastforward/storyengine/backend",
+    "api": "healthy",
+    "frontend_http": 200,
+    "drain": "normal",
+    "active_work": 0,
+    "deploy_lock": "clear"
+  },
+  "paid_provider_call": false,
+  "database_write": false,
+  "production_promotion": false
+}

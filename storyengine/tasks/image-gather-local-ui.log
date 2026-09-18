@@ -1,0 +1,14 @@
+
+> frontend@1.0.0 dev
+> next dev --webpack --port 3001
+
+▲ Next.js 16.2.1 (webpack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.72:3001
+- Environments: .env.local
+✓ Ready in 344ms
+
+○ Compiling /pipeline/[videoId] ...
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 12.5s (next.js: 11.9s, application-code: 527ms)
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 105ms (next.js: 32ms, application-code: 74ms)
+[?25h

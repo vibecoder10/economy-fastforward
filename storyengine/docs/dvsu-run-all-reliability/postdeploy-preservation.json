@@ -1,0 +1,19 @@
+{
+  "unchanged": {
+    "video": true,
+    "scripts": true,
+    "cards": false,
+    "assets": true,
+    "jobs": true,
+    "claims": true,
+    "ledger": true
+  },
+  "card_changes": [
+    {
+      "machine": "SS-105 USS S-1",
+      "fields": [
+        "validation"
+      ]
+    }
+  ]
+}

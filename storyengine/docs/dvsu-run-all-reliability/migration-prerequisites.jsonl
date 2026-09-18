@@ -1,0 +1,4 @@
+{"indexdef": "CREATE INDEX idx_videos_tenant ON public.videos USING btree (tenant_id)"}
+{"indexdef": "CREATE INDEX idx_videos_status ON public.videos USING btree (tenant_id, status)"}
+{"indexdef": "CREATE INDEX idx_videos_deleted_at ON public.videos USING btree (tenant_id, deleted_at)"}
+{"indexdef": "CREATE UNIQUE INDEX videos_tenant_id_id_uidx ON public.videos USING btree (tenant_id, id)"}

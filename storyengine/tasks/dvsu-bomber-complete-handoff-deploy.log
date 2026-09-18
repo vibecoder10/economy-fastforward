@@ -1,0 +1,103 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-complete-handoff","changed_at":"2026-09-13 04:51:38.557870+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:51:38.707832+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-complete-handoff","changed_at":"2026-09-13 04:51:38.557870+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:51:39.045764+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-complete-handoff","changed_at":"2026-09-13 04:51:38.557870+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:51:44.077421+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   c12d3cb10..1b750b1ec  main       -> origin/main
+Updating c12d3cb10..1b750b1ec
+Fast-forward
+ storyengine/backend/roster_coverage.py             | 12 ++++++--
+ storyengine/backend/routes/pipeline.py             | 23 ++++++++++++++-
+ .../functional/test_durable_run_all_dispatch.py    | 34 ++++++++++++++++++++++
+ .../tests/functional/test_roster_coverage.py       |  3 ++
+ .../components/production/StaticDocuStageRail.tsx  |  2 +-
+ 5 files changed, 70 insertions(+), 4 deletions(-)
+code: c12d3cb10 -> 1b750b1ec
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 2049814)
+worker code parity: commit=1b750b1ec directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 23.7s
+  Running TypeScript ...
+  Finished TypeScript in 23.4s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 820ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed 1b750b1ec; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-bomber-complete-handoff","changed_at":"2026-09-13 04:53:18.806894+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:53:18.951319+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-bomber-complete-handoff","changed_at":"2026-09-13T04:53:18.806894+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":779,"limit":9000,"remaining":8221,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":24,"limit":100,"remaining":76},"units_used":779,"ceiling":9000,"remaining":8221}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-13T04:53:18Z dvsu-bomber-complete-handoff deployed c12d3cb10 -> 1b750b1ec --with-frontend
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

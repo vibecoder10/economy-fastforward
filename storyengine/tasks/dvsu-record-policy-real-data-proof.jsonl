@@ -1,0 +1,21 @@
+{"machine": "I49 HMS Argus", "mechanical_pass": true, "warnings": []}
+{"machine": "47 HMS Furious", "mechanical_pass": true, "warnings": []}
+{"machine": "I36 HMS Vindictive", "mechanical_pass": true, "warnings": []}
+{"machine": "94 HMS Eagle (1918)", "mechanical_pass": true, "warnings": []}
+{"machine": "95 HMS Hermes (1924)", "mechanical_pass": false, "warnings": ["claim_map row 1 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Courageous class", "mechanical_pass": true, "warnings": []}
+{"machine": "91 Ark Royal (1938)", "mechanical_pass": true, "warnings": []}
+{"machine": "D94 HMS Activity", "mechanical_pass": true, "warnings": []}
+{"machine": "Illustrious class", "mechanical_pass": true, "warnings": []}
+{"machine": "Nairana class", "mechanical_pass": true, "warnings": []}
+{"machine": "HMS Campania (D48)", "mechanical_pass": true, "warnings": []}
+{"machine": "F61 HMS Pretoria Castle", "mechanical_pass": false, "warnings": ["claim_map row 4 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Implacable class", "mechanical_pass": true, "warnings": []}
+{"machine": "I72 HMS Unicorn", "mechanical_pass": true, "warnings": []}
+{"machine": "Colossus class", "mechanical_pass": false, "warnings": ["claim_map row 3 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim.", "claim_map row 4 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Majestic class", "mechanical_pass": true, "warnings": []}
+{"machine": "Centaur class", "mechanical_pass": false, "warnings": ["claim_map row 3 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Invincible class", "mechanical_pass": false, "warnings": ["claim_map row 2 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Queen Elizabeth class", "mechanical_pass": false, "warnings": ["claim_map row 1 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "D10 HMS Audacity", "mechanical_pass": false, "warnings": ["claim_map row 1 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}
+{"machine": "Audacious class", "mechanical_pass": false, "warnings": ["claim_map row 3 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim.", "claim_map row 4 historical record or class construction count lacks independent corroboration. Remove the optional record/count qualification while retaining supported ordinary facts, or cite a primary/museum record or two distinct source hosts supporting the same claim."]}

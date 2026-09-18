@@ -1,0 +1,11 @@
+{
+  "round": 1,
+  "gate": "Astra plan-completeness PASS",
+  "input": "Actual Plunger selected receipt in tasks/named-machine-image-live-latest.json; reference_selection.py _valid_citations/validate_judgment/_rerank_saved_review/selection_ready",
+  "action": "Require target identification in cited caption for single USS submarine hull target: exact hull number with naval prefix OR named USS submarine name; reject explicit conflicting submarine hull numbers when target hull absent. Pronoun-only caption/article/filename never suffices. Apply to new judgments and stored readiness/re-ranking; prefer any valid saved alternative even if score below now-invalid old selection. Preserve generic/class target behavior and all provenance/view checks.",
+  "writeBoundary": "backend/reference_selection.py;new backend/tests/test_submarine_caption_identity.py;tasks/named-machine-image-*;CHECKLIST/JOURNAL/card",
+  "expectedOutput": "Focused regression patch with saved-receipt zero-provider recovery evidence; deploy after sweep quiescent; normal gather reuses valid saved references and repairs only misses",
+  "dependencies": "User image repair authority; normal sweep active cannot deploy until idle; Terra bounded implementation then Astra review",
+  "acceptance": "Plunger pronoun fails; true caption namedUSSPlunger or hullSS2 passes; TangSS306 fails targetSS563; SeawolfSSN575 fails targetSSN21; legitimate target-number conversion allowed; class/aircraft unchanged; stored badready rejected and lower-score valid saved candidate selected with no provider",
+  "authorityStop": "No hardcoded per-submarine replacement image, no mark-ready override or cache deletion; do not modify running production; no provider retries until scoped patch reviewed and current sweep terminal."
+}

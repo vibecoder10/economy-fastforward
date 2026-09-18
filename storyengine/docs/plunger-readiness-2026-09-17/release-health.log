@@ -1,0 +1,13 @@
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-global-handoff-20260917","changed_at":"2026-09-17T15:14:29.910283+00:00","known":true,"draining":true},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":120,"limit":9000,"remaining":8880,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":120,"ceiling":9000,"remaining":8880}}
+== frontend ==
+http 200
+== deploy lock ==
+dvsu-global-handoff-20260917 deploying, started 2026-09-17T15:14:29Z
+== last deploy ==
+2026-09-17T14:43:34Z dvsu-submarine-terminology-20260917 deployed 7af5ab8ff -> 58ca96c30 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

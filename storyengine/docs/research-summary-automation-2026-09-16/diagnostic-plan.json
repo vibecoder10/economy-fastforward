@@ -1,0 +1,31 @@
+{
+  "gate": "Astra PASS: exact inputs/actions/outputs/boundaries/dependencies/acceptance/stop conditions defined",
+  "steps": [
+    {
+      "id": "summary-identity",
+      "title": "Build: diagnose identity",
+      "inputSource": "backend/factual_machine_research.py; backend/pipeline_executor.py:9590-9940; backend/roster_images.py and factual_image_subjects.py; existing tests",
+      "action": "Trace why roster class display names reject exact subject source text. Inventory reusable structured identity helpers and boundaries; report minimal candidate integration points and observed behavior only.",
+      "writeBoundary": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-summary-automation-2026-09-16/identity.md",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-summary-automation-2026-09-16/identity.md",
+      "dependencies": "Astra plan-completeness PASS; current local source",
+      "acceptanceEvidence": "Exact functions/line refs plus relevant test names; no speculative runtime claims",
+      "authorityStop": "Read-only local source; no provider calls, code edits or production mutations; ordinary read/search choices allowed; return material planning gaps.",
+      "done": false,
+      "evidence": ""
+    },
+    {
+      "id": "summary-automation",
+      "title": "Build: diagnose automation",
+      "inputSource": "backend/actions.py; backend/worker.py; backend/pipeline_executor.py run_unit_research/run_autobuild; backend/routes/pipeline.py; related tests",
+      "action": "Trace how a unit failure ends Run All and why worker says completed with partial research. Map durable progress, retry/resume, error reporting and current source-to-script contract. Report observed behavior and exact references only.",
+      "writeBoundary": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-summary-automation-2026-09-16/automation.md",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-summary-automation-2026-09-16/automation.md",
+      "dependencies": "Astra plan-completeness PASS; current local source",
+      "acceptanceEvidence": "Exact functions/line refs plus relevant test names; no speculative runtime claims",
+      "authorityStop": "Read-only local source; no provider calls, code edits or production mutations; ordinary read/search choices allowed; return material planning gaps.",
+      "done": false,
+      "evidence": ""
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-selection","changed_at":"2026-09-15 23:21:58.136166+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T23:21:58.312758+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-selection","changed_at":"2026-09-15 23:21:58.136166+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T23:21:58.654189+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-selection","changed_at":"2026-09-15 23:21:58.136166+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T23:22:03.684141+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   57d6a8297..d0ebcc979  main       -> origin/main
+Updating 57d6a8297..d0ebcc979
+Fast-forward
+ storyengine/IMAGE-SELECTION-PLAN.md                |  50 +++
+ storyengine/backend/pipeline_executor.py           |  36 +--
+ storyengine/backend/reference_selection.py         | 354 +++++++++++++++++++++
+ storyengine/backend/reference_sources.py           | 166 ++++++++++
+ storyengine/backend/roster_images.py               |  33 +-
+ storyengine/backend/routes/pipeline.py             |  17 +-
+ storyengine/backend/static_docu.py                 | 189 +++--------
+ .../functional/test_static_docu_roster_prefetch.py |  38 ++-
+ .../functional/test_static_docu_seed_reference.py  | 123 +++----
+ .../backend/tests/test_image_gather_acceptance.py  |   8 +
+ .../backend/tests/test_reference_selection.py      | 192 +++++++++++
+ .../backend/tests/test_reference_sources.py        | 118 +++++++
+ .../src/components/production/RosterStagePanel.tsx |  57 +++-
+ storyengine/frontend/src/lib/api.ts                |  25 +-
+ .../tests/roster-image-selection-ui.test.mjs       |  48 +++
+ 15 files changed, 1188 insertions(+), 266 deletions(-)
+ create mode 100644 storyengine/IMAGE-SELECTION-PLAN.md
+ create mode 100644 storyengine/backend/reference_selection.py
+ create mode 100644 storyengine/backend/reference_sources.py
+ create mode 100644 storyengine/backend/tests/test_reference_selection.py
+ create mode 100644 storyengine/backend/tests/test_reference_sources.py
+ create mode 100644 storyengine/frontend/tests/roster-image-selection-ui.test.mjs
+code: 57d6a8297 -> d0ebcc979
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3399774)
+worker code parity: commit=d0ebcc979 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 15.2s
+  Running TypeScript ...
+  Finished TypeScript in 23.8s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 651ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed d0ebcc979; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:image-selection","changed_at":"2026-09-15 23:23:30.863482+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T23:23:31.074187+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:image-selection","changed_at":"2026-09-15T23:23:30.863482+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":530,"limit":9000,"remaining":8470,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":16,"limit":100,"remaining":84},"units_used":530,"ceiling":9000,"remaining":8470}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T23:23:30Z image-selection deployed 57d6a8297 -> d0ebcc979 --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

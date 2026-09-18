@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "at": "2026-09-16T20:30:42.512020+00:00",
+  "video": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "deployed_commit": "b1f828c21",
+  "tests": 48,
+  "verified": 20,
+  "accepted_roster_unchanged": true,
+  "prior_histories": [
+    58,
+    20
+  ],
+  "saved_research_cards": 0,
+  "changed_during_recovery": [
+    "SS-2 USS Plunger"
+  ],
+  "plunger_caption": "USS Plunger in 1902",
+  "recovery": "saved comparison c1; no new discovery/model in rerank code path",
+  "source_review": "named-machine-image-source-review.json plus first10 review and caption replay",
+  "browser": "20/20 green Gather Images; all20 thumbnails visually inspected; Research not started; Script not written",
+  "limitations": "Archival quality, waterline occlusion and viewing angle limitations remain recorded in individual receipts; photos are supporting references.",
+  "next": "Research"
+}

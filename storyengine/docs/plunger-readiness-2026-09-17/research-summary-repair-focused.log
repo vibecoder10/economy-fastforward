@@ -1,0 +1,8 @@
+.......................................                                  [100%]
+=============================== warnings summary ===============================
+tests/test_machine_preview_jobs.py::test_create_route_same_id_returns_existing_without_enqueue
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+39 passed, 1 warning in 0.49s

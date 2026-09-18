@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-16T20:29:55.455584+00:00",
+  "video": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "http": 200,
+  "response": {
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "running",
+    "message": "Roster image gathering started",
+    "error": null
+  }
+}

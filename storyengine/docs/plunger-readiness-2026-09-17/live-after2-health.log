@@ -1,0 +1,13 @@
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17T15:32:46.740774+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":180,"limit":9000,"remaining":8820,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":6,"limit":100,"remaining":94},"units_used":180,"ceiling":9000,"remaining":8820}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T15:32:46Z dvsu-research-compact-20260917 deployed b53879e6d -> 40b610b13 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

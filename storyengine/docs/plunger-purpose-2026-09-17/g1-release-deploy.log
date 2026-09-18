@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17 17:05:29.379121+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T17:05:29.521008+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17 17:05:29.379121+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T17:05:29.848599+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17 17:05:29.379121+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T17:05:34.879313+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   9d26cdd48..cbbb0492c  main       -> origin/main
+Updating 9d26cdd48..cbbb0492c
+Fast-forward
+ storyengine/backend/factual_machine_summary.py       |  4 +++-
+ storyengine/backend/tests/test_dvsu_script_writer.py | 10 ++++++++++
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+code: 9d26cdd48 -> cbbb0492c
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=169 applied=169 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 65500)
+worker code parity: commit=cbbb0492c directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed cbbb0492c; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17 17:05:53.687999+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T17:05:53.818209+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17T17:05:53.687999+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":300,"limit":9000,"remaining":8700,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":10,"limit":100,"remaining":90},"units_used":300,"ceiling":9000,"remaining":8700}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T17:05:53Z dvsu-verdict-guard-20260917 deployed 9d26cdd48 -> cbbb0492c 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

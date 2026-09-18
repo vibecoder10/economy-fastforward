@@ -1,0 +1,55 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-evidence-20260916","changed_at":"2026-09-17 00:07:35.299712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T00:07:35.479595+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-evidence-20260916","changed_at":"2026-09-17 00:07:35.299712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T00:07:35.839203+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-evidence-20260916","changed_at":"2026-09-17 00:07:35.299712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T00:07:40.869525+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   c5956e190..f84c43d98  main       -> origin/main
+Updating c5956e190..f84c43d98
+Fast-forward
+ storyengine/backend/contextual_source_identity.py  | 180 +++++++++++++++++++++
+ storyengine/backend/dvsu_research_handoff.py       |  21 ++-
+ storyengine/backend/factual_machine_summary.py     |  53 +++---
+ storyengine/backend/factual_pdf_source.py          |  60 +++++++
+ storyengine/backend/factual_source_recapture.py    |  47 ++++++
+ storyengine/backend/factual_source_search.py       |  16 +-
+ storyengine/backend/pipeline_executor.py           |  41 +++--
+ storyengine/backend/research_claim_assessment.py   |  23 ++-
+ storyengine/backend/routes/pipeline.py             |   8 +-
+ .../tests/fixtures/holland-congress-page77.txt     |   1 +
+ .../tests/test_automatic_evidence_handoff.py       | 168 +++++++++++++++++++
+ .../tests/test_contextual_source_identity.py       |  66 ++++++++
+ .../backend/tests/test_dvsu_research_handoff.py    |   4 +-
+ .../backend/tests/test_factual_pdf_source.py       |  79 +++++++++
+ 14 files changed, 716 insertions(+), 51 deletions(-)
+ create mode 100644 storyengine/backend/contextual_source_identity.py
+ create mode 100644 storyengine/backend/factual_pdf_source.py
+ create mode 100644 storyengine/backend/factual_source_recapture.py
+ create mode 100644 storyengine/backend/tests/fixtures/holland-congress-page77.txt
+ create mode 100644 storyengine/backend/tests/test_automatic_evidence_handoff.py
+ create mode 100644 storyengine/backend/tests/test_contextual_source_identity.py
+ create mode 100644 storyengine/backend/tests/test_factual_pdf_source.py
+code: c5956e190 -> f84c43d98
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3907903)
+worker code parity: commit=f84c43d98 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed f84c43d98; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-auto-evidence-20260916","changed_at":"2026-09-17 00:08:00.100524+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T00:08:00.246181+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-auto-evidence-20260916","changed_at":"2026-09-17T00:08:00.100524+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":360,"limit":9000,"remaining":8640,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":12,"limit":100,"remaining":88},"units_used":360,"ceiling":9000,"remaining":8640}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T00:07:59Z dvsu-auto-evidence-20260916 deployed c5956e190 -> f84c43d98 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

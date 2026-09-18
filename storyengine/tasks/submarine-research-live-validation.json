@@ -1,0 +1,137 @@
+{
+  "at": "2026-09-16T21:28:55.850480+00:00",
+  "task": {
+    "status": "completed",
+    "message": "Machine research complete: 20/20",
+    "error": null,
+    "via_agent": null,
+    "needs_review": false,
+    "task_type": "pipeline"
+  },
+  "names_preserved": true,
+  "images_verified": 20,
+  "assessments_current": 20,
+  "summaries_current": 20,
+  "rows": [
+    {
+      "machine": "SS-1 USS Holland",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-2 USS Plunger",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-105 USS S-1",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-163 USS Barracuda",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-212 USS Gato",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-285 USS Balao",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-417 USS Tench",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-563 USS Tang",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "AGSS-569 USS Albacore",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SS-580 USS Barbel",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-571 USS Nautilus",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-585 USS Skipjack",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-593 USS Thresher",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-637 USS Sturgeon",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-688 USS Los Angeles",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-21 USS Seawolf",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSN-774 USS Virginia",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSBN-598 USS George Washington",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSBN-608 USS Ethan Allen",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    },
+    {
+      "machine": "SSBN-616 USS Lafayette",
+      "assessment_current": true,
+      "summary_current": true,
+      "warnings": []
+    }
+  ]
+}

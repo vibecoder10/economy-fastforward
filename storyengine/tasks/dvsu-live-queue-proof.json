@@ -30,5 +30,16 @@
     "PostgreSQL production_queue/background_tasks/bot_activity readback",
     "ARQ worker journal",
     "live calendar browser"
-  ]
+  ],
+  "final_release": "b8dd21e6a",
+  "final_release_health_verified": true,
+  "previous_upload_readback": {
+    "youtube_video_id": "h9P3mFlwP58",
+    "channel_id": "UCO4gtSa3rpOutrZ45-OjYyA",
+    "privacy": "public",
+    "upload_status": "processed",
+    "processing_status": "succeeded",
+    "read_only": true,
+    "note": "Visibility differs from prior unlisted snapshot; no visibility change or upload performed by this task."
+  }
 }

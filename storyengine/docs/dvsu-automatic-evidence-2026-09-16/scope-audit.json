@@ -1,0 +1,57 @@
+{
+  "audit_kind": "read_only_scope_audit_after_single_retry",
+  "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "retry_request": {
+    "stage": "preview_audit_retry",
+    "marker": "canary-preview_audit_retry-started.json",
+    "marker_timestamp_local": "2026-09-17T07:03:21-07:00",
+    "response_file_timestamp_local": "2026-09-17T07:04:22-07:00",
+    "request_count": 1,
+    "client_response": { "http_status": 504, "detail": "Gateway returned a non-JSON error" },
+    "backend_receipt": { "received": true, "status": 200, "duration_ms": 66732.7, "timestamp": "2026-09-17T14:04:28.964039Z" },
+    "further_retries_sent": 0
+  },
+  "database_readback": {
+    "source_before": "canary-before-audit.json",
+    "source_after": "canary-after-audit-retry.json",
+    "row_count": 1,
+    "fields": {
+      "id": { "before": "44dbf2b2-a27a-47ea-a608-4c31c906be9a", "after": "44dbf2b2-a27a-47ea-a608-4c31c906be9a", "equal": true },
+      "status": { "before": "ready_for_voice", "after": "ready_for_voice", "equal": true },
+      "total_cost": { "before": "0.055900000000000001228704638034372464971966110169887542724609375", "after": "0.055900000000000001228704638034372464971966110169887542724609375", "equal": true },
+      "script_hash": { "before": "d41d8cd98f00b204e9800998ecf8427e", "after": "d41d8cd98f00b204e9800998ecf8427e", "equal": true },
+      "validation_hash": { "before": "d41d8cd98f00b204e9800998ecf8427e", "after": "d41d8cd98f00b204e9800998ecf8427e", "equal": true }
+    },
+    "unit_roster": { "before_count": 20, "after_count": 20, "exact_equal_entries": 20, "mismatched_entries": 0 },
+    "machine_raw_source_packages": { "before_count": 20, "after_count": 20, "exact_equal_packages": 20, "mismatched_packages": 0 },
+    "research_payload_changed_only_in": "machine_script_previews.SS1",
+    "changed_preview_path_count": 42
+  },
+  "completed_preview_from_db": {
+    "source": "research_payload.machine_script_previews.SS1",
+    "saved": false,
+    "passed": true,
+    "factual_passed": true,
+    "word_count": 110,
+    "warnings": [],
+    "paragraph": "Admiral Dewey attributed great value to submarines for harbor and coast defense based on favorable Navy officer reports, and SS-1 USS Holland embodied that potential. Her hull incorporated dual propulsion systems, a hydrodynamic shape, and separate ballast systems, while her interior space formed one contiguous compartment. A reloadable bow torpedo tube carried three torpedoes; a pneumatic dynamite gun was fitted but later removed. Holland spent most of her ten years in service at the Naval Academy as a training submarine. Her commissioning in 1900 established the U.S. Submarine Force, an agreement gave Vickers a license to manufacture Holland-class submarines using Electric Boat patents, and seven improved A-class boats followed.",
+    "support_audit": { "row_count": 5, "paragraph_sentence_count": 5, "ordered_exact_coverage": true, "supported_rows": 5, "unsupported_rows": 0, "rows_with_nonempty_explanation": 5, "total_unsupported_claims": 0 },
+    "editorial_review": { "passed": true, "issues": [] }
+  },
+  "gateway_and_work_state": {
+    "drain_status_source": "audit-gateway-retry-drain-status.log",
+    "draining": false,
+    "active_work": { "background_tasks": 0, "generation_claims": 0, "total": 0 },
+    "backend_log_source": "audit-gateway-retry-backend-120.log",
+    "result": "The gateway timed out before the backend's 200 response, but the fresh database readback proves the one requested preview completed. No further request was sent."
+  },
+  "remote_hash_verification": {
+    "source": "production-readback-clause-audit.txt",
+    "factual_machine_summary_py": { "remote": "c68ac167ec922cb96bbdb241cc7db22a059f660e0ecc87f2f4305b1b9df522a3", "local": "c68ac167ec922cb96bbdb241cc7db22a059f660e0ecc87f2f4305b1b9df522a3", "equal": true },
+    "script_research_packet_py": { "remote": "a1bf5dcc2f5eda50fd1d1c53b428d739eafea32b54abf0904dece45cf0a62ef6", "local": "a1bf5dcc2f5eda50fd1d1c53b428d739eafea32b54abf0904dece45cf0a62ef6", "equal": true }
+  },
+  "tests": { "source": "tests-clause-audit-full.log", "result": "98 passed, 1 warning in 1.52s", "passed_count": 98, "warning_count": 1 },
+  "mismatches": [
+    { "area": "gateway response", "detail": "Client received HTTP 504 while backend later logged HTTP 200 after 66.7 seconds; completed preview was recovered from fresh database readback." }
+  ]
+}

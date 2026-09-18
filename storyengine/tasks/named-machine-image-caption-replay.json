@@ -1,0 +1,106 @@
+{
+  "snapshot": "2026-09-16T20:28:48.049459+00:00",
+  "adapter": "dashboard kind mapped to cache reference_kind",
+  "results": [
+    {
+      "machine": "SS-1 USS Holland",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-2 USS Plunger",
+      "ready": false,
+      "saved_alternative": "c1"
+    },
+    {
+      "machine": "SS-105 USS S-1",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-163 USS Barracuda",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-212 USS Gato",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-285 USS Balao",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-417 USS Tench",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-563 USS Tang",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "AGSS-569 USS Albacore",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SS-580 USS Barbel",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-571 USS Nautilus",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-585 USS Skipjack",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-593 USS Thresher",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-637 USS Sturgeon",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-688 USS Los Angeles",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-21 USS Seawolf",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSN-774 USS Virginia",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSBN-598 USS George Washington",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSBN-608 USS Ethan Allen",
+      "ready": true,
+      "saved_alternative": null
+    },
+    {
+      "machine": "SSBN-616 USS Lafayette",
+      "ready": true,
+      "saved_alternative": null
+    }
+  ]
+}

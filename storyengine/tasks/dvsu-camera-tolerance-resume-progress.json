@@ -1,0 +1,26 @@
+{
+  "at": "2026-09-15T14:06:49.399737+00:00",
+  "task": {
+    "status": "running",
+    "message": "Designing the thumbnail\u2026",
+    "error": null,
+    "via_agent": null,
+    "needs_review": false,
+    "task_type": "autobuild"
+  },
+  "id": "658e11e0-1f24-457e-95ef-3c8a0bd00f45",
+  "video_title": "Every US Strategic Bomber Ever Built (2026)",
+  "status": "ready_for_thumbnail",
+  "final_video_url": null,
+  "youtube_url": null,
+  "upload_status": null,
+  "updated_at": "2026-09-15 14:06:06.640971+00",
+  "roster_count": 28,
+  "roster_passed": true,
+  "hold": {
+    "passed": true,
+    "passed_count": null,
+    "failed_count": null
+  },
+  "research_phase": "roster_discovery"
+}

@@ -1,0 +1,215 @@
+.......FF                                                                [100%]
+=================================== FAILURES ===================================
+_ test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_started] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x105e88590>
+recovery_stage = 'discovery_started'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('recovery_stage', ['discovery_started', 'discovery_completed'])
+    async def test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery(monkeypatch, recovery_stage):
+        monkeypatch.setattr(handoff, 'package_brief', lambda *_: {'ready': False, 'missing_fields': ['design']})
+        import factual_source_recapture
+    
+        package = _package()
+        old_assessment = copy.deepcopy(package['claim_assessment'])
+        package['claim_assessment']['dvsu_recovery'] = {
+            'version': 1,
+            'source_fingerprint': assessment_fingerprint(MACHINE, package, SUBJECT),
+            'stage': recovery_stage,
+            'missing_fields': ['actual_use'],
+        }
+        historical_assessment = copy.deepcopy(package['claim_assessment'])
+        captured = {
+            'sources': [
+                {'source_id': 'R1', 'url': 'https://source.example/one'},
+                {'source_id': 'R2', 'url': 'https://source.example/two'},
+            ],
+            'candidate_excerpts': [
+                {'source_id': 'R1', 'excerpt_id': 'R1-E1', 'source_url': 'https://source.example/one', 'text': 'First new exact citation.'},
+                {'source_id': 'R2', 'excerpt_id': 'R2-E1', 'source_url': 'https://source.example/two', 'text': 'Second new exact citation.'},
+            ],
+        }
+        recapture = AsyncMock(return_value=captured)
+        monkeypatch.setattr(factual_source_recapture, 'recapture_sources', recapture)
+        ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock())
+        checkpoints = []
+        assessments = []
+    
+        async def assess(working, stage):
+            assessments.append(stage)
+            refreshed = copy.deepcopy(working)
+            refreshed['claim_assessment'] = _assessed_receipt(
+                MACHINE, refreshed, SUBJECT, old_assessment['claims'],
+            )
+            return refreshed
+    
+        async def checkpoint(working, stage):
+            checkpoints.append((stage, copy.deepcopy(working)))
+            return True
+    
+        payload = {'_dvsu_known_sources': {
+            'machine': MACHINE,
+            'urls': ['https://source.example/one', 'https://source.example/two'],
+        }}
+        result = await handoff.supplement_missing_research(
+            ex, SUBJECT, MACHINE, payload, package, 'SS1', assess=assess, checkpoint=checkpoint,
+            guard=lambda _: True,
+        )
+    
+        recapture.assert_awaited_once()
+        assert set(recapture.await_args.args[3]) >= {'https://source.example/one', 'https://source.example/two'}
+        ex._gather_verified_machine_source_package.assert_not_awaited()
+        assert assessments == ['recapture_assessment']
+        assessed_checkpoint = next(working for stage, working in checkpoints if stage == 'recapture_assessment')
+        carried = assessed_checkpoint['claim_assessment']['dvsu_recovery']
+        assert carried == {
+            'version': 1,
+            'source_fingerprint': assessment_fingerprint(MACHINE, assessed_checkpoint, SUBJECT),
+            'stage': recovery_stage,
+            'missing_fields': ['design'],
+        }
+        assert result['prior_claim_assessments'][-1] == historical_assessment
+    
+>       retry = await handoff.supplement_missing_research(
+            ex, SUBJECT, MACHINE, {}, result, 'SS1', assess=assess, checkpoint=checkpoint,
+            guard=lambda _: True,
+        )
+
+tests/test_dvsu_research_handoff.py:175: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+dvsu_research_handoff.py:203: in supplement_missing_research
+    merged, discoveries, added = merge_research_sources(marked, supplement)
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+original = {'machine': 'SS-1 USS Holland', 'machine_key': 'SS1', 'sources': [{'source_id': 'N1', 'url': 'https://navy.example/hol...'excerpt_id': 'DVSU2-E1', 'source_url': 'https://source.example/two', 'text': 'Second new exact citation.', ...}], ...}
+supplement = <AsyncMock name='mock()' id='4394517840'>
+
+    def merge_research_sources(original, supplement):
+        """Keep old rows byte-equivalent; append new quotes with unique source IDs."""
+        merged = copy.deepcopy(original)
+        sources = merged.setdefault('sources', [])
+        excerpts = merged.setdefault('candidate_excerpts', [])
+        used_sources = {str(s.get('source_id')) for s in sources}
+        used_excerpts = {str(e.get('excerpt_id')) for e in excerpts}
+        seen = {(e.get('source_url'), e.get('text')) for e in excerpts}
+        source_map = {}
+        added = 0
+>       for source in supplement.get('sources') or []:
+E       TypeError: 'coroutine' object is not iterable
+
+dvsu_research_handoff.py:84: TypeError
+_ test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_completed] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107870090>
+recovery_stage = 'discovery_completed'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('recovery_stage', ['discovery_started', 'discovery_completed'])
+    async def test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery(monkeypatch, recovery_stage):
+        monkeypatch.setattr(handoff, 'package_brief', lambda *_: {'ready': False, 'missing_fields': ['design']})
+        import factual_source_recapture
+    
+        package = _package()
+        old_assessment = copy.deepcopy(package['claim_assessment'])
+        package['claim_assessment']['dvsu_recovery'] = {
+            'version': 1,
+            'source_fingerprint': assessment_fingerprint(MACHINE, package, SUBJECT),
+            'stage': recovery_stage,
+            'missing_fields': ['actual_use'],
+        }
+        historical_assessment = copy.deepcopy(package['claim_assessment'])
+        captured = {
+            'sources': [
+                {'source_id': 'R1', 'url': 'https://source.example/one'},
+                {'source_id': 'R2', 'url': 'https://source.example/two'},
+            ],
+            'candidate_excerpts': [
+                {'source_id': 'R1', 'excerpt_id': 'R1-E1', 'source_url': 'https://source.example/one', 'text': 'First new exact citation.'},
+                {'source_id': 'R2', 'excerpt_id': 'R2-E1', 'source_url': 'https://source.example/two', 'text': 'Second new exact citation.'},
+            ],
+        }
+        recapture = AsyncMock(return_value=captured)
+        monkeypatch.setattr(factual_source_recapture, 'recapture_sources', recapture)
+        ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock())
+        checkpoints = []
+        assessments = []
+    
+        async def assess(working, stage):
+            assessments.append(stage)
+            refreshed = copy.deepcopy(working)
+            refreshed['claim_assessment'] = _assessed_receipt(
+                MACHINE, refreshed, SUBJECT, old_assessment['claims'],
+            )
+            return refreshed
+    
+        async def checkpoint(working, stage):
+            checkpoints.append((stage, copy.deepcopy(working)))
+            return True
+    
+        payload = {'_dvsu_known_sources': {
+            'machine': MACHINE,
+            'urls': ['https://source.example/one', 'https://source.example/two'],
+        }}
+        result = await handoff.supplement_missing_research(
+            ex, SUBJECT, MACHINE, payload, package, 'SS1', assess=assess, checkpoint=checkpoint,
+            guard=lambda _: True,
+        )
+    
+        recapture.assert_awaited_once()
+        assert set(recapture.await_args.args[3]) >= {'https://source.example/one', 'https://source.example/two'}
+        ex._gather_verified_machine_source_package.assert_not_awaited()
+        assert assessments == ['recapture_assessment']
+        assessed_checkpoint = next(working for stage, working in checkpoints if stage == 'recapture_assessment')
+        carried = assessed_checkpoint['claim_assessment']['dvsu_recovery']
+        assert carried == {
+            'version': 1,
+            'source_fingerprint': assessment_fingerprint(MACHINE, assessed_checkpoint, SUBJECT),
+            'stage': recovery_stage,
+            'missing_fields': ['design'],
+        }
+        assert result['prior_claim_assessments'][-1] == historical_assessment
+    
+>       retry = await handoff.supplement_missing_research(
+            ex, SUBJECT, MACHINE, {}, result, 'SS1', assess=assess, checkpoint=checkpoint,
+            guard=lambda _: True,
+        )
+
+tests/test_dvsu_research_handoff.py:175: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+dvsu_research_handoff.py:203: in supplement_missing_research
+    merged, discoveries, added = merge_research_sources(marked, supplement)
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+original = {'machine': 'SS-1 USS Holland', 'machine_key': 'SS1', 'sources': [{'source_id': 'N1', 'url': 'https://navy.example/hol...'excerpt_id': 'DVSU2-E1', 'source_url': 'https://source.example/two', 'text': 'Second new exact citation.', ...}], ...}
+supplement = <AsyncMock name='mock()' id='4421732880'>
+
+    def merge_research_sources(original, supplement):
+        """Keep old rows byte-equivalent; append new quotes with unique source IDs."""
+        merged = copy.deepcopy(original)
+        sources = merged.setdefault('sources', [])
+        excerpts = merged.setdefault('candidate_excerpts', [])
+        used_sources = {str(s.get('source_id')) for s in sources}
+        used_excerpts = {str(e.get('excerpt_id')) for e in excerpts}
+        seen = {(e.get('source_url'), e.get('text')) for e in excerpts}
+        source_map = {}
+        added = 0
+>       for source in supplement.get('sources') or []:
+E       TypeError: 'coroutine' object is not iterable
+
+dvsu_research_handoff.py:84: TypeError
+=============================== warnings summary ===============================
+tests/test_dvsu_research_handoff.py::test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_started]
+tests/test_dvsu_research_handoff.py::test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_completed]
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/dvsu_research_handoff.py:84: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    for source in supplement.get('sources') or []:
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_dvsu_research_handoff.py::test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_started]
+FAILED tests/test_dvsu_research_handoff.py::test_explicit_recapture_carries_discovery_receipt_to_new_assessment_and_then_stops_recovery[discovery_completed]
+2 failed, 7 passed, 2 warnings in 0.18s

@@ -1,0 +1,31 @@
+{
+  "snapshot": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/script-compiler-2026-09-16/live-input.jsonl",
+  "input_sha256": "a0811d2f0c778d524dd53ade3afc219c0a58e5da65d0852a4c6a3eb42c41a09d",
+  "input_unchanged": true,
+  "cards_found": 20,
+  "compiled_count": 20,
+  "errors": [],
+  "packet_bytes": {
+    "max": 31554,
+    "median": 14707.5
+  },
+  "selected_facts": {
+    "total": 145,
+    "median": 8.0
+  },
+  "excluded_claims": {
+    "total": 59,
+    "median": 3.0
+  },
+  "all_deterministic": true,
+  "all_meaningful_mutations_invalidate": true,
+  "no_other_machine_content": true,
+  "writer_input_token_upper_bound": {
+    "max": 33861,
+    "overflow_count": 0
+  },
+  "review_input_token_upper_bound_from_saved_research_draft": {
+    "max": 39466,
+    "overflow_count": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "attempts": 1,
+  "body_bytes": 46615,
+  "final_url": "https://americanhistory.si.edu/subs/history/subsbeforenuc/early/holland.html",
+  "html_sha256": "28728a665a2e42d1577640122e676d6e5e598a0b28e4af6278b76c84ed1fa5b8",
+  "original_url": "https://americanhistory.si.edu/subs/history/subsbeforenuc/early/holland.html",
+  "redirect_history": [],
+  "response_content_type": "text/html; charset=UTF-8",
+  "retrieved_at_utc": "2026-09-16T23:48:31.654000+00:00",
+  "status_code": 403,
+  "success": false,
+  "timeout_seconds": 30,
+  "tls_verify": true,
+  "visible_text_chars": 101,
+  "visible_text_sha256": "c9a0538e0ede4ec69354242bac5de590cf077cd14f3ad74feb0966d7c6b34b7a"
+}

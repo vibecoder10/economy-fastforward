@@ -1,0 +1,378 @@
+................F...FF..FFFFFF...................F..........             [100%]
+=================================== FAILURES ===================================
+_ test_old_single_typed_source_refreshes_before_writer_and_uses_new_fingerprint _
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f656e0>, should_cancel=<AsyncMock ...story']}}}, ...}, 'I49 HMS Argus', {'machine': 'I49 HMS Argus', 'candidate_excerpts': []}, <AsyncMock id='4424993936'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107b94510>
+
+    def test_old_single_typed_source_refreshes_before_writer_and_uses_new_fingerprint(state, monkeypatch):
+        ex,video,machine,_package,writer=state
+        video['video_title']='Every British Aircraft Carrier Class Ever Built'
+        old={'search_queries':['HMS Argus history'],'typed_urls':['https://old.example/argus']}
+        refreshed={'search_queries':['HMS Argus aircraft carrier history'],
+                   'typed_urls':['https://new.example/argus','https://archive.example/argus']}
+        other={'machine':'Other','search_queries':['Other history']}
+        key=_install_source_packages(monkeypatch,video,machine,{'target':old,'other':other})
+        original_payload=video['research_payload']
+    
+        async def refresh(_video_id,title,payload,roster,target_machine=None):
+            assert title==video['video_title']
+            assert roster==[machine] and target_machine==machine
+            assert payload is not original_payload
+            assert key not in payload['machine_raw_source_packages']
+            payload['machine_raw_source_packages'][key]=refreshed
+            video['research_payload']=copy.deepcopy(payload)
+            return payload
+    
+        ex._run_unit_research_hold=AsyncMock(side_effect=refresh)
+        result=asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+        assert result['status']=='completed'
+>       ex._run_unit_research_hold.assert_awaited_once()
+
+backend/tests/functional/test_factual_machine_pipeline.py:379: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncMock id='4424999056'>
+
+    def assert_awaited_once(self):
+        """
+        Assert that the mock was awaited exactly once.
+        """
+        if not self.await_count == 1:
+            msg = (f"Expected {self._mock_name or 'mock'} to have been awaited once."
+                   f" Awaited {self.await_count} times.")
+>           raise AssertionError(msg)
+E           AssertionError: Expected mock to have been awaited once. Awaited 0 times.
+
+../../../../.local/share/uv/python/cpython-3.11.14-macos-aarch64-none/lib/python3.11/unittest/mock.py:2283: AssertionError
+_______ test_assessed_batch_prepares_only_preparable_machine_then_writes _______
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65e10>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4425949584'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107dd2810>
+
+    def test_assessed_batch_prepares_only_preparable_machine_then_writes(state, monkeypatch):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True}, {'ready': True},
+        ]
+    
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+>       assert result['status'] == 'completed'
+E       AssertionError: assert 'needs_review' == 'completed'
+E         
+E         - completed
+E         + needs_review
+
+backend/tests/functional/test_factual_machine_pipeline.py:467: AssertionError
+___ test_assessed_batch_compiles_from_payload_reloaded_after_ready_preflight ___
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65e50>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4425033296'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107cfd490>
+
+    def test_assessed_batch_compiles_from_payload_reloaded_after_ready_preflight(state, monkeypatch):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        fresh_package = {**package, 'revision': 'fresh-after-readiness'}
+        video['research_payload']['source_package'] = package
+        monkeypatch.setattr(
+            pe, '_verified_source_package_for_machine',
+            lambda payload, _machine: payload['source_package'],
+        )
+        seen_packets = []
+    
+        def packet(_machine, source_package, *_args):
+            seen_packets.append(source_package)
+            return {'compiler_version': 'test-compiler', 'packet_fingerprint': 'test-packet'}
+    
+        monkeypatch.setattr(fp, '_expected_script_packet', packet)
+    
+        async def ready(*_args):
+            video['research_payload']['source_package'] = fresh_package
+            return {'ready': True}
+    
+        ex.check_machine_script_preview_readiness.side_effect = ready
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+        assert result['status'] == 'completed'
+>       assert seen_packets and seen_packets[-1]['revision'] == 'fresh-after-readiness'
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'revision'
+
+backend/tests/functional/test_factual_machine_pipeline.py:498: KeyError
+__ test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c __
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65e30>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4424512848'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1075f5610>
+
+    def test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c(state, monkeypatch):
+        ex, video, machine, package, writer = state
+        second, third = 'HMS Courageous', 'HMS Glorious'
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        second_package = {'machine': second, 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}
+        third_package = {'machine': third, 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}
+        video['research_payload']['packages'] = {
+            machine: package, second: second_package, third: third_package,
+        }
+        monkeypatch.setattr(
+            pe, '_verified_source_package_for_machine',
+            lambda payload, requested: payload['packages'][requested],
+        )
+        monkeypatch.setattr(pe, '_machine_documentary_hold_roster', lambda _video: [machine, second, third])
+        cached_a = ' '.join(['cached-A'] * 80)
+        video['script_validation'] = {'machine_script_blocks': {machine: {
+            'passed': True, 'paragraph': cached_a, 'machine': machine, 'scene': 1,
+            'machine_script_contract': fp.CONTRACT,
+            'source_fingerprint': fp.source_fingerprint(machine, package),
+            'review_context_version': fs.REVIEW_CONTEXT_VERSION,
+            'subject_context': video['video_title'], 'compiler_version': 'test-compiler',
+            'packet_fingerprint': 'test-packet', 'saved': True,
+        }}}
+        readiness = {
+            machine: [{'ready': True}],
+            second: [{'ready': False, 'preparable': True}, {'ready': True}],
+            third: [{'ready': False, 'preparable': False, 'summary': 'source identity is unresolved'}],
+        }
+    
+        async def check(_video_id, requested):
+            return readiness[requested].pop(0)
+    
+        async def save(**kwargs):
+            block = {**kwargs['script_block'], 'saved': True}
+            video['script_validation'].setdefault('machine_script_blocks', {})[block['machine']] = block
+            return block
+    
+        ex.check_machine_script_preview_readiness.side_effect = check
+        ex._save_machine_script_block = AsyncMock(side_effect=save)
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine, second, third]))
+    
+        assert result['status'] == 'needs_review'
+>       ex.run_one_machine_research.assert_awaited_once_with('video', second)
+
+backend/tests/functional/test_factual_machine_pipeline.py:591: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncMock id='4424717392'>, args = ('video', 'HMS Courageous')
+kwargs = {}
+
+    def assert_awaited_once_with(self, /, *args, **kwargs):
+        """
+        Assert that the mock was awaited exactly once and with the specified
+        arguments.
+        """
+        if not self.await_count == 1:
+            msg = (f"Expected {self._mock_name or 'mock'} to have been awaited once."
+                   f" Awaited {self.await_count} times.")
+>           raise AssertionError(msg)
+E           AssertionError: Expected mock to have been awaited once. Awaited 0 times.
+
+../../../../.local/share/uv/python/cpython-3.11.14-macos-aarch64-none/lib/python3.11/unittest/mock.py:2311: AssertionError
+___________ test_assessed_batch_post_preparation_gate_blocks_writer ____________
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65e90>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4386488016'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107c30490>
+
+    def test_assessed_batch_post_preparation_gate_blocks_writer(state, monkeypatch):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True},
+            {'ready': False, 'preparable': False, 'summary': 'summary remains stale'},
+        ]
+    
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+        assert result['status'] == 'needs_review'
+>       ex.run_one_machine_research.assert_awaited_once_with('video', machine)
+
+backend/tests/functional/test_factual_machine_pipeline.py:609: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AsyncMock id='4424962704'>, args = ('video', 'I49 HMS Argus')
+kwargs = {}
+
+    def assert_awaited_once_with(self, /, *args, **kwargs):
+        """
+        Assert that the mock was awaited exactly once and with the specified
+        arguments.
+        """
+        if not self.await_count == 1:
+            msg = (f"Expected {self._mock_name or 'mock'} to have been awaited once."
+                   f" Awaited {self.await_count} times.")
+>           raise AssertionError(msg)
+E           AssertionError: Expected mock to have been awaited once. Awaited 0 times.
+
+../../../../.local/share/uv/python/cpython-3.11.14-macos-aarch64-none/lib/python3.11/unittest/mock.py:2311: AssertionError
+_ test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared0-None-cancelled] _
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65e20>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4425134544'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107b560d0>
+prepared = {'status': 'cancelled'}, mutate = None, expected = 'cancelled'
+
+    @pytest.mark.parametrize(
+        ('prepared', 'mutate', 'expected'),
+        [
+            ({'status': 'cancelled'}, None, 'cancelled'),
+            ({'status': 'paused'}, None, 'paused'),
+            ({'status': 'completed'}, lambda video, machine: video.update({'max_spend': 0}), 'paused'),
+        ],
+    )
+    def test_assessed_batch_stops_after_preparation_on_cancel_or_budget(state, monkeypatch, prepared, mutate, expected):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True}, {'ready': True},
+        ]
+    
+        async def prepare(*_args):
+            if mutate:
+                mutate(video, machine)
+            return prepared
+    
+        ex.run_one_machine_research.side_effect = prepare
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+>       assert result['status'] == expected
+E       AssertionError: assert 'needs_review' == 'cancelled'
+E         
+E         - cancelled
+E         + needs_review
+
+backend/tests/functional/test_factual_machine_pipeline.py:636: AssertionError
+_ test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared1-None-paused] _
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f661c0>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4425854736'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1056b0850>
+prepared = {'status': 'paused'}, mutate = None, expected = 'paused'
+
+    @pytest.mark.parametrize(
+        ('prepared', 'mutate', 'expected'),
+        [
+            ({'status': 'cancelled'}, None, 'cancelled'),
+            ({'status': 'paused'}, None, 'paused'),
+            ({'status': 'completed'}, lambda video, machine: video.update({'max_spend': 0}), 'paused'),
+        ],
+    )
+    def test_assessed_batch_stops_after_preparation_on_cancel_or_budget(state, monkeypatch, prepared, mutate, expected):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True}, {'ready': True},
+        ]
+    
+        async def prepare(*_args):
+            if mutate:
+                mutate(video, machine)
+            return prepared
+    
+        ex.run_one_machine_research.side_effect = prepare
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+>       assert result['status'] == expected
+E       AssertionError: assert 'needs_review' == 'paused'
+E         
+E         - paused
+E         + needs_review
+
+backend/tests/functional/test_factual_machine_pipeline.py:636: AssertionError
+_ test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared2-<lambda>-paused] _
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65dc0>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4424896336'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10576a810>
+prepared = {'status': 'completed'}, mutate = <function <lambda> at 0x1075f2840>
+expected = 'paused'
+
+    @pytest.mark.parametrize(
+        ('prepared', 'mutate', 'expected'),
+        [
+            ({'status': 'cancelled'}, None, 'cancelled'),
+            ({'status': 'paused'}, None, 'paused'),
+            ({'status': 'completed'}, lambda video, machine: video.update({'max_spend': 0}), 'paused'),
+        ],
+    )
+    def test_assessed_batch_stops_after_preparation_on_cancel_or_budget(state, monkeypatch, prepared, mutate, expected):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True}, {'ready': True},
+        ]
+    
+        async def prepare(*_args):
+            if mutate:
+                mutate(video, machine)
+            return prepared
+    
+        ex.run_one_machine_research.side_effect = prepare
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+>       assert result['status'] == expected
+E       AssertionError: assert 'needs_review' == 'paused'
+E         
+E         - paused
+E         + needs_review
+
+backend/tests/functional/test_factual_machine_pipeline.py:636: AssertionError
+_______ test_assessed_batch_stops_when_roster_drifts_during_preparation ________
+
+state = (namespace(tenant_id='tenant', _pipeline=namespace(anthropic=<object object at 0x100f65ea0>, should_cancel=<AsyncMock ...': 'I49 HMS Argus', 'candidate_excerpts': [], 'claim_assessment': {'status': 'assessed'}}, <AsyncMock id='4424619984'>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10572b490>
+
+    def test_assessed_batch_stops_when_roster_drifts_during_preparation(state, monkeypatch):
+        ex, video, machine, package, writer = state
+        _enable_assessed_batch(monkeypatch, ex, video, machine, package)
+        monkeypatch.setattr(
+            pe, '_machine_documentary_hold_roster',
+            lambda row: ['Other machine'] if row.get('drift') else [machine],
+        )
+        ex.check_machine_script_preview_readiness.side_effect = [
+            {'ready': False, 'preparable': True}, {'ready': True},
+        ]
+    
+        async def prepare(*_args):
+            video['drift'] = True
+            return {'status': 'completed'}
+    
+        ex.run_one_machine_research.side_effect = prepare
+        result = asyncio.run(fp.run_factual_script_hold(ex, 'video', video, [machine]))
+    
+>       assert result['status'] == 'failed'
+E       AssertionError: assert 'needs_review' == 'failed'
+E         
+E         - failed
+E         + needs_review
+
+backend/tests/functional/test_factual_machine_pipeline.py:658: AssertionError
+_ test_saved_ss2_weak_labels_leave_intended_role_and_design_missing_without_losing_facts _
+
+    def test_saved_ss2_weak_labels_leave_intended_role_and_design_missing_without_losing_facts():
+        packet = _packet("SS-2 USS Plunger", [
+            {"fact_id": "C1", "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.", "scope": "machine", "narrative_roles": ["intended_role"]},
+            {"fact_id": "C2", "claim": "USS Plunger (SS-2) was built at Crescent Shipyard under subcontract from J.P. Holland's company.", "scope": "machine", "narrative_roles": ["design"]},
+            {"fact_id": "C3", "claim": "USS Plunger (SS-2) had a displacement of 149 tons surfaced and 168 tons submerged.", "scope": "machine", "narrative_roles": ["design"]},
+            {"fact_id": "C4", "claim": "USS Plunger (SS-2) conducted a demonstration dive with President Theodore Roosevelt aboard.", "scope": "machine", "narrative_roles": ["actual_use"]},
+            {"fact_id": "C5", "claim": "USS Plunger (SS-2) was renamed USS A-1 on 17 November 1911.", "scope": "machine", "narrative_roles": ["actual_use"]},
+            {"fact_id": "C6", "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E.", "scope": "machine", "narrative_roles": ["actual_use"]},
+            {"fact_id": "C7", "claim": "USS Plunger (SS-2) was struck from the Naval Register and sold for scrapping.", "scope": "machine", "narrative_roles": ["outcome"]},
+        ])
+        original = copy.deepcopy(packet)
+    
+        brief = build_dvsu_brief(packet)
+    
+        assert BRIEF_VERSION == 2
+>       assert brief["ready"] is False
+E       assert True is False
+
+backend/tests/test_dvsu_role_quality.py:28: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_old_single_typed_source_refreshes_before_writer_and_uses_new_fingerprint
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_prepares_only_preparable_machine_then_writes
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_compiles_from_payload_reloaded_after_ready_preflight
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_full_batch_reuses_a_prepares_only_b_and_skips_hard_blocked_c
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_post_preparation_gate_blocks_writer
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared0-None-cancelled]
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared1-None-paused]
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_stops_after_preparation_on_cancel_or_budget[prepared2-<lambda>-paused]
+FAILED backend/tests/functional/test_factual_machine_pipeline.py::test_assessed_batch_stops_when_roster_drifts_during_preparation
+FAILED backend/tests/test_dvsu_role_quality.py::test_saved_ss2_weak_labels_leave_intended_role_and_design_missing_without_losing_facts
+10 failed, 50 passed in 1.01s

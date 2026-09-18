@@ -1,0 +1,103 @@
+F..FF............................................................        [100%]
+=================================== FAILURES ===================================
+__________ test_legacy_assessment_shape_and_explicit_role_validation ___________
+
+    def test_legacy_assessment_shape_and_explicit_role_validation():
+        package = _package()
+        candidates = {row['excerpt_id']: row for row in package['candidate_excerpts']}
+        claims = package['claim_assessment']['claims']
+>       assert _validated_claims(claims, candidates) == claims
+E       AssertionError: assert None == [{'id': 'C1', 'claim': 'SS-1 USS Holland was the first commissioned submarine in the United States Navy.', 'scope': 'i...turned that boat into a working school.', 'scope': 'synthetic narrative protocol fixture', 'status': 'supported', ...}]
+E        +  where None = _validated_claims([{'id': 'C1', 'claim': 'SS-1 USS Holland was the first commissioned submarine in the United States Navy.', 'scope': 'i...turned that boat into a working school.', 'scope': 'synthetic narrative protocol fixture', 'status': 'supported', ...}], {'E1': {'excerpt_id': 'E1', 'source_id': 'N1', 'source_url': 'https://navy.example/holland', 'source_title': 'Navy his...', 'source_id': 'N1', 'source_url': 'https://navy.example/holland', 'source_title': 'Synthetic protocol fixture', ...}})
+
+backend/tests/test_dvsu_research_handoff.py:18: AssertionError
+______ test_gap_recovery_one_gather_preserves_other_machine_and_original _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106b6ba90>
+
+    @pytest.mark.asyncio
+    async def test_gap_recovery_one_gather_preserves_other_machine_and_original(monkeypatch):
+        monkeypatch.setattr(handoff, 'package_brief', lambda *a: {'ready': False, 'missing_fields': ['actual_use']})
+        package = _package()
+        payload = {'machine_raw_source_packages': {'SS1': package, 'SS2': {'keep': True}}}
+        before = copy.deepcopy(payload)
+        supplement = {'sources': [{'source_id': 'N1', 'url': 'https://new.example/history'}],
+            'candidate_excerpts': [{'source_id': 'N1', 'excerpt_id': 'E1', 'source_url': 'https://new.example/history',
+                'text': 'Holland served as a training vessel.'}]}
+        ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock(return_value=supplement))
+>       result = await handoff.supplement_missing_research(ex, SUBJECT, MACHINE, payload, package, 'SS1')
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/tests/test_dvsu_research_handoff.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/dvsu_research_handoff.py:100: in supplement_missing_research
+    captured = await recapture_sources(ex, title, machine, urls)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ex = namespace(_gather_verified_machine_source_package=<AsyncMock id='4407630608'>)
+title = 'Every US Submarine Class Ever Built', machine = 'SS-1 USS Holland'
+urls = ['https://navy.example/holland']
+
+    async def recapture_sources(ex, title, machine, urls):
+        import httpx
+        from factual_source_search import guard_public_request
+        from factual_machine_research import candidate_mentions_machine
+        from contextual_source_identity import contextual_named_excerpt
+        from pipeline_executor import _sentence_candidates_from_source, _source_text_fingerprint, _source_tier_for_url
+        urls = validated_source_urls(urls)
+        package = {'machine': machine, 'sources': [], 'candidate_excerpts': [], 'search_queries': [], 'errors': []}
+        def matches(text, target):
+            return candidate_mentions_machine(text, target) or contextual_named_excerpt(text, target)
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, event_hooks={'request': [guard_public_request]}) as client:
+            for url in urls:
+>               text = await ex._fetch_source_text(client, url)
+                             ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute '_fetch_source_text'
+
+backend/factual_source_recapture.py:31: AttributeError
+______________ test_empty_supplement_preserves_original_evidence _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106d2a0d0>
+
+    @pytest.mark.asyncio
+    async def test_empty_supplement_preserves_original_evidence(monkeypatch):
+        monkeypatch.setattr(handoff, 'package_brief', lambda *a: {'ready': False, 'missing_fields': ['actual_use']})
+        package = _package()
+        ex = SimpleNamespace(_gather_verified_machine_source_package=AsyncMock(return_value={'sources': [], 'candidate_excerpts': []}))
+>       result = await handoff.supplement_missing_research(ex, SUBJECT, MACHINE, {}, package, 'SS1')
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/tests/test_dvsu_research_handoff.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+backend/dvsu_research_handoff.py:100: in supplement_missing_research
+    captured = await recapture_sources(ex, title, machine, urls)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ex = namespace(_gather_verified_machine_source_package=<AsyncMock id='4409436880'>)
+title = 'Every US Submarine Class Ever Built', machine = 'SS-1 USS Holland'
+urls = ['https://navy.example/holland']
+
+    async def recapture_sources(ex, title, machine, urls):
+        import httpx
+        from factual_source_search import guard_public_request
+        from factual_machine_research import candidate_mentions_machine
+        from contextual_source_identity import contextual_named_excerpt
+        from pipeline_executor import _sentence_candidates_from_source, _source_text_fingerprint, _source_tier_for_url
+        urls = validated_source_urls(urls)
+        package = {'machine': machine, 'sources': [], 'candidate_excerpts': [], 'search_queries': [], 'errors': []}
+        def matches(text, target):
+            return candidate_mentions_machine(text, target) or contextual_named_excerpt(text, target)
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, event_hooks={'request': [guard_public_request]}) as client:
+            for url in urls:
+>               text = await ex._fetch_source_text(client, url)
+                             ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute '_fetch_source_text'
+
+backend/factual_source_recapture.py:31: AttributeError
+=========================== short test summary info ============================
+FAILED backend/tests/test_dvsu_research_handoff.py::test_legacy_assessment_shape_and_explicit_role_validation
+FAILED backend/tests/test_dvsu_research_handoff.py::test_gap_recovery_one_gather_preserves_other_machine_and_original
+FAILED backend/tests/test_dvsu_research_handoff.py::test_empty_supplement_preserves_original_evidence
+3 failed, 62 passed in 0.35s

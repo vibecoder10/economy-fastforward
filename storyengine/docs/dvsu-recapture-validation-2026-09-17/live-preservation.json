@@ -1,0 +1,11 @@
+{
+  "checks": {
+    "production_script_unchanged": true,
+    "all20_source_packages_unchanged": true,
+    "roster_unchanged": true,
+    "all_saved_previews_unchanged": true,
+    "total_cost_unchanged": true
+  },
+  "passed": true,
+  "scope": "single no-spend readiness POST; no script or research job"
+}

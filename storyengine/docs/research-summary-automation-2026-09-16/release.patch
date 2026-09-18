@@ -1,0 +1,2192 @@
+diff --git a/storyengine/backend/actions.py b/storyengine/backend/actions.py
+index 6c69b665..67dc997c 100644
+--- a/storyengine/backend/actions.py
++++ b/storyengine/backend/actions.py
+@@ -1538,7 +1538,8 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+             if not isinstance(payload, dict):
+                 return None
+             from factual_machine_research import is_factual_machine_contract
+-            if saved_repair_only and is_factual_machine_contract(payload):
++            factual_summary_contract = is_factual_machine_contract(payload)
++            if saved_repair_only and factual_summary_contract:
+                 # Factual-card resumes are rebuilt from raw fetched excerpts
+                 # inside run_research; never route their old Anton failures
+                 # through the narrative surgical ladder.
+@@ -1548,20 +1549,66 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                 return None  # the roster itself is the problem — not this loop's job
+             hold_validation = payload.get("unit_research_hold_validation")
+             units = hold_validation.get("units") if isinstance(hold_validation, dict) else None
+-            if not isinstance(units, list) or not units:
++            if not isinstance(units, list):
+                 return None  # no locked roster (e.g. single-machine static_docu) — unchanged path
+-            total = len(units)
+-            pending = [
+-                (position, str(unit.get("machine") or ""))
+-                for position, unit in enumerate(units, start=1)
+-                if isinstance(unit, dict) and not unit.get("passed") and str(unit.get("machine") or "").strip()
+-            ]
++            subject_context = str(video_row.get("video_title") or video_row.get("headline") or "")
++            if factual_summary_contract:
++                # Factual summaries have a stricter completion law than the
++                # legacy Anton hold. The hold's `units` list can be partial
++                # after an interrupted bulk run, so enumerate the saved locked
++                # roster itself and treat every missing/stale summary verdict as
++                # pending. This never manufactures a pass from a short list.
++                from machine_research_summary import RESEARCH_SUMMARY_VERSION, research_summary_ready
++                from pipeline_executor import _machine_documentary_hold_roster, _verified_source_package_for_machine
++
++                roster = _machine_documentary_hold_roster(video_row)
++                if not roster:
++                    return None
++                unit_by_machine = {
++                    str(unit.get("machine") or "").strip(): unit
++                    for unit in units if isinstance(unit, dict) and str(unit.get("machine") or "").strip()
++                }
++                cards_by_machine = {
++                    str(card.get("unit") or card.get("machine") or card.get("name") or "").strip(): card
++                    for card in (payload.get("unit_research_cards") or [])
++                    if isinstance(card, dict) and str(card.get("unit") or card.get("machine") or card.get("name") or "").strip()
++                }
++
++                def _factual_machine_current(machine):
++                    unit = unit_by_machine.get(machine)
++                    card = cards_by_machine.get(machine)
++                    return bool(unit and unit.get("passed") and research_summary_ready(
++                        machine,
++                        _verified_source_package_for_machine(payload, machine),
++                        (card or {}).get("research_summary"),
++                        subject_context,
++                    ))
++
++                total = len(roster)
++                pending = [
++                    (position, machine) for position, machine in enumerate(roster, start=1)
++                    if not _factual_machine_current(machine)
++                ]
++                factual_retry_identity = (
++                    f"factual-summary:{payload.get('machine_script_contract')}:"
++                    f"summary-v{RESEARCH_SUMMARY_VERSION}:automation-v1"
++                )
++            else:
++                total = len(units)
++                pending = [
++                    (position, str(unit.get("machine") or ""))
++                    for position, unit in enumerate(units, start=1)
++                    if isinstance(unit, dict) and not unit.get("passed") and str(unit.get("machine") or "").strip()
++                ]
++                factual_retry_identity = ""
++                if not units:
++                    return None  # legacy behavior: requires its saved breakdown
+             if not pending:
+                 return None  # every machine already reads passed but the gate still
+                 # refused to advance — a real bug, not something this loop can fix blind.
+ 
+             attempts_raw = payload.get("roster_loop_attempts")
+-            attempts: dict[str, int] = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
++            attempts: dict = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
+             repair_attempts_raw = payload.get("roster_surgical_repair_attempts")
+             repair_attempts: dict[str, int] = (
+                 dict(repair_attempts_raw) if isinstance(repair_attempts_raw, dict) else {}
+@@ -1605,6 +1652,32 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+             done = total - len(pending)
+             failures: list[str] = []
+ 
++            def _prior_attempts(machine: str) -> int:
++                value = attempts.get(machine, 0)
++                if not factual_summary_contract:
++                    return int(value or 0)
++                if isinstance(value, dict):
++                    return int(value.get(factual_retry_identity, 0) or 0)
++                # Safely migrate a legacy scalar without globally resetting it:
++                # retain the old count and leave one bounded attempt for this
++                # versioned factual-summary contract when it was previously capped.
++                legacy_count = int(value or 0)
++                attempts[machine] = {
++                    "legacy": legacy_count,
++                    factual_retry_identity: min(legacy_count, _MAX_AUTO_ATTEMPTS - 1),
++                }
++                return int(attempts[machine][factual_retry_identity])
++
++            def _record_attempt(machine: str, prior_attempts: int) -> None:
++                if factual_summary_contract:
++                    value = attempts.get(machine)
++                    if not isinstance(value, dict):
++                        value = {"legacy": int(value or 0)}
++                    value[factual_retry_identity] = prior_attempts + 1
++                    attempts[machine] = value
++                else:
++                    attempts[machine] = prior_attempts + 1
++
+             async def _saved_machine_passed(machine: str) -> bool:
+                 """Read the repaired verdict back from the saved video payload."""
+                 saved = await ex._get_video(video_id) or {}
+@@ -1620,12 +1693,26 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                 )
+                 units = validation.get("units") if isinstance(validation, dict) else None
+                 machine_key = machine.strip().casefold()
+-                return any(
++                passed = any(
+                     isinstance(unit, dict)
+                     and str(unit.get("machine") or "").strip().casefold() == machine_key
+                     and bool(unit.get("passed"))
+                     for unit in (units or [])
+                 )
++                if not (passed and factual_summary_contract):
++                    return passed
++                current_payload = saved_payload if isinstance(saved_payload, dict) else {}
++                current_cards = current_payload.get("unit_research_cards") or []
++                card = next((item for item in current_cards if isinstance(item, dict)
++                             and str(item.get("unit") or item.get("machine") or item.get("name") or "").strip() == machine), None)
++                from machine_research_summary import research_summary_ready
++                from pipeline_executor import _verified_source_package_for_machine
++                return research_summary_ready(
++                    machine,
++                    _verified_source_package_for_machine(current_payload, machine),
++                    (card or {}).get("research_summary"),
++                    str(saved.get("video_title") or saved.get("headline") or subject_context),
++                )
+ 
+             async def _repair_saved_machine(machine: str, position: int) -> tuple[bool, Optional[dict], Optional[dict]]:
+                 """Run one persisted-card surgical pass, independently bounded."""
+@@ -1678,10 +1765,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                 policy_error = await _queue_policy_error()
+                 if policy_error:
+                     return {"status": "paused", "message": policy_error}
+-                prior_attempts = int(attempts.get(machine, 0) or 0)
++                prior_attempts = _prior_attempts(machine)
+                 load_repair_context = getattr(ex, "_load_machine_repair_context", None)
+                 saved_card = False
+-                if callable(load_repair_context):
++                if not factual_summary_contract and callable(load_repair_context):
+                     repair_context = await load_repair_context(video_id, machine) or {}
+                     saved_card = isinstance(repair_context.get("card"), dict)
+                 if saved_card:
+@@ -1737,10 +1824,27 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                     video_id, "running",
+                     f"Researching machine {position}/{total}: {machine}",
+                     tenant_id=tenant_id)
+-                result = await ex.run_one_machine_research(video_id, machine) or {}
++                try:
++                    result = await ex.run_one_machine_research(video_id, machine) or {}
++                except Exception as exc:  # noqa: BLE001 - deliberately narrow classifier below
++                    from machine_research_summary import is_recoverable_research_error
++                    if not factual_summary_contract or not is_recoverable_research_error(exc):
++                        raise
++                    # Continue other independent locked entries, but retain a
++                    # bounded retry record for this machine and give the
++                    # creator a safe card-level next action at the end.
++                    result = {
++                        "status": "needs_review",
++                        "warnings": ["temporary research connection issue; retry this machine from Research"],
++                    }
+                 if result.get("status") == "completed":
+-                    done += 1
+-                    continue
++                    if not factual_summary_contract or await _saved_machine_passed(machine):
++                        done += 1
++                        continue
++                    result = {
++                        "status": "needs_review",
++                        "warnings": ["saved sourced summary was not current after research"],
++                    }
+                 _raise_provider_failure(result)
+ 
+                 # The verified one-machine writer already made its two generic
+@@ -1750,7 +1854,7 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                 # citation repair, and one-field rewrites are the only permitted
+                 # actions, bounded by both the video's remaining cap and the
+                 # ladder's own four-action/$1 ceiling.
+-                if result.get("status") == "needs_review":
++                if not factual_summary_contract and result.get("status") == "needs_review":
+                     repaired, repair_result, paused = await _repair_saved_machine(machine, position)
+                     if paused:
+                         return paused
+@@ -1769,11 +1873,26 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                 warning = "; ".join(str(w) for w in (result.get("warnings") or [])) \
+                     or result.get("error") or "research did not pass review"
+                 failures.append(f"{machine}: {warning}"[:220])
+-                attempts[machine] = prior_attempts + 1
++                _record_attempt(machine, prior_attempts)
+                 await _persist_attempts()
+             if saved_repair_only and missing_saved_card:
+                 return None
+             if failures:
++                if factual_summary_contract:
++                    # Do not funnel arbitrary provider/referee text through a
++                    # user-facing task error. The locked labels are local data,
++                    # and this app-authored next action survives the task-status
++                    # sanitizer without leaking upstream details.
++                    from error_utils import user_facing
++                    named = ", ".join(item.split(":", 1)[0] for item in failures[:4])
++                    return {
++                        "status": "needs_review",
++                        "message": user_facing(
++                            f"{done}/{total} machines have current sourced summaries. "
++                            f"Research still needs review for: {named}. "
++                            "Open Research to resolve those cards, then resume Run All."
++                        ),
++                    }
+                 return {
+                     "status": "needs_review",
+                     "message": (
+@@ -1781,6 +1900,27 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                         + "; ".join(failures)
+                     )[:1500],
+                 }
++            if factual_summary_contract:
++                # A worker result is only a claim. Re-read the persisted
++                # package/card graph for the locked roster before allowing
++                # agent-led scripting to consume it.
++                saved = await ex._get_video(video_id) or {}
++                from factual_machine_pipeline import factual_research_readiness
++                from pipeline_executor import _machine_documentary_hold_roster
++                saved_roster = _machine_documentary_hold_roster(saved)
++                if saved_roster != roster or not factual_research_readiness(
++                    saved.get("research_payload") or {},
++                    saved_roster,
++                    str(saved.get("video_title") or saved.get("headline") or subject_context),
++                ):
++                    from error_utils import user_facing
++                    return {
++                        "status": "needs_review",
++                        "message": user_facing(
++                            f"{done}/{total} machines have current sourced summaries. "
++                            "Open Research to resolve those cards, then resume Run All."
++                        ),
++                    }
+             await _advance("ready_for_scripting")
+             return {"status": "ready_for_scripting"}
+ 
+@@ -1971,6 +2111,23 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
+                                     _set_task_status(video_id, terminal, gathered.get("message") or gathered.get("error") or "Saved-roster images need review.", tenant_id=tenant_id)
+                                     return
+                                 _set_task_status(video_id, "running", "Researching the saved roster…", tenant_id=tenant_id)
++                                # Factual Run All must enter the bounded
++                                # per-machine loop directly. Calling the bulk
++                                # unit method first can repurchase a failed
++                                # card before roster_loop_attempts gets a say.
++                                from factual_machine_research import is_factual_machine_contract
++                                if is_factual_machine_contract(payload_for_progress):
++                                    repaired = await _run_static_docu_roster_research()
++                                    if repaired is not None:
++                                        if repaired.get("status") == "ready_for_scripting":
++                                            continue
++                                        _set_task_status(
++                                            video_id,
++                                            "completed" if repaired.get("status") == "paused" else repaired.get("status", "failed"),
++                                            repaired.get("message") or "Saved-roster research needs review.",
++                                            tenant_id=tenant_id,
++                                        )
++                                        return
+                                 r = await ex.run_unit_research(video_id) or {}
+                                 _raise_provider_failure(r)
+                                 if r.get("status") == "ready_for_scripting":
+diff --git a/storyengine/backend/factual_machine_pipeline.py b/storyengine/backend/factual_machine_pipeline.py
+index a390feb8..2654f082 100644
+--- a/storyengine/backend/factual_machine_pipeline.py
++++ b/storyengine/backend/factual_machine_pipeline.py
+@@ -26,6 +26,34 @@ def source_fingerprint(machine, package):
+     ).encode()).hexdigest()
+ 
+ 
++def current_research_briefings(payload, roster, subject_context=''):
++    """Return current saved factual research briefings in locked roster order."""
++    from machine_research_summary import research_summary_ready
++    from pipeline_executor import _research_card_for_machine, _verified_source_package_for_machine
++
++    payload = _object(payload)
++    briefings = []
++    for scene, machine in enumerate(roster or [], 1):
++        card = _research_card_for_machine(payload, machine) or {}
++        package = _verified_source_package_for_machine(payload, machine)
++        summary = card.get('research_summary') if isinstance(card, dict) else None
++        if not research_summary_ready(machine, package, summary, subject_context):
++            continue
++        briefings.append({
++            'machine': machine,
++            'scene': scene,
++            'paragraph': summary['paragraph'],
++            'claim_map': summary['claim_map'],
++            'sources': summary['sources'],
++        })
++    return briefings
++
++
++def factual_research_readiness(payload, roster, subject_context='') -> bool:
++    """Require one current saved factual research briefing for every locked unit."""
++    return bool(roster) and len(current_research_briefings(payload, roster, subject_context)) == len(roster)
++
++
+ def factual_script_readiness(video, roster) -> bool:
+     """Return whether every factual block is approved for this exact subject and source set."""
+     from factual_machine_summary import REVIEW_CONTEXT_VERSION
+@@ -78,6 +106,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
+         if row.get('voice_over_url') or row.get('voice_status') == 'Done'
+     }
+     subject_context = str(video.get('video_title') or video.get('headline') or '')
++    research_briefings = current_research_briefings(_object(video.get('research_payload')), roster, subject_context)
+     failures = []
+     results = []
+     for scene, machine in selected:
+@@ -190,6 +219,7 @@ async def run_factual_script_hold(ex, video_id, video, roster, target_machine=No
+             summary = await generate_factual_machine_summary(
+                 machine, package, client, subject_context=subject_context,
+                 previous_summary=prior_review,
++                research_briefings=research_briefings,
+             )
+             summary = {**summary, 'length_target_attempted': True}
+         block = {**summary, 'machine': machine, 'scene': scene,
+diff --git a/storyengine/backend/factual_machine_research.py b/storyengine/backend/factual_machine_research.py
+index 86a7bbbb..228cfbbc 100644
+--- a/storyengine/backend/factual_machine_research.py
++++ b/storyengine/backend/factual_machine_research.py
+@@ -30,6 +30,80 @@ def _identity_key(value: Any) -> str:
+     return "".join(_words(value))
+ 
+ 
++_NAVAL_HULL_PREFIX_RE = re.compile(
++    r"^(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)(?:\s*(?:,|through|to|range)\s*(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)?)*\s+",
++    re.IGNORECASE,
++)
++
++
++def factual_research_subject(machine: Any) -> str:
++    """Return a searchable factual subject without changing locked identity.
++
++    Documentary roster display names can begin with a naval hull range.  That
++    range is useful bookkeeping, but it is not normally repeated in source
++    prose about the class.  Remove only that syntactic prefix; retain the
++    actual class/variant words, including single-letter class names.
++    """
++    raw = str(machine or "").strip()
++    return _NAVAL_HULL_PREFIX_RE.sub("", raw).strip() or raw
++
++
++def _matches_designation(text: str, machine: str) -> bool:
++    """True only for a complete designation from the locked display name."""
++    for code in re.findall(r"\b(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?\b", machine, re.I):
++        pieces = re.findall(r"[A-Za-z]+|[0-9]+", code.rstrip("+"))
++        pattern = r"(?<![a-z0-9])" + r"[\s.\-‐‑–—]*".join(re.escape(piece) for piece in pieces) + r"(?![a-z0-9])"
++        if re.search(pattern, text, re.I):
++            return True
++    return False
++
++
++def _matches_class_subject(text: str, subject: str) -> bool:
++    """Match a meaningful class phrase, never a bare class/range token."""
++    words = _words(subject)
++    if len(words) < 2 or words[-1] != "class" or all(word in {"class", "through"} for word in words):
++        return False
++    pattern = r"(?<![a-z0-9])" + r"[^a-z0-9]+".join(re.escape(word) for word in words) + r"(?![a-z0-9])"
++    return bool(re.search(pattern, text, re.I))
++
++
++def _matches_class_lead_with_designation(text: str, machine: str, subject: str) -> bool:
++    """Require both the distinctive lead-vessel name and a locked hull code."""
++    lead_words = _words(re.sub(r"\bclass\b", "", subject, flags=re.I))
++    if not lead_words or not _matches_designation(text, machine):
++        return False
++    lead = r"[^a-z0-9]+".join(re.escape(word) for word in lead_words)
++    return bool(re.search(r"(?<![a-z0-9])" + lead + r"(?![a-z0-9])", text, re.I))
++
++
++def _matches_single_hull_lead(text: str, machine: str, subject: str) -> bool:
++    """Accept a named lead vessel only for a single locked hull identity.
++
++    Some historic one-boat source pages call the vessel by its name rather than
++    repeat its hull code or class label.  Keep this narrow: range labels never
++    use it, and the same sentence must tie the name to a Navy submarine event.
++    """
++    hulls = re.findall(r"\b(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\b", machine, re.I)
++    lead_words = _words(re.sub(r"\bclass\b", "", subject, flags=re.I))
++    if len(hulls) != 1 or not lead_words:
++        return False
++    lead = r"[\s.\-‐‑–—']+".join(re.escape(word) for word in lead_words)
++    name = re.compile(r"(?<![a-z0-9])" + lead + r"(?![a-z0-9])", re.I)
++    vessel_event = re.compile(
++        r"\b(?:navy\s+(?:trials|purchased|commissioned)|"
++        r"(?:trials|modifications)\s+(?:to|of)|"
++        r"purchased\s+(?:the\s+)?submarine|"
++        r"commissioned\s+(?:the\s+)?submarine)\b",
++        re.I,
++    )
++    return any(
++        name.search(sentence)
++        and "submarine" in sentence.casefold()
++        and vessel_event.search(sentence)
++        for sentence in re.split(r"[.!?;]+", text)
++    )
++
++
+ def is_factual_machine_contract(payload: Any) -> bool:
+     return isinstance(payload, dict) and payload.get("machine_script_contract") == FACTUAL_MACHINE_SCRIPT_CONTRACT
+ 
+@@ -56,6 +130,15 @@ def candidate_mentions_machine(text: Any, machine: Any) -> bool:
+     """Match exact aircraft designations or distinctive vessel names."""
+     raw_machine = str(machine or "").strip()
+     source_text = str(text or "")
++    subject = factual_research_subject(raw_machine)
++    # Class display labels with naval range bookkeeping require the actual
++    # class phrase, or both a distinctive lead-vessel name and exact hull.
++    # Do this before the legacy named-vessel guard, whose ordered-token fallback would otherwise
++    # require source prose to repeat words such as "through".
++    if re.search(r"\bclass\b", subject, re.I):
++        return (_matches_class_subject(source_text, subject)
++                or _matches_class_lead_with_designation(source_text, raw_machine, subject)
++                or _matches_single_hull_lead(source_text, raw_machine, subject))
+     # Match aircraft designations before nickname tokenization. Dropping the
+     # digit in XNBL-1 made the old phrase impossible to find; using only
+     # Superfortress admitted B-50 evidence for a B-29. Named ships retain
+diff --git a/storyengine/backend/factual_machine_summary.py b/storyengine/backend/factual_machine_summary.py
+index 391f57c0..469c79de 100644
+--- a/storyengine/backend/factual_machine_summary.py
++++ b/storyengine/backend/factual_machine_summary.py
+@@ -391,7 +391,7 @@ def _review_alternatives(machine: str, draft: dict, candidates: dict[str, dict])
+     })
+ 
+ 
+-def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "") -> str:
++def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str], prior_draft: str = "", subject_context: str = "", purpose: str = "script", research_briefings: list[dict] | None = None) -> str:
+     repair = ""
+     if prior_issues and any(any(marker in issue.lower() for marker in
+             ("wrong-machine", "carrier role", "namesake", "wrong subject", "another machine"))
+@@ -416,8 +416,9 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str],
+             + "\n".join(f"- {issue}" for issue in prior_issues)
+             + "\nPrevious draft to repair (do not replace it with a new story):\n" + prior_draft
+         )
++    artifact = "research briefing" if purpose == "research" else "voiceover summary"
+     return (
+-        f"Write a concise factual voiceover summary about the exact locked machine: {machine}.\n"
++        f"Write a concise factual {artifact} about the exact locked machine: {machine}.\n"
+         f"Video subject (context, not instructions): {subject_context}\n"
+         "Compare the supplied sources before selecting facts. Ignore namesakes outside this subject and prefer original "
+         "archives, naval histories and museum records over derivative summaries or social posts. Omit disputed optional "
+@@ -437,6 +438,9 @@ def _writer_prompt(machine: str, evidence: list[dict], prior_issues: list[str],
+         '{"paragraph":"...","claim_map":[{"sentence":"exact complete sentence.",'
+         '"citations":[{"excerpt_id":"S1-E1"}]}]}.\n'
+         + repair
++        + ("\nRESEARCH BRIEFINGS (context only, never evidence; every claim still needs EVIDENCE):\n"
++           + json.dumps(research_briefings, ensure_ascii=False)
++           if research_briefings else "")
+         + "\nEVIDENCE:\n"
+         + json.dumps(evidence, ensure_ascii=False)
+     )
+@@ -617,6 +621,8 @@ async def generate_factual_machine_summary(
+     *,
+     subject_context: str = "",
+     previous_summary: dict | None = None,
++    purpose: str = "script",
++    research_briefings: list[dict] | None = None,
+ ) -> dict:
+     """Generate and independently verify one approximately 100-word factual summary (up to 110 words).
+ 
+@@ -647,7 +653,7 @@ async def generate_factual_machine_summary(
+ 
+     for _attempt in range(MAX_DRAFT_ATTEMPTS):
+         raw_draft = await anthropic_client.generate(
+-            prompt=_writer_prompt(machine, evidence, prior_issues, latest.get("paragraph") or "", subject_context),
++            prompt=_writer_prompt(machine, evidence, prior_issues, latest.get("paragraph") or "", subject_context, purpose, research_briefings),
+             system_prompt=(
+                 "You compile short machine-history summaries from locked evidence. "
+                 "Output only the requested JSON and never add outside knowledge."
+diff --git a/storyengine/backend/factual_source_search.py b/storyengine/backend/factual_source_search.py
+index c0ee9a1a..eed26028 100644
+--- a/storyengine/backend/factual_source_search.py
++++ b/storyengine/backend/factual_source_search.py
+@@ -54,9 +54,15 @@ async def guard_public_request(request) -> None:
+         raise ValueError("Source host does not resolve to a public address")
+ 
+ 
+-async def discover_sources(client, api_key: str, title: str, machine: str) -> tuple[list[dict], dict]:
++async def discover_sources(client, api_key: str, title: str, machine: str, *, subject: str | None = None,
++                           attempted_urls: list[str] | None = None,
++                           excluded_hosts: list[str] | None = None) -> tuple[list[dict], dict]:
++    subject = str(subject or machine).strip()
++    prior = list(dict.fromkeys(str(url).strip() for url in (attempted_urls or []) if str(url).strip()))
++    blocked = list(dict.fromkeys(str(host).strip() for host in (excluded_hosts or []) if str(host).strip()))
+     prompt = (
+-        f"Use web search to find 6 real source pages specifically about {machine!r} "
++        f"Use web search to find 6 real source pages specifically about the subject {subject!r} "
++        f"(locked roster identity: {machine!r}) "
+         f"for a factual documentary titled {title!r}. Prefer official government, manufacturer, "
+         "museum and archive history/fact-sheet pages. Include service, development, production "
+         "and design facts. Match the exact aircraft variant or named vessel; do not substitute "
+@@ -64,6 +70,10 @@ async def discover_sources(client, api_key: str, title: str, machine: str) -> tu
+         "Return only a compact JSON array of objects with title and exact_source_url. "
+         "Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
+     )
++    if prior:
++        prompt += " Do not repeat these already attempted URLs: " + ", ".join(prior[:24]) + "."
++    if blocked:
++        prompt += " Avoid these hosts because they produced no readable capture: " + ", ".join(blocked[:12]) + "."
+     try:
+         response = await client.post(ENDPOINT, headers={"Authorization": "Bearer " + api_key}, json={
+             "messages": [{"role": "user", "content": prompt}],
+@@ -121,5 +131,5 @@ async def discover_sources(client, api_key: str, title: str, machine: str) -> tu
+     return leads, {
+         "provider": "kie", "model": MODEL, "request_id": data.get("id"),
+         "credits_consumed": credits, "usage": data.get("usage"),
+-        "lead_count": len(leads), "search_tool": "web_search",
++        "lead_count": len(leads), "search_tool": "web_search", "subject": subject,
+     }
+diff --git a/storyengine/backend/pipeline_executor.py b/storyengine/backend/pipeline_executor.py
+index ffb46a68..0c92b6d6 100644
+--- a/storyengine/backend/pipeline_executor.py
++++ b/storyengine/backend/pipeline_executor.py
+@@ -19,7 +19,7 @@ import re
+ import hashlib
+ import unicodedata
+ from datetime import datetime, timezone
+-from typing import Optional, Any
++from typing import Optional, Any, Callable
+ from pathlib import Path
+ from urllib.parse import urlparse
+ 
+@@ -1208,7 +1208,8 @@ def _opening_assignment_warnings(machine: str, paragraph: str, opening_assignmen
+     return []
+ 
+ 
+-def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -> list[str]:
++def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10,
++                                     matcher: Optional[Callable[[str, str], bool]] = None) -> list[str]:
+     import re as _re
+ 
+     cleaned = " ".join(str(text or "").split())
+@@ -1224,7 +1225,7 @@ def _sentence_candidates_from_source(text: str, machine: str, limit: int = 10) -
+     seen: set[str] = set()
+     for span in (1, 2, 3):
+         for index, sentence in enumerate(raw_sentences):
+-            if not _mentions_machine(sentence, machine) or index + span > len(raw_sentences):
++            if not (matcher or _mentions_machine)(sentence, machine) or index + span > len(raw_sentences):
+                 continue
+             window = " ".join(raw_sentences[index:index + span]).strip()
+             if len(window) < 45 or len(window) > 720:
+@@ -4208,6 +4209,7 @@ def _research_card_contract_warnings(
+     card: dict,
+     source_package: Optional[dict] = None,
+     require_source_package: bool = False,
++    factual_subject_context: Optional[str] = None,
+ ) -> list[str]:
+     """Shared DVsU one-machine research-card contract before save or spend.
+ 
+@@ -4218,7 +4220,17 @@ def _research_card_contract_warnings(
+     import copy as _copy
+     if isinstance(card, dict) and card.get("machine_research_contract") == "factual_100_v1":
+         from factual_machine_research import factual_card_contract_warnings
+-        return factual_card_contract_warnings(machine, card, source_package)
++        warnings = factual_card_contract_warnings(machine, card, source_package)
++        # New factual cards carry an independently reviewed research briefing.
++        # Preserve excerpt-only legacy cards as resumable inputs, but never let
++        # a stored failed/stale briefing be revalidated as a passing card.
++        if "research_summary" in card:
++            from machine_research_summary import research_summary_ready
++            context = (str(factual_subject_context) if factual_subject_context is not None
++                       else str((card.get("research_summary") or {}).get("subject_context") or ""))
++            if not research_summary_ready(machine, source_package, card.get("research_summary"), context):
++                warnings.append("factual research summary is missing, failed, or stale for the current sources/context")
++        return list(dict.fromkeys(warnings))
+     warnings: list[str] = []
+     if not isinstance(card, dict):
+         return ["research card was not an object"]
+@@ -4783,7 +4795,12 @@ def _merge_card_into_review_cards(existing_cards: list, card: dict, machine: str
+     return merged
+ 
+ 
+-def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: list[str]) -> dict:
++def _hold_validation_with_unit_verdict(
++    payload: dict,
++    machine: str,
++    warnings: list[str],
++    locked_roster: Optional[list[str]] = None,
++) -> dict:
+     """Update one machine's entry inside unit_research_hold_validation.
+ 
+     G14, 2026-07-31: passed is computed from BLOCKING warnings only; the
+@@ -4792,9 +4809,36 @@ def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: li
+     validation = payload.get("unit_research_hold_validation")
+     validation = dict(validation) if isinstance(validation, dict) else {}
+     units = [dict(unit) for unit in (validation.get("units") or []) if isinstance(unit, dict)]
+-    code = _normalized_unit_code(machine)
+     blocking = _blocking_warnings(warnings)
+     entry = {"machine": machine, "passed": not blocking, "warnings": list(warnings)}
++    if locked_roster:
++        # A partial verdict list is never a completed roster. Resolve using the
++        # roster's display-name-first index helper so colliding normalized codes
++        # cannot overwrite a different unit.
++        prior_by_index = {
++            index: unit for unit in units
++            if (index := _roster_index_for_identity(locked_roster, unit.get("machine") or "")) is not None
++        }
++        target_index = _roster_index_for_identity(locked_roster, machine)
++        normalized_units = []
++        for index, roster_machine in enumerate(locked_roster, start=1):
++            if index == target_index:
++                normalized_units.append(entry)
++            elif index in prior_by_index:
++                normalized_units.append(prior_by_index[index])
++            else:
++                normalized_units.append({
++                    "machine": roster_machine,
++                    "passed": False,
++                    "warnings": ["Factual research summary pending"],
++                })
++        validation["units"] = normalized_units
++        validation["passed"] = bool(normalized_units) and all(unit.get("passed") for unit in normalized_units)
++        validation["in_progress"] = False
++        validation["target_machine"] = machine
++        validation["target_machine_passed"] = not blocking
++        return validation
++    code = _normalized_unit_code(machine)
+     replaced = False
+     for index, unit in enumerate(units):
+         if _normalized_unit_code(str(unit.get("machine") or "")) == code:
+@@ -9607,7 +9651,10 @@ class PipelineExecutor:
+         ):
+             return cached
+ 
+-        from factual_machine_research import is_factual_machine_contract, factual_package_contract_warnings
++        from factual_machine_research import (
++            candidate_mentions_machine, factual_package_contract_warnings,
++            factual_research_subject, is_factual_machine_contract,
++        )
+         from factual_source_search import discover_sources, guard_public_request, SourceDiscoveryError
+         factual_search = is_factual_machine_contract(payload)
+         search_key = await get_secret("kie_ai_api_key" if factual_search else "tavily_api_key", self.tenant_id)
+@@ -9634,6 +9681,7 @@ class PipelineExecutor:
+         skipped_search_queries: list[str] = []
+         headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
+         discovery = None
++        discovery_requests: list[dict] = []
+         hooks = {"request": [guard_public_request]} if factual_search else None
+         async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers, event_hooks=hooks) as client:
+             search_passes = [(query, None) for query in queries]
+@@ -9700,7 +9748,11 @@ class PipelineExecutor:
+                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
+ 
+             if factual_search:
+-                search_results, discovery = await discover_sources(client, search_key, title, machine)
++                search_results, discovery = await discover_sources(
++                    client, search_key, title, machine,
++                    subject=factual_research_subject(machine),
++                )
++                discovery_requests.append(discovery)
+             else:
+                 for query, include_domains in search_passes:
+                     await _run_search_pass(query, include_domains)
+@@ -9709,6 +9761,7 @@ class PipelineExecutor:
+             candidate_excerpts: list[dict] = []
+             search_result_audit: list[dict] = []
+             seen_urls: set[str] = set()
++            empty_capture_hosts: set[str] = set()
+ 
+             async def _process_search_result(item: dict) -> None:
+                 url = str(item.get("url") or "").strip()
+@@ -9736,7 +9789,7 @@ class PipelineExecutor:
+                         "source_capture_method": capture_method,
+                         "text_chars": len(source_text or ""),
+                         "text_hash": _source_text_fingerprint(source_text) if source_text else "",
+-                        "mentions_machine": bool(source_text and _mentions_machine(source_text, machine)),
++                        "mentions_machine": bool(source_text and (candidate_mentions_machine(source_text, machine) if factual_search else _mentions_machine(source_text, machine))),
+                     }
+                     if not source_text:
+                         variant_row["rejected_reason"] = "empty_capture"
+@@ -9746,7 +9799,10 @@ class PipelineExecutor:
+                         variant_row["rejected_reason"] = "machine_not_found_in_capture"
+                         variant_audit.append(variant_row)
+                         return False
+-                    excerpt_candidates = _sentence_candidates_from_source(source_text, machine, limit=10)
++                    excerpt_candidates = _sentence_candidates_from_source(
++                        source_text, machine, limit=10,
++                        matcher=candidate_mentions_machine if factual_search else None,
++                    )
+                     variant_row["excerpt_count"] = len(excerpt_candidates)
+                     if not excerpt_candidates:
+                         variant_row["rejected_reason"] = "no_sentence_excerpt_candidates"
+@@ -9780,6 +9836,10 @@ class PipelineExecutor:
+                         _register_variant(fallback_method, fallback_text, -1)
+ 
+                 if not source_variants:
++                    if not fetched_text and not raw_content:
++                        host = (urlparse(url).hostname or "").lower()
++                        if host:
++                            empty_capture_hosts.add(host)
+                     search_result_audit.append({
+                         "url": url,
+                         "title": title_text,
+@@ -9870,6 +9930,23 @@ class PipelineExecutor:
+                     break
+                 await _process_search_result(item)
+ 
++            # Factual Kie discovery gets one alternate lead wave only when its
++            # fetched candidates produced no usable exact-subject excerpts.
++            # Preserve first-wave audits/evidence and avoid hosts that were
++            # wholly unreadable in that wave.
++            if factual_search and not candidate_excerpts:
++                alternate_results, alternate_discovery = await discover_sources(
++                    client, search_key, title, machine,
++                    subject=factual_research_subject(machine),
++                    attempted_urls=list(seen_urls),
++                    excluded_hosts=sorted(empty_capture_hosts),
++                )
++                discovery_requests.append(alternate_discovery)
++                for item in alternate_results:
++                    if len(candidate_excerpts) >= 60:
++                        break
++                    await _process_search_result(item)
++
+             # G13, 2026-07-31: naval steering (base queries + domain-grouped
+             # calls above) can still land zero Tier 1-2 candidates - Duke of
+             # York and Anson both did, with no fetch errors, the domains just
+@@ -9916,6 +9993,7 @@ class PipelineExecutor:
+         )
+         if discovery is not None:
+             package["source_discovery"] = discovery
++            package["source_discovery_requests"] = discovery_requests
+         if factual_search:
+             quality_errors = factual_package_contract_warnings(machine, package)
+             package["passed"] = not quality_errors
+@@ -12549,7 +12627,29 @@ class PipelineExecutor:
+             await self._log_activity(bot_name, video_id, "started", f"Researching {len(roster)} locked machines")
+             payload = await self._run_unit_research_hold(video_id, title, payload, roster)
+             validation = payload.get("unit_research_hold_validation") or {}
+-            passed = bool(validation.get("passed"))
++            factual_contract = payload.get("machine_script_contract") == "factual_100_v1"
++            if factual_contract:
++                from factual_machine_pipeline import factual_research_readiness
++                passed = factual_research_readiness(payload, roster, title)
++                validation["passed"] = passed
++                units = validation.get("units") if isinstance(validation.get("units"), list) else []
++                pending = [
++                    machine for machine in roster
++                    if not factual_research_readiness(payload, [machine], title)
++                ]
++                warnings_by_index = {
++                    _roster_index_for_identity(roster, unit.get("machine") or ""): unit.get("warnings") or []
++                    for unit in units if isinstance(unit, dict)
++                }
++                named_warnings = []
++                for machine in pending:
++                    unit_warnings = warnings_by_index.get(_roster_index_for_identity(roster, machine)) or []
++                    detail = "; ".join(str(w) for w in unit_warnings if str(w).strip())
++                    named_warnings.append(f"{machine}: {detail or 'factual research summary pending'}")
++                validation["warnings"] = named_warnings
++                payload["unit_research_hold_validation"] = validation
++            else:
++                passed = bool(validation.get("passed"))
+             next_status = "ready_for_scripting" if passed else (video.get("status") or "idea_logged")
+ 
+             import json as _json
+@@ -12567,14 +12667,24 @@ class PipelineExecutor:
+                 return {"status": "cancelled", "video_id": video_id,
+                         "message": "Stopped; completed research and sources are saved."}
+ 
+-            completed = len(payload.get("unit_research_cards") or [])
++            completed = sum(
++                1 for machine in roster
++                if factual_contract and factual_research_readiness(payload, [machine], title)
++            ) if factual_contract else len(payload.get("unit_research_cards") or [])
+             if passed:
+                 await self._log_activity(bot_name, video_id, "completed", f"Machine research complete: {completed}/{len(roster)}")
+                 return {"status": next_status, "video_id": video_id, "message": f"Machine research complete: {completed}/{len(roster)}"}
+ 
+             warning = "; ".join(str(w) for w in validation.get("warnings", [])) or "Machine research validation failed"
+             await self._log_activity(bot_name, video_id, "failed", warning[:800])
+-            return {"status": "failed", "video_id": video_id, "error": warning}
++            return {
++                "status": "needs_review" if factual_contract else "failed",
++                "video_id": video_id,
++                "error": warning,
++                "completed": completed,
++                "total": len(roster),
++                "next_action": "run_one_machine_research_refresh" if factual_contract else "review_machine_research",
++            }
+         except Exception as e:
+             error_msg = str(e)
+             await self._log_activity(bot_name, video_id, "failed", error_msg)
+@@ -12826,6 +12936,11 @@ class PipelineExecutor:
+             factual_package_contract_warnings,
+             is_factual_machine_contract,
+         )
++        from machine_research_summary import (
++            is_recoverable_research_error,
++            research_summary_ready,
++            saved_research_summary,
++        )
+         if is_factual_machine_contract(payload):
+             if not target_code:
+                 # The bulk entrypoint remains an ordered coordinator. Each
+@@ -12834,9 +12949,11 @@ class PipelineExecutor:
+                 for roster_machine in roster:
+                     existing = _research_card_for_machine(payload, roster_machine)
+                     existing_package = _verified_source_package_for_machine(payload, roster_machine)
+-                    if not factual_card_contract_warnings(roster_machine, existing, existing_package):
++                    existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
++                    if (not factual_card_contract_warnings(roster_machine, existing, existing_package)
++                            and research_summary_ready(roster_machine, existing_package, existing_summary, title)):
+                         payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+-                            payload, roster_machine, [],
++                            payload, roster_machine, [], locked_roster=roster,
+                         )
+                         continue
+                     fresh_video = await self._get_video(video_id) or {}
+@@ -12845,7 +12962,7 @@ class PipelineExecutor:
+                     if max_spend is not None and total_cost >= float(max_spend):
+                         payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                             payload, roster_machine,
+-                            ["Video budget reached; completed factual research cards are saved."],
++                            ["Video budget reached; completed factual research cards are saved."], locked_roster=roster,
+                         )
+                         return payload
+                     should_cancel = getattr(self._pipeline, "should_cancel", None)
+@@ -12857,12 +12974,51 @@ class PipelineExecutor:
+                         if cancelled:
+                             payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                                 payload, roster_machine,
+-                                ["Research cancellation requested; completed factual research cards are saved."],
++                            ["Research cancellation requested; completed factual research cards are saved."], locked_roster=roster,
+                             )
+                             return payload
+-                    payload = await self._run_unit_research_hold(
+-                        video_id, title, payload, roster, target_machine=roster_machine,
+-                    )
++                    try:
++                        payload = await self._run_unit_research_hold(
++                            video_id, title, payload, roster, target_machine=roster_machine,
++                        )
++                    except Exception as exc:
++                        # A single exhausted transport request must leave an
++                        # explicit reviewable verdict but must not strand later
++                        # independent machines.  Do not catch credentials,
++                        # credits, cancellation, database conflicts, or local
++                        # programming errors here: those are chain-wide stops.
++                        if not is_recoverable_research_error(exc):
++                            raise
++                        warning = (
++                            f"{roster_machine}: transient factual research transport failure: "
++                            f"{str(exc)[:160]}"
++                        )
++                        payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
++                            payload, roster_machine, [warning], locked_roster=roster,
++                        )
++                        checkpoint = await self._checkpoint_one_machine_research_result(
++                            video_id,
++                            payload.get("unit_research_cards") or [],
++                            payload["unit_research_hold_validation"],
++                            locked_roster_snapshot,
++                        )
++                        if self._db_write_missed(checkpoint):
++                            payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
++                                payload, roster_machine,
++                                ["persisted unit_roster changed concurrently; factual research checkpoint refused"],
++                                locked_roster=roster,
++                            )
++                            return payload
++                        continue
++                    validation_units = payload.get("unit_research_hold_validation", {}).get("units") or []
++                    target_warnings = next((
++                        unit.get("warnings") or [] for unit in validation_units
++                        if isinstance(unit, dict)
++                        and _roster_index_for_identity(roster, unit.get("machine") or "")
++                        == _roster_index_for_identity(roster, roster_machine)
++                    ), [])
++                    if any("checkpoint refused" in str(warning).lower() for warning in target_warnings):
++                        return payload
+                 return payload
+ 
+             cache_key = _verified_source_cache_key(target_machine or "")
+@@ -12881,12 +13037,22 @@ class PipelineExecutor:
+             if self._db_write_missed(package_checkpoint):
+                 warnings = ["persisted unit_roster changed concurrently; raw source package checkpoint refused"]
+                 payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+-                    payload, target_machine or "", warnings,
++                    payload, target_machine or "", warnings, locked_roster=roster,
+                 )
+                 return payload
+ 
+-            discovery = verified_source_package.get("source_discovery") or {}
+-            if discovery.get("provider") == "kie" and discovery.get("request_id") and discovery.get("credits_consumed") is not None:
++            discoveries = verified_source_package.get("source_discovery_requests")
++            if not isinstance(discoveries, list):
++                discoveries = [verified_source_package.get("source_discovery") or {}]
++            seen_discovery_ids: set[str] = set()
++            for discovery in discoveries:
++                if not isinstance(discovery, dict):
++                    continue
++                request_id = str(discovery.get("request_id") or "").strip()
++                if (discovery.get("provider") != "kie" or not request_id
++                        or discovery.get("credits_consumed") is None or request_id in seen_discovery_ids):
++                    continue
++                seen_discovery_ids.add(request_id)
+                 from generation_ledger import record_ledger_entry
+                 from factual_source_search import USD_PER_CREDIT
+                 credits = float(discovery["credits_consumed"])
+@@ -12894,17 +13060,56 @@ class PipelineExecutor:
+                     tenant_id=self.tenant_id, video_id=video_id, stage="research",
+                     model="kie/" + str(discovery.get("model") or "gpt-5-2"),
+                     units=credits, unit_cost=USD_PER_CREDIT, actual_cost=credits * USD_PER_CREDIT,
+-                    kie_task_id=str(discovery["request_id"]),
++                    kie_task_id=request_id,
+                 )
+ 
+             package_warnings = factual_package_contract_warnings(
+                 target_machine or "", verified_source_package,
+             )
++            existing = _research_card_for_machine(payload, target_machine or "")
++            existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
+             card = build_factual_evidence_card(target_machine or "", verified_source_package)
+-            warnings = package_warnings + factual_card_contract_warnings(
++            card_warnings = factual_card_contract_warnings(
+                 target_machine or "", card, verified_source_package,
+             )
+-            warnings = list(dict.fromkeys(warnings))
++            summary_warnings = []
++            if not package_warnings and not card_warnings:
++                if research_summary_ready(target_machine or "", verified_source_package, existing_summary, title):
++                    card["research_summary"] = existing_summary
++                else:
++                    from factual_machine_summary import generate_factual_machine_summary
++                    try:
++                        summary_result = await generate_factual_machine_summary(
++                            target_machine or "", verified_source_package,
++                            getattr(self._pipeline, "anthropic", None),
++                            subject_context=title, purpose="research",
++                        )
++                    except ValueError as exc:
++                        # Invalid local generation setup is reviewable for this
++                        # machine. Provider/account failures still propagate so
++                        # their existing budget/credential stop paths remain
++                        # authoritative.
++                        summary_result = {"passed": False, "warnings": [str(exc)]}
++                    saved_summary = saved_research_summary(
++                        target_machine or "", verified_source_package, summary_result, title,
++                    )
++                    # The model's self-reported pass is insufficient.  The
++                    # stored artifact must meet the exact reusable-summary
++                    # contract (including claims and citations) before this
++                    # unit can advance or be reused.
++                    if not research_summary_ready(
++                        target_machine or "", verified_source_package, saved_summary, title,
++                    ):
++                        saved_summary["passed"] = False
++                        saved_summary["warnings"] = list(dict.fromkeys(
++                            list(saved_summary.get("warnings") or [])
++                            + ["Factual research summary is missing required claims or citations"]
++                        ))
++                    card["research_summary"] = saved_summary
++                    if not saved_summary.get("passed"):
++                        summary_warnings = list(summary_result.get("warnings") or ["Factual research summary failed review"])
++                        summary_warnings.extend(saved_summary.get("warnings") or [])
++            warnings = list(dict.fromkeys(package_warnings + card_warnings + summary_warnings))
+             current_cards = [
+                 item for item in (payload.get("unit_research_cards") or [])
+                 if isinstance(item, dict)
+@@ -12913,7 +13118,7 @@ class PipelineExecutor:
+                     item.get("unit") or item.get("machine") or item.get("name") or item.get("designation") or "",
+                 ) != roster.index(target_machine or "") + 1
+             ]
+-            if not warnings:
++            if not package_warnings and not card_warnings:
+                 card["locked_roster_index"] = roster.index(target_machine or "") + 1
+                 card["source_package_key"] = target_code
+                 current_cards = _merge_card_into_review_cards(
+@@ -12921,7 +13126,7 @@ class PipelineExecutor:
+                 )
+             payload["unit_research_cards"] = current_cards
+             payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+-                payload, target_machine or "", warnings,
++                payload, target_machine or "", warnings, locked_roster=roster,
+             )
+             card_checkpoint = await self._checkpoint_one_machine_research_result(
+                 video_id,
+@@ -12932,12 +13137,12 @@ class PipelineExecutor:
+             if self._db_write_missed(card_checkpoint):
+                 conflict = "persisted unit_roster changed concurrently; factual research checkpoint refused"
+                 payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+-                    payload, target_machine or "", [conflict],
++                    payload, target_machine or "", [conflict], locked_roster=roster,
+                 )
+                 return payload
+-            if not warnings:
++            if not package_warnings and not card_warnings:
+                 roster_index = roster.index(target_machine or "") + 1
+-                verdict = {"machine": target_machine, "passed": True, "warnings": []}
++                verdict = {"machine": target_machine, "passed": not warnings, "warnings": warnings}
+                 await self._upsert_machine_research_card(
+                     video_id, target_machine or "", roster_index, card, verdict,
+                 )
+@@ -16290,6 +16495,7 @@ scenes."""
+             card,
+             source_package,
+             require_source_package=True,
++            factual_subject_context=str(video.get("video_title") or video.get("headline") or ""),
+         )
+         # G21a: same tier-floor-is-advisory fix as the generation gate above -
+         # readiness must agree with what generation will actually do, or the
+diff --git a/storyengine/backend/routes/pipeline.py b/storyengine/backend/routes/pipeline.py
+index 0c34e7a7..441eacc7 100644
+--- a/storyengine/backend/routes/pipeline.py
++++ b/storyengine/backend/routes/pipeline.py
+@@ -501,49 +501,45 @@ def _set_task_status(
+     (SEC-SSE-001). tenant_id is now required; a missing tenant is a program
+     bug, not a recoverable runtime state.
+ 
+-    Normalizes status to: running | completed | failed
+-    ('cancelled' reads as completed to pollers — the message tells the story —
+-    but persists as 'cancelled' in background_tasks for history.)
+-
+-    C-frontdoor2 (2026-07-27): a caller can also pass status="needs_review"
+-    (a script the quality critic rejected after its bounded edit loop —
+-    script_quality.run_critique_and_edit — see actions.py's make_action_step/
+-    make_autobuild_step and routes/pipeline.py's direct /script route). This
+-    is DELIBERATELY NOT a new bucket in the running/completed/failed
+-    normalization every poller (useTaskPoller, useTaskWatcher, the
+-    background_tasks.status DB CHECK constraint) already keys its
+-    running->done transition off of — widening that enum would silently
+-    break every one of those consumers (an unmatched status stops NONE of
+-    their branches, so polling would never stop). Instead: normalizes to
+-    "completed" exactly as before (byte-identical to every other terminal
+-    status), and additively flags `needs_review: True` in the in-memory
+-    entry — read by the SSE task_progress stream and the GET /task/{id}
+-    poll (both additive fields, ignored by any client that doesn't know
+-    about them yet) so the ONE consumer that needs to react differently
+-    (ChatCore, which turns this into a visible "the script needs another
+-    look" chat message instead of silently treating it as a clean success)
+-    can, without touching the shared status vocabulary at all.
++    Normalizes status to: running | completed | failed. `cancelled` remains a
++    completed poller state while preserving `cancelled` in durable task history.
++    A `needs_review` result is a failed terminal task with its review flag
++    retained in the in-memory/SSE shape: incomplete factual research must not
++    look like a clean completed Run All.
+     """
+     db_status = None
+     needs_review = status == "needs_review"
+-    # Normalize: anything not running/failed is completed
++    # Normalize: needs_review is terminal and actionable. The durable status
++    # contract already supports failed; do not add an unsupported enum value.
+     if status == "cancelled":
+         normalized = "completed"
+         db_status = "cancelled"
+         if not message:
+             message = "Stopped — completed work was kept. Run the stage again to resume."
++    elif status == "needs_review":
++        normalized = "failed"
++        db_status = "failed"
+     elif status not in ("running", "failed"):
+         normalized = "completed"
+     else:
+         normalized = status
+     resolved_error = error
+     resolved_message = message
++    review_message_is_safe = bool(
++        needs_review and resolved_message and resolved_message.startswith(USER_FACING_PREFIX)
++    )
+     # user_facing() markers are consumed by humanize_error on the error path;
+     # strip them from the message path too so the raw marker never shows.
+     if resolved_message and resolved_message.startswith(USER_FACING_PREFIX):
+         resolved_message = resolved_message[len(USER_FACING_PREFIX):]
+     if normalized == "failed" and not resolved_error:
+-        resolved_error = resolved_message
++        # A caller may deliberately mark concise application-authored review
++        # guidance safe. Preserve it through humanize_error so an incomplete
++        # roster names the next action instead of collapsing to a generic error.
++        resolved_error = (
++            USER_FACING_PREFIX + resolved_message
++            if review_message_is_safe else resolved_message
++        )
+     # Humanize failure errors at the write boundary so raw str(e) from
+     # ~15 call sites never reaches the UI via /task-status polling.
+     # The raw error is logged to WARNING with a [humanize_error] prefix
+diff --git a/storyengine/backend/machine_research_summary.py b/storyengine/backend/machine_research_summary.py
+new file mode 100644
+index 00000000..8615e551
+--- /dev/null
++++ b/storyengine/backend/machine_research_summary.py
+@@ -0,0 +1,100 @@
++"""Versioned factual research briefings stored on one machine research card."""
++from __future__ import annotations
++
++from typing import Any
++
++from factual_machine_pipeline import source_fingerprint
++from factual_machine_summary import REVIEW_CONTEXT_VERSION
++
++
++RESEARCH_SUMMARY_VERSION = 1
++
++
++def is_recoverable_research_error(exc: BaseException, _source_wrapper_depth: int = 0) -> bool:
++    """Return true only for bounded per-machine transport outages.
++
++    Account, credit, rate-limit, database, and programming failures deliberately
++    remain chain-wide stops.
++    """
++    # Source discovery deliberately wraps fetch failures so its caller can
++    # retain provenance. Unwrap only that known wrapper, and only two links,
++    # never arbitrary errors (which could hide a database/programming stop).
++    try:
++        from factual_source_search import SourceDiscoveryError
++        if (isinstance(exc, SourceDiscoveryError) and exc.__cause__ is not None
++                and _source_wrapper_depth < 2):
++            return is_recoverable_research_error(exc.__cause__, _source_wrapper_depth + 1)
++    except ImportError:
++        pass
++    try:
++        import httpx
++        if isinstance(exc, (TimeoutError, ConnectionError, httpx.TransportError)):
++            return True
++    except ImportError:
++        if isinstance(exc, (TimeoutError, ConnectionError)):
++            return True
++    try:
++        import anthropic
++        timeout_or_connection = tuple(item for item in (
++            getattr(anthropic, "APITimeoutError", None),
++            getattr(anthropic, "APIConnectionError", None),
++        ) if isinstance(item, type))
++        if timeout_or_connection and isinstance(exc, timeout_or_connection):
++            return True
++        status_error = getattr(anthropic, "APIStatusError", None)
++        return bool(
++            isinstance(status_error, type) and isinstance(exc, status_error)
++            and isinstance(getattr(exc, "status_code", None), int)
++            and exc.status_code >= 500
++        )
++    except ImportError:
++        return False
++
++
++def research_summary_ready(
++    machine: str,
++    package: Any,
++    summary: Any,
++    subject_context: str = "",
++) -> bool:
++    """True only for a current passed briefing for this exact source package.
++
++    ``summary`` is deliberately the card's ``research_summary`` object, never
++    the enclosing card.  That prevents readiness from accidentally accepting an
++    excerpt-only factual card or recursively grading card fields as a summary.
++    """
++    if not isinstance(summary, dict):
++        return False
++    return (
++        summary.get("schema_version") == RESEARCH_SUMMARY_VERSION
++        and summary.get("passed") is True
++        and bool(str(summary.get("paragraph") or "").strip())
++        and isinstance(summary.get("claim_map"), list)
++        and bool(summary.get("claim_map"))
++        and isinstance(summary.get("sources"), list)
++        and bool(summary.get("sources"))
++        and summary.get("review_context_version") == REVIEW_CONTEXT_VERSION
++        and summary.get("subject_context") == str(subject_context or "")
++        and summary.get("source_fingerprint") == source_fingerprint(machine, package)
++    )
++
++
++def saved_research_summary(
++    machine: str,
++    package: Any,
++    result: Any,
++    subject_context: str = "",
++) -> dict:
++    """Shape a generated/reviewed result for storage on a factual card."""
++    result = result if isinstance(result, dict) else {}
++    return {
++        "schema_version": RESEARCH_SUMMARY_VERSION,
++        "paragraph": str(result.get("paragraph") or "").strip(),
++        "claim_map": list(result.get("claim_map") or []),
++        "sources": list(result.get("sources") or []),
++        "passed": result.get("passed") is True,
++        "warnings": [str(w) for w in (result.get("warnings") or []) if str(w).strip()],
++        "subject_context": str(subject_context or ""),
++        "source_fingerprint": source_fingerprint(machine, package),
++        "review_context_version": result.get("review_context_version", REVIEW_CONTEXT_VERSION),
++    }
+diff --git a/storyengine/backend/tests/test_machine_research_summary.py b/storyengine/backend/tests/test_machine_research_summary.py
+new file mode 100644
+index 00000000..8aa7aebf
+--- /dev/null
++++ b/storyengine/backend/tests/test_machine_research_summary.py
+@@ -0,0 +1,107 @@
++"""Offline contract tests for saved factual research briefings."""
++
++from machine_research_summary import (
++    RESEARCH_SUMMARY_VERSION,
++    is_recoverable_research_error,
++    research_summary_ready,
++    saved_research_summary,
++)
++import factual_machine_research as factual
++import pipeline_executor as pe
++from factual_machine_summary import _writer_prompt
++
++
++MACHINE = "I-49 HMS Argus"
++CONTEXT = "Every British Aircraft Carrier Class Ever Built"
++
++
++def _package(text="I-49 HMS Argus entered service in 1918."):
++    return {
++        "machine": MACHINE,
++        "candidate_excerpts": [{
++            "excerpt_id": "S1-E1",
++            "source_url": "https://example.test/argus",
++            "text": text,
++            "locator": "S1-E1",
++        }],
++    }
++
++
++def _result():
++    sentence = "I-49 HMS Argus entered service in 1918."
++    return {
++        "passed": True,
++        "paragraph": sentence,
++        "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
++        "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
++        "warnings": [],
++        "review_context_version": 5,
++    }
++
++
++def test_saved_summary_is_current_only_for_exact_package_and_context():
++    package = _package()
++    summary = saved_research_summary(MACHINE, package, _result(), CONTEXT)
++
++    assert summary["schema_version"] == RESEARCH_SUMMARY_VERSION
++    assert research_summary_ready(MACHINE, package, summary, CONTEXT)
++    assert not research_summary_ready(MACHINE, _package("I-49 HMS Argus entered service in 1919."), summary, CONTEXT)
++    assert not research_summary_ready(MACHINE, package, summary, "Every British Carrier")
++
++
++def test_excerpt_only_card_is_not_a_summary_and_failed_result_never_passes():
++    package = _package()
++    result = _result()
++    result["passed"] = False
++    result["warnings"] = ["Factual review: disputed date"]
++    summary = saved_research_summary(MACHINE, package, result, CONTEXT)
++
++    assert summary["passed"] is False
++    assert summary["warnings"] == ["Factual review: disputed date"]
++    assert not research_summary_ready(MACHINE, package, summary, CONTEXT)
++    assert not research_summary_ready(MACHINE, package, {"evidence_segments": []}, CONTEXT)
++
++
++def test_factual_card_with_saved_failed_summary_cannot_revalidate_as_passed():
++    package = _package()
++    package["candidate_excerpts"][0].update({
++        "source_capture_method": "fetched_page",
++        "source_id": "S1",
++        "source_title": "Argus record",
++        "locator": "S1-E1",
++    })
++    card = factual.build_factual_evidence_card(MACHINE, package)
++    failed = _result()
++    failed.update(passed=False, warnings=["Factual review: disputed date"])
++    card["research_summary"] = saved_research_summary(MACHINE, package, failed, CONTEXT)
++
++    warnings = pe._research_card_contract_warnings(
++        MACHINE, card, package, factual_subject_context=CONTEXT,
++    )
++    assert any("summary is missing, failed, or stale" in warning for warning in warnings)
++
++    legacy_card = factual.build_factual_evidence_card(MACHINE, package)
++    assert pe._research_card_contract_warnings(MACHINE, legacy_card, package) == []
++
++
++def test_writer_prompt_keeps_saved_briefing_as_context_not_evidence():
++    prompt = _writer_prompt(
++        MACHINE, [], [], purpose="research",
++        research_briefings=[{"machine": MACHINE, "paragraph": "Prior briefing."}],
++    )
++
++    assert "factual research briefing" in prompt
++    assert "context only, never evidence" in prompt
++    assert "EVIDENCE:" in prompt
++
++
++def test_recoverable_classifier_only_unwraps_known_source_transport_failure():
++    from factual_source_search import SourceDiscoveryError
++
++    timed_out = SourceDiscoveryError("source wave failed")
++    timed_out.__cause__ = TimeoutError("gateway timeout")
++    assert is_recoverable_research_error(timed_out)
++
++    credits = SourceDiscoveryError("Kie credits exhausted")
++    assert not is_recoverable_research_error(credits)
++    assert not is_recoverable_research_error(RuntimeError("database connection refused"))
+diff --git a/storyengine/backend/tests/test_research_class_identity.py b/storyengine/backend/tests/test_research_class_identity.py
+new file mode 100644
+index 00000000..adc6d6ca
+--- /dev/null
++++ b/storyengine/backend/tests/test_research_class_identity.py
+@@ -0,0 +1,46 @@
++import json
++from pathlib import Path
++
++import factual_machine_research as factual
++
++
++def test_saved_roster_subjects_drop_only_naval_range_bookkeeping():
++    fixture = Path(__file__).parent / "fixtures/research-roster-class-labels.json"
++    labels = json.loads(fixture.read_text())
++    subjects = [factual.factual_research_subject(label) for label in labels]
++
++    assert len(subjects) == 20
++    assert all("through" not in subject.casefold() for subject in subjects)
++    assert "S-class" in subjects
++    assert "Plunger class" in subjects
++    assert "Albacore class" in subjects
++
++
++def test_ranged_class_requires_class_phrase_or_named_member_with_exact_hull():
++    plunger = "SS-2 through SS-8 Plunger class"
++    s_class = "SS-105 through SS-162 S-class"
++
++    assert factual.candidate_mentions_machine("The Plunger-class submarine was an early United States Navy design.", plunger)
++    assert factual.candidate_mentions_machine("USS Plunger (SS-2) entered service in 1903 as a submarine.", plunger)
++    assert not factual.candidate_mentions_machine("USS Other (SS-2) entered service in 1903 as a submarine.", plunger)
++    assert not factual.candidate_mentions_machine("SS-2 entered service in 1903 as a submarine.", plunger)
++    assert not factual.candidate_mentions_machine("USS Plunger entered service in 1903 as a submarine.", plunger)
++    assert factual.candidate_mentions_machine("United States S-class submarines served through the interwar years.", s_class)
++    assert not factual.candidate_mentions_machine("The crew moved through the harbor before the submarine sailed.", s_class)
++
++
++def test_class_and_single_hull_guards_preserve_exact_identity():
++    gato = "SS-212 through SS-284 Gato class"
++    albacore = "AGSS-569 Albacore class"
++    barracuda = "SS-163 through SS-165 Barracuda (V-1) class"
++    holland = "SS-1 Holland class"
++
++    assert factual.candidate_mentions_machine("The Gato-class submarine had a long Pacific war service.", gato)
++    assert not factual.candidate_mentions_machine("The Balao-class submarine had a long Pacific war service.", gato)
++    assert factual.candidate_mentions_machine("USS Albacore (AGSS-569) was an experimental research submarine.", albacore)
++    assert not factual.candidate_mentions_machine("USS Other (AGSS-569) was an experimental research submarine.", albacore)
++    assert not factual.candidate_mentions_machine("USS Albacore was an experimental research submarine.", albacore)
++    assert factual.candidate_mentions_machine("The Barracuda (V-1) class consisted of fleet submarines.", barracuda)
++    assert not factual.candidate_mentions_machine("USS Barracuda (V-2) (SS-163) consisted of fleet submarines.", barracuda)
++    assert factual.candidate_mentions_machine("After Navy trials of Holland, the Navy purchased the submarine in 1900.", holland)
++    assert not factual.candidate_mentions_machine("John Holland designed submarines in the 1870s.", holland)
+diff --git a/storyengine/backend/tests/test_research_automation_status.py b/storyengine/backend/tests/test_research_automation_status.py
+new file mode 100644
+index 00000000..923ceea4
+--- /dev/null
++++ b/storyengine/backend/tests/test_research_automation_status.py
+@@ -0,0 +1,212 @@
++"""Offline guards for factual-summary Run All completion and task status."""
++import asyncio
++import sys
++import types
++from unittest.mock import patch
++
++import actions
++
++
++TENANT = "tenant-test"
++VIDEO = "video-test"
++
++
++def _summary(current=True):
++    return {"current": current}
++
++
++def _factual_payload(*, attempts=None, runtime_selected=False):
++    roster = [f"Machine {index}" for index in range(1, 21)]
++    return {
++        "machine_script_contract": "factual_100_v1",
++        "unit_roster": roster,
++        "unit_roster_validation": {"passed": True},
++        # Deliberately incomplete: legacy behavior used this as the whole roster.
++        "unit_research_hold_validation": {
++            "passed": False,
++            "units": [{"machine": "Machine 1", "passed": True}, {"machine": "Machine 2", "passed": False}],
++        },
++        "unit_research_cards": [{"unit": "Machine 1", "research_summary": _summary()}],
++        "roster_loop_attempts": attempts or {},
++    }
++    if runtime_selected:
++        payload.update({
++            "roster_selection": {"version": 1, "status": "completed"},
++            "research_phase": "roster_complete",
++        })
++    return payload
++
++
++class _Executor:
++    def __init__(self, _tenant, payload, machine_results=None, runtime_selected=False):
++        self.payload = payload
++        self.machine_results = machine_results or {}
++        self.runtime_selected = runtime_selected
++        self.calls = 0
++        self.machine_calls = []
++
++    async def _get_video(self, _video_id):
++        self.calls += 1
++        if self.calls == 1 and self.runtime_selected:
++            return {"status": "idea_logged", "render_mode": "static_docu", "max_spend": None,
++                    "total_cost": 0, "video_title": "Every Machine", "research_payload": self.payload}
++        if self.calls <= 2:
++            return {"status": "idea_logged", "render_mode": "static_docu", "max_spend": None,
++                    "total_cost": 0, "video_title": "Every Machine", "research_payload": self.payload}
++        return {"status": "ready_for_images", "render_mode": "static_docu"}
++
++    async def run_research(self, _video_id):
++        return {"status": "failed", "error": "Research gate failed; not advancing to scripting: Unit research-hold failed"}
++
++    async def run_one_machine_research(self, _video_id, machine):
++        self.machine_calls.append(machine)
++        result = self.machine_results.get(machine, {"status": "completed"})
++        if isinstance(result, BaseException):
++            raise result
++        if result.get("status") == "completed" and not result.get("no_save"):
++            units = self.payload["unit_research_hold_validation"]["units"]
++            existing = next((unit for unit in units if unit.get("machine") == machine), None)
++            if existing is None:
++                units.append({"machine": machine, "passed": True})
++            else:
++                existing["passed"] = True
++            cards = self.payload.setdefault("unit_research_cards", [])
++            if not any(card.get("unit") == machine for card in cards):
++                cards.append({"unit": machine, "research_summary": _summary()})
++        return dict(result)
++
++
++def _run(payload, *, summary_version=1, machine_results=None, runtime_selected=False):
++    holder, statuses, writes = [], [], []
++
++    def factory(tenant):
++        executor = _Executor(tenant, payload, machine_results, runtime_selected)
++        holder.append(executor)
++        return executor
++
++    fake_pipeline = types.ModuleType("pipeline_executor")
++    fake_pipeline.PipelineExecutor = factory
++    fake_pipeline._verified_source_package_for_machine = lambda _payload, machine: {"machine": machine}
++    fake_pipeline._machine_documentary_hold_roster = lambda video: list(
++        (video.get("research_payload") or {}).get("unit_roster") or []
++    )
++    fake_research = types.ModuleType("factual_machine_research")
++    fake_research.is_factual_machine_contract = lambda payload: payload.get("machine_script_contract") == "factual_100_v1"
++    fake_summary = types.ModuleType("machine_research_summary")
++    fake_summary.RESEARCH_SUMMARY_VERSION = summary_version
++    fake_summary.research_summary_ready = lambda _machine, _package, summary, _context: bool((summary or {}).get("current"))
++    fake_summary.is_recoverable_research_error = lambda exc: isinstance(exc, (TimeoutError, ConnectionError))
++    fake_factual_pipeline = types.ModuleType("factual_machine_pipeline")
++    def factual_readiness(current_payload, roster, subject_context=""):
++        units = {unit.get("machine"): unit for unit in current_payload.get("unit_research_hold_validation", {}).get("units", [])}
++        cards = {card.get("unit"): card for card in current_payload.get("unit_research_cards", [])}
++        return bool(roster) and all(
++            units.get(machine, {}).get("passed") and cards.get(machine, {}).get("research_summary", {}).get("current")
++            for machine in roster
++        )
++    fake_factual_pipeline.factual_research_readiness = factual_readiness
++    fake_routes = types.ModuleType("routes.pipeline")
++    fake_routes._set_task_status = lambda _video, status, message, tenant_id=None: statuses.append((status, message))
++    fake_routes._clear_task_status = lambda *_args, **_kwargs: None
++    fake_images = types.ModuleType("roster_images")
++    async def roster_image_state(*_args, **_kwargs):
++        return {"status": "completed"}
++    fake_images.roster_image_state = roster_image_state
++
++    async def execute(query, *args):
++        writes.append((query, args))
++        return "UPDATE 1"
++
++    async def fetch_one(query, *_args):
++        if "pipeline_stages" in query:
++            return {"pipeline_stages": None}
++        if "SELECT status FROM videos" in query:
++            return {"status": "idea_logged"}
++        if "max_spend, total_cost" in query:
++            return {"max_spend": None, "total_cost": 0}
++        return None
++
++    async def no_coverage(*_args, **_kwargs):
++        return False
++
++    async def fast_sleep(*_args, **_kwargs):
++        return None
++
++    with patch.object(actions, "execute", execute), patch.object(actions, "fetch_one", fetch_one), \
++         patch.object(actions, "_static_image_coverage_missing", no_coverage), \
++         patch.object(actions, "_factual_image_recheck_needed", no_coverage), \
++         patch.dict(sys.modules, {"pipeline_executor": fake_pipeline, "factual_machine_research": fake_research,
++                                  "machine_research_summary": fake_summary, "routes.pipeline": fake_routes,
++                                  "roster_images": fake_images, "factual_machine_pipeline": fake_factual_pipeline}), \
++         patch("asyncio.sleep", fast_sleep):
++        asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
++    return holder[0], statuses, writes
++
++
++def test_factual_run_all_enumerates_full_locked_roster_not_partial_verdicts():
++    executor, _statuses, _writes = _run(_factual_payload())
++    assert executor.machine_calls == [f"Machine {index}" for index in range(2, 21)]
++
++
++def test_factual_run_all_enumerates_full_locked_roster_with_zero_verdicts():
++    payload = _factual_payload()
++    payload["unit_research_hold_validation"]["units"] = []
++    payload["unit_research_cards"] = []
++    executor, _statuses, _writes = _run(payload)
++    assert executor.machine_calls == [f"Machine {index}" for index in range(1, 21)]
++
++
++def test_factual_current_summary_is_not_rerun_and_legacy_scalar_gets_one_bounded_retry():
++    payload = _factual_payload(attempts={"Machine 2": 2})
++    executor, statuses, writes = _run(
++        payload,
++        machine_results={"Machine 2": {"status": "needs_review", "warnings": ["missing source"]}},
++    )
++    assert "Machine 1" not in executor.machine_calls
++    assert executor.machine_calls == ["Machine 2"] + [f"Machine {index}" for index in range(3, 21)]
++    assert any("roster_loop_attempts" in query for query, _args in writes)
++    parked = [message for status, message in statuses if status == "needs_review"]
++    assert parked and "Machine 2" in parked[-1] and "Open Research" in parked[-1]
++
++
++def test_factual_same_version_cap_parks_but_new_summary_version_can_retry_once():
++    identity_v1 = "factual-summary:factual_100_v1:summary-v1:automation-v1"
++    payload = _factual_payload(attempts={"Machine 2": {identity_v1: 2}})
++    executor, _statuses, _writes = _run(payload, summary_version=1)
++    assert "Machine 2" not in executor.machine_calls
++
++    executor, _statuses, _writes = _run(payload, summary_version=2)
++    assert "Machine 2" in executor.machine_calls
++
++
++def test_runtime_factual_run_all_skips_bulk_and_respects_exhausted_machine_cap():
++    identity = "factual-summary:factual_100_v1:summary-v1:automation-v1"
++    payload = _factual_payload(
++        runtime_selected=True,
++        attempts={"Machine 2": {identity: 2}},
++    )
++    executor, statuses, _writes = _run(payload, runtime_selected=True)
++    assert "Machine 2" not in executor.machine_calls
++    assert not hasattr(executor, "run_unit_research")
++    assert any(status == "needs_review" for status, _message in statuses)
++
++
++def test_factual_transient_machine_failure_is_saved_and_other_machines_continue():
++    payload = _factual_payload()
++    executor, _statuses, writes = _run(
++        payload,
++        machine_results={"Machine 2": TimeoutError("network timeout")},
++    )
++    assert executor.machine_calls == [f"Machine {index}" for index in range(2, 21)]
++    assert any("roster_loop_attempts" in query for query, _args in writes)
++
++
++def test_factual_completed_result_without_saved_summary_never_advances_script():
++    payload = _factual_payload()
++    _executor, statuses, writes = _run(
++        payload,
++        machine_results={"Machine 2": {"status": "completed", "no_save": True}},
++    )
++    # The worker claim is insufficient: readback requires the saved summary.
++    assert any(status == "needs_review" for status, _message in statuses)
++    assert not any("ready_for_scripting" in query for query, _args in writes)
+diff --git a/storyengine/backend/tests/fixtures/research-roster-class-labels.json b/storyengine/backend/tests/fixtures/research-roster-class-labels.json
+new file mode 100644
+index 00000000..4d96848b
+--- /dev/null
++++ b/storyengine/backend/tests/fixtures/research-roster-class-labels.json
+@@ -0,0 +1,22 @@
++[
++  "SS-1 Holland class",
++  "SS-2 through SS-8 Plunger class",
++  "SS-105 through SS-162 S-class",
++  "SS-163 through SS-165 Barracuda (V-1) class",
++  "SS-212 through SS-284 Gato class",
++  "SS-285 through SS-416 Balao class",
++  "SS-417 through SS-525 Tench class",
++  "SS-563 through SS-568 Tang class",
++  "AGSS-569 Albacore class",
++  "SS-580 through SS-582 Barbel class",
++  "SSN-571 Nautilus class",
++  "SSN-585, SSN-588 through SSN-592 Skipjack class",
++  "SSN-593 through SSN-621 Thresher/Permit class",
++  "SSN-637 through SSN-687 Sturgeon class",
++  "SSN-688 through SSN-773 Los Angeles class",
++  "SSN-21 through SSN-23 Seawolf class",
++  "SSN-774 through SSN-799+ Virginia class",
++  "SSBN-598 through SSBN-602 George Washington class",
++  "SSBN-608 through SSBN-615 Ethan Allen class",
++  "SSBN-616 through SSBN-645 Lafayette class"
++]
+diff --git a/storyengine/backend/tests/functional/test_factual_machine_research.py b/storyengine/backend/tests/functional/test_factual_machine_research.py
+index 17164875..7a37169d 100644
+--- a/storyengine/backend/tests/functional/test_factual_machine_research.py
++++ b/storyengine/backend/tests/functional/test_factual_machine_research.py
+@@ -116,16 +116,33 @@ def test_machine_match_requires_full_distinctive_name_and_prefers_source_diversi
+ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(machine, excerpt, kie_receipt):
+     package = _package(_candidate(text=excerpt), machine=machine)
+     if kie_receipt:
+-        package["source_discovery"] = {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32}
++        package["source_discovery_requests"] = [
++            {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
++            {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
++            {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
++        ]
++    from factual_machine_summary import REVIEW_CONTEXT_VERSION
++    from machine_research_summary import saved_research_summary
++    card = factual.build_factual_evidence_card(machine, package)
++    sentence = excerpt
++    card["research_summary"] = saved_research_summary(machine, package, {
++        "passed": True,
++        "paragraph": sentence,
++        "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
++        "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
++        "review_context_version": REVIEW_CONTEXT_VERSION,
++    }, "Every British Carrier")
++    locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+     payload = {
+         "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+-        "unit_roster": [machine, "HMS Eagle"],
++        "unit_roster": locked_roster,
+         "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
++        "unit_research_cards": [card],
+         "unit_research_hold_validation": {
+             "passed": False,
+             "units": [
+                 {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+-                {"machine": "HMS Eagle", "passed": False, "warnings": ["missing"]},
++                {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+             ],
+         },
+     }
+@@ -165,18 +182,19 @@ def test_targeted_factual_hold_reuses_small_cached_package_without_anthropic(mac
+     from unittest.mock import AsyncMock
+     with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger:
+         result = asyncio.run(executor._run_unit_research_hold(
+-            "video-1", "Every British Carrier", payload, payload["unit_roster"], target_machine=machine,
++            "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+         ))
+-    assert ledger.await_count == int(kie_receipt)
++    assert ledger.await_count == (2 if kie_receipt else 0)
+     if kie_receipt:
+-        assert ledger.call_args.kwargs["kie_task_id"] == "search-123"
+-        assert ledger.call_args.kwargs["actual_cost"] == pytest.approx(0.0016)
++        assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
++        assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+ 
+     assert calls == {"gather": 0, "raw": 1, "card": 1, "upsert": 1}
+     card = pe._research_card_for_machine(result, machine)
+     assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+     assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+     assert result["unit_research_hold_validation"]["passed"] is False
++    assert len(result["unit_research_hold_validation"]["units"]) == 20
+ 
+ 
+ def test_factual_resume_skips_old_g8_anton_surgical_prepass():
+@@ -192,7 +210,7 @@ def test_factual_resume_skips_old_g8_anton_surgical_prepass():
+         async def _get_video(self, _video_id):
+             self.reads += 1
+             if self.reads > 1:
+-                return {"status": "ready_for_images", "render_mode": "static_docu"}
++                return {"id": "video-1", "status": "ready_for_images", "render_mode": "static_docu"}
+             return {
+                 "status": "idea_logged",
+                 "render_mode": "static_docu",
+@@ -231,14 +249,181 @@ def test_factual_resume_skips_old_g8_anton_surgical_prepass():
+     async def fast_sleep(*_args, **_kwargs):
+         return None
+ 
+-    with patch.object(actions, "fetch_one", fetch_one), \
++    async def no_image_recheck(*_args, **_kwargs):
++        return False
++
++    with patch.object(actions, "_static_image_coverage_missing", no_image_recheck), \
++         patch.object(actions, "_factual_image_recheck_needed", no_image_recheck), \
++         patch.object(actions, "fetch_one", fetch_one), \
+          patch.object(actions, "execute", execute), \
+          patch.dict(sys.modules, {"pipeline_executor": fake_pipeline, "routes.pipeline": fake_routes}), \
+          patch("asyncio.sleep", fast_sleep):
+         asyncio.run(actions.make_autobuild_step("tenant-1", "video-1", target="pictures")())
+ 
+     assert holders[0].research_calls == 1
+-    assert not any(status == "failed" for status, _message in statuses)
++    assert not any(status == "failed" for status, _message in statuses), statuses
++
++
++def test_factual_hold_persists_malformed_generator_success_as_failed_summary():
++    package = _package(_candidate())
++    payload = {
++        "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
++        "unit_roster": [MACHINE],
++        "machine_raw_source_packages": {pe._verified_source_cache_key(MACHINE): package},
++        "unit_research_cards": [],
++    }
++    executor = object.__new__(pe.PipelineExecutor)
++    executor.tenant_id = "tenant-1"
++    executor._pipeline = SimpleNamespace(anthropic=object())
++
++    async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
++        return current_payload
++
++    async def checkpoint(*_args):
++        return "UPDATE 1"
++
++    async def noop(*_args, **_kwargs):
++        return None
++
++    executor._load_machine_research_cards = MethodType(load_cards, executor)
++    executor._checkpoint_machine_raw_source_package = MethodType(checkpoint, executor)
++    executor._checkpoint_one_machine_research_result = MethodType(checkpoint, executor)
++    executor._upsert_machine_research_card = MethodType(noop, executor)
++    executor._log_activity = MethodType(noop, executor)
++
++    from unittest.mock import AsyncMock
++    malformed = {"passed": True, "paragraph": "HMS Argus entered service in 1918.", "claim_map": [], "sources": []}
++    with patch("factual_machine_summary.generate_factual_machine_summary", AsyncMock(return_value=malformed)):
++        result = asyncio.run(executor._run_unit_research_hold(
++            "video-1", "Every British Carrier", payload, [MACHINE], target_machine=MACHINE,
++        ))
++    saved = pe._research_card_for_machine(result, MACHINE)["research_summary"]
++    assert saved["passed"] is False
++    assert "claims or citations" in " ".join(saved["warnings"])
++    assert result["unit_research_hold_validation"]["passed"] is False
++
++
++def test_bulk_factual_hold_continues_after_one_transport_failure():
++    roster = [MACHINE, "HMS Eagle", "HMS Hermes"]
++    payload = {
++        "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
++        "unit_roster": roster,
++        "machine_raw_source_packages": {},
++        "unit_research_cards": [],
++    }
++    executor = object.__new__(pe.PipelineExecutor)
++    executor.tenant_id = "tenant-1"
++    async def should_cancel():
++        return False
++
++    executor._pipeline = SimpleNamespace(anthropic=object(), should_cancel=should_cancel)
++    attempted = []
++
++    async def get_video(_self, _video_id):
++        return {"max_spend": None, "total_cost": 0}
++
++    async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
++        return current_payload
++
++    async def gather(_self, _title, machine, _payload):
++        attempted.append(machine)
++        if machine == "HMS Eagle":
++            raise TimeoutError("gateway timeout")
++        return _package(_candidate(text=f"{machine} entered service in 1918."), machine=machine)
++
++    async def checkpoint(*_args):
++        return "UPDATE 1"
++
++    async def noop(*_args, **_kwargs):
++        return None
++
++    executor._get_video = MethodType(get_video, executor)
++    executor._load_machine_research_cards = MethodType(load_cards, executor)
++    executor._gather_verified_machine_source_package = MethodType(gather, executor)
++    executor._checkpoint_machine_raw_source_package = MethodType(checkpoint, executor)
++    executor._checkpoint_one_machine_research_result = MethodType(checkpoint, executor)
++    executor._upsert_machine_research_card = MethodType(noop, executor)
++    executor._log_activity = MethodType(noop, executor)
++
++    from unittest.mock import AsyncMock
++    complete = {
++        "passed": True, "paragraph": "A sourced research briefing.",
++        "claim_map": [{"sentence": "A sourced research briefing.", "citations": [{"excerpt_id": "S1-E1"}]}],
++        "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
++    }
++    with patch("factual_machine_summary.generate_factual_machine_summary", AsyncMock(return_value=complete)):
++        result = asyncio.run(executor._run_unit_research_hold("video-1", "Every British Carrier", payload, roster))
++    assert attempted == roster
++    assert {card.get("machine") or card.get("unit") for card in result["unit_research_cards"]} == {MACHINE, "HMS Hermes"}
++    failed = next(unit for unit in result["unit_research_hold_validation"]["units"] if unit["machine"] == "HMS Eagle")
++    assert failed["passed"] is False
++    assert "transport failure" in " ".join(failed["warnings"])
++
++
++def test_bulk_factual_hold_stops_after_machine_two_checkpoint_conflict():
++    roster = [MACHINE, "HMS Eagle", "HMS Hermes"]
++    payload = {"machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
++               "unit_roster": roster, "machine_raw_source_packages": {}, "unit_research_cards": []}
++    executor = object.__new__(pe.PipelineExecutor)
++    executor.tenant_id = "tenant-1"
++    async def should_cancel(): return False
++    executor._pipeline = SimpleNamespace(anthropic=object(), should_cancel=should_cancel)
++    attempted, raw_checkpoints = [], []
++    async def get_video(_self, _video_id): return {"max_spend": None, "total_cost": 0}
++    async def load(_self, _video_id, value, _roster, target_machine=None): return value
++    async def gather(_self, _title, machine, _payload):
++        attempted.append(machine)
++        return _package(_candidate(text=f"{machine} entered service in 1918."), machine=machine)
++    async def raw_checkpoint(_self, *_args):
++        raw_checkpoints.append(1)
++        return "UPDATE 0" if len(raw_checkpoints) == 2 else "UPDATE 1"
++    async def checkpoint(*_args): return "UPDATE 1"
++    async def noop(*_args, **_kwargs): return None
++    executor._get_video = MethodType(get_video, executor)
++    executor._load_machine_research_cards = MethodType(load, executor)
++    executor._gather_verified_machine_source_package = MethodType(gather, executor)
++    executor._checkpoint_machine_raw_source_package = MethodType(raw_checkpoint, executor)
++    executor._checkpoint_one_machine_research_result = MethodType(checkpoint, executor)
++    executor._upsert_machine_research_card = MethodType(noop, executor)
++    executor._log_activity = MethodType(noop, executor)
++    from unittest.mock import AsyncMock
++    valid = {"passed": True, "paragraph": "Briefing.",
++             "claim_map": [{"sentence": "Briefing.", "citations": [{"excerpt_id": "S1-E1"}]}],
++             "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}]}
++    with patch("factual_machine_summary.generate_factual_machine_summary", AsyncMock(return_value=valid)):
++        result = asyncio.run(executor._run_unit_research_hold("video-1", "Every British Carrier", payload, roster))
++    assert attempted == [MACHINE, "HMS Eagle"]
++    assert "checkpoint refused" in " ".join(
++        next(unit["warnings"] for unit in result["unit_research_hold_validation"]["units"] if unit["machine"] == "HMS Eagle")
++    )
++
++
++def test_run_unit_research_names_stale_summary_pending_despite_true_verdict(monkeypatch):
++    from unittest.mock import AsyncMock
++    payload = {"machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
++               "unit_roster": [MACHINE], "unit_research_cards": [],
++               "unit_research_hold_validation": {"passed": True, "units": [{"machine": MACHINE, "passed": True, "warnings": []}]}}
++    video = {"video_title": "Every British Carrier", "status": "idea_logged", "research_payload": payload}
++    executor = object.__new__(pe.PipelineExecutor)
++    executor.tenant_id = "tenant-1"
++    executor._pipeline = SimpleNamespace(should_cancel=AsyncMock(return_value=False))
++    async def noop(*_args, **_kwargs): return None
++    async def get_video(_self, _video_id): return video
++    async def hold(_self, _video_id, _title, value, _roster): return value
++    executor._ensure_initialized = MethodType(noop, executor)
++    executor._install_cancel_support = MethodType(noop, executor)
++    executor._get_video = MethodType(get_video, executor)
++    executor._run_unit_research_hold = MethodType(hold, executor)
++    executor._log_activity = MethodType(noop, executor)
++    monkeypatch.setattr(pe, "_live_roster_gate", lambda *_: {"passed": True})
++    monkeypatch.setattr(pe, "_machine_documentary_hold_roster", lambda *_: [MACHINE])
++    monkeypatch.setattr(pe, "execute", AsyncMock(return_value="UPDATE 1"))
++    monkeypatch.setattr("drive_workspace.sync_video_workspace_fail_soft", AsyncMock())
++    result = asyncio.run(executor.run_unit_research("video-1"))
++    assert result["status"] == "needs_review"
++    assert result["error"] == f"{MACHINE}: factual research summary pending"
++    status_save = next(call for call in pe.execute.await_args_list if "status = $2" in call.args[0])
++    assert status_save.args[2] == "idea_logged"
+ 
+ 
+ def test_aircraft_designation_rejects_shared_nickname_and_nearby_variant():
+diff --git a/storyengine/backend/tests/functional/test_factual_machine_pipeline.py b/storyengine/backend/tests/functional/test_factual_machine_pipeline.py
+index 1ef8a922..155a53ff 100644
+--- a/storyengine/backend/tests/functional/test_factual_machine_pipeline.py
++++ b/storyengine/backend/tests/functional/test_factual_machine_pipeline.py
+@@ -55,6 +55,22 @@ def test_saved_factual_section_resumes_without_another_model_call(state):
+     assert ex._save_machine_script_block.await_args.kwargs['advance_status'] is False
+ 
+ 
++def test_script_writer_receives_current_saved_research_briefing(state):
++    ex,video,machine,package,writer=state
++    from machine_research_summary import saved_research_summary
++    summary=saved_research_summary(machine,package,{
++        'passed':True, 'paragraph':'Argus was commissioned with a full flight deck.',
++        'claim_map':[{'sentence':'Argus was commissioned with a full flight deck.','citations':[{'excerpt_id':'S1'}]}],
++        'sources':[{'excerpt_id':'S1','source_url':'https://example.test/argus'}],
++        'review_context_version':fs.REVIEW_CONTEXT_VERSION,
++    },video['video_title'])
++    video['research_payload']['unit_research_cards']=[{'machine':machine,'research_summary':summary}]
++    asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
++    briefings=writer.await_args.kwargs['research_briefings']
++    assert briefings == [{'machine':machine,'scene':1,'paragraph':summary['paragraph'],
++                          'claim_map':summary['claim_map'],'sources':summary['sources']}]
++
++
+ def test_changed_sources_invalidate_saved_summary(state):
+     ex,video,machine,package,writer=state
+     asyncio.run(fp.run_factual_script_hold(ex,'video',video,[machine]))
+diff --git a/storyengine/backend/tests/functional/test_frontdoor_needs_review_surfacing.py b/storyengine/backend/tests/functional/test_frontdoor_needs_review_surfacing.py
+index 22f55544..e595b635 100644
+--- a/storyengine/backend/tests/functional/test_frontdoor_needs_review_surfacing.py
++++ b/storyengine/backend/tests/functional/test_frontdoor_needs_review_surfacing.py
+@@ -88,7 +88,8 @@ class _StubPipelineExecutor:
+         pass
+ 
+ 
+-_stub("pipeline_executor", PipelineExecutor=_StubPipelineExecutor)
++_stub("pipeline_executor", PipelineExecutor=_StubPipelineExecutor,
++      _unit_display_name=lambda unit: str(unit))
+ 
+ from routes import pipeline as pipeline_mod  # noqa: E402
+ import script_quality  # noqa: E402
+@@ -102,10 +103,10 @@ def _reset():
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# (a) _set_task_status: needs_review is additive, DB/enum status unchanged
++# (a) _set_task_status: needs_review is actionable and durable
+ # ---------------------------------------------------------------------------
+ 
+-def test_needs_review_normalizes_to_completed_but_flags_the_extra_field():
++def test_needs_review_persists_as_failed_and_flags_the_extra_field():
+     _reset()
+     pipeline_mod._set_task_status(
+         VIDEO, "needs_review",
+@@ -114,16 +115,11 @@ def test_needs_review_normalizes_to_completed_but_flags_the_extra_field():
+     )
+     task = pipeline_mod._get_task_status(VIDEO, TENANT)
+     assert task is not None
+-    # Every existing poller's running->done detection keys off "completed" —
+-    # this MUST still be exactly that, unchanged.
+-    assert task["status"] == "completed", (
+-        f"needs_review must still normalize to 'completed' (existing pollers "
+-        f"only recognize running/completed/failed), got {task['status']!r}"
+-    )
+-    # ...but the additive flag distinguishes it for the one consumer that cares.
++    assert task["status"] == "failed"
+     assert task["needs_review"] is True
++    assert task["error"] == "Something went wrong. Please try again."
+     assert "needs another look" in task["message"]
+-    print("✅ test_needs_review_normalizes_to_completed_but_flags_the_extra_field")
++    print("✅ test_needs_review_persists_as_failed_and_flags_the_extra_field")
+ 
+ 
+ def test_ordinary_completion_has_needs_review_false():
+@@ -145,7 +141,7 @@ def test_get_task_status_route_exposes_needs_review():
+         VIDEO, "needs_review", "needs another look", tenant_id=TENANT,
+     )
+     result = asyncio.run(pipeline_mod.get_task_status(VIDEO, TENANT))
+-    assert result["status"] == "completed"
++    assert result["status"] == "failed"
+     assert result["needs_review"] is True
+     print("✅ test_get_task_status_route_exposes_needs_review")
+ 
+@@ -160,6 +156,21 @@ def test_failed_task_has_needs_review_false():
+     print("✅ test_failed_task_has_needs_review_false")
+ 
+ 
++def test_factual_roster_review_keeps_safe_machine_and_next_action_in_task_error():
++    _reset()
++    pipeline_mod._set_task_status(
++        VIDEO, "needs_review",
++        "[[user-facing]] 19/20 machines researched. Machine B still needs review. "
++        "Open Research to resolve those cards, then resume Run All.",
++        tenant_id=TENANT,
++    )
++    task = asyncio.run(pipeline_mod.get_task_status(VIDEO, TENANT))
++    assert task["status"] == "failed"
++    assert task["needs_review"] is True
++    assert "Machine B" in task["error"]
++    assert "Open Research" in task["error"]
++
++
+ # ---------------------------------------------------------------------------
+ # (c) script_quality.plain_english_violations
+ # ---------------------------------------------------------------------------
+@@ -377,6 +388,8 @@ def test_autobuild_passing_script_is_unaffected():
+     fake_rc._post_approval_gate_for_autobuild = _fake_post_gate
+ 
+     async def _fake_fetch_one(query, *args):
++        if "production_queue" in query:
++            return None
+         if "video_characters" in query:
+             return {"n": 0}
+         raise AssertionError(f"unexpected fetch_one: {query}")
+@@ -404,7 +417,7 @@ def test_autobuild_passing_script_is_unaffected():
+ 
+ 
+ TESTS = [
+-    test_needs_review_normalizes_to_completed_but_flags_the_extra_field,
++    test_needs_review_persists_as_failed_and_flags_the_extra_field,
+     test_ordinary_completion_has_needs_review_false,
+     test_get_task_status_route_exposes_needs_review,
+     test_failed_task_has_needs_review_false,
+diff --git a/storyengine/backend/tests/functional/test_g8_roster_research_loop.py b/storyengine/backend/tests/functional/test_g8_roster_research_loop.py
+index 163e2a8e..ff6c7752 100644
+--- a/storyengine/backend/tests/functional/test_g8_roster_research_loop.py
++++ b/storyengine/backend/tests/functional/test_g8_roster_research_loop.py
+@@ -90,6 +90,14 @@ VIDEO = "video-1"
+ _ROSTER = ["Machine A", "Machine B", "Machine C"]
+ 
+ 
++async def _false_async(*_args, **_kwargs):
++    return False
++
++
++async def _completed_image_state():
++    return {"status": "completed"}
++
++
+ def _units(passed_map=None):
+     passed_map = passed_map or {}
+     return [{"machine": m, "passed": bool(passed_map.get(m, False))} for m in _ROSTER]
+@@ -162,6 +170,10 @@ class _FakeExecutor:
+ def _stub_pipeline_and_routes(fake_executor_factory):
+     fake_pe = types.ModuleType("pipeline_executor")
+     fake_pe.PipelineExecutor = fake_executor_factory
++    fake_pe._machine_documentary_hold_roster = lambda video: list(
++        ((video.get("research_payload") or {}).get("unit_roster") or [])
++    )
++    fake_pe._verified_source_package_for_machine = lambda _payload, machine: {"machine": machine}
+     statuses: list[tuple] = []
+ 
+     def _fake_set_task_status(video_id, status, message, tenant_id=None):
+@@ -210,6 +222,8 @@ def _run_autobuild(after_research_row, machine_results=None, cap_probe=None):
+ 
+     with patch.object(actions, "execute", fake_execute), \
+          patch.object(actions, "fetch_one", fake_fetch_one), \
++         patch.object(actions, "_static_image_coverage_missing", _false_async), \
++         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
+          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+          patch("asyncio.sleep", _fast_sleep):
+         step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
+@@ -292,11 +306,14 @@ def test_runtime_roster_selection_advances_on_phase_then_researches_saved_roster
+         if "SELECT status FROM videos" in query: return {"status": "idea_logged"}
+         return None
+     async def no_coverage(*_args, **_kwargs): return False
++    fake_images = types.ModuleType("roster_images")
++    fake_images.roster_image_state = lambda *_args, **_kwargs: _completed_image_state()
+     with patch.object(actions, "execute", fake_execute), \
+          patch.object(actions, "fetch_one", fake_fetch_one), \
+          patch.object(actions, "_static_image_coverage_missing", no_coverage), \
+          patch.object(actions, "_factual_image_recheck_needed", no_coverage), \
+-         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_routes}):
++         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_routes,
++                                  "roster_images": fake_images}):
+         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+     assert holder[0].selection_calls == 1
+     assert holder[0].unit_calls == 1
+@@ -438,6 +455,8 @@ def _run_surgical_repair(*, repair_passes=False, repair_error=None,
+ 
+     with patch.object(actions, "execute", fake_execute), \
+          patch.object(actions, "fetch_one", fake_fetch_one), \
++         patch.object(actions, "_static_image_coverage_missing", _false_async), \
++         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
+          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+          patch("asyncio.sleep", fast_sleep):
+         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+@@ -569,6 +588,8 @@ def _run_persisted_repair(db, repair_outcome):
+ 
+     with patch.object(actions, "execute", fake_execute), \
+          patch.object(actions, "fetch_one", fake_fetch_one), \
++         patch.object(actions, "_static_image_coverage_missing", _false_async), \
++         patch.object(actions, "_factual_image_recheck_needed", _false_async), \
+          patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+          patch("asyncio.sleep", fast_sleep):
+         asyncio.run(actions.make_autobuild_step(TENANT, VIDEO, target="pictures")())
+diff --git a/storyengine/backend/tests/functional/test_kie_factual_source_search.py b/storyengine/backend/tests/functional/test_kie_factual_source_search.py
+index 109e2aa2..b59c56d0 100644
+--- a/storyengine/backend/tests/functional/test_kie_factual_source_search.py
++++ b/storyengine/backend/tests/functional/test_kie_factual_source_search.py
+@@ -75,10 +75,11 @@ def test_real_gather_routes_factual_research_to_kie_and_only_copies_fetched_text
+             "Every US Strategic Bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
+         ))
+     secret.assert_awaited_once_with("kie_ai_api_key", "tenant-1")
+-    assert post.await_count == 1
++    assert post.await_count == (1 if passes else 2)
+     assert post.call_args.args[0] == search.ENDPOINT
+     assert (not factual_package_contract_warnings(MACHINE, package)) is passes
+     assert package["source_discovery"]["credits_consumed"] == 0.32
++    assert len(package["source_discovery_requests"]) == (1 if passes else 2)
+     if passes:
+         assert package["candidate_excerpts"][0]["text"] == text
+         assert package["candidate_excerpts"][0]["source_capture_method"] == "fetched_page"
+@@ -93,3 +94,28 @@ def test_factual_route_without_kie_key_does_not_spend_on_tavily():
+                 "Every bomber", MACHINE, {"machine_script_contract": "factual_100_v1"},
+             ))
+     secret.assert_awaited_once_with("kie_ai_api_key", "tenant-1")
++
++
++def test_factual_zero_exact_first_wave_gets_one_alternate_kie_wave():
++    executor = object.__new__(pe.PipelineExecutor)
++    executor.tenant_id = "tenant-1"
++
++    async def fetched(_client, url):
++        if url.endswith("alternate"):
++            return "The Gato-class submarine served in the Pacific during the Second World War."
++        return "An unrelated Balao-class submarine is not evidence for Gato."
++
++    first = response([{"title": "wrong", "exact_source_url": "https://museum.example/first"}])
++    second = response([{"title": "right", "exact_source_url": "https://archive.example/alternate"}])
++    with patch.object(pe, "get_secret", AsyncMock(return_value="test-key")), \
++         patch.object(httpx.AsyncClient, "post", AsyncMock(side_effect=[first, second])) as post:
++        executor._fetch_source_text = fetched
++        package = asyncio.run(executor._gather_verified_machine_source_package(
++            "Every US Submarine Class Ever Built", "SS-212 through SS-284 Gato class",
++            {"machine_script_contract": "factual_100_v1"},
++        ))
++
++    assert post.await_count == 2
++    assert len(package["source_discovery_requests"]) == 2
++    assert [row["url"] for row in package["sources"]] == ["https://archive.example/alternate"]
++    assert package["candidate_excerpts"]
+diff --git a/storyengine/frontend/src/components/production/ResearchTab.tsx b/storyengine/frontend/src/components/production/ResearchTab.tsx
+index 017eb30e..0023963a 100644
+--- a/storyengine/frontend/src/components/production/ResearchTab.tsx
++++ b/storyengine/frontend/src/components/production/ResearchTab.tsx
+@@ -1283,6 +1283,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
+       machine_script_previews: payload.machine_script_previews && typeof payload.machine_script_previews === "object" && !Array.isArray(payload.machine_script_previews)
+         ? payload.machine_script_previews
+         : {},
++      machine_script_contract: payload.machine_script_contract || null,
+     };
+   }, [video]);
+ 
+@@ -1318,6 +1319,19 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
+   }, [selectedSourcePackage]);
+   const selectedResearchReadiness = machineResearchReadiness(selectedResearchCard);
+   const selectedResearchReady = selectedResearchReadiness.ready;
++  const factualResearch = research?.machine_script_contract === "factual_100_v1";
++  const selectedSavedResearchSummary = selectedResearchCard?.research_summary;
++  const selectedSavedResearchSummarySources = Array.isArray(selectedSavedResearchSummary?.sources)
++    ? selectedSavedResearchSummary.sources
++    : [];
++  const selectedSavedResearchSummaryReady = Boolean(
++    selectedResearchReady
++    && selectedSavedResearchSummary?.passed === true
++    && String(selectedSavedResearchSummary?.paragraph || "").trim()
++    && Array.isArray(selectedSavedResearchSummary?.claim_map)
++    && selectedSavedResearchSummary.claim_map.length > 0
++    && selectedSavedResearchSummarySources.length > 0
++  );
+   const selectedResearchStatusMessage = selectedResearchReady
+     ? selectedSourcePackageStatus.message
+     : selectedResearchReadiness.message;
+@@ -1780,6 +1794,44 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
+                   )}
+                 </div>
+               )}
++              {factualResearch && (
++                <div className="mt-3 rounded-md p-3" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
++                  <div className="flex flex-wrap items-center justify-between gap-2">
++                    <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Saved research summary</div>
++                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: selectedSavedResearchSummaryReady ? "var(--green)" : "var(--orange)" }}>
++                      {selectedSavedResearchSummaryReady ? "Saved and passed" : selectedSavedResearchSummary ? "Needs review" : "Not yet saved"}
++                    </span>
++                  </div>
++                  {selectedSavedResearchSummary ? (
++                    <>
++                      {String(selectedSavedResearchSummary.paragraph || "").trim() && (
++                        <p className="mt-2 text-xs leading-5" style={{ color: "var(--text-primary)" }}>
++                          {selectedSavedResearchSummary.paragraph}
++                        </p>
++                      )}
++                      <div className="mt-2 flex flex-wrap gap-2">
++                        {selectedSavedResearchSummarySources.map((source: any, sourceIndex: number) => {
++                          const url = String(source?.source_url || source?.url || "").trim();
++                          const label = String(source?.source_title || source?.title || url || `Source ${sourceIndex + 1}`).trim();
++                          return /^https?:\/\//i.test(url) ? (
++                            <a key={`${url}-${sourceIndex}`} href={url} target="_blank" rel="noreferrer" className="max-w-full truncate rounded px-2 py-1 text-[10px]" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.08)" }}>
++                              {label}
++                            </a>
++                          ) : (
++                            <span key={`${label}-${sourceIndex}`} className="max-w-full truncate rounded px-2 py-1 text-[10px]" style={{ color: "var(--text-tertiary)", background: "rgba(255,255,255,.05)" }}>
++                              {label}
++                            </span>
++                          );
++                        })}
++                      </div>
++                    </>
++                  ) : (
++                    <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
++                      A sourced summary has not been saved for this machine yet.
++                    </p>
++                  )}
++                </div>
++              )}
+               {selectedSourcePackage && (
+                 <div className="mt-2 flex flex-wrap gap-1.5">
+                   {selectedSourceCoverageRows.map((row) => (

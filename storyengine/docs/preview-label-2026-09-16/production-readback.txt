@@ -1,0 +1,13 @@
+7e6adc15105d6a5b90ae135330bf15fdce68c4b5
+044f2b153a94071daa7fc83f31b307110b146cc2427b4567b20b8d0f370ee5e3  storyengine/backend/factual_machine_research.py
+MainPID=3875357
+ExecMainStartTimestamp=Wed 2026-09-16 22:44:12 UTC
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+Id=storyengine-backend.service
+ActiveState=active
+
+MainPID=3875443
+ExecMainStartTimestamp=Wed 2026-09-16 22:44:22 UTC
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+Id=storyengine-worker.service
+ActiveState=active

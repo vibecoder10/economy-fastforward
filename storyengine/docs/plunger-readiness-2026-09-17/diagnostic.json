@@ -1,0 +1,86 @@
+{
+  "audit_kind": "read_only_ss2_plunger_readiness_diagnosis",
+  "snapshot": "before.json",
+  "video": {
+    "id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "ready_for_voice",
+    "script_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "validation_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "identity": {
+    "package_key": "SS2",
+    "machine": "SS-2 USS Plunger",
+    "actual_title_used_for_package_brief": "Every US Submarine Class Ever Built (2026)",
+    "identity_clear": true
+  },
+  "raw_package": {
+    "passed": true,
+    "errors": [],
+    "source_count": 2,
+    "candidate_excerpt_count": 16,
+    "source_titles": [
+      "Plunger SS-2",
+      "Submarine Photo Index — Plunger / A-1 (SS-2)"
+    ],
+    "slot_coverage": {
+      "covered_slots": ["engineering_decision", "original_problem", "reality"],
+      "missing_slots": ["tradeoff"],
+      "required_slots": ["original_problem", "engineering_decision", "tradeoff", "reality"],
+      "distinct_required_excerpt_ids": [],
+      "needs_distinct_slot_excerpts": true
+    }
+  },
+  "saved_claim_assessment": {
+    "status": "assessed",
+    "version": 1,
+    "method": "model_source_assessment",
+    "provenance_status": "captured",
+    "calibration": "not_calibrated",
+    "probability": null,
+    "machine": "SS-2 USS Plunger",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "claims_fingerprint": "83011dffb476024e101486d4f3f798aa111603a20439c1d760e23afb215129cb",
+    "saved_source_fingerprint": "1b4ff10a3f48b1d4b3df51716041c94a3313eb073eecc14469517d970be86f23",
+    "computed_source_fingerprint_for_actual_title": "1b4ff10a3f48b1d4b3df51716041c94a3313eb073eecc14469517d970be86f23",
+    "fingerprint_matches_actual_title": true,
+    "current_assessment_for_actual_title": true,
+    "stored_narrative_roles": { "claims_with_explicit_roles": 0, "claim_count": 12 },
+    "claims": [
+      { "id": "C1", "claim": "USS Plunger (SS-2) was laid down on 21 May 1901", "status": "supported", "narrative_roles": [] },
+      { "id": "C2", "claim": "USS Plunger (SS-2) was laid down at Crescent Shipyard, Elizabethport, N.J.", "status": "supported", "narrative_roles": [] },
+      { "id": "C3", "claim": "USS Plunger (SS-2) was launched on 1 February 1902", "status": "supported", "narrative_roles": [] },
+      { "id": "C4", "claim": "USS Plunger (SS-2) was commissioned on 19 September 1903", "status": "supported", "narrative_roles": [] },
+      { "id": "C5", "claim": "USS Plunger (SS-2) was an Adder Class submarine", "status": "supported", "narrative_roles": [] },
+      { "id": "C6", "claim": "USS Plunger (SS-2) was renamed USS A-1 on 17 November 1911", "status": "supported", "narrative_roles": [] },
+      { "id": "C7", "claim": "USS Plunger (SS-2) was struck from the Naval Register on 24 February 1913", "status": "supported", "narrative_roles": [] },
+      { "id": "C8", "claim": "USS Plunger (SS-2) was sold for scrapping on 26 January 1922", "status": "supported", "narrative_roles": [] },
+      { "id": "C9", "claim": "USS Plunger (SS-2) had a displacement of 149 tons normal and 168 tons submerged", "status": "insufficient", "narrative_roles": [] },
+      { "id": "C10", "claim": "President Theodore Roosevelt dove aboard USS Plunger (SS-2) on 25 August 1905", "status": "supported", "narrative_roles": [] },
+      { "id": "C11", "claim": "President Roosevelt spent three hours underwater aboard USS Plunger (SS-2)", "status": "supported", "narrative_roles": [] },
+      { "id": "C12", "claim": "USS Plunger (SS-2) was designated Target E on 29 August 1916", "status": "supported", "narrative_roles": [] }
+    ]
+  },
+  "unit_research_card": {
+    "unit": "SS-2 USS Plunger",
+    "include": true,
+    "confidence": "unassessed",
+    "schema_version": 3,
+    "provenance_status": "captured",
+    "source_package_key": "SS2",
+    "locked_roster_index": 2,
+    "machine_research_contract": "factual_100_v1",
+    "research_summary": {
+      "passed": true,
+      "warnings": [],
+      "claim_map_count": 5,
+      "source_fingerprint": "7b6749aafe99266f2f3b3815e65ca0c139b0c6c0d82dfe0f0c4107b57f619257",
+      "review_context_version": 6,
+      "paragraph": "USS Plunger (SS-2) was an Adder Class submarine torpedo boat laid down on 21 May 1901 at Crescent Shipyard, Elizabethport, N.J. She was launched on 1 February 1902 and commissioned on 19 September 1903. On 25 August 1905, President Theodore Roosevelt dove aboard the vessel off Long Island Sound, spending three hours underwater. The submarine was renamed USS A-1 on 17 November 1911 and was struck from the Naval Register on 24 February 1913. After being designated Target E on 29 August 1916, she was sold for scrapping on 26 January 1922."
+    }
+  },
+  "package_brief_actual_title": {
+    "ready": false,
+    "missing_fields": ["intended_role", "design", "actual_use", "outcome"]
+  },
+  "diagnostic_limit": "This record reports stored data and local pure-function output only. It makes no historical inference and made no source, provider, live-data, or code change."
+}

@@ -1,0 +1,48 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-automation","changed_at":"2026-09-16 01:16:43.531082+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T01:16:43.674554+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-automation","changed_at":"2026-09-16 01:16:43.531082+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T01:16:44.011578+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:image-automation","changed_at":"2026-09-16 01:16:43.531082+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T01:16:49.045439+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   659f03455..c691ebe38  main       -> origin/main
+Updating 659f03455..c691ebe38
+Fast-forward
+ storyengine/.gitignore                             |   1 +
+ storyengine/IMAGE-AUTOMATION-PLAN.md               |  29 ++
+ storyengine/backend/reference_article.py           | 192 ++++++++++++++
+ storyengine/backend/reference_judgment.py          | 291 +++++++++++++++++++++
+ storyengine/backend/reference_selection.py         |  24 +-
+ storyengine/backend/reference_sources.py           | 207 ++++++++++++---
+ .../backend/tests/test_reference_article.py        |  89 +++++++
+ .../backend/tests/test_reference_judgment.py       | 207 +++++++++++++++
+ .../backend/tests/test_reference_sources.py        |  62 +++--
+ 9 files changed, 1029 insertions(+), 73 deletions(-)
+ create mode 100644 storyengine/IMAGE-AUTOMATION-PLAN.md
+ create mode 100644 storyengine/backend/reference_article.py
+ create mode 100644 storyengine/backend/reference_judgment.py
+ create mode 100644 storyengine/backend/tests/test_reference_article.py
+ create mode 100644 storyengine/backend/tests/test_reference_judgment.py
+code: 659f03455 -> c691ebe38
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3438999)
+worker code parity: commit=c691ebe38 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed c691ebe38; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:image-automation","changed_at":"2026-09-16 01:17:09.874952+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T01:17:10.019947+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:image-automation","changed_at":"2026-09-16T01:17:09.874952+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":590,"limit":9000,"remaining":8410,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":18,"limit":100,"remaining":82},"units_used":590,"ceiling":9000,"remaining":8410}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T01:17:09Z image-automation deployed 659f03455 -> c691ebe38 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "task": {
+    "id": "SE-0002",
+    "status": "In Progress",
+    "updated": "2026-09-17T15:54:43.766Z"
+  },
+  "updated_step": {
+    "id": "dvsu-global-handoff",
+    "title": "Build: make narrative research upgrades automatic for every locked machine",
+    "done": false,
+    "evidence": "Shared source-prefix release b1dcf0154 deployed. The two-original-URL SS-2 refresh reached sources=6, excerpts=24, discovery receipts=2 unchanged; design=3, actual_use=2, outcome=2, intended_role=0. No passing new preview. Production, other19 and Holland copyedit preserved. Latest actual all20 readiness was 1 ready/19 preparable before final refresh; no all20-written claim. 48 focused tests; prior 145 pass with one known sentence-map baseline failure. Next: source-backed SS-2 intended-role research, no blind generation retry. DoD remains open. Evidence: docs/plunger-readiness-2026-09-17/REPORT.md."
+  }
+}

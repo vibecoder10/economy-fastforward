@@ -1,0 +1,14 @@
+2026-09-17 DVsU Run All offline coordinator replay
+
+Command:
+cd backend && ./venv/bin/python -m pytest tests/test_dvsu_run_all_replay.py tests/functional/test_autobuild_explicit_research_plan.py tests/functional/test_autobuild_stale_retry_guard.py -q
+
+Result: 17 passed, 1 warning in 0.34s.
+The warning is Starlette's existing multipart PendingDeprecationWarning.
+
+Replay evidence: the real actions.make_autobuild_step coordinator reached the
+static-documentary sequence roster, research, script, voice, images, thumbnail,
+render, rendered without calling upload. A rendered restart called no provider
+methods; the budget cap stopped before provider work. Partial-script review and
+cancel results stop before voice, images, thumbnail, or render. A factual-contract
+unit verifies the saved-script recheck is required before downstream resume.

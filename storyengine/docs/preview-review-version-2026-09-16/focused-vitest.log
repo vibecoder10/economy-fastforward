@@ -1,0 +1,13 @@
+
+> frontend@1.0.0 test:unit
+> vitest run src/components/production/ScriptVoiceTab.factual.test.ts
+
+
+ RUN  v4.1.10 /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  15:54:09
+   Duration  473ms (transform 84ms, setup 0ms, import 300ms, tests 3ms, environment 0ms)
+

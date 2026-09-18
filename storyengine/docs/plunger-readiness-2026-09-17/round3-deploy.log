@@ -1,0 +1,43 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17 15:32:21.978143+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T15:32:22.113162+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17 15:32:21.978143+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T15:32:22.451161+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17 15:32:21.978143+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T15:32:27.482492+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   b53879e6d..40b610b13  main       -> origin/main
+Updating b53879e6d..40b610b13
+Fast-forward
+ storyengine/backend/dvsu_script_brief.py           |  47 ++++++-
+ storyengine/backend/factual_machine_summary.py     |  52 +++++++-
+ storyengine/backend/pipeline_executor.py           |  36 ++++--
+ storyengine/backend/research_claim_assessment.py   |   4 +-
+ .../backend/tests/test_dvsu_global_handoff.py      |   1 +
+ .../tests/test_dvsu_research_prompt_budget.py      | 143 +++++++++++++++++++++
+ .../backend/tests/test_dvsu_role_quality.py        |  81 ++++++++++++
+ 7 files changed, 346 insertions(+), 18 deletions(-)
+ create mode 100644 storyengine/backend/tests/test_dvsu_research_prompt_budget.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_role_quality.py
+code: b53879e6d -> 40b610b13
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=169 applied=169 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 32185)
+worker code parity: commit=40b610b13 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 40b610b13; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17 15:32:46.740774+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T15:32:46.883785+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-research-compact-20260917","changed_at":"2026-09-17T15:32:46.740774+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":150,"limit":9000,"remaining":8850,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":5,"limit":100,"remaining":95},"units_used":150,"ceiling":9000,"remaining":8850}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T15:32:46Z dvsu-research-compact-20260917 deployed b53879e6d -> 40b610b13 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

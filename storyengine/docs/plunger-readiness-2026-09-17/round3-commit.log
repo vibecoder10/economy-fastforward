@@ -1,0 +1,4 @@
+[main 40b610b1] Keep DVSU research prompts compact and require meaningful narrative evidence
+ 7 files changed, 346 insertions(+), 18 deletions(-)
+ create mode 100644 storyengine/backend/tests/test_dvsu_research_prompt_budget.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_role_quality.py

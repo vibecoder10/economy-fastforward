@@ -1,0 +1,156 @@
+{
+  "provider_calls": 0,
+  "scope": "Eligibility replay of saved sources; no summary generation or truth adjudication",
+  "packages": [
+    {
+      "machine": "SS-1 Holland class",
+      "eligible_before": 8,
+      "eligible_after": 2,
+      "warnings_after": []
+    },
+    {
+      "machine": "SS-2 through SS-8 Plunger class",
+      "eligible_before": 0,
+      "eligible_after": 0,
+      "warnings_after": [
+        "verified factual source package has no traceable exact-machine excerpts"
+      ]
+    },
+    {
+      "machine": "SS-105 through SS-162 S-class",
+      "eligible_before": 0,
+      "eligible_after": 0,
+      "warnings_after": [
+        "verified factual source package has no traceable exact-machine excerpts"
+      ]
+    },
+    {
+      "machine": "SS-163 through SS-165 Barracuda (V-1) class",
+      "eligible_before": 0,
+      "eligible_after": 0,
+      "warnings_after": [
+        "verified factual source package has no traceable exact-machine excerpts"
+      ]
+    },
+    {
+      "machine": "SS-212 through SS-284 Gato class",
+      "eligible_before": 0,
+      "eligible_after": 8,
+      "warnings_after": []
+    },
+    {
+      "machine": "SS-285 through SS-416 Balao class",
+      "eligible_before": 0,
+      "eligible_after": 6,
+      "warnings_after": []
+    },
+    {
+      "machine": "SS-417 through SS-525 Tench class",
+      "eligible_before": 0,
+      "eligible_after": 0,
+      "warnings_after": [
+        "verified factual source package has no traceable exact-machine excerpts"
+      ]
+    },
+    {
+      "machine": "SS-563 through SS-568 Tang class",
+      "eligible_before": 0,
+      "eligible_after": 6,
+      "warnings_after": []
+    },
+    {
+      "machine": "SS-580 through SS-582 Barbel class",
+      "eligible_before": 0,
+      "eligible_after": 8,
+      "warnings_after": []
+    },
+    {
+      "machine": "AGSS-569 Albacore class",
+      "eligible_before": 0,
+      "eligible_after": 3,
+      "warnings_after": []
+    }
+  ],
+  "roster_subjects": [
+    {
+      "display": "SS-1 Holland class",
+      "research_subject": "Holland class"
+    },
+    {
+      "display": "SS-2 through SS-8 Plunger class",
+      "research_subject": "Plunger class"
+    },
+    {
+      "display": "SS-105 through SS-162 S-class",
+      "research_subject": "S-class"
+    },
+    {
+      "display": "SS-163 through SS-165 Barracuda (V-1) class",
+      "research_subject": "Barracuda (V-1) class"
+    },
+    {
+      "display": "SS-212 through SS-284 Gato class",
+      "research_subject": "Gato class"
+    },
+    {
+      "display": "SS-285 through SS-416 Balao class",
+      "research_subject": "Balao class"
+    },
+    {
+      "display": "SS-417 through SS-525 Tench class",
+      "research_subject": "Tench class"
+    },
+    {
+      "display": "SS-563 through SS-568 Tang class",
+      "research_subject": "Tang class"
+    },
+    {
+      "display": "AGSS-569 Albacore class",
+      "research_subject": "Albacore class"
+    },
+    {
+      "display": "SS-580 through SS-582 Barbel class",
+      "research_subject": "Barbel class"
+    },
+    {
+      "display": "SSN-571 Nautilus class",
+      "research_subject": "Nautilus class"
+    },
+    {
+      "display": "SSN-585, SSN-588 through SSN-592 Skipjack class",
+      "research_subject": "Skipjack class"
+    },
+    {
+      "display": "SSN-593 through SSN-621 Thresher/Permit class",
+      "research_subject": "Thresher/Permit class"
+    },
+    {
+      "display": "SSN-637 through SSN-687 Sturgeon class",
+      "research_subject": "Sturgeon class"
+    },
+    {
+      "display": "SSN-688 through SSN-773 Los Angeles class",
+      "research_subject": "Los Angeles class"
+    },
+    {
+      "display": "SSN-21 through SSN-23 Seawolf class",
+      "research_subject": "Seawolf class"
+    },
+    {
+      "display": "SSN-774 through SSN-799+ Virginia class",
+      "research_subject": "Virginia class"
+    },
+    {
+      "display": "SSBN-598 through SSBN-602 George Washington class",
+      "research_subject": "George Washington class"
+    },
+    {
+      "display": "SSBN-608 through SSBN-615 Ethan Allen class",
+      "research_subject": "Ethan Allen class"
+    },
+    {
+      "display": "SSBN-616 through SSBN-645 Lafayette class",
+      "research_subject": "Lafayette class"
+    }
+  ]
+}

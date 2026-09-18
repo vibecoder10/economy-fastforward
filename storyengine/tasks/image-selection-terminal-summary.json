@@ -1,0 +1,49 @@
+{
+  "at": "2026-09-16T00:43:26.787432+00:00",
+  "task": "failed",
+  "ready": 15,
+  "total": 20,
+  "photos_present": 19,
+  "unresolved": [
+    {
+      "machine": "SS-105 through SS-162 S-class",
+      "has_saved_photo": true,
+      "reason_code": "identity_mismatch",
+      "reason": "Caption identifies a Mercedes-Benz W223 automobile, not a submarine. Completely unrelated subject to the SS-105 through SS-162 S-class submarine target.; Caption identifies 'SS America' from a 1954 brochure \u2014 a large ocean liner, not a submarine. Unrelated subject to the SS-105 through SS-162 S-class submarine target.; Caption identifies 'Interior of S-189 museum submarine' \u2014 S-189 is a Soviet Stalinets-class (Series IX-bis) submarine, not a US Navy SS-105 through SS-162 S-class. No supplied text connects S-189 to the US interwar S-class target. Additionally, interior shots are excluded per assessment rules.; Caption identifies 'Interior of S-189 museum submarine' \u2014 S-189 is a Soviet submarine, not a US Navy SS-105 through SS-162 S-class. Interior shots are excluded per assessment rules.",
+      "discovered": 7
+    },
+    {
+      "machine": "SS-163 through SS-165 Barracuda (V-1) class",
+      "has_saved_photo": false,
+      "reason_code": "invalid_review",
+      "reason": "The provider returned an unreadable comparison; no image was selected.",
+      "discovered": 4
+    },
+    {
+      "machine": "SS-563 through SS-568 Tang class",
+      "has_saved_photo": true,
+      "reason_code": "identity_mismatch",
+      "reason": "Caption identifies this as a portrait of Philipp, Prince and Landgrave of Hesse in SA uniform \u2014 a human subject entirely unrelated to the Tang class submarines (SS-563 through SS-568).; Caption identifies this as Flossenb\u00fcrg concentration camp \u2014 a land facility entirely unrelated to the Tang class submarines.; Caption explicitly identifies this vessel as USS Tang (SS-306), a WWII-era Balao/Tench-class fleet submarine from 1944. The target class is SS-563 through SS-568, post-WWII Tang class submarines commissioned 1951\u20131952. SS-306 is a different, earlier vessel of an incompatible class and era; the identical name does not establish membership in the post-war Tang class.; This is a technical damage diagram/drawing (labeled 'BOARD PROFILE' with color-coded flood zones and annotations) of USS Tang SS-306, not a photograph of a Tang class (SS-563 through SS-568) submarine. It is a diagram of an incompatible vessel in an incompatible era, and diagrams/drawings are excluded per assessment rules.",
+      "discovered": 5
+    },
+    {
+      "machine": "SSN-585, SSN-588 through SSN-592 Skipjack class",
+      "has_saved_photo": true,
+      "reason_code": "invalid_review",
+      "reason": "The provider returned an unreadable comparison; no image was selected.",
+      "discovered": 4
+    },
+    {
+      "machine": "SSN-774 through SSN-799+ Virginia class",
+      "has_saved_photo": true,
+      "reason_code": "invalid_review",
+      "reason": "The comparison returned malformed scores or reasons.",
+      "discovered": 6
+    }
+  ],
+  "roster_count": 20,
+  "cards": 1,
+  "history": [
+    58
+  ]
+}

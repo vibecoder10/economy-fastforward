@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "task": {
+    "id": "SE-0002",
+    "status": "In Progress",
+    "updated": "2026-09-17T15:32:34.616Z"
+  },
+  "updated_step": {
+    "id": "dvsu-global-handoff",
+    "title": "Build: make narrative research upgrades automatic for every locked machine",
+    "done": false,
+    "evidence": "Initial release b53879e6d deployed successfully. One authorized SS-2 action stopped at the factual research-summary input-budget guard before writing a preview or production script. live-audit.json reports the before/after snapshot unchanged, preserving production and other19. Round3 addresses archived assessment projection, meaningful role selection, and exact stale-summary recovery; final deploy/canary success remain open. Evidence: docs/plunger-readiness-2026-09-17/canary-response.json, live-audit.json, research-prompt-budget-measurements.json."
+  }
+}

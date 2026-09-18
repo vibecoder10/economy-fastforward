@@ -1,0 +1,90 @@
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] GoogleClient OK
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] SlackClient OK
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] ImageClient OK
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 13 05:56:58 srv1318038 arq[2079251]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] GeminiClient OK
+Sep 13 05:56:58 srv1318038 arq[2079251]: [INIT] Pipeline ready!
+Sep 13 05:57:03 srv1318038 arq[2079251]: ============================================================
+Sep 13 05:57:03 srv1318038 arq[2079251]: PIPELINE ERROR in run_script:
+Sep 13 05:57:03 srv1318038 arq[2079251]: Traceback (most recent call last):
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/pipeline_executor.py", line 16408, in run_script
+Sep 13 05:57:03 srv1318038 arq[2079251]:     hold_result = await self._run_static_script_hold(video_id, video, roster)
+Sep 13 05:57:03 srv1318038 arq[2079251]:                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/pipeline_executor.py", line 13979, in _run_static_script_hold
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return await run_factual_script_hold(
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/factual_machine_pipeline.py", line 190, in run_factual_script_hold
+Sep 13 05:57:03 srv1318038 arq[2079251]:     summary = await generate_factual_machine_summary(
+Sep 13 05:57:03 srv1318038 arq[2079251]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/factual_machine_summary.py", line 622, in generate_factual_machine_summary
+Sep 13 05:57:03 srv1318038 arq[2079251]:     raw_draft = await anthropic_client.generate(
+Sep 13 05:57:03 srv1318038 arq[2079251]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 264, in generate
+Sep 13 05:57:03 srv1318038 arq[2079251]:     response = await _create_with_5xx_retry()
+Sep 13 05:57:03 srv1318038 arq[2079251]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 255, in _create_with_5xx_retry
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return await _asyncio.to_thread(_create)
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return await loop.run_in_executor(None, func_call)
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+Sep 13 05:57:03 srv1318038 arq[2079251]:     result = self.fn(*self.args, **self.kwargs)
+Sep 13 05:57:03 srv1318038 arq[2079251]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 242, in _create
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return self.client.messages.create(**kwargs)
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_utils/_utils.py", line 282, in wrapper
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return func(*args, **kwargs)
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/resources/messages/messages.py", line 996, in create
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return self._post(
+Sep 13 05:57:03 srv1318038 arq[2079251]:            ^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_base_client.py", line 1364, in post
+Sep 13 05:57:03 srv1318038 arq[2079251]:     return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+Sep 13 05:57:03 srv1318038 arq[2079251]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 13 05:57:03 srv1318038 arq[2079251]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_base_client.py", line 1137, in request
+Sep 13 05:57:03 srv1318038 arq[2079251]:     raise self._make_status_error_from_response(err.response) from None
+Sep 13 05:57:03 srv1318038 arq[2079251]: anthropic.BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.'}, 'request_id': 'req_011CezvYpCYjajcFussKLWLW'}
+Sep 13 05:57:03 srv1318038 arq[2079251]: ============================================================
+Sep 13 05:57:03 srv1318038 arq[2079251]: [humanize_error] (no context) | raw: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.'}, 'request_id': 'req_011CezvYpCYjajcFussKLWLW'}
+Sep 13 05:57:03 srv1318038 arq[2079251]: [humanize_error] (no context) | raw: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.'}, 'request_id': 'req_011CezvYpCYjajcFussKLWLW'}
+Sep 13 05:57:23 srv1318038 arq[2079251]: 05:57:23:  28.44s ← autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:9:arq_run_autobuild ● {'status': 'failed', 'message': "Error code: 400 - {'type': 'error', 'error': {…
+Sep 13 06:01:40 srv1318038 arq[2079251]: 06:01:40: recording health: Sep-13 06:01:40 j_complete=1 j_failed=0 j_retried=0 j_ongoing=0 queued=1
+Sep 13 06:05:09 srv1318038 arq[2087442]: 06:05:09: Starting worker for 17 functions: arq_run_research, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 13 06:05:09 srv1318038 arq[2087442]: 06:05:09: redis_version=7.0.15 mem_usage=1.35M clients_connected=2 db_keys=28
+Sep 13 06:54:14 srv1318038 arq[2087442]: 06:54:14: 7210.43s → autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:5:arq_run_autobuild('658e11e0-1f24-457e-95ef-3c8a0bd00f45', UUID('561b872d-7b73-45e3-9c44-7f30c3566…) try=2 delayed=7210.43s
+Sep 13 06:54:15 srv1318038 arq[2087442]: [autobuild] refusing superseded/unknown job video=658e11e0-1f24-457e-95ef-3c8a0bd00f45 job_id=autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:5 latest_job_id=autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:9 latest_attempt=9
+Sep 13 06:54:15 srv1318038 arq[2087442]: 06:54:15:   1.71s ← autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:5:arq_run_autobuild ● {'status': 'cancelled', 'message': 'Superseded Run All job did not start.', 'ta…
+Sep 13 06:55:11 srv1318038 arq[2087442]: 06:55:11: recording health: Sep-13 06:55:11 j_complete=1 j_failed=0 j_retried=0 j_ongoing=0 queued=0
+Sep 14 22:26:10 srv1318038 arq[2087442]: 22:26:10:   0.09s → autobuild:658e11e0-1f24-457e-95ef-3c8a0bd00f45:10:arq_run_autobuild('658e11e0-1f24-457e-95ef-3c8a0bd00f45', UUID('561b872d-7b73-45e3-9c44-7f30c3566…)
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Starting pipeline initialization...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: anthropic_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ anthropic_api_key loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: airtable_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   - airtable_api_key not found
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: elevenlabs_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: elevenlabs_model_id...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: kie_ai_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: openai_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   - openai_api_key not found
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Loading key: gemini_api_key...
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT]   - gemini_api_key not found
+Sep 14 22:26:12 srv1318038 arq[2087442]: [INIT] Creating lightweight pipeline...
+Sep 14 22:26:13 srv1318038 arq[2087442]: [INIT] SupabaseAdapter OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] AnthropicClient OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] GoogleClient OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] SlackClient OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] ImageClient OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 14 22:26:18 srv1318038 arq[2087442]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] GeminiClient OK
+Sep 14 22:26:18 srv1318038 arq[2087442]: [INIT] Pipeline ready!

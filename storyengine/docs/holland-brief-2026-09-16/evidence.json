@@ -1,0 +1,74 @@
+{
+  "status": "local human-reviewed evidence; not a production claim assessment",
+  "machine": "SS-1 USS Holland",
+  "sources": [
+    {
+      "id": "C1",
+      "url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf",
+      "local_file": "congress-1901.pdf",
+      "sha256": "d6b1b96271ea1bb4fc6f6cfa94419b855a256b28b96f59b0880c42b439984e2b",
+      "locator": "PDF page77 / printed Congressional Record House3089, lower left column; continuation upper right",
+      "attribution": "Extract from Lieutenant Caldwell letter dated January12,1901 to R.B.Hawley, read by Mr.Cummings",
+      "visual_review": "Original full page inspected; OCR errors preserved in extracted quote. Visual text reads durable and as a vessel, not dura-/a."
+    },
+    {
+      "id": "M1",
+      "url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "local_file": "../dvsu-source-recovery-2026-09-16/undersea.html",
+      "locator": "John Philip Holland heading; exact section preserved by deployed extractor"
+    }
+  ],
+  "facts": [
+    {
+      "fact_id": "F1",
+      "claim": "Holland’s commander advocated her use as a war vessel for coast and harbor defense.",
+      "scope": "Contemporary operational promise, not proof of the original procurement requirement or combat success.",
+      "narrative_roles": [
+        "intended_role"
+      ],
+      "source_id": "C1",
+      "source_quote": "I consider her dura-\nble, habitable, and reliable as a. vessel of war for coast and harbor defense.",
+      "quote_type": "exact PDF extraction, including OCR and line breaks",
+      "visual_reading": "I consider her durable, habitable, and reliable as a vessel of war for coast and harbor defense."
+    },
+    {
+      "fact_id": "F2",
+      "claim": "Holland combined dual propulsion, separate main and auxiliary ballast systems, and a hydrodynamic hull shape.",
+      "scope": "Documented design features of USS Holland.",
+      "narrative_roles": [
+        "design"
+      ],
+      "source_id": "M1",
+      "source_quote": "Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+      "quote_type": "exact normalized visible HTML"
+    },
+    {
+      "fact_id": "F3",
+      "claim": "Holland served at the U.S. Naval Academy as a training submarine.",
+      "scope": "Actual service; omit disputed duration.",
+      "narrative_roles": [
+        "actual_use"
+      ],
+      "source_id": "M1",
+      "source_quote": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+      "quote_type": "exact normalized visible HTML"
+    },
+    {
+      "fact_id": "F4",
+      "claim": "Improved Holland-type submarines became the Navy’s A-class.",
+      "scope": "Design successors; omit disputed boat count.",
+      "narrative_roles": [
+        "outcome"
+      ],
+      "source_id": "M1",
+      "source_quote": "The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy’s A -class of submarines.",
+      "quote_type": "exact normalized visible HTML"
+    }
+  ],
+  "exclusions": [
+    "No claim that Holland failed in combat or was reassigned because of a failure.",
+    "No purchase price, service duration, successor count or Roosevelt ride; conflicting or misattributed source details excluded.",
+    "Smithsonian403 and Navy TLS failure bodies are not evidence.",
+    "Promoted role substitutes for unsupported original procurement intent; keep this wording in any later assessment."
+  ]
+}

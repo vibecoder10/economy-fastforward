@@ -1,0 +1,21 @@
+{
+  "requested_at": "2026-09-13T05:22:05.623613+00:00",
+  "status": "response_received",
+  "model": "gemini-2.5-flash",
+  "machine": "General Dynamics FB-111A Aardvark",
+  "balance_before": {
+    "code": 200,
+    "msg": "success",
+    "data": 8974.0
+  },
+  "http": 200,
+  "response": {
+    "code": 500,
+    "msg": "Network error, please try again later."
+  },
+  "balance_after": {
+    "code": 200,
+    "msg": "success",
+    "data": 8974.0
+  }
+}

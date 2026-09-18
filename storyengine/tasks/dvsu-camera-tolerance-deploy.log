@@ -1,0 +1,39 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-camera-tolerance","changed_at":"2026-09-15 03:35:44.373535+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T03:35:44.555312+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-camera-tolerance","changed_at":"2026-09-15 03:35:44.373535+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T03:35:44.916210+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-camera-tolerance","changed_at":"2026-09-15 03:35:44.373535+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T03:35:49.948832+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   068801127..6ab3ff1ab  main       -> origin/main
+Updating 068801127..6ab3ff1ab
+Fast-forward
+ storyengine/backend/static_docu.py                 | 47 ++++++++++------------
+ .../tests/functional/test_static_docu_qa_park.py   |  2 +-
+ .../test_static_docu_view_rotation_fix.py          | 36 ++++++++++++-----
+ storyengine/docs/STATIC-IMAGE-ACCEPTANCE.md        | 15 +++++++
+ 4 files changed, 63 insertions(+), 37 deletions(-)
+ create mode 100644 storyengine/docs/STATIC-IMAGE-ACCEPTANCE.md
+code: 068801127 -> 6ab3ff1ab
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3066379)
+worker code parity: commit=6ab3ff1ab directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 6ab3ff1ab; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-camera-tolerance","changed_at":"2026-09-15 03:36:14.180830+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T03:36:14.313246+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-camera-tolerance","changed_at":"2026-09-15T03:36:14.180830+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-14","general":{"used":120,"limit":9000,"remaining":8880,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":120,"ceiling":9000,"remaining":8880}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T03:36:13Z dvsu-camera-tolerance deployed 068801127 -> 6ab3ff1ab 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

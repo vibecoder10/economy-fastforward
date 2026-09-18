@@ -1,0 +1,120 @@
+Sep 17 13:51:43 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:51:43.637268+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (10ms)", "module": "logging_config", "duration_ms": 10.3}
+Sep 17 13:51:43 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:51:43.640970+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (14ms)", "module": "logging_config", "duration_ms": 13.6}
+Sep 17 13:52:10 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:10.563479+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (11ms)", "module": "logging_config", "duration_ms": 11.3}
+Sep 17 13:52:10 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:10.569208+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (17ms)", "module": "logging_config", "duration_ms": 16.8}
+Sep 17 13:52:10 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:10.572198+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (12ms)", "module": "logging_config", "duration_ms": 12.5}
+Sep 17 13:52:10 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:10.575516+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (17ms)", "module": "logging_config", "duration_ms": 17.0}
+Sep 17 13:52:14 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:14.552146+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (4ms)", "module": "logging_config", "duration_ms": 3.6}
+Sep 17 13:52:14 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:14.553447+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (5ms)", "module": "logging_config", "duration_ms": 4.6}
+Sep 17 13:52:14 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:14.559078+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (3ms)", "module": "logging_config", "duration_ms": 2.6}
+Sep 17 13:52:14 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:14.560745+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (5ms)", "module": "logging_config", "duration_ms": 4.9}
+Sep 17 13:52:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:34.615699+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (128ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 127.6}
+Sep 17 13:52:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:34.618890+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (134ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 134.2}
+Sep 17 13:52:37 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:37.551513+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (5ms)", "module": "logging_config", "duration_ms": 4.6}
+Sep 17 13:52:38 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:38.387818+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (3ms)", "module": "logging_config", "duration_ms": 3.4}
+Sep 17 13:52:38 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:38.552549+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (3ms)", "module": "logging_config", "duration_ms": 3.0}
+Sep 17 13:52:38 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:38.552774+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (5ms)", "module": "logging_config", "duration_ms": 5.0}
+Sep 17 13:52:42 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:42.560867+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (7ms)", "module": "logging_config", "duration_ms": 6.9}
+Sep 17 13:52:42 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:42.561299+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (7ms)", "module": "logging_config", "duration_ms": 6.9}
+Sep 17 13:52:42 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:42.562647+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (7ms)", "module": "logging_config", "duration_ms": 6.8}
+Sep 17 13:52:42 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:52:42.563174+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (6ms)", "module": "logging_config", "duration_ms": 6.4}
+Sep 17 13:53:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:53:34.483242+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (93ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 92.6}
+Sep 17 13:53:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:53:34.510059+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (99ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 99.1}
+Sep 17 13:54:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:54:34.474541+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (83ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 82.9}
+Sep 17 13:54:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:54:34.491769+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (94ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 94.3}
+Sep 17 13:55:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:55:34.443819+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.1}
+Sep 17 13:55:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:55:34.499011+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (99ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 98.6}
+Sep 17 13:56:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:56:34.455343+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.5}
+Sep 17 13:56:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:56:34.456438+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (61ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 61.0}
+Sep 17 13:57:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:57:34.466709+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (82ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 82.0}
+Sep 17 13:57:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:57:34.471388+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (79ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 79.1}
+Sep 17 13:58:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:58:34.441168+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (52ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 51.8}
+Sep 17 13:58:34 srv1318038 python3[3914160]: {"timestamp": "2026-09-17T13:58:34.558216+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (158ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 157.6}
+Sep 17 13:59:18 srv1318038 python3[4187144]: INFO:     Started server process [4187144]
+Sep 17 13:59:18 srv1318038 python3[4187144]: INFO:     Waiting for application startup.
+Sep 17 13:59:18 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:18.811828+00:00", "level": "INFO", "message": "Database pool connected", "module": "main"}
+Sep 17 13:59:18 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:18.821647+00:00", "level": "INFO", "message": "arq pool connected to Redis at localhost:6379", "module": "main"}
+Sep 17 13:59:19 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:19.053305+00:00", "level": "INFO", "message": "Migrations checked (168 files, 0 new)", "module": "main"}
+Sep 17 13:59:19 srv1318038 python3[4187144]: INFO:     Application startup complete.
+Sep 17 13:59:19 srv1318038 python3[4187144]: INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+Sep 17 13:59:29 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:29.391089+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (6ms)", "module": "logging_config", "duration_ms": 6.4}
+Sep 17 13:59:29 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:29.394766+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (7ms)", "module": "logging_config", "duration_ms": 7.0}
+Sep 17 13:59:46 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:46.387811+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (3ms)", "module": "logging_config", "duration_ms": 3.4}
+Sep 17 13:59:46 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T13:59:46.390159+00:00", "level": "INFO", "message": "GET /api/pipeline/stream \u2192 200 (3ms)", "module": "logging_config", "duration_ms": 2.6}
+Sep 17 14:00:20 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:00:20.043692+00:00", "level": "INFO", "message": "[AutoYTSync] Tenant 44ecc95a: sync complete", "module": "main"}
+Sep 17 14:00:20 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:00:20.226683+00:00", "level": "INFO", "message": "[AutoYTSync] Tenant 561b872d: sync complete", "module": "main"}
+Sep 17 14:00:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:00:34.539250+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (140ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 140.5}
+Sep 17 14:00:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:00:34.546647+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (127ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 127.4}
+Sep 17 14:01:19 srv1318038 python3[4187144]: [Scrape] Scraping 3 channels via YouTube Data API for tenant ee93e6d1-a9cc-44c3-81e9-84adee8329aa
+Sep 17 14:01:20 srv1318038 python3[4187144]: [Scrape] Laugh__LEARN9820: 10 videos listed
+Sep 17 14:01:20 srv1318038 python3[4187144]: [Scrape] Error listing EnglishGlowUp-q5b: Could not resolve a channel id from 'https://www.youtube.com/@EnglishGlowUp-q5b'
+Sep 17 14:01:21 srv1318038 python3[4187144]: [Scrape] Laugh_&_LEARN: 10 videos listed
+Sep 17 14:01:21 srv1318038 python3[4187144]: [Scrape] Phase 1 done: 20 video stubs.
+Sep 17 14:01:21 srv1318038 python3[4187144]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 14:01:21 srv1318038 python3[4187144]: [Scrape] Extracting metadata...
+Sep 17 14:01:21 srv1318038 python3[4187144]: [Scrape] Phase 2 done: 20 videos (20 enriched, 0 from stubs, 20 with publish dates)
+Sep 17 14:01:22 srv1318038 python3[4187144]: [Scrape] Done: 20 saved (0 new, 20 updated), 0 with transcripts
+Sep 17 14:01:23 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:23.028838+00:00", "level": "INFO", "message": "[AutoScrape] Tenant ee93e6d1: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 14:01:23 srv1318038 python3[4187144]: [Scrape] Scraping 2 channels via YouTube Data API for tenant 44ecc95a-80f3-4261-8294-f963c03af2bd
+Sep 17 14:01:23 srv1318038 python3[4187144]: [Scrape] dailyenglishworld103: 10 videos listed
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Laugh_&_LEARN: 10 videos listed
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Phase 1 done: 20 video stubs.
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Extracting metadata...
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Phase 2 done: 20 videos (20 enriched, 0 from stubs, 20 with publish dates)
+Sep 17 14:01:24 srv1318038 python3[4187144]: [Scrape] Done: 20 saved (1 new, 19 updated), 0 with transcripts
+Sep 17 14:01:25 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:25.724936+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 44ecc95a: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 14:01:25 srv1318038 python3[4187144]: [Scrape] Scraping 1 channels via YouTube Data API for tenant 561b872d-7b73-45e3-9c44-7f30c3566eda
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] UCO4gtSa3rpOutrZ45-OjYyA: 10 videos listed
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Phase 1 done: 10 video stubs.
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Extracting metadata...
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Phase 2 done: 10 videos (10 enriched, 0 from stubs, 10 with publish dates)
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Done: 10 saved (0 new, 10 updated), 0 with transcripts
+Sep 17 14:01:26 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:26.874845+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 561b872d: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 14:01:26 srv1318038 python3[4187144]: [Scrape] Scraping 1 channels via YouTube Data API for tenant 094f0be2-49db-4a6d-b271-86c833bdfed0
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] All-In Podcast: 10 videos listed
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] Phase 1 done: 10 video stubs.
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] Extracting metadata...
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] Phase 2 done: 10 videos (10 enriched, 0 from stubs, 10 with publish dates)
+Sep 17 14:01:27 srv1318038 python3[4187144]: [Scrape] Done: 10 saved (1 new, 9 updated), 0 with transcripts
+Sep 17 14:01:28 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:28.148753+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 094f0be2: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 14:01:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:34.455254+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (65ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 65.4}
+Sep 17 14:01:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:01:34.455929+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (64ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 63.9}
+Sep 17 14:02:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:02:34.489148+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (88ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 87.9}
+Sep 17 14:02:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:02:34.662344+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (250ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 249.8}
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Starting pipeline initialization...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: anthropic_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ anthropic_api_key loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: airtable_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   - airtable_api_key not found
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: elevenlabs_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: elevenlabs_model_id...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: kie_ai_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: openai_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   - openai_api_key not found
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Loading key: gemini_api_key...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT]   - gemini_api_key not found
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] Creating lightweight pipeline...
+Sep 17 14:03:22 srv1318038 python3[4187144]: [INIT] SupabaseAdapter OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] AnthropicClient OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] GoogleClient OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] SlackClient OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] ImageClient OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 17 14:03:27 srv1318038 python3[4187144]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] GeminiClient OK
+Sep 17 14:03:27 srv1318038 python3[4187144]: [INIT] Pipeline ready!
+Sep 17 14:03:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:03:34.454151+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 57.3}
+Sep 17 14:03:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:03:34.487193+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (79ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 78.8}
+Sep 17 14:04:28 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:04:28.964039+00:00", "level": "INFO", "message": "POST /api/pipeline/machine-script-preview/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (66733ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 66732.7}
+Sep 17 14:04:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:04:34.481000+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (84ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 83.9}
+Sep 17 14:04:34 srv1318038 python3[4187144]: {"timestamp": "2026-09-17T14:04:34.490508+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (94ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 94.5}

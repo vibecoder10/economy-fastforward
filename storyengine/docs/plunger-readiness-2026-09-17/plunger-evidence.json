@@ -1,0 +1,12 @@
+{
+  "audit_kind": "stored_ss2_candidate_excerpts_filtered_for_role_service_use_or_outcome_terms",
+  "snapshot": "roster-readiness-before.json",
+  "machine": "SS-2 USS Plunger",
+  "note": "These are verbatim stored excerpts only. No stored candidate excerpt matched a design term in the filter; the listed records match role, service, use, or outcome terms.",
+  "excerpts": [
+    {"excerpt_id":"S2-E1","source_id":"S2","source_url":"https://www.navsource.net/archives/08/08002.htm","source_title":"Submarine Photo Index — Plunger / A-1 (SS-2)","text":"NavSource Online: Submarine Photo Archive Plunger / A-1 (SS-2) Radio Call Sign: November - Quebec - Echo Adder Class Submarine Torpedo Boat : Laid down as Plunger , 21 May 1901, at Crescent Shipyards, Elizabethport, NJ ; Launched, 1 February 1902; Commissioned USS Plunger , 19 September 1903, at the Holland Co., New Suffolk, Long Island, NY; Decommissioned, 3 November 1905; Recommissioned, 7 March 1907; Renamed USS A-1 (Submarine Torpedo Boat No.2), 17 November 1911; Decommissioned, (date unknown); Struck from the Naval Register, 24 February 1913; Authorized as an experimental target, designated Target E , 29 August 1916; Final Disposition, sold for scrapping, 26 January 1922."},
+    {"excerpt_id":"S2-E8","source_id":"S2","source_url":"https://www.navsource.net/archives/08/08002.htm","source_title":"Submarine Photo Index — Plunger / A-1 (SS-2)","text":"1.00k PRESIDENT ROOSEVELT WILL NOT MAKE TRIP ABOARD THE SUBMARINE BOAT PLUNGER (SS-2) SUBMARINE TORPEDO BOAT PLUNGER NOW AT OYSTER BAY TO GIVE EXHIBITION FOR PRESIDENT."},
+    {"excerpt_id":"S2-E9","source_id":"S2","source_url":"https://www.navsource.net/archives/08/08002.htm","source_title":"Submarine Photo Index — Plunger / A-1 (SS-2)","text":"Among the photos is the Plunger (SS-2) plunging with President Theodore Roosevelt off Long Island Sound on 25 August 1905."},
+    {"excerpt_id":"S2-E10","source_id":"S2","source_url":"https://www.navsource.net/archives/08/08002.htm","source_title":"Submarine Photo Index — Plunger / A-1 (SS-2)","text":"1.35k PRESIDENT ROOSEVELT UNDER WATER THREE HOURS IN PLUNGER (SS-2) In Submarine Boat He Tests Its Marvelous Performances SENSATIONS ENJOYABLE Clad Like One of the Crew the President Worked Levers of Wonderful Craft Image and text provided by The New York Public Library, Astor, Lenox and Tilden Foundation."}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "video": "658e11e0-1f24-457e-95ef-3c8a0bd00f45",
+  "scene": 1,
+  "http": 200,
+  "result": {
+    "video_id": "658e11e0-1f24-457e-95ef-3c8a0bd00f45",
+    "status": "running",
+    "message": "Scene image generation started Scene 1",
+    "error": null
+  }
+}

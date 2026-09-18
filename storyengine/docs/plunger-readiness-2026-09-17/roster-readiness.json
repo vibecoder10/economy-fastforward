@@ -1,0 +1,27 @@
+{
+  "audit_kind": "read_only_all_package_brief_readiness",
+  "snapshot": "roster-readiness-before.json",
+  "resolved_title": "Every US Submarine Class Ever Built (2026)",
+  "packages": [
+    {"key":"SS1","machine":"SS-1 USS Holland","sources":6,"excerpts":19,"current_assessment_valid":true,"explicit_roles":["actual_use","design","intended_role","outcome"],"explicit_role_claim_count":8,"brief_ready":true,"brief_missing_fields":[]},
+    {"key":"SS2","machine":"SS-2 USS Plunger","sources":2,"excerpts":16,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","design","actual_use","outcome"]},
+    {"key":"SS105","machine":"SS-105 USS S-1","sources":1,"excerpts":10,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","outcome"]},
+    {"key":"SS163","machine":"SS-163 USS Barracuda","sources":1,"excerpts":6,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use","outcome"]},
+    {"key":"SS212","machine":"SS-212 USS Gato","sources":3,"excerpts":23,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","design","actual_use"]},
+    {"key":"SS285","machine":"SS-285 USS Balao","sources":3,"excerpts":21,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]},
+    {"key":"SS417","machine":"SS-417 USS Tench","sources":4,"excerpts":27,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]},
+    {"key":"SS563","machine":"SS-563 USS Tang","sources":3,"excerpts":16,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]},
+    {"key":"SS580","machine":"SS-580 USS Barbel","sources":3,"excerpts":26,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]},
+    {"key":"SSN21","machine":"SSN-21 USS Seawolf","sources":1,"excerpts":10,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use","outcome"]},
+    {"key":"SSN571","machine":"SSN-571 USS Nautilus","sources":1,"excerpts":3,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use","outcome"]},
+    {"key":"SSN585","machine":"SSN-585 USS Skipjack","sources":2,"excerpts":16,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]},
+    {"key":"SSN593","machine":"SSN-593 USS Thresher","sources":1,"excerpts":10,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","design"]},
+    {"key":"SSN637","machine":"SSN-637 USS Sturgeon","sources":1,"excerpts":7,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","design"]},
+    {"key":"SSN688","machine":"SSN-688 USS Los Angeles","sources":1,"excerpts":1,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use","outcome"]},
+    {"key":"SSN774","machine":"SSN-774 USS Virginia","sources":2,"excerpts":15,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","design","actual_use","outcome"]},
+    {"key":"AGSS569","machine":"AGSS-569 USS Albacore","sources":2,"excerpts":4,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","outcome"]},
+    {"key":"SSBN598","machine":"SSBN-598 USS George Washington","sources":2,"excerpts":13,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role"]},
+    {"key":"SSBN608","machine":"SSBN-608 USS Ethan Allen","sources":1,"excerpts":6,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use","outcome"]},
+    {"key":"SSBN616","machine":"SSBN-616 USS Lafayette","sources":3,"excerpts":30,"current_assessment_valid":true,"explicit_roles":[],"explicit_role_claim_count":0,"brief_ready":false,"brief_missing_fields":["intended_role","actual_use"]}
+  ]
+}

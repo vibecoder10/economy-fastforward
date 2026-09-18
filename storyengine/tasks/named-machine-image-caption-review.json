@@ -1,0 +1,12 @@
+{
+  "round": 1,
+  "reviewer": "Astra",
+  "status": "PASS",
+  "tests": "48 focused tests passed; portable real-shape Plunger negative and positive; prior selection/judgment regressions",
+  "liveReplay": "First10:9 remain ready; Plunger rejected with saved c1 alternative; dashboard kind mapped to cache reference_kind",
+  "scope": [
+    "backend/reference_selection.py",
+    "backend/tests/test_submarine_caption_identity.py"
+  ],
+  "next": "Wait current gather terminal, deploy scoped fix, one normal gather for cached recovery, verify all20"
+}

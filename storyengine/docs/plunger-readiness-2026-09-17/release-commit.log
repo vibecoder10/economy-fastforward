@@ -1,0 +1,10 @@
+[main b53879e6] Prepare DVSU research automatically for machine previews
+ 16 files changed, 1406 insertions(+), 49 deletions(-)
+ create mode 100644 storyengine/backend/machine_preview_jobs.py
+ create mode 100644 storyengine/backend/migrations/160_machine_preview_jobs.sql
+ create mode 100644 storyengine/backend/tests/test_dvsu_assessment_migration.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_global_handoff.py
+ create mode 100644 storyengine/backend/tests/test_machine_preview_jobs.py
+ create mode 100644 storyengine/frontend/src/lib/machine-preview-api.test.ts
+ create mode 100644 storyengine/frontend/src/lib/machine-preview-job.test.ts
+ create mode 100644 storyengine/frontend/src/lib/machine-preview-job.ts

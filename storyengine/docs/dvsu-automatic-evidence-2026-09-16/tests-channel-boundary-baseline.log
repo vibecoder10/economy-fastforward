@@ -1,0 +1,23 @@
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+___ test_missing_duplicate_or_combined_sentence_mapping_still_fails[mapped2] ___
+
+mapped = ['The B-2 served the U.S. Air Force. It later retired.']
+
+    @pytest.mark.parametrize('mapped', [
+        ['The B-2 served the U.S. Air Force.'],
+        ['The B-2 served the U.S. Air Force.', 'The B-2 served the U.S. Air Force.', 'It later retired.'],
+        ['The B-2 served the U.S. Air Force. It later retired.'],
+    ])
+    def test_missing_duplicate_or_combined_sentence_mapping_still_fails(mapped):
+        _, warnings, _ = _validate_draft('B-2', {
+            'paragraph': 'The B-2 served the U.S. Air Force. It later retired.',
+            'claim_map': [{'sentence': s, 'citations': []} for s in mapped],
+        }, {})
+>       assert 'claim_map must cover every paragraph sentence exactly once.' in warnings
+E       AssertionError: assert 'claim_map must cover every paragraph sentence exactly once.' in ['claim_map row 1 needs at least one citation.']
+
+backend/tests/test_factual_sentence_boundaries.py:32: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_factual_sentence_boundaries.py::test_missing_duplicate_or_combined_sentence_mapping_still_fails[mapped2]
+1 failed, 2 passed in 0.03s

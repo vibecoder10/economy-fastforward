@@ -1,0 +1,80 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": 200,
+    "duration_ms": 1241
+  },
+  {
+    "method": "POST",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": 200,
+    "duration_ms": 1358
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 135
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 135
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 141
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 170
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 159
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 148
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 138
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 135
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 143
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 139
+  },
+  {
+    "method": "GET",
+    "path": "/api/pipeline/machine-script-preview-jobs/44dbf2b2-a27a-47ea-a608-4c31c906be9a/eebdafff-a420-4de7-b3c9-d166669d08f6",
+    "status": 200,
+    "duration_ms": 233
+  }
+]

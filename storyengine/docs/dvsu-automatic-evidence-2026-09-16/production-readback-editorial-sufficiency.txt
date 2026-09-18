@@ -1,0 +1,20 @@
+DVSU editorial sufficiency production readback
+
+Release: dvsu-editorial-sufficiency-20260917
+Previous commit: 6a590ed4c9d91d47c0d513551b7ad1d48cb1c716
+Deployed commit: 7af5ab8ff24a59a97a72d9463b0fb9deb666ce2a
+Origin main: 7af5ab8ff24a59a97a72d9463b0fb9deb666ce2a
+Deploy recorded: 2026-09-17T14:31:45Z
+
+Remote/local SHA-256 match:
+c84aa7d8240b1a9e0382ba144ac5611b8b99728c2787a548ea58c660d43ee936  backend/factual_machine_summary.py
+c6f47b92f23e3857b5e8a913fe7edb859433c8002dde490dbc30690b9920eb22  backend/script_research_packet.py
+
+Backend: active
+Worker: active; working directory /home/clawd/projects/economy-fastforward/storyengine/backend; deploy output confirms code parity 7af5ab8ff.
+API: healthy (database, storage, and queue healthy; active work 0).
+Frontend: HTTP 200.
+Drain: normal; active work 0.
+Deploy lock: clear.
+
+No paid provider call, database write, or production promotion occurred.

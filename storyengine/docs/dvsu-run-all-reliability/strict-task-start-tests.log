@@ -1,0 +1,28 @@
+2026-09-17 strict task start and source-failure verification
+
+Passing command:
+cd backend && ./venv/bin/python -m pytest tests/test_task_store_ownership.py tests/test_worker_source_failures.py tests/functional/test_c16d_task_store_job_id_conflict.py -q
+
+Result: 14 passed in 0.12s.
+
+Evidence: an exact pending row is promoted to running; required writes reject an
+unowned job-id conflict before executor dispatch; source adapter exceptions and
+source_search_failed results persist UI-safe terminal details and return without
+an ARQ retry; paused work keeps its paused result while the constrained activity
+row records a completed saved-work message.
+
+Additional existing-suite check:
+cd backend && ./venv/bin/python -m pytest tests/functional/test_roster_settings_stage.py -q
+
+Result: 2 failed, 2 passed. The failures predate this bounded task path: expected
+research-stage completion and "detailed research is next" message conflict with
+the current roster-selection helper/message behavior. No source in that suite or
+its production helpers was changed here.
+
+Typed adapter-schema follow-up:
+cd backend && ./venv/bin/python -m pytest tests/test_machine_preview_jobs.py tests/test_worker_source_failures.py tests/test_task_store_ownership.py -q
+
+Result: 21 passed, 1 existing Starlette multipart PendingDeprecationWarning in 0.34s.
+The helpers read SourceDiscoveryError.code (with failure_code compatibility),
+preserve next_action enums such as review/reconcile after only stripping the UI
+marker, and preserve the typed error stage plus optional provider_operation_failed.

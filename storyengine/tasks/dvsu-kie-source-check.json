@@ -1,0 +1,226 @@
+{
+  "machine": "General Dynamics FB-111A Aardvark",
+  "source_fetches": [
+    {
+      "url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+      "chars": 3424,
+      "excerpt_count": 6
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/1891240/USAFmuseum/fb-111a-sit-in-cockpit/",
+      "chars": 0,
+      "excerpt_count": 0
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Upcoming/Photos/igpage/60/igsort/Title/igtag/Bomber/?igcategory=Featured+Accessions",
+      "chars": 0,
+      "excerpt_count": 0
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Upcoming/Photos/igpage/62/igtag/Bomber/?igcategory=Memorial+Park",
+      "chars": 0,
+      "excerpt_count": 0
+    }
+  ],
+  "factual_card_excerpt_count": 6,
+  "warnings": [],
+  "package": {
+    "machine": "General Dynamics FB-111A Aardvark",
+    "candidate_excerpts": [
+      {
+        "excerpt_id": "S1-E1",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E1",
+        "text": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s."
+      },
+      {
+        "excerpt_id": "S1-E2",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E2",
+        "text": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet."
+      },
+      {
+        "excerpt_id": "S1-E3",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E3",
+        "text": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft."
+      },
+      {
+        "excerpt_id": "S1-E4",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E4",
+        "text": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As."
+      },
+      {
+        "excerpt_id": "S1-E5",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E5",
+        "text": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft. It differs from the tactical strike variants by having different engines, a 3 1/2-ft extension on each wingtip, strengthened landing gear and fuselage, greater fuel capacity and improved avionics."
+      },
+      {
+        "excerpt_id": "S1-E6",
+        "source_id": "S1",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E6",
+        "text": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As. All other models of the F-111s were reconfigured from production models."
+      }
+    ]
+  },
+  "card": {
+    "schema_version": 3,
+    "machine_research_contract": "factual_100_v1",
+    "unit": "General Dynamics FB-111A Aardvark",
+    "include": true,
+    "evidence_segments": [
+      {
+        "evidence_id": "FACT-1",
+        "kind": "factual_source",
+        "claim": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s.",
+        "source_excerpt": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s.",
+        "source_excerpt_id": "S1-E1",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E1",
+        "numeric_tokens": [
+          "68",
+          "0267,",
+          "562"
+        ],
+        "confidence": "high"
+      },
+      {
+        "evidence_id": "FACT-2",
+        "kind": "factual_source",
+        "claim": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet.",
+        "source_excerpt": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet.",
+        "source_excerpt_id": "S1-E2",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E2",
+        "numeric_tokens": [
+          "111",
+          "200",
+          "35,000"
+        ],
+        "confidence": "high"
+      },
+      {
+        "evidence_id": "FACT-3",
+        "kind": "factual_source",
+        "claim": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft.",
+        "source_excerpt": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft.",
+        "source_excerpt_id": "S1-E3",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E3",
+        "numeric_tokens": [
+          "111",
+          "200",
+          "35,000"
+        ],
+        "confidence": "high"
+      },
+      {
+        "evidence_id": "FACT-4",
+        "kind": "factual_source",
+        "claim": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As.",
+        "source_excerpt": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As.",
+        "source_excerpt_id": "S1-E4",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E4",
+        "numeric_tokens": [
+          "68",
+          "0267,",
+          "562",
+          "159",
+          "18",
+          "7",
+          "5",
+          "2",
+          "24",
+          "96",
+          "94",
+          "106",
+          "76"
+        ],
+        "confidence": "high"
+      },
+      {
+        "evidence_id": "FACT-5",
+        "kind": "factual_source",
+        "claim": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft. It differs from the tactical strike variants by having different engines, a 3 1/2-ft extension on each wingtip, strengthened landing gear and fuselage, greater fuel capacity and improved avionics.",
+        "source_excerpt": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum Skip to the content Let Your Curiosity Soar FB-111A \u201cAardvark\u201d The General Dynamics FB-111 was SAC\u2019s medium-range bomber, capable of flying at supersonic speeds at 200 feet above the ground and at twice the speed of sound above 35,000 feet. It was the strategic/theater bomber version of the F-111 multi-purpose aircraft. It differs from the tactical strike variants by having different engines, a 3 1/2-ft extension on each wingtip, strengthened landing gear and fuselage, greater fuel capacity and improved avionics.",
+        "source_excerpt_id": "S1-E5",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E5",
+        "numeric_tokens": [
+          "111",
+          "200",
+          "35,000",
+          "3",
+          "1",
+          "2"
+        ],
+        "confidence": "high"
+      },
+      {
+        "evidence_id": "FACT-6",
+        "kind": "factual_source",
+        "claim": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As. All other models of the F-111s were reconfigured from production models.",
+        "source_excerpt": "Specifications Aircraft Type: FB-111A, S/N 68-0267, General Dynamics Mission: Medium-range bomber Number Built: The Air Force accepted 562 F-111s. 159 F-111As (18 of them RDT&E aircraft), 7 F-111Bs for the Navy (5 RDT&E and 2 productions), 24 F-111Cs, 96 F-111Ds, 94 F-111Es, 106 F-111Fs, and 76 FB-111As. All other models of the F-111s were reconfigured from production models.",
+        "source_excerpt_id": "S1-E6",
+        "source_id": "S1",
+        "source_url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+        "source_title": "FB-111A \u201cAardvark\u201d - SAC Aerospace Museum",
+        "source_capture_method": "fetched_page",
+        "locator": "S1-E6",
+        "numeric_tokens": [
+          "68",
+          "0267,",
+          "562",
+          "159",
+          "18",
+          "7",
+          "5",
+          "2",
+          "24",
+          "96",
+          "94",
+          "106",
+          "76"
+        ],
+        "confidence": "high"
+      }
+    ]
+  },
+  "production_write": false
+}

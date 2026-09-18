@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-durable-factual-tolerance","changed_at":"2026-09-12 23:16:08.276712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:16:08.429158+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-durable-factual-tolerance","changed_at":"2026-09-12 23:16:08.276712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:16:08.811177+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-durable-factual-tolerance","changed_at":"2026-09-12 23:16:08.276712+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:16:13.843837+00:00"}
+Updating d6db99a5b..715e39b0f
+Fast-forward
+ storyengine/backend/factual_machine_pipeline.py    | 39 ++++++++++++++--------
+ storyengine/backend/factual_machine_summary.py     | 29 ++++++++++++----
+ .../functional/test_factual_machine_pipeline.py    | 36 ++++++++++++++++++++
+ .../backend/tests/test_factual_machine_summary.py  | 34 ++++++++++++++++---
+ 4 files changed, 114 insertions(+), 24 deletions(-)
+code: d6db99a5b -> 715e39b0f
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 1923131)
+worker code parity: commit=715e39b0f directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 715e39b0f; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-durable-factual-tolerance","changed_at":"2026-09-12 23:16:33.059923+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:16:33.188730+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-durable-factual-tolerance","changed_at":"2026-09-12T23:16:33.059923+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":459,"limit":9000,"remaining":8541,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":15,"limit":100,"remaining":85},"units_used":459,"ceiling":9000,"remaining":8541}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-12T23:16:32Z dvsu-durable-factual-tolerance deployed d6db99a5b -> 715e39b0f 
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-barling-camera-lock","changed_at":"2026-09-14 22:58:35.780100+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-14T22:58:35.929238+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-barling-camera-lock","changed_at":"2026-09-14 22:58:35.780100+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-14T22:58:36.287477+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-barling-camera-lock","changed_at":"2026-09-14 22:58:35.780100+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-14T22:58:41.319819+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   c5bf4f70c..c991e34eb  main       -> origin/main
+Updating c5bf4f70c..c991e34eb
+Fast-forward
+ storyengine/backend/static_docu.py                            |  5 +++--
+ .../backend/tests/functional/test_static_docu_qa_park.py      | 11 +++++++++++
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+code: c5bf4f70c -> c991e34eb
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 2956730)
+worker code parity: commit=c991e34eb directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed c991e34eb; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-barling-camera-lock","changed_at":"2026-09-14 22:59:00.712432+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-14T22:59:00.859444+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-barling-camera-lock","changed_at":"2026-09-14T22:59:00.712432+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-14","general":{"used":60,"limit":9000,"remaining":8940,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":2,"limit":100,"remaining":98},"units_used":60,"ceiling":9000,"remaining":8940}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-14T22:59:00Z dvsu-barling-camera-lock deployed c5bf4f70c -> c991e34eb 
+== disk ==
+/dev/sda1       193G   59G  134G  31% /

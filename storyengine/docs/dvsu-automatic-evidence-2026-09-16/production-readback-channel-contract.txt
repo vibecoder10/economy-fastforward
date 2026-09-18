@@ -1,0 +1,16 @@
+Production release: 6a590ed4c9d91d47c0d513551b7ad1d48cb1c716
+Prior release: 270cf80f076b572a5a9e3996f8f5276c06b93125
+Deploy: dvsu-channel-contract-20260917 at 2026-09-17T14:21:34Z
+Backend: active; worker: active with commit parity; frontend: HTTP 200; API: healthy; active work: 0; drain: normal; deploy lock: clear.
+
+SHA-256 remote == local
+194adeea0fe585932e3149b176f20f2dfdb1c61c945d592049cbbbcf8294cff6  backend/factual_machine_summary.py
+9f50aa0b61801dfca47e92c16070e0536e2296c0078e5c136f3868767d9fe73e  backend/script_research_packet.py
+49adca5f74daabf4b0f6d6199dba3b7cdb301bedc538114158ef2d76536bf242  frontend/src/lib/api.ts
+759d940e629b7bc1131da5a8d6709d78fa73a47ab42ad2aa05a2654cbca6f7a0  frontend/src/lib/machine-preview-recovery.ts
+
+Public served asset: https://storyengine.dev/_next/static/chunks/5658-06b62f458d380b36.js
+Public asset SHA-256: 848f206a47ee4e118173ab09f53f745b90ad6441a5bd2d4f6a4bc1c066bbdab1
+Public marker found: Machine preview recovery baseline is ambiguous
+
+No paid canary, database write, production-script promotion, root change, or nginx change was performed.

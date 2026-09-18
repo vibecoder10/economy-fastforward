@@ -1,0 +1,80 @@
+TAP version 13
+# Subtest: gather is done only for exact unique matching roster photos
+ok 1 - gather is done only for exact unique matching roster photos
+  ---
+  duration_ms: 5.731417
+  type: 'test'
+  ...
+# Subtest: one-unit hold cannot complete research and designation is not duplicated
+ok 2 - one-unit hold cannot complete research and designation is not duplicated
+  ---
+  duration_ms: 0.826417
+  type: 'test'
+  ...
+# Subtest: complete saved research remains done while missing images still gate the next step
+ok 3 - complete saved research remains done while missing images still gate the next step
+  ---
+  duration_ms: 0.496458
+  type: 'test'
+  ...
+# Subtest: contract metadata does not show completed research
+ok 4 - contract metadata does not show completed research
+  ---
+  duration_ms: 6.43975
+  type: 'test'
+  ...
+# Subtest: saved roster requires saved cards before research is complete
+ok 5 - saved roster requires saved cards before research is complete
+  ---
+  duration_ms: 0.66875
+  type: 'test'
+  ...
+# Subtest: accepted runtime roster is done without photos while saved-card research remains separate
+ok 6 - accepted runtime roster is done without photos while saved-card research remains separate
+  ---
+  duration_ms: 0.40875
+  type: 'test'
+  ...
+# Subtest: stale accepted flag and a hidden legacy draft never imply ready research
+ok 7 - stale accepted flag and a hidden legacy draft never imply ready research
+  ---
+  duration_ms: 7.305875
+  type: 'test'
+  ...
+# Subtest: the roster panel exposes a confirmed remove action for every machine card
+ok 8 - the roster panel exposes a confirmed remove action for every machine card
+  ---
+  duration_ms: 1.248959
+  type: 'test'
+  ...
+# (node:99335) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/storyengine-image-gather/storyengine/frontend/src/lib/static-docu-navigation.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /private/tmp/storyengine-image-gather/storyengine/frontend/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Voice remains selected on the shared Script and Voice page
+ok 9 - Voice remains selected on the shared Script and Voice page
+  ---
+  duration_ms: 0.832625
+  type: 'test'
+  ...
+# Subtest: a missing picture uses the locked roster name, never narration text
+ok 10 - a missing picture uses the locked roster name, never narration text
+  ---
+  duration_ms: 0.795541
+  type: 'test'
+  ...
+# Subtest: Run All can start a brand-new video before a roster exists
+ok 11 - Run All can start a brand-new video before a roster exists
+  ---
+  duration_ms: 0.623208
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 877.380625

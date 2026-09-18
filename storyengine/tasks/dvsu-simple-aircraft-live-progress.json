@@ -1,0 +1,26 @@
+{
+  "at": "2026-09-15T01:18:34.307870+00:00",
+  "task": {
+    "status": "failed",
+    "message": "no segment reached 2 verified views (scenes failed: 1)",
+    "error": "Something went wrong. Please try again.",
+    "via_agent": null,
+    "needs_review": false,
+    "task_type": "pipeline"
+  },
+  "id": "658e11e0-1f24-457e-95ef-3c8a0bd00f45",
+  "video_title": "Every US Strategic Bomber Ever Built (2026)",
+  "status": "ready_for_images",
+  "final_video_url": null,
+  "youtube_url": null,
+  "upload_status": null,
+  "updated_at": "2026-09-14 23:07:16.624155+00",
+  "roster_count": 28,
+  "roster_passed": true,
+  "hold": {
+    "passed": true,
+    "passed_count": null,
+    "failed_count": null
+  },
+  "research_phase": "roster_discovery"
+}

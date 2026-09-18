@@ -1,0 +1,146 @@
+{
+  "method": "offline actual-code builder invocation only; no model, network, database, or live write",
+  "inputs": {
+    "machine": "SS-2 USS Plunger",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "saved_snapshot": "docs/plunger-readiness-2026-09-17/live-after-refresh.json",
+    "saved_pigboats_capture": "docs/plunger-purpose-2026-09-17/pigboats-visible.txt"
+  },
+  "extractor_and_merge": {
+    "pigboats_capture_chars": 14839,
+    "class_context_chars": 5565,
+    "class_context_verified": true,
+    "sentence_candidates_returned": 1,
+    "sentence_candidate_is_exact_class_context": true,
+    "double_newline_preserved_after_merge": true,
+    "merged_text_byte_equal_to_extractor_result": true,
+    "old_source_count": 6,
+    "new_source_count": 7,
+    "old_candidate_count": 24,
+    "new_candidate_count": 25,
+    "added_candidate_count": 1,
+    "new_source_id": "DVSU5",
+    "new_excerpt_id": "DVSU5-E1",
+    "original_excerpt_id": "PIG-E1"
+  },
+  "eligibility": {
+    "saved_strict_eligible_count": 24,
+    "appended_normal_eligible_count": 24,
+    "appended_include_pending_count": 25,
+    "class_context_pending": {
+      "identity_requires_review": true,
+      "context_scope": "class_design",
+      "excluded_from_normal_writer_before_saved_identity_review": true
+    },
+    "separate_strict_anchor_count": 24,
+    "strict_anchor_excerpt_ids": [
+      "S1-E1",
+      "S1-E2",
+      "S1-E3",
+      "S1-E4",
+      "S1-E5",
+      "S1-E6",
+      "S2-E1",
+      "S2-E2",
+      "S2-E3",
+      "S2-E4",
+      "S2-E5",
+      "S2-E6",
+      "S2-E7",
+      "S2-E8",
+      "S2-E9",
+      "S2-E10",
+      "DVSU1-E1",
+      "DVSU1-E2",
+      "DVSU1-E3",
+      "DVSU2-E1",
+      "DVSU2-E2",
+      "DVSU3-E1",
+      "DVSU4-E1",
+      "DVSU4-E2"
+    ]
+  },
+  "assessment_prompt": {
+    "candidate_count": 25,
+    "evidence_payload_bytes": 31522,
+    "prompt_bytes": 34990,
+    "hypothetical_assert_request_budget": {
+      "method": "utf8_byte_upper_bound",
+      "input_token_upper_bound": 36014,
+      "output_tokens_reserved": 4500,
+      "context_limit": 200000
+    },
+    "normal_path_guard_note": "research_claim_assessment._prompt is measured directly; assess_verified_package does not currently call assert_request_budget."
+  },
+  "summary_writer_prompt": {
+    "guard_formula": "len((prompt + system_prompt).encode(\"utf-8\")) + 1024 <= 48000; output reservation separately requires upper_bound + max_tokens <= 200000",
+    "system_prompt": "You compile short machine-history summaries from locked evidence. Output only the requested JSON and never add outside knowledge.",
+    "measurements": [
+      {
+        "label": "current_saved_24_eligible",
+        "candidate_count": 24,
+        "evidence_payload_bytes": 25757,
+        "assessment_projection_bytes": 2796,
+        "writer_prompt_bytes": 30587,
+        "writer_system_prompt_bytes": 129,
+        "guard_input_upper_bound_bytes": 31740,
+        "passes": true,
+        "budget": {
+          "method": "utf8_byte_upper_bound",
+          "input_token_upper_bound": 31740,
+          "output_tokens_reserved": 900,
+          "context_limit": 200000
+        }
+      },
+      {
+        "label": "appended_package_normal_eligible_class_context_still_pending",
+        "candidate_count": 24,
+        "evidence_payload_bytes": 25757,
+        "assessment_projection_bytes": 2796,
+        "writer_prompt_bytes": 30587,
+        "writer_system_prompt_bytes": 129,
+        "guard_input_upper_bound_bytes": 31740,
+        "passes": true,
+        "budget": {
+          "method": "utf8_byte_upper_bound",
+          "input_token_upper_bound": 31740,
+          "output_tokens_reserved": 900,
+          "context_limit": 200000
+        }
+      },
+      {
+        "label": "conservative_upper_bound_current_10_claims_plus_pending_class_context",
+        "candidate_count": 25,
+        "evidence_payload_bytes": 31638,
+        "assessment_projection_bytes": 2796,
+        "writer_prompt_bytes": 36468,
+        "writer_system_prompt_bytes": 129,
+        "guard_input_upper_bound_bytes": 37621,
+        "passes": true,
+        "budget": {
+          "method": "utf8_byte_upper_bound",
+          "input_token_upper_bound": 37621,
+          "output_tokens_reserved": 900,
+          "context_limit": 200000
+        }
+      }
+    ],
+    "production_path": "generate_factual_machine_summary uses all eligible candidates capped at [:60], then _evidence_payload; _writer_candidates(limit=12) exists but is not used by this path."
+  },
+  "limits": {
+    "interpretation": "The include-pending writer measurement is an input-size upper bound only. The actual new class context remains unavailable to normal research summary generation until a separate saved, current same-claim exact-hull identity review exists.",
+    "no_new_valid_assessment_was_invented": true
+  },
+  "combined_regression_candidates": [
+    "backend/tests/test_factual_class_context.py",
+    "backend/tests/test_factual_source_prefix.py",
+    "backend/tests/test_factual_source_sections.py",
+    "backend/tests/test_contextual_source_identity.py",
+    "backend/tests/test_dvsu_research_prompt_budget.py",
+    "backend/tests/test_dvsu_targeted_discovery.py",
+    "backend/tests/functional/test_kie_factual_source_search.py",
+    "backend/tests/test_factual_pdf_source.py",
+    "backend/tests/test_factual_machine_summary.py",
+    "backend/tests/test_script_compiler_integration.py"
+  ]
+}

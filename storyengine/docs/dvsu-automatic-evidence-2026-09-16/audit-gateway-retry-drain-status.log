@@ -1,0 +1,1 @@
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-clause-audit-20260917","changed_at":"2026-09-17 13:59:27.205414+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T14:04:53.041543+00:00"}

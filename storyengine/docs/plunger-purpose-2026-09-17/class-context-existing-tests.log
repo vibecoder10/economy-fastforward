@@ -1,0 +1,84 @@
+....................FF...........                                        [100%]
+=================================== FAILURES ===================================
+_ test_machine_script_preview_accepts_em_dash_display_label_without_production_save _
+
+    @pytest.mark.asyncio
+    async def test_machine_script_preview_accepts_em_dash_display_label_without_production_save():
+        canonical = "SS-1 USS Holland"
+        video = {
+            "render_mode": "static_docu",
+            "research_payload": {
+                "documentary_style": "machine_documentary",
+                "unit_roster": [{"designation": "SS-1", "name": "USS Holland"}],
+            },
+        }
+        hold = AsyncMock(return_value={"status": "completed", "preview": {"machine": canonical}})
+        executor = SimpleNamespace(
+            tenant_id="tenant-test",
+            _ensure_initialized=AsyncMock(),
+            _get_video=AsyncMock(return_value=video),
+            _load_prompt_overrides=AsyncMock(),
+            _run_static_script_hold=hold,
+        )
+    
+>       result = await pipeline.PipelineExecutor.run_machine_script_preview(
+            executor, "video-test", "SS-1 — USS Holland"
+        )
+
+backend/tests/test_named_submarine_research_identity.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = namespace(tenant_id='tenant-test', _ensure_initialized=<AsyncMock id='4379627344'>, _get_video=<AsyncMock id='4379591056'>, _load_prompt_overrides=<AsyncMock id='4412338960'>, _run_static_script_hold=<AsyncMock id='4412451856'>)
+video_id = 'video-test', machine = 'SS-1 — USS Holland'
+
+    async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
+        """Generate one isolated machine paragraph without touching production script rows or status."""
+        await self._ensure_initialized()
+>       await self._install_cancel_support(video_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute '_install_cancel_support'
+
+backend/pipeline_executor.py:16649: AttributeError
+____ test_machine_script_preview_rejects_wrong_named_submarine_without_hold ____
+
+    @pytest.mark.asyncio
+    async def test_machine_script_preview_rejects_wrong_named_submarine_without_hold():
+        canonical = "SS-1 USS Holland"
+        video = {
+            "render_mode": "static_docu",
+            "research_payload": {
+                "documentary_style": "machine_documentary",
+                "unit_roster": [{"designation": "SS-1", "name": "USS Holland"}],
+            },
+        }
+        hold = AsyncMock()
+        executor = SimpleNamespace(
+            tenant_id="tenant-test",
+            _ensure_initialized=AsyncMock(),
+            _get_video=AsyncMock(return_value=video),
+            _load_prompt_overrides=AsyncMock(),
+            _run_static_script_hold=hold,
+        )
+    
+>       result = await pipeline.PipelineExecutor.run_machine_script_preview(
+            executor, "video-test", "SS-1 — USS Plunger"
+        )
+
+backend/tests/test_named_submarine_research_identity.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = namespace(tenant_id='tenant-test', _ensure_initialized=<AsyncMock id='4412234320'>, _get_video=<AsyncMock id='4379597904'>, _load_prompt_overrides=<AsyncMock id='4412262288'>, _run_static_script_hold=<AsyncMock id='4412242512'>)
+video_id = 'video-test', machine = 'SS-1 — USS Plunger'
+
+    async def run_machine_script_preview(self, video_id: str, machine: str) -> dict:
+        """Generate one isolated machine paragraph without touching production script rows or status."""
+        await self._ensure_initialized()
+>       await self._install_cancel_support(video_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute '_install_cancel_support'
+
+backend/pipeline_executor.py:16649: AttributeError
+=========================== short test summary info ============================
+FAILED backend/tests/test_named_submarine_research_identity.py::test_machine_script_preview_accepts_em_dash_display_label_without_production_save
+FAILED backend/tests/test_named_submarine_research_identity.py::test_machine_script_preview_rejects_wrong_named_submarine_without_hold
+2 failed, 31 passed in 0.53s

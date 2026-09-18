@@ -1,0 +1,5 @@
+{
+  "path": "/var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/storyengine-summary-verification-phjwr5v2",
+  "base": "f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+  "purpose": "Apply only this task scoped files for integration tests; concurrent roster changes excluded"
+}

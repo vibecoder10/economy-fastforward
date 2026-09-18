@@ -1,0 +1,38 @@
+{
+  "machine": "SS-1 USS Holland",
+  "subject_context": "Every US Submarine Class Ever Built",
+  "facts": [
+    {
+      "fact_id": "F1",
+      "claim": "Holland’s commander advocated her use as a war vessel for coast and harbor defense.",
+      "scope": "Contemporary operational promise, not proof of the original procurement requirement or combat success.",
+      "narrative_roles": [
+        "intended_role"
+      ]
+    },
+    {
+      "fact_id": "F2",
+      "claim": "Holland combined dual propulsion, separate main and auxiliary ballast systems, and a hydrodynamic hull shape.",
+      "scope": "Documented design features of USS Holland.",
+      "narrative_roles": [
+        "design"
+      ]
+    },
+    {
+      "fact_id": "F3",
+      "claim": "Holland served at the U.S. Naval Academy as a training submarine.",
+      "scope": "Actual service; omit disputed duration.",
+      "narrative_roles": [
+        "actual_use"
+      ]
+    },
+    {
+      "fact_id": "F4",
+      "claim": "Improved Holland-type submarines became the Navy’s A-class.",
+      "scope": "Design successors; omit disputed boat count.",
+      "narrative_roles": [
+        "outcome"
+      ]
+    }
+  ]
+}

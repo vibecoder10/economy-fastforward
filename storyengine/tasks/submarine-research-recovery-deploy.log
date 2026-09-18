@@ -1,0 +1,104 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-recovery","changed_at":"2026-09-16 21:10:16.089534+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:10:16.223295+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-recovery","changed_at":"2026-09-16 21:10:16.089534+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:10:16.584309+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-recovery","changed_at":"2026-09-16 21:10:16.089534+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:10:21.612656+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   a3381755e..44b29cd96  main       -> origin/main
+Updating a3381755e..44b29cd96
+Fast-forward
+ storyengine/backend/factual_machine_summary.py     |  4 ++
+ storyengine/backend/research_claim_assessment.py   | 57 +++++++++++++++++++---
+ .../backend/tests/test_factual_machine_summary.py  |  8 +++
+ .../tests/test_research_claim_assessment.py        | 46 +++++++++++++++++
+ .../src/components/production/ResearchTab.tsx      |  7 ++-
+ .../frontend/tests/submarine-research.test.mjs     |  7 +++
+ 6 files changed, 118 insertions(+), 11 deletions(-)
+code: a3381755e -> 44b29cd96
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3842360)
+worker code parity: commit=44b29cd96 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 10.9s
+  Running TypeScript ...
+  Finished TypeScript in 22.2s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 649ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed 44b29cd96; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-recovery","changed_at":"2026-09-16 21:11:39.592490+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:11:39.732748+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-recovery","changed_at":"2026-09-16T21:11:39.592490+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":150,"limit":9000,"remaining":8850,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":5,"limit":100,"remaining":95},"units_used":150,"ceiling":9000,"remaining":8850}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T21:11:39Z submarine-research-recovery deployed a3381755e -> 44b29cd96 --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

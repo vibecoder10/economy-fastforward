@@ -1,0 +1,19 @@
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17 14:43:35.095139+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T15:08:09.282516+00:00"}
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17T14:43:35.095139+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":120,"limit":9000,"remaining":8880,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":120,"ceiling":9000,"remaining":8880}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T14:43:34Z dvsu-submarine-terminology-20260917 deployed 7af5ab8ff -> 58ca96c30 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /
+main
+58ca96c30f1490c2f1bbed8c0f049fd6308c035a
+https://github.com/vibecoder10/economy-fastforward.git
+snapshot verification: parsed nested JSON; video ID exact; locked roster=20; source packages=20; aggregated scripts=0; production script empty; script_validation empty; Holland roster entry present.
+snapshot comparison: Holland research-card copyedit is byte-equivalent to docs/plunger-readiness-2026-09-17/before.json.

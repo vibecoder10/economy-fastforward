@@ -1,0 +1,9 @@
+81b85a5f10db8fa9b92d88fdfb70ed681bb7cc54
+43c4513d47ca6530e80930b7f18761c44533218ff54b3212bc5fedb6c4b38c8c  storyengine/backend/research_claim_assessment.py
+Id=storyengine-backend.service
+ActiveState=active
+ActiveEnterTimestamp=Thu 2026-09-17 00:12:40 UTC
+
+Id=storyengine-worker.service
+ActiveState=active
+ActiveEnterTimestamp=Thu 2026-09-17 00:12:50 UTC

@@ -1,0 +1,163 @@
+{
+  "base_sha": "9e77c2cb40963ca3c0df988484be2d436440c08d",
+  "files": [
+    {
+      "path": "skills/video-pipeline/shared/clients/anthropic_client.py",
+      "sha256": "d5b6e37e639fa50e551f9496b803942c1e2f3a8ab44efffb4e327f2b091c3df2"
+    },
+    {
+      "path": "storyengine/backend/dvsu_research_handoff.py",
+      "sha256": "369af135b8477f2781023a610aac44f62bcd8061f31a8874d6d77f7a2390b23c"
+    },
+    {
+      "path": "storyengine/backend/dvsu_script_brief.py",
+      "sha256": "8fa4c912904c60dc76c75bff664208fbe06848313529f55a2fe54090b5fe4170"
+    },
+    {
+      "path": "storyengine/backend/factual_machine_pipeline.py",
+      "sha256": "503d079cf2041a52f210287f2b1ee24ba02d036909b030e9148701a218be86f9"
+    },
+    {
+      "path": "storyengine/backend/factual_machine_summary.py",
+      "sha256": "3172bdd9f5d0909cc99bfcfffbecd1ba2240866cb9b820edd128a663d31ebc46"
+    },
+    {
+      "path": "storyengine/backend/factual_source_search.py",
+      "sha256": "efbbd5b8690d691018bf347ec604797b3a7b438392b379cafd25bc87c0933b16"
+    },
+    {
+      "path": "storyengine/backend/machine_preview_jobs.py",
+      "sha256": "ef0ab81a2643b2a569904d3291c6c8c56e4bcd3aec4b0db250e6b72d104b014d"
+    },
+    {
+      "path": "storyengine/backend/pipeline_executor.py",
+      "sha256": "94ad2d0759eb3df06ff0ad3a3c71085395e5b0c0e49daca2dae9320bc0fc7e52"
+    },
+    {
+      "path": "storyengine/backend/task_store.py",
+      "sha256": "69363b7ccd37ea23d693d98def161d7ae751cd6af7e581a9810fccb51630c791"
+    },
+    {
+      "path": "storyengine/backend/tests/functional/test_factual_machine_pipeline.py",
+      "sha256": "6195ea2dbe18df8d6249d936074ef1e6cb19cf038f2de92aa07d6e38f88717d8"
+    },
+    {
+      "path": "storyengine/backend/tests/functional/test_kie_factual_source_search.py",
+      "sha256": "8609b4c4d7f9cd1bbcbcd8afab7f8e696908ea02181e0f2783ff6a4581f30c44"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_global_handoff.py",
+      "sha256": "f4345a9f5096f1b676a59a99d834e2cdb6c6782370cd05a3cdc8604393a6b332"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_research_handoff.py",
+      "sha256": "39a126659da98346f109b9ea74a775330a1e8025742e8ae0a88a4d297d3377d8"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_role_quality.py",
+      "sha256": "84ca0ee334304a6c33db04758d77b19e5489b98ec5c4882e524979264cbe656a"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_script_brief.py",
+      "sha256": "89326301ecc435080f1de5f2bbd642471ed72b332bb322eba699d320f4bf71a9"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_script_writer.py",
+      "sha256": "58c22d7849c9a590e2381b0917185c8d94d12b2182f2dd5bc1dbc77d13e71947"
+    },
+    {
+      "path": "storyengine/backend/tests/test_machine_preview_jobs.py",
+      "sha256": "67a192b343da424ef8b855397ba966ac0d1d43b208de28f1469bc9a9525161f0"
+    },
+    {
+      "path": "storyengine/backend/worker.py",
+      "sha256": "b196e47518f2603c3912b65b9006e7e195040ad5b3422c8dd8856f98a5bd30bd"
+    },
+    {
+      "path": "storyengine/frontend/src/components/production/ScriptVoiceTab.factual.test.ts",
+      "sha256": "3e2c4944ea9706f6386f7c458da8ad2398898b2bf3b103e251b3e0fb7464c42f"
+    },
+    {
+      "path": "storyengine/frontend/src/components/production/ScriptVoiceTab.tsx",
+      "sha256": "2814bbcdba01c385a2d28bfb312d6b11c7f0177ddd712d094a981e262f4cfe1a"
+    },
+    {
+      "path": "storyengine/frontend/src/lib/api.ts",
+      "sha256": "47a2f30a8d3bb7ac904935c64b59ae2f57984ef61510fb9ab7d2a166d4a183a1"
+    },
+    {
+      "path": "storyengine/notes/dvsu-quality-law.md",
+      "sha256": "d0639fde39892ed7805b27c33e449ef149e5c6990c04fd7b5cc8c1ee0eafe83d"
+    },
+    {
+      "path": "storyengine/backend/dvsu_script_operations.py",
+      "sha256": "463c7bbcdfe0257da6e1e877cc2eb2bcb585714af39aef76f393cd51dbb4e529"
+    },
+    {
+      "path": "storyengine/backend/source_discovery_journal.py",
+      "sha256": "afcc3a7f529f1681009cc8f65b3437eb3c0a0b5986cfef5f8da8a42b67de86fc"
+    },
+    {
+      "path": "storyengine/backend/migrations/161_source_discovery_operations.sql",
+      "sha256": "9c3adb3404d15c18fb9f0d518314441c6587e27a5cfc210a4448bde124e18780"
+    },
+    {
+      "path": "storyengine/backend/migrations/162_dvsu_script_operations.sql",
+      "sha256": "73ced3264fee4d5b8bdf802a49c6bb6c09650724a9673a8e8d86e5011cfff14b"
+    },
+    {
+      "path": "storyengine/backend/tests/test_anthropic_no_resubmit.py",
+      "sha256": "cbf52752b2173f5b5f363516216bf9cb127c0efe48ca09328e4be10a47c25abf"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_run_all_replay.py",
+      "sha256": "249b24ea7833d6d2fb74c4043305923aca4c50f3b142ab1259fc2b37c8d61bf0"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_saved_evidence_replay.py",
+      "sha256": "6e59c8042f91cbacdda158e69017ac8817799ee8c5b3a2b2cd2e50c7e2305319"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_script_operations.py",
+      "sha256": "96fdecbe5f0acd3bed82aa45730a564a3a58fd5803f87a059dd66f9da28aa2f7"
+    },
+    {
+      "path": "storyengine/backend/tests/test_dvsu_voice_artifact_gate.py",
+      "sha256": "7d85191906c24ff5fa67c2874fa63df345da41b3a0613e557982cd55245ea855"
+    },
+    {
+      "path": "storyengine/backend/tests/test_source_discovery_journal.py",
+      "sha256": "75d118b0c0abfccf10b7bc91c7165030e2960f6c263f8272cb4f1a8627504f39"
+    },
+    {
+      "path": "storyengine/backend/tests/test_source_discovery_reliability.py",
+      "sha256": "a92e1662d7f5e3360b180ab8129672ee53973f757e8886e911f2b2c84e0ce7f3"
+    },
+    {
+      "path": "storyengine/backend/tests/test_task_store_ownership.py",
+      "sha256": "9c042e0b24075598d92b6d6be587a0a5555fdcf945d843289f60bcf62574ec9d"
+    },
+    {
+      "path": "storyengine/backend/tests/test_worker_source_failures.py",
+      "sha256": "e0e34e97b45168f96fc3ba547497052933de0d888c59e83f5ccad227dcbaf9d9"
+    },
+    {
+      "path": "storyengine/docs/dvsu-run-all-reliability/replay-fixtures.json",
+      "sha256": "ba407f85d14669fefe70f045a1f7b3a4573e32bc69d718c44f288bd501ce461b"
+    },
+    {
+      "path": "storyengine/docs/dvsu-run-all-reliability/verify.sh",
+      "sha256": "50d84d7a6eaad79fbe524805e37da929ef215a191542110f72ab9bb06f6ead6c"
+    }
+  ],
+  "excluded_preexisting_tracked": [
+    "CLAUDE.md",
+    "storyengine/.claude/launch.json",
+    "storyengine/CLAUDE.md",
+    "storyengine/LAUNCH-CHECKLIST.md",
+    "storyengine/backend/tests/test_automatic_evidence_handoff.py",
+    "storyengine/tasks/dvsu-live-queue-proof.json"
+  ],
+  "patch_sha256": "10aeee8d427946e81ab645ecaa63f075afd5fbcaaa41664bc9f7f7bd1b0ed156",
+  "scope": "Implementation/tests/replay fixture only. Review docs and current checklist/journal remain local artifacts."
+}

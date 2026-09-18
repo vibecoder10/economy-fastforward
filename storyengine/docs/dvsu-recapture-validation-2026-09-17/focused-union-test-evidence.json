@@ -1,0 +1,19 @@
+{
+  "scope": "claim-assessment partial-response recovery",
+  "command": "backend/venv/bin/python -m pytest -q tests/test_research_claim_assessment.py tests/test_dvsu_research_handoff.py tests/test_dvsu_global_handoff.py tests/test_class_context_assessment.py tests/test_contextual_source_identity.py tests/test_automatic_evidence_handoff.py tests/test_factual_class_context.py",
+  "result": "passed",
+  "tests_passed": 72,
+  "warnings": [
+    "starlette.formparsers pending deprecation: python_multipart import"
+  ],
+  "fixture": "backend/tests/fixtures/ss105-failed-assessment-response.json",
+  "fixture_scope": "SS105 source package and stored failed raw response only; no video payload or other roster cards",
+  "offline_ss105_replay": {
+    "raw_claims": 9,
+    "accepted_raw_claims": 8,
+    "rejected": [{"index": 2, "reason": "quote_mismatch"}],
+    "provider_calls": 0,
+    "idempotent": true
+  },
+  "parent_readiness_evidence": "offline-readiness.json reports SS105 preparable with missing intended_role and zero provider calls; parent-packet-check.json reports successful packet compile."
+}

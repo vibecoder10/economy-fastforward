@@ -1,0 +1,30 @@
+........................................................................ [ 50%]
+..F....................................................................  [100%]
+=================================== FAILURES ===================================
+___ test_missing_duplicate_or_combined_sentence_mapping_still_fails[mapped2] ___
+
+mapped = ['The B-2 served the U.S. Air Force. It later retired.']
+
+    @pytest.mark.parametrize('mapped', [
+        ['The B-2 served the U.S. Air Force.'],
+        ['The B-2 served the U.S. Air Force.', 'The B-2 served the U.S. Air Force.', 'It later retired.'],
+        ['The B-2 served the U.S. Air Force. It later retired.'],
+    ])
+    def test_missing_duplicate_or_combined_sentence_mapping_still_fails(mapped):
+        _, warnings, _ = _validate_draft('B-2', {
+            'paragraph': 'The B-2 served the U.S. Air Force. It later retired.',
+            'claim_map': [{'sentence': s, 'citations': []} for s in mapped],
+        }, {})
+>       assert 'claim_map must cover every paragraph sentence exactly once.' in warnings
+E       AssertionError: assert 'claim_map must cover every paragraph sentence exactly once.' in ['claim_map row 1 needs at least one citation.']
+
+backend/tests/test_factual_sentence_boundaries.py:32: AssertionError
+=============================== warnings summary ===============================
+tests/test_automatic_evidence_handoff.py::test_research_route_forwards_only_valid_known_source_urls
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/test_factual_sentence_boundaries.py::test_missing_duplicate_or_combined_sentence_mapping_still_fails[mapped2]
+1 failed, 142 passed, 1 warning in 1.49s

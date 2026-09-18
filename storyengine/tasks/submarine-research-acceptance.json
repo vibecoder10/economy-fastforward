@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "at": "2026-09-16T21:28:55.850480+00:00",
+  "deployed_commit": "582c1b97a",
+  "frontend_commit": "44b29cd96",
+  "named_submarines": 20,
+  "verified_images": 20,
+  "current_assessments": 20,
+  "current_summaries": 20,
+  "assembly_order_matches_roster": true,
+  "prior_histories": [
+    58,
+    20
+  ],
+  "readiness_refresh_preserved_all_sources_and_summaries": true,
+  "readiness_refresh_cost_delta": 0,
+  "claim_counts": {
+    "supported": 186,
+    "disputed": 0,
+    "insufficient": 16,
+    "out_of_scope": 2
+  },
+  "live_ui": "20/20 verified; Ready for Script; Approve Research enabled; canonical names and source-backed status visible",
+  "script_started": false,
+  "next": "Review Research, then Script"
+}

@@ -1,0 +1,13 @@
+
+> frontend@1.0.0 test:unit
+> vitest run src/lib/machine-preview-recovery.test.ts
+
+
+ RUN  v4.1.10 /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  07:17:49
+   Duration  116ms (transform 24ms, setup 0ms, import 31ms, tests 10ms, environment 0ms)
+

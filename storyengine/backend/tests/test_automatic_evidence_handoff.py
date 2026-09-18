@@ -60,7 +60,10 @@ def test_capture_through_assessment_and_compiler_requires_identity_review():
     assert not contextual.intersection(_eligible_candidates(MACHINE, package, TITLE))
     assert all('#page=77' in r['locator'] for r in pending.values() if r['source_url'] == URL)
     bad = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package, identity=False))))
-    assert asyncio.run(assess_verified_package(MACHINE, package, bad, TITLE))['status'] == 'needs_review'
+    partitioned = asyncio.run(assess_verified_package(MACHINE, package, bad, TITLE))
+    assert partitioned['status'] == 'assessed'
+    assert partitioned['diagnostics']['rejected_claims'] == [{'index': 1, 'reason': 'identity_contract'}]
+    assert all('harbor and coast defense' not in row['claim'] for row in partitioned['claims'])
     client = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package))))
     assessment = asyncio.run(assess_verified_package(MACHINE, package, client, TITLE))
     assert assessment['status'] == 'assessed'

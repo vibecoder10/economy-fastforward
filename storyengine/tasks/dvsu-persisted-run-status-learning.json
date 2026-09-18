@@ -1,0 +1,49 @@
+{
+  "project": "/Users/ryanayler/economy-fastforward/storyengine",
+  "task": "Restore persisted Run All activity in the production UI",
+  "route": "code",
+  "schema": 1,
+  "status": "complete",
+  "created": "2026-09-13T01:26:29.470607+00:00",
+  "checks": {
+    "persisted-ui-regressions": {
+      "status": "passed",
+      "rules": [
+        "/Users/ryanayler/.codex/learning-rules.json#G08"
+      ],
+      "at": "2026-09-13T01:26:37.966960+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-persisted-run-status-learning.persisted-ui-regressions.log": "a9779a60ad510180e0c7cfcbb93ffbef696b8eadffc437cbb9a878b4ef72ea1a"
+      }
+    }
+  },
+  "events": {
+    "saved-job-ui": {
+      "kind": "reuse",
+      "note": "Reproduced active backend job hidden by local click state; actual component tests verify persisted activity disables duplicate controls and terminal state restores controls. Isolated committed rail tested without unrelated dirty roster edits; production deployment waits for the running render.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-persisted-run-status-learning.persisted-ui-regressions.log": "a9779a60ad510180e0c7cfcbb93ffbef696b8eadffc437cbb9a878b4ef72ea1a"
+      },
+      "resolves": null
+    }
+  },
+  "required": [
+    "persisted-ui-regressions"
+  ],
+  "outcome": "reused",
+  "inputs": {
+    "/private/tmp/StaticDocuStageRail.persisted-head.tsx": "b60a599d8f4b0aa5ac4c5a2148d551e932f2a6e76a0b55b65ca56145d8bea287",
+    "/Users/ryanayler/economy-fastforward/storyengine/frontend/src/lib/persisted-task-state.ts": "d8358983e653322d71118e54e01a75d4a152331ab902174733101ebde04d2e7c",
+    "/Users/ryanayler/economy-fastforward/storyengine/frontend/src/app/pipeline/[videoId]/page.tsx": "3271054787d17cb7500ff9c27a43f591e0077542b0a7271491a182aaae44cc2d",
+    "/Users/ryanayler/economy-fastforward/storyengine/frontend/src/components/production/RenderTab.tsx": "d661786f5be492c19a6b090a160297c3c22f7e6687eec3d43d62b929e95e6fd9",
+    "/Users/ryanayler/economy-fastforward/storyengine/frontend/src/components/production/ThumbnailTab.tsx": "6bbaf1880a026d9677866060963d4c07139d6dcdd20109b85d4d4c98fb41a39c"
+  },
+  "versions": {
+    "/Users/ryanayler/.codex/learning-rules.json#G08": "b0c72ff25712ba3634697bd0a13bc40c07c54659fa84555b063e2cf415d31ada",
+    "/Users/ryanayler/.codex/learning-rules.json#G07": "79634ca2dfc6293afb646528c9a5bba2ece1f235264ac6640b399988cf011850",
+    "/Users/ryanayler/.codex/learning-rules.json#G01": "0ef11c128df3f87c750c93c2512d7e6d499dd2fbb8c8f07b03a40655c1c37ed8",
+    "/Users/ryanayler/.codex/learning-rules.json#G10": "5d0b62810db1b100fed26fd75ec4c70639076df996acc40b06799c26239d5a69"
+  },
+  "tags": [],
+  "updated": "2026-09-13T01:28:02.777010+00:00"
+}

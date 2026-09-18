@@ -1,0 +1,64 @@
+TAP version 13
+# Subtest: contract metadata does not show completed research
+ok 1 - contract metadata does not show completed research
+  ---
+  duration_ms: 0.505708
+  type: 'test'
+  ...
+# Subtest: saved roster requires saved cards before research is complete
+ok 2 - saved roster requires saved cards before research is complete
+  ---
+  duration_ms: 0.112083
+  type: 'test'
+  ...
+# Subtest: accepted runtime roster is done without photos while saved-card research remains separate
+ok 3 - accepted runtime roster is done without photos while saved-card research remains separate
+  ---
+  duration_ms: 0.08325
+  type: 'test'
+  ...
+# Subtest: stale accepted flag and a hidden legacy draft never imply ready research
+ok 4 - stale accepted flag and a hidden legacy draft never imply ready research
+  ---
+  duration_ms: 0.272958
+  type: 'test'
+  ...
+# Subtest: preserves the accepted 20-submarine roster labels and order
+ok 5 - preserves the accepted 20-submarine roster labels and order
+  ---
+  duration_ms: 2.064166
+  type: 'test'
+  ...
+# Subtest: named submarines require the complete display identity, not a shared hull or class
+ok 6 - named submarines require the complete display identity, not a shared hull or class
+  ---
+  duration_ms: 0.527667
+  type: 'test'
+  ...
+# Subtest: submarine excerpts need the exact USS name and correct naval hull
+ok 7 - submarine excerpts need the exact USS name and correct naval hull
+  ---
+  duration_ms: 0.289417
+  type: 'test'
+  ...
+# Subtest: SSR renders assessment evidence, counterevidence, warnings, and empty state
+ok 8 - SSR renders assessment evidence, counterevidence, warnings, and empty state
+  ---
+  duration_ms: 5.777
+  type: 'test'
+  ...
+# Subtest: factual cards use summary status without legacy Anton preview warnings
+ok 9 - factual cards use summary status without legacy Anton preview warnings
+  ---
+  duration_ms: 0.134792
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 306.482291

@@ -1,0 +1,54 @@
+{
+  "scope": "five bounded unauthenticated GETs; no proxy, cookie, login, challenge bypass, or retry",
+  "tested_at_utc": "2026-09-17T16:18:23Z",
+  "requests": {
+    "usni_default_httpx": {
+      "url": "https://www.usni.org/magazines/proceedings/2012/june/preparing-todays-undersea-warfare",
+      "headers_sent": "httpx defaults",
+      "status": 403,
+      "relevant_response_headers": {"server": "cloudflare", "cf-mitigated": "challenge", "content-type": "text/html; charset=UTF-8"},
+      "body_prefix_300": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scal",
+      "body_length": 5726
+    },
+    "usni_browser_headers": {
+      "url": "https://www.usni.org/magazines/proceedings/2012/june/preparing-todays-undersea-warfare",
+      "headers_sent": {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36", "Accept": "text/html"},
+      "status": 403,
+      "relevant_response_headers": {"server": "cloudflare", "cf-mitigated": "challenge", "content-type": "text/html; charset=UTF-8"},
+      "body_prefix_300": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scal",
+      "body_length": 5939
+    },
+    "pigboats_default_httpx": {
+      "url": "https://pigboats.com/A-class",
+      "headers_sent": "httpx defaults",
+      "status": 403,
+      "relevant_response_headers": {"server": "cloudflare", "cf-mitigated": "challenge", "content-type": "text/html; charset=UTF-8"},
+      "body_prefix_300": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scal",
+      "body_length": 5467
+    },
+    "pigboats_browser_headers": {
+      "url": "https://pigboats.com/A-class",
+      "headers_sent": {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36", "Accept": "text/html"},
+      "status": 200,
+      "relevant_response_headers": {"server": "cloudflare", "content-type": "text/html; charset=UTF-8", "content-language": "en", "cf-cache-status": "HIT"},
+      "body_prefix_300": "<!DOCTYPE html>\n<html class=\"client-nojs\" lang=\"en\" dir=\"ltr\">\n<head>\n<meta charset=\"UTF-8\">\n<title>A-class submarines US Navy - PigBoats.COM</title>\n<script>document.documentElement.className=\"client-js\";RLCONF={\"wgBreakFrames\":false,\"wgSeparatorTransformTable\":[\"\",\"\"],\"wgDigitTransformTable\":[\"\",\"\"],\"",
+      "body_length": 55210
+    },
+    "wikipedia_default_httpx": {
+      "url": "https://en.wikipedia.org/wiki/Plunger-class_submarine",
+      "headers_sent": "httpx defaults",
+      "status": 403,
+      "relevant_response_headers": {"server": "HAProxy", "content-type": "text/plain", "x-cache-status": "int-tls"},
+      "body_prefix_300": "Please set a user-agent and respect our robot policy https://w.wiki/4wJS. See also https://phabricator.wikimedia.org/T400119.\n",
+      "body_length": 126
+    }
+  },
+  "diagnosis": {
+    "usni": "publisher-side Cloudflare bot challenge; a simple browser User-Agent and Accept header do not pass it.",
+    "pigboats": "Cloudflare default-client challenge, but ordinary browser headers receive the source page successfully.",
+    "wikipedia": "default-client user-agent policy rejection, not a connection/proxy failure.",
+    "all_targets_blocked": false,
+    "proxy_denial_supported": false,
+    "next_action": "No bypass was attempted. Any further source capture must remain within the separately authorized normal browser-header route or use a source already accessible through the approved extraction path."
+  }
+}

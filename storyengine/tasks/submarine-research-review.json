@@ -1,0 +1,19 @@
+{
+  "status": "PASS_LOCAL",
+  "round": 2,
+  "reviewer": "Astra",
+  "workers": "Terra/medium",
+  "backend_tests": 106,
+  "frontend_tests": 8,
+  "frontend_build": "passed with verified production API origin",
+  "ui_visual": "Actual SourceAssessmentPanel rendered with existing buildCSS; supporting/counterevidence and dispute labels inspected in browser; synthetic fixture clearly labeled",
+  "repairs": [
+    "strict named submarine source/card/package joins",
+    "versioned source claim assessments and conflict evidence",
+    "assessment mutation invalidates summaries and script blocks",
+    "failedassessment raw receipt retained",
+    "Research display canonicalnames and assessmentstatus"
+  ],
+  "live": "deployment and research-only run pending",
+  "plan": "submarine-research-plan.json"
+}

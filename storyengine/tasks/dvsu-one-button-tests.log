@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  08:05:54
+   Duration  463ms (transform 87ms, setup 0ms, import 323ms, tests 18ms, environment 0ms)
+

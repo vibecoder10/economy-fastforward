@@ -1,0 +1,60 @@
+{
+  "status": "passed",
+  "at": "2026-09-16T19:43:44.210729+00:00",
+  "roster_count": 20,
+  "names": [
+    "SS-1 USS Holland",
+    "SS-2 USS Plunger",
+    "SS-105 USS S-1",
+    "SS-163 USS Barracuda",
+    "SS-212 USS Gato",
+    "SS-285 USS Balao",
+    "SS-417 USS Tench",
+    "SS-563 USS Tang",
+    "AGSS-569 USS Albacore",
+    "SS-580 USS Barbel",
+    "SSN-571 USS Nautilus",
+    "SSN-585 USS Skipjack",
+    "SSN-593 USS Thresher",
+    "SSN-637 USS Sturgeon",
+    "SSN-688 USS Los Angeles",
+    "SSN-21 USS Seawolf",
+    "SSN-774 USS Virginia",
+    "SSBN-598 USS George Washington",
+    "SSBN-608 USS Ethan Allen",
+    "SSBN-616 USS Lafayette"
+  ],
+  "class_count": 20,
+  "fresh_audit": true,
+  "audit_sources": [
+    {
+      "url": "https://www.history.navy.mil/our-collections/photography/us-navy-ships/alphabetical-listing/h/uss-holland--submarine-torpedo-boat--1-0.html",
+      "supports": "USS Holland SS-1 commissioned 1900, first US Navy submarine"
+    },
+    {
+      "url": "https://www.history.navy.mil/research/histories/ship-histories/danfs/t/tench.html",
+      "supports": "USS Tench SS-417 commissioned 1944, lead ship of Tench class"
+    },
+    {
+      "url": "https://www.history.navy.mil/browse-by-topic/ships/submarines/uss-nautilus.html",
+      "supports": "USS Nautilus SSN-571 commissioned 1954, first nuclear submarine"
+    },
+    {
+      "url": "https://www.history.navy.mil/content/history/museums/nmusn/explore/photography/ships-us/ships-usn-g/uss-george-washington-ssbn-598.html",
+      "supports": "USS George Washington SSBN-598 commissioned 1959, first ballistic missile submarine"
+    },
+    {
+      "url": "https://www.navsource.org/archives/08/08688.htm",
+      "supports": "USS Los Angeles SSN-688 commissioned 1976, lead ship of class"
+    }
+  ],
+  "archive_counts": [
+    58,
+    20
+  ],
+  "archived_compact_cards": 1,
+  "next": "Gather images for exact named boats; no later stage started.",
+  "browser_verified": true,
+  "ui_roster_label": "20/20 selected and independently accepted.",
+  "ui_gather_images": "0/20 verified reference images."
+}

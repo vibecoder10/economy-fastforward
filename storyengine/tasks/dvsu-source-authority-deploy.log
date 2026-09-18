@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-source-authority","changed_at":"2026-09-12 23:47:43.616648+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:47:43.755192+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-source-authority","changed_at":"2026-09-12 23:47:43.616648+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:47:44.099286+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-source-authority","changed_at":"2026-09-12 23:47:43.616648+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:47:49.132220+00:00"}
+Updating aa9409a1c..df5f79803
+Fast-forward
+ storyengine/backend/factual_machine_research.py    |  6 +++
+ storyengine/backend/factual_machine_summary.py     |  4 +-
+ storyengine/backend/pipeline_executor.py           |  2 +-
+ .../backend/tests/test_factual_machine_summary.py  | 45 ++++++++++++++++++++--
+ 4 files changed, 51 insertions(+), 6 deletions(-)
+code: aa9409a1c -> df5f79803
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 1935653)
+worker code parity: commit=df5f79803 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed df5f79803; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-source-authority","changed_at":"2026-09-12 23:48:08.078878+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T23:48:08.209132+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-source-authority","changed_at":"2026-09-12T23:48:08.078878+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":519,"limit":9000,"remaining":8481,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":17,"limit":100,"remaining":83},"units_used":519,"ceiling":9000,"remaining":8481}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-12T23:48:07Z dvsu-source-authority deployed aa9409a1c -> df5f79803 
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

@@ -1,0 +1,42 @@
+{
+  "baseline": "582c1b97a56452fe9b748a3dcd6ed4bfc7a8b6f2",
+  "source_files": [
+    {
+      "path": "backend/script_research_packet.py",
+      "sha256": "eb54718c6f2d51d7174f714de26941173189961f685fb8270e4fcc78ea6dbd21",
+      "matches_tested_worktree": true
+    },
+    {
+      "path": "backend/factual_machine_summary.py",
+      "sha256": "f28e1a221b049d5d84161823b200b04b4a88380432b2f0561cffeb61b7d843be",
+      "matches_tested_worktree": true
+    },
+    {
+      "path": "backend/factual_machine_pipeline.py",
+      "sha256": "2ae73a046aa7c5dc380dbf7ee64becb97a6cef6dc674ec96697c1cf7ff2e7f81",
+      "matches_tested_worktree": true
+    },
+    {
+      "path": "backend/tests/test_script_research_packet.py",
+      "sha256": "f559baa12fcf863bd8d6e83e4e2b35dccaaa5f4c9d8f4decb328167863b0a84c",
+      "matches_tested_worktree": true
+    },
+    {
+      "path": "backend/tests/test_script_compiler_integration.py",
+      "sha256": "9eddd2f67dd0e012cd3cdcca935c88078b9ee8528e2cab0e805ab83cbb05de32",
+      "matches_tested_worktree": true
+    },
+    {
+      "path": "backend/tests/functional/test_factual_machine_pipeline.py",
+      "sha256": "166fe521ebe23927f76e61a7913f696d31f49ede0567355fe04f0ed0a394517e",
+      "matches_tested_worktree": true
+    }
+  ],
+  "committed": true,
+  "pushed": true,
+  "deployed": true,
+  "paid_provider_calls": 0,
+  "unrelated_work_preserved": true,
+  "release": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "deployed_at_utc": "2026-09-16T22:32:37Z"
+}

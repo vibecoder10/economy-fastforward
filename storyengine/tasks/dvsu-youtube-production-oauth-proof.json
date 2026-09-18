@@ -1,0 +1,19 @@
+{
+  "checked_at": "2026-09-13T01:00:48.896447+00:00",
+  "project": "storyengine-youtube-prod",
+  "project_name": "StoryEngine YouTube Production",
+  "publishing_status_before": "Testing",
+  "publishing_status_after": "In production",
+  "browser_readback_verified": true,
+  "credential_source": "youtube_specific",
+  "deployed_client_matches_console": true,
+  "verification_status": "Google says app requires verification",
+  "current_user_cap": "1 user / 100",
+  "existing_customer_consent_at": "2026-09-10T06:35:53.133836Z",
+  "fresh_production_authorization_verified": false,
+  "expected_channel_id": "UCO4gtSa3rpOutrZ45-OjYyA",
+  "reconnect_landing_verified": true,
+  "reconnect_link_expires_at": "2026-09-15T00:57:47.390287Z",
+  "messages_sent_to_customer": false,
+  "policy_source": "https://developers.google.com/identity/protocols/oauth2#expiration"
+}

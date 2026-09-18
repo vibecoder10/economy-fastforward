@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_camera_retry_retains_machine_configuration_lock _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1164482d0>
+
+    @pytest.mark.asyncio
+    async def test_camera_retry_retains_machine_configuration_lock(monkeypatch):
+        monkeypatch.setattr(static_docu, '_render_reference_configuration_rules',
+                            lambda *args, **kwargs: 'PRESERVE THREE MAIN WING PLANES')
+        env = _pipeline_env(monkeypatch, verdicts=[True, True],
+                            gen_urls=[RENDER_1, RENDER_2], role_verdicts=[False, True])
+        result = await static_docu.generate_static_images_for_video(env['video_id'], env['tenant_id'])
+        assert result['status'] == 'completed'
+        assert len(env['gen_prompts']) == 2
+>       assert all('PRESERVE THREE MAIN WING PLANES' in prompt for prompt in env['gen_prompts'])
+E       assert False
+E        +  where False = all(<generator object test_camera_retry_retains_machine_configuration_lock.<locals>.<genexpr> at 0x1203c7780>)
+
+backend/tests/functional/test_static_docu_qa_park.py:1055: AssertionError
+=============================== warnings summary ===============================
+tests/functional/test_static_docu_qa_park.py::test_camera_retry_retains_machine_configuration_lock
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_static_docu_qa_park.py::test_camera_retry_retains_machine_configuration_lock
+1 failed, 29 deselected, 1 warning in 1.22s

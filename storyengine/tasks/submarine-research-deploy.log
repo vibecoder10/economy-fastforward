@@ -1,0 +1,118 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-confidence","changed_at":"2026-09-16 20:56:46.203741+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:56:46.479419+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-confidence","changed_at":"2026-09-16 20:56:46.203741+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:56:46.879225+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-confidence","changed_at":"2026-09-16 20:56:46.203741+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:56:51.913835+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   b1f828c21..a3381755e  main       -> origin/main
+Updating b1f828c21..a3381755e
+Fast-forward
+ SYSTEM_STATE.md                                    |   7 +
+ storyengine/backend/factual_machine_pipeline.py    |   1 +
+ storyengine/backend/factual_machine_research.py    |  68 +++++++-
+ storyengine/backend/factual_machine_summary.py     |  38 ++++-
+ storyengine/backend/machine_research_summary.py    |   9 +-
+ storyengine/backend/pipeline_executor.py           |  82 +++++++++-
+ storyengine/backend/research_claim_assessment.py   | 166 ++++++++++++++++++++
+ .../functional/test_factual_machine_pipeline.py    |  35 ++++-
+ .../functional/test_factual_machine_research.py    |  94 +++++++++--
+ .../backend/tests/test_machine_research_summary.py |  28 +++-
+ .../test_named_submarine_research_identity.py      |  78 ++++++++++
+ .../tests/test_research_claim_assessment.py        | 137 ++++++++++++++++
+ .../tests/test_submarine_research_integration.py   |  70 +++++++++
+ .../src/components/production/ResearchTab.tsx      | 173 +++++++++++++++++++--
+ .../frontend/tests/submarine-research.test.mjs     |  94 +++++++++++
+ 15 files changed, 1034 insertions(+), 46 deletions(-)
+ create mode 100644 storyengine/backend/research_claim_assessment.py
+ create mode 100644 storyengine/backend/tests/test_named_submarine_research_identity.py
+ create mode 100644 storyengine/backend/tests/test_research_claim_assessment.py
+ create mode 100644 storyengine/backend/tests/test_submarine_research_integration.py
+ create mode 100644 storyengine/frontend/tests/submarine-research.test.mjs
+code: b1f828c21 -> a3381755e
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3836566)
+worker code parity: commit=a3381755e directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 14.7s
+  Running TypeScript ...
+  Finished TypeScript in 21.7s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 773ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed a3381755e; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-confidence","changed_at":"2026-09-16 20:58:13.713007+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:58:13.824579+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-confidence","changed_at":"2026-09-16T20:58:13.713007+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":120,"limit":9000,"remaining":8880,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":120,"ceiling":9000,"remaining":8880}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T20:58:13Z submarine-research-confidence deployed b1f828c21 -> a3381755e --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

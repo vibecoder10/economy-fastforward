@@ -1,0 +1,60 @@
+{
+  "project": "/Users/ryanayler/economy-fastforward/storyengine",
+  "task": "dvsu-title-boundary",
+  "route": "code",
+  "schema": 1,
+  "status": "complete",
+  "created": "2026-09-12T19:19:10.809691+00:00",
+  "checks": {
+    "source-retry-regressions": {
+      "status": "passed",
+      "rules": [
+        "/Users/ryanayler/.codex/learning-rules.json#G08"
+      ],
+      "at": "2026-09-12T19:47:03.130613+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-title-boundary-learning.source-retry-regressions.log": "89dbde625d2b1062a9bb6e5d0925ac975d6af16ca4915a0690c23cc271819d25"
+      }
+    },
+    "title-boundary-regressions": {
+      "status": "passed",
+      "rules": [
+        "/Users/ryanayler/.codex/learning-rules.json#G08"
+      ],
+      "at": "2026-09-12T20:05:49.525522+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-title-boundary-learning.title-boundary-regressions.log": "5d35405a448965b9876873898ba9550b988a7eb9a41ef3d662fd01cfa6ba9767"
+      }
+    }
+  },
+  "events": {
+    "live-coverage-and-continuation": {
+      "kind": "reuse",
+      "note": "Funded live failures exposed scope handoff and archive access gaps, then bare retry misclassification. Shared policy, retrieved evidence and quality/transient predicates passed 182 tests, 7 actual SQL cases and 3 VPS fetches. Deployed d25928523 passed live coverage for 21 carriers and advanced to individual research. Full production is still running under an active follow-up.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-funded-production-proof.json": "f9f22c1aab8e536dcbb3ce288f1f03739134ff7c069a72c2a8dcf9b34bc35829"
+      },
+      "resolves": null
+    }
+  },
+  "required": [
+    "source-retry-regressions",
+    "title-boundary-regressions"
+  ],
+  "outcome": "reused",
+  "inputs": {
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/roster_coverage.py": "8622be0d07cb541c3f22e25f5bd57b114d0cc6ae73229f4d904e92ee85eaf50c",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/roster_sources.py": "98088d8c498e39778bcef8095655b9806d9ca791375c73a30ab09b604fe619e6",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/pipeline_executor.py": "e131fbdb275f5b8dbf00cbecb1c30fe4625a2a7f7a8cb86eeb4295ccc18c0cc2",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/error_utils.py": "b23618d15cec8858e2e87e409fa438899e699bbf49f26f39458039ccae47fbc0",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/routes/queue.py": "cbffe7c7a839e3adad13a79c8ca8d395e99d00ec3f2696e795908679b7f4b441"
+  },
+  "versions": {
+    "/Users/ryanayler/.codex/learning-rules.json#G08": "b0c72ff25712ba3634697bd0a13bc40c07c54659fa84555b063e2cf415d31ada",
+    "/Users/ryanayler/.codex/learning-rules.json#G07": "79634ca2dfc6293afb646528c9a5bba2ece1f235264ac6640b399988cf011850",
+    "/Users/ryanayler/.codex/learning-rules.json#G01": "0ef11c128df3f87c750c93c2512d7e6d499dd2fbb8c8f07b03a40655c1c37ed8",
+    "/Users/ryanayler/.codex/learning-rules.json#G10": "5d0b62810db1b100fed26fd75ec4c70639076df996acc40b06799c26239d5a69"
+  },
+  "tags": [],
+  "updated": "2026-09-12T20:05:49.609822+00:00"
+}

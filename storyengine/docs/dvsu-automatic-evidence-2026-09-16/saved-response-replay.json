@@ -1,0 +1,83 @@
+{
+  "status": "assessed",
+  "provider_calls": 0,
+  "complete_brief": {
+    "version": 1,
+    "machine": "SS-1 USS Holland",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "fields": {
+      "intended_role": [
+        "F8f3d7167985f23ddec8e"
+      ],
+      "design": [
+        "F1e40485363562dbe1ea2",
+        "F733fb35901f0024dc6ce",
+        "Ffdd693fdac6b315d7376"
+      ],
+      "actual_use": [
+        "F7d4330815c587bd2938e"
+      ],
+      "outcome": [
+        "F99b930c562bd44c2950d",
+        "F9d0aa9c2f038fa5c75fb",
+        "Fd015f91597ac64f6ce0b"
+      ]
+    },
+    "facts": [
+      {
+        "fact_id": "F1e40485363562dbe1ea2",
+        "claim": "USS Holland's interior space was one contiguous compartment.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F733fb35901f0024dc6ce",
+        "claim": "USS Holland incorporated dual propulsion systems, fixed center of gravity, separate main and auxiliary ballast systems, hydrodynamic shape, and modern weapons system.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F7d4330815c587bd2938e",
+        "claim": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F8ada9a68394383ae5aa1",
+        "claim": "The Navy purchased USS Holland on April 11, 1900, for $165,000 after two years of trials and modifications.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F8f3d7167985f23ddec8e",
+        "claim": "Admiral Dewey attributed great value to USS Holland's type for harbor and coast defense based on favorable Navy officer reports.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F99b930c562bd44c2950d",
+        "claim": "An 1900 agreement gave Vickers a 25-year license to manufacture Holland-class submarines for the UK and Europe using Electric Boat patents.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F9d0aa9c2f038fa5c75fb",
+        "claim": "The U.S. Navy commissioned USS Holland on October 12, 1900, establishing the U.S. Submarine Force.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Fb6b7b1488d3733b57ae1",
+        "claim": "John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.",
+        "scope": "event"
+      },
+      {
+        "fact_id": "Fd015f91597ac64f6ce0b",
+        "claim": "The Navy ordered seven more Holland-type boats after trials, which became the A-class submarines with Navy-specified improvements.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Ffdd693fdac6b315d7376",
+        "claim": "USS Holland had one reloadable bow torpedo tube carrying three torpedoes and a pneumatic dynamite gun that was subsequently removed.",
+        "scope": "machine"
+      }
+    ],
+    "ready": true,
+    "missing_fields": []
+  },
+  "claim_count": 10,
+  "source": "unchanged live package and saved model raw response"
+}

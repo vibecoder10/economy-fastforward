@@ -1,0 +1,13 @@
+# Durable source adapter — local implementation receipt
+
+Scoped files: `backend/factual_source_search.py` and `backend/tests/test_source_discovery_reliability.py`.
+
+`discover_sources` retains its one-request legacy behavior unless a caller supplies all three durable-operation inputs: a mutable `operation_state`, async `checkpoint(snapshot)`, and async `guard(snapshot)`. Durable state never contains the API key. It records the sanitized request, `submitted` before the HTTP request, bounded response receipt and usage as `received` before parsing, then parsed leads and completed metadata.
+
+Resume rules are deterministic: completed returns saved leads, parsed promotes and returns saved leads, received parses its saved bounded response locally, and submitted/uncertain requires reconciliation without another call. Saved account and permanent HTTP outcomes replay as their terminal typed error without a provider call. A false or failed checkpoint prevents the provider call; a false or failed guard prevents each attempt.
+
+The adapter exposes `SourceDiscoveryError` attributes `code`, `retryable`, `attempts`, `next_action`, `receipt`, `stage="research"`, and `machine`. It distinguishes account auth/credits, empty response, valid no-results, truncated, malformed, HTTP transient, pre-connect transport, ambiguous post-submission transport, checkpoint, guard, and reconciliation-required cases. Durable mode permits at most one malformed retry and two explicit transient retries, capped at four submitted attempts, with no sleep. Each received provider response is appended to a bounded credential-free receipt history so prior paid usage is retained through later retries. The parser accepts only JSON arrays, `{ "sources": [...] }`, and documented text content blocks/fenced JSON; it does not extract URLs from prose. Existing public-URL filtering remains in force.
+
+Parent ledger schema: `metadata.operation` has `status`, `attempts`, latest `receipt`, and `receipts` history. Each receipt has `status_code`, `request_id`, bounded `usage`, `credits_consumed`, `provider_code`, bounded key-redacted `provider_message`, bounded key-redacted `body`, `body_truncated`, `response_bytes`, `finish_reason`, and `response_shape` (`top_level_keys`, `content_type`); a transport receipt instead has `transport` and sanitized `request`. The durable state additionally has `operation`, `stage`, `machine`, counters, sanitized `request`, `status`, `leads`, `metadata`, and, for failures, `error` with the typed error fields above. No API key is stored. A `finish_reason` of `length`, a bounded-body crop, or incomplete JSON is terminal `truncated` evidence, never a successful parse.
+
+No provider call, deployment, commit, or production change was made.

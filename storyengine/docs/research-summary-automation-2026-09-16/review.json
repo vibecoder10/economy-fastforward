@@ -1,0 +1,29 @@
+{
+  "status": "local_pass_live_unproven",
+  "backend_tests": 126,
+  "frontend_build": "passed_worker_receipt_D",
+  "browser_acceptance": "pending",
+  "provider_calls": 0,
+  "deployment": "not_performed",
+  "patch": "release.patch",
+  "scope_files": [
+    "storyengine/backend/actions.py",
+    "storyengine/backend/factual_machine_pipeline.py",
+    "storyengine/backend/factual_machine_research.py",
+    "storyengine/backend/factual_machine_summary.py",
+    "storyengine/backend/factual_source_search.py",
+    "storyengine/backend/pipeline_executor.py",
+    "storyengine/backend/routes/pipeline.py",
+    "storyengine/backend/machine_research_summary.py",
+    "storyengine/backend/tests/test_machine_research_summary.py",
+    "storyengine/backend/tests/test_research_class_identity.py",
+    "storyengine/backend/tests/test_research_automation_status.py",
+    "storyengine/backend/tests/fixtures/research-roster-class-labels.json",
+    "storyengine/backend/tests/functional/test_factual_machine_research.py",
+    "storyengine/backend/tests/functional/test_factual_machine_pipeline.py",
+    "storyengine/backend/tests/functional/test_frontdoor_needs_review_surfacing.py",
+    "storyengine/backend/tests/functional/test_g8_roster_research_loop.py",
+    "storyengine/backend/tests/functional/test_kie_factual_source_search.py",
+    "storyengine/frontend/src/components/production/ResearchTab.tsx"
+  ]
+}

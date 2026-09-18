@@ -1,0 +1,22 @@
+{
+  "release": "cc9ee724bcd68cc30ac9ba67ab5ed285be909e1d",
+  "deployed_at": "2026-09-16T23:19:24Z",
+  "services_active": 3,
+  "public_frontend_gate_verified": true,
+  "production_scripts_unchanged": true,
+  "no_spend_readiness": {
+    "http_status": 200,
+    "status": "needs_review",
+    "ready": false,
+    "machine": "SS-1 USS Holland",
+    "scene": 1,
+    "summary": "Script preview evidence gate failed: SS-1 USS Holland: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome.",
+    "warnings": [
+      "Missing intended_role evidence; request targeted research for intended_role.",
+      "Missing actual_use evidence; request targeted research for actual_use.",
+      "Missing outcome evidence; request targeted research for outcome."
+    ],
+    "next_action": "run_one_machine_research_refresh"
+  },
+  "live_paid_preview": "awaiting explicit popup response; not started"
+}

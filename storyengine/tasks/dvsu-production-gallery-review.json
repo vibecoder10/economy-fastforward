@@ -1,0 +1,15 @@
+{
+  "reviewed_at": "2026-09-13T01:13:00Z",
+  "video_id": "3f902e62-3ffa-4472-baf4-d0dfe9a20e49",
+  "job": "autobuild:3f902e62-3ffa-4472-baf4-d0dfe9a20e49:15",
+  "deployed_commit": "6c970dbac",
+  "surface": "Live StoryEngine Pictures gallery in Chrome",
+  "approved_views": 58,
+  "ready_machines": 21,
+  "minimum_approved_views_per_machine": 2,
+  "optional_rejected_views": 5,
+  "visual_review": "Inspected the first gallery view for each of the 21 locked roster machines, plus all three corrected Vindictive views individually. Inspected the saved thumbnail. No further material wrong-machine or missing-deck issue identified in these spot checks.",
+  "limits": "Gallery spot checks are not a review of every generated view or a guarantee of engineering-drawing precision. All selected views passed application identity/configuration QA. Encoded video playback and audio review remain pending.",
+  "render_started_at": "2026-09-13T01:02:33Z",
+  "render_owner": "Original durable job15; active Remotion and ffmpeg processes verified, no additional production job launched"
+}

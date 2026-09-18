@@ -1,0 +1,109 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-persisted-run-status","changed_at":"2026-09-13 02:02:06.339650+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T02:02:06.470159+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-persisted-run-status","changed_at":"2026-09-13 02:02:06.339650+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T02:02:06.818386+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-persisted-run-status","changed_at":"2026-09-13 02:02:06.339650+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T02:02:11.852384+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   6c970dbac..8f8de8ec1  main       -> origin/main
+Updating 6c970dbac..8f8de8ec1
+Fast-forward
+ .../frontend/src/app/pipeline/[videoId]/page.tsx   | 13 ++--
+ .../src/components/production/RenderTab.tsx        | 20 +++--
+ .../StaticDocuStageRail.persisted.test.ts          | 87 ++++++++++++++++++++++
+ .../components/production/StaticDocuStageRail.tsx  | 37 ++++++---
+ .../src/components/production/ThumbnailTab.tsx     | 14 +++-
+ .../frontend/src/lib/persisted-task-state.test.ts  | 32 ++++++++
+ .../frontend/src/lib/persisted-task-state.ts       | 21 ++++++
+ storyengine/frontend/vitest.config.ts              |  4 +
+ 8 files changed, 202 insertions(+), 26 deletions(-)
+ create mode 100644 storyengine/frontend/src/components/production/StaticDocuStageRail.persisted.test.ts
+ create mode 100644 storyengine/frontend/src/lib/persisted-task-state.test.ts
+ create mode 100644 storyengine/frontend/src/lib/persisted-task-state.ts
+code: 6c970dbac -> 8f8de8ec1
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 1986299)
+worker code parity: commit=8f8de8ec1 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 11.8s
+  Running TypeScript ...
+  Finished TypeScript in 23.0s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 578ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed 8f8de8ec1; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-persisted-run-status","changed_at":"2026-09-13 02:03:29.060124+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T02:03:29.195792+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-persisted-run-status","changed_at":"2026-09-13T02:03:29.060124+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":689,"limit":9000,"remaining":8311,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":21,"limit":100,"remaining":79},"units_used":689,"ceiling":9000,"remaining":8311}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-13T02:03:28Z dvsu-persisted-run-status deployed 6c970dbac -> 8f8de8ec1 --with-frontend
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

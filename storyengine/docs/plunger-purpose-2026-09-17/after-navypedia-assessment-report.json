@@ -1,0 +1,74 @@
+{
+  "scope": {
+    "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "machine_key": "SS2",
+    "machine": "SS-2 USS Plunger",
+    "requested_source_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm"
+  },
+  "request_receipt": {
+    "source_refresh_posts": 1,
+    "source_refresh_status": 200,
+    "source_refresh_duration_ms": 35124,
+    "no_spend_readiness_posts": 1,
+    "no_spend_readiness_status": 200,
+    "preview_posts": 0,
+    "retries": 0,
+    "receipt": "navypedia-source-refresh-requests.json"
+  },
+  "navypedia_capture": {
+    "source_id": "DVSU5",
+    "excerpt_id": "DVSU5-E1",
+    "source_capture_method": "fetched_page",
+    "verified_class_context_chars": 1452,
+    "verified_by_backend_helper": true,
+    "identity_text": "SS2 Plunger, 11.1911- A1",
+    "class_purpose_text": "These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.",
+    "assessment_identity_review_or_anchor": "No SS2 identity_reviews record was saved and C1 does not cite DVSU5-E1."
+  },
+  "current_assessment": {
+    "version": 1,
+    "status": "assessed",
+    "provenance_status": "captured",
+    "dvsu_recovery": {
+      "stage": "discovery_completed",
+      "missing_fields": ["intended_role"]
+    },
+    "intended_role_claim": {
+      "id": "C1",
+      "status": "supported",
+      "brief_eligible": false,
+      "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+      "evidence_excerpt_ids": ["S2-E1", "DVSU4-E1"]
+    },
+    "brief": {
+      "ready": false,
+      "preparable": true,
+      "missing_fields": ["intended_role"],
+      "field_fact_counts": {
+        "intended_role": 0,
+        "design": 2,
+        "actual_use": 2,
+        "outcome": 3
+      }
+    }
+  },
+  "delta": {
+    "sources_before_after": [6, 9],
+    "candidate_excerpts_before_after": [24, 25],
+    "assessment_claims_before_after": [10, 9],
+    "discovery_requests_before_after": [2, 2],
+    "prior_claim_assessments_before_after": [2, 3],
+    "dvsu_research_supplements_before_after": [2, 3]
+  },
+  "preservation": {
+    "purpose_before_audit": "live-after-navypedia-audit.json",
+    "original_before_audit": "live-original-before-after-navypedia-audit.json",
+    "both_unchanged": true,
+    "errors": [],
+    "unavailable_comparison_fields": ["script_hash", "validation_hash"],
+    "scripts_after": 0,
+    "production_other19_holland_roster_and_old_source_prefixes": "unchanged by both audits"
+  },
+  "result": "Navypedia captured one class-context excerpt, but the resulting compact brief remains not ready because no intended_role fact is eligible. No preview was started."
+}

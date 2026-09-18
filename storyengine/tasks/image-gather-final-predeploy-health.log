@@ -1,0 +1,13 @@
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:roster-image-gather","changed_at":"2026-09-15T20:32:54.804830+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":500,"limit":9000,"remaining":8500,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":15,"limit":100,"remaining":85},"units_used":500,"ceiling":9000,"remaining":8500}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T20:32:54Z roster-image-gather deployed c798a0c1c -> 82201e549 --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

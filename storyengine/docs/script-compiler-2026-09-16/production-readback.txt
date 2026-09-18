@@ -1,0 +1,15 @@
+64ddf60de268e016ed0cf3ef75d715e15ff80eed
+eb54718c6f2d51d7174f714de26941173189961f685fb8270e4fcc78ea6dbd21  storyengine/backend/script_research_packet.py
+f28e1a221b049d5d84161823b200b04b4a88380432b2f0561cffeb61b7d843be  storyengine/backend/factual_machine_summary.py
+2ae73a046aa7c5dc380dbf7ee64becb97a6cef6dc674ec96697c1cf7ff2e7f81  storyengine/backend/factual_machine_pipeline.py
+MainPID=3870896
+ExecMainStartTimestamp=Wed 2026-09-16 22:32:26 UTC
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+Id=storyengine-backend.service
+ActiveState=active
+
+MainPID=3870947
+ExecMainStartTimestamp=Wed 2026-09-16 22:32:36 UTC
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/backend
+Id=storyengine-worker.service
+ActiveState=active

@@ -1,0 +1,55 @@
+[INIT] Starting pipeline initialization...
+[INIT] Loading key: anthropic_api_key...
+[INIT]   - anthropic_api_key not found
+[INIT] Loading key: airtable_api_key...
+[INIT]   - airtable_api_key not found
+[INIT] Loading key: elevenlabs_api_key...
+[INIT]   - elevenlabs_api_key not found
+[INIT] Loading key: elevenlabs_voice_id...
+[INIT]   - elevenlabs_voice_id not found
+[INIT] Loading key: elevenlabs_model_id...
+[INIT]   - elevenlabs_model_id not found
+[INIT] Loading key: elevenlabs_voice_style...
+[INIT]   - elevenlabs_voice_style not found
+[INIT] Loading key: kie_ai_api_key...
+[INIT]   - kie_ai_api_key not found
+[INIT] Loading key: openai_api_key...
+[INIT]   - openai_api_key not found
+[INIT] Loading key: gemini_api_key...
+[INIT]   - gemini_api_key not found
+[INIT] Creating lightweight pipeline...
+[INIT] SupabaseAdapter OK
+[INIT] AnthropicClient skipped: ANTHROPIC_API_KEY not found in environment
+[INIT] GoogleClient skipped: Google OAuth credentials not found in environment
+[INIT] SlackClient OK
+[INIT] ImageClient skipped: KIE_AI_API_KEY not found in environment
+[INIT] ElevenLabsClient skipped: ELEVENLABS_API_KEY not found in environment
+  GEMINI_API_KEY not found - thumbnail analysis will be skipped
+[INIT] GeminiClient OK
+[INIT] Pipeline ready!
+Traceback (most recent call last):
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 210, in <module>
+    main()
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 207, in main
+    asyncio.run(_run())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 157, in _run
+    video = await ex._get_video(VIDEO)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/pipeline_executor.py", line 9637, in _get_video
+    return await fetch_one(
+           ^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/database.py", line 53, in fetch_one
+    pool = await get_pool()
+           ^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/backend/database.py", line 30, in get_pool
+    raise RuntimeError("DATABASE_URL not set")
+RuntimeError: DATABASE_URL not set

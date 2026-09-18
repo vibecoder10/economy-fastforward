@@ -1,0 +1,5 @@
+270cf80f076b572a5a9e3996f8f5276c06b93125
+c68ac167ec922cb96bbdb241cc7db22a059f660e0ecc87f2f4305b1b9df522a3  storyengine/backend/factual_machine_summary.py
+a1bf5dcc2f5eda50fd1d1c53b428d739eafea32b54abf0904dece45cf0a62ef6  storyengine/backend/script_research_packet.py
+active
+active

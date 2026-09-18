@@ -1,0 +1,15 @@
+
+> frontend@1.0.0 dev
+> next dev --webpack --port 3001
+
+▲ Next.js 16.2.1 (webpack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.72:3001
+- Environments: .env.local
+✓ Ready in 866ms
+
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 1974ms (next.js: 1776ms, application-code: 198ms)
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 104ms (next.js: 85ms, application-code: 19ms)
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 77ms (next.js: 64ms, application-code: 13ms)
+ GET /pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a 200 in 445ms (next.js: 199ms, application-code: 246ms)
+[?25h

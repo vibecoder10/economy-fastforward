@@ -1,0 +1,37 @@
+[
+  {
+    "message": "Research found a roster coverage or scope issue, so production stopped before scripting. Review the research roster, correct the issue, and retry.",
+    "expected": false,
+    "actual": false
+  },
+  {
+    "message": "Research gate failed; not advancing to scripting: Roster validation failed",
+    "expected": false,
+    "actual": false
+  },
+  {
+    "message": "source quality verification failed: upstream unavailable; retry",
+    "expected": false,
+    "actual": false
+  },
+  {
+    "message": "Please retry",
+    "expected": false,
+    "actual": false
+  },
+  {
+    "message": "Worker interrupted",
+    "expected": true,
+    "actual": true
+  },
+  {
+    "message": "Connection timed out",
+    "expected": true,
+    "actual": true
+  },
+  {
+    "message": "Redis temporarily unavailable",
+    "expected": true,
+    "actual": true
+  }
+]

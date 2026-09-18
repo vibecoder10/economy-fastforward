@@ -1,0 +1,11 @@
+{
+  "attempts": 1,
+  "error": "HTTPSConnectionPool(host='www.history.navy.mil', port=443): Max retries exceeded with url: /research/histories/ship-histories/danfs/h/holland-i.html (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1016)')))",
+  "error_type": "SSLError",
+  "original_url": "https://www.history.navy.mil/research/histories/ship-histories/danfs/h/holland-i.html",
+  "retrieved_at_utc": "2026-09-16T23:48:32.054329+00:00",
+  "status_code": null,
+  "success": false,
+  "timeout_seconds": 30,
+  "tls_verify": true
+}

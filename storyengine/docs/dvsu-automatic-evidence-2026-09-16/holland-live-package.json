@@ -1,0 +1,1264 @@
+{
+  "errors": [],
+  "passed": true,
+  "machine": "SS-1 USS Holland",
+  "sources": [
+    {
+      "url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "Paving the Way: Navy Undersea Innovators",
+      "source_id": "S1",
+      "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+      "text_chars": 15464,
+      "source_tier": 2,
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+            "text_chars": 15464,
+            "excerpt_count": 2,
+            "method_priority": 1,
+            "covered_slot_count": 2,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Specifically find the original intended role or problem, distinctive engineering decisions, actual operational/training/testing use, and fate or lasting consequence. Prioritize exact-machine service histories over designer biographies and repeated component lists. A launch or commissioning date alone does not establish actual use. Seek evidence of the designed-versus-used relationship without assuming there was a reversal. Include supported production and memorable details where available. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts. Do not repeat these already attempted URLs: https://americanhistory.si.edu/subs/history/subsbeforenuc/early/holland.html, https://americanhistory.si.edu/subs/history/subsbeforenuc/early/, https://www.doncio.navy.mil/Chips/ArticleDetails.aspx?ID=7716, https://www.history.navy.mil/content/dam/museums/hrnm/Daybook/DaybookReloadsV1-2021/The%20Daybook-Volume%2018-Issue%203.pdf, https://www.usni.org/magazines/proceedings/2007/april/our-archive-uss-holland-ss-1, https://www.history.navy.mil/our-collections/photography/us-navy-ships/alphabetical-listing/h/uss-holland--submarine-torpedo-boat--1-0.html. Avoid these hosts because they produced no readable capture: americanhistory.si.edu, www.history.navy.mil, www.usni.org.",
+      "title": "Paving the Way: Navy Undersea Innovators",
+      "source_id": "DVSU1",
+      "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+      "text_chars": 15464,
+      "source_tier": 2,
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+            "text_chars": 15464,
+            "excerpt_count": 2,
+            "method_priority": 1,
+            "covered_slot_count": 2,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Specifically find the original intended role or problem, distinctive engineering decisions, actual operational/training/testing use, and fate or lasting consequence. Prioritize exact-machine service histories over designer biographies and repeated component lists. A launch or commissioning date alone does not establish actual use. Seek evidence of the designed-versus-used relationship without assuming there was a reversal. Include supported production and memorable details where available. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts. Do not repeat these already attempted URLs: https://americanhistory.si.edu/subs/history/subsbeforenuc/early/holland.html, https://americanhistory.si.edu/subs/history/subsbeforenuc/early/, https://www.doncio.navy.mil/Chips/ArticleDetails.aspx?ID=7716, https://www.history.navy.mil/content/dam/museums/hrnm/Daybook/DaybookReloadsV1-2021/The%20Daybook-Volume%2018-Issue%203.pdf, https://www.usni.org/magazines/proceedings/2007/april/our-archive-uss-holland-ss-1, https://www.history.navy.mil/our-collections/photography/us-navy-ships/alphabetical-listing/h/uss-holland--submarine-torpedo-boat--1-0.html. Avoid these hosts because they produced no readable capture: americanhistory.si.edu, www.history.navy.mil, www.usni.org.",
+      "title": "Alexander the Great to John Phillip Holland",
+      "source_id": "DVSU2",
+      "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+      "text_chars": 16912,
+      "source_tier": 2,
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "source_id": "DVSU3",
+      "title": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_capture_method": "fetched_page",
+      "source_tier": 1,
+      "text_hash": "8e3d05cc06252a0c7df96223a831e1ffa76cc309275802f176d5747f130ead73",
+      "text_chars": 11011
+    },
+    {
+      "source_id": "DVSU4",
+      "title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_capture_method": "fetched_page",
+      "source_tier": 2,
+      "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+      "text_chars": 15478
+    },
+    {
+      "source_id": "DVSU5",
+      "title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_capture_method": "fetched_page",
+      "source_tier": 2,
+      "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+      "text_chars": 16926
+    }
+  ],
+  "gathered_at": "2026-09-16T21:00:59.014357+00:00",
+  "machine_key": "SS1",
+  "schema_version": 3,
+  "search_queries": [
+    "\"SS-1 USS Holland\" official history commissioned",
+    "\"SS-1 USS Holland\" class displacement armament beam launched design tradeoff limitation compromise",
+    "\"SS-1 USS Holland\" naval-history.net",
+    "\"SS-1 USS Holland\" uboat.net",
+    "\"SS-1 USS Holland\" service history war record engagement",
+    "\"SS-1 USS Holland\" loss damage board of enquiry discovery.nationalarchives.gov.uk",
+    "\"SS-1 USS Holland\" commissioned decommissioned scrapped fate",
+    "\"SS-1 USS Holland\" crew veteran memoir account officer"
+  ],
+  "source_discovery": {
+    "model": "gpt-5-2",
+    "usage": {
+      "total_tokens": 543,
+      "prompt_tokens": 216,
+      "completion_tokens": 327
+    },
+    "subject": "USS Holland",
+    "provider": "kie",
+    "lead_count": 6,
+    "request_id": "chatcmpl-56ca1d2f381940e197187f85",
+    "search_tool": "web_search",
+    "credits_consumed": 0.25
+  },
+  "candidate_excerpts": [
+    {
+      "text": "Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design.",
+      "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "1c5566445a02a434c6be4caff8071819b9185fdc1b8df1ae98ba8fe58e325963",
+      "excerpt_id": "S1-E1",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_title": "Paving the Way: Navy Undersea Innovators",
+      "anton_slot_hints": [
+        "engineering_decision",
+        "reality"
+      ],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+            "text_chars": 15464,
+            "excerpt_count": 2,
+            "method_priority": 1,
+            "covered_slot_count": 2,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+      "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "source_id": "S1",
+      "text_hash": "7459bcff04bc9c6b68a682d69368d5e8a0ccc1c145ec9bfc3aaa9712e0cfe712",
+      "excerpt_id": "S1-E2",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_title": "Paving the Way: Navy Undersea Innovators",
+      "anton_slot_hints": [
+        "engineering_decision",
+        "reality"
+      ],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+            "text_chars": 15464,
+            "excerpt_count": 2,
+            "method_priority": 1,
+            "covered_slot_count": 2,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment. Internal Combustion Engine (ICE) \u2013 Key to Submarine Design The principles that make up a successful submarine design were well understood by the 1890s.",
+      "locator": "DVSU2-E1",
+      "source_id": "DVSU2",
+      "text_hash": "967665b43337f43ae36fe2a0fd11ce8d12b9a880ad63191c34d413b00216e0a7",
+      "excerpt_id": "DVSU2-E1",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [
+        "engineering_decision"
+      ],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E1",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements.",
+      "locator": "DVSU2-E2",
+      "source_id": "DVSU2",
+      "text_hash": "65980afac7dec1f310b003c64707d95d88ff82e5fcc826c7a101b32915546586",
+      "excerpt_id": "DVSU2-E2",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E2",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "The Beginning of Submarines in the US Navy Image provided by United States Naval Institute (photo archive) Starboard bow view of USS Holland (SS-1) in drydock.",
+      "locator": "DVSU2-E3",
+      "source_id": "DVSU2",
+      "text_hash": "d9f684aaf14205e3da1037e1f25a19f216c03baa562b13b17b9a4b50cd336c4c",
+      "excerpt_id": "DVSU2-E3",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E3",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+      "locator": "DVSU2-E4",
+      "source_id": "DVSU2",
+      "text_hash": "40f057e7b63136da1310ab6f562e520642caeb5e88a8063ff528af7ce5f2c6d7",
+      "excerpt_id": "DVSU2-E4",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E4",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "The Beginning of Submarines in the US Navy Image provided by United States Naval Institute (photo archive) Starboard bow view of USS Holland (SS-1) in drydock. The Beginning of Submarines in the British Royal Navy \u201cFollowing meetings with the Admiralty, an agreement was made on 27th October 1900 between the Electric Boat Company and Vickers Sons & Maxim Ltd of Barrow-in-Furness, giving Vickers 25-year licence to manufacture the Holland-class of submarines, using Electric Boats patents.",
+      "locator": "DVSU2-E5",
+      "source_id": "DVSU2",
+      "text_hash": "4bd612d1b965b535892ee9446736d60848ff7525bdb5351e17b0e526f4e29f9a",
+      "excerpt_id": "DVSU2-E5",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E5",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "text": "The Beginning of Submarines in the US Navy Image provided by United States Naval Institute (photo archive) Starboard bow view of USS Holland (SS-1) in drydock. The Beginning of Submarines in the British Royal Navy \u201cFollowing meetings with the Admiralty, an agreement was made on 27th October 1900 between the Electric Boat Company and Vickers Sons & Maxim Ltd of Barrow-in-Furness, giving Vickers 25-year licence to manufacture the Holland-class of submarines, using Electric Boats patents. In addition to the United Kingdom, the licence also covered the whole of Europe and allowed Vickers to grant sub-licences to other firms and countries.",
+      "locator": "DVSU2-E6",
+      "source_id": "DVSU2",
+      "text_hash": "c314396217a3844cd800705f9a475f116796dd32ad1ae3cee7a006c830ae0fee",
+      "excerpt_id": "DVSU2-E6",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "anton_slot_hints": [],
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "original_excerpt_id": "S2-E6",
+      "source_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+          "text_chars": 16912,
+          "excerpt_count": 6,
+          "method_priority": 1,
+          "covered_slot_count": 1,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "1fbb9427e215170fdec85d45a1e56c07687bedba1f516c7cbf1e87b4df109498",
+            "text_chars": 16912,
+            "excerpt_count": 6,
+            "method_priority": 1,
+            "covered_slot_count": 1,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "excerpt_id": "DVSU3-E1",
+      "source_id": "DVSU3",
+      "source_title": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_tier": 1,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU3-E1; R1-E1; source=https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "text": "Here is what Admiral Dewey says in a letter to Senator STEW\u00ad ART: Replying to the first of the questions which y:m propound, viz, whether or not in view of the favorable reports made by officers of the Navy upon the U. S. S. Holland since she has been in the possession of the Government, I agree with those officersastothegreat value of thi\"' type of boats for harbor and coast defense, I have to state that I do, and that my opinion as to its value has not changed since my testimony before the House Committee on Naval Affairs in April last .",
+      "text_hash": "edeca85837fbe818efb77b9a136c03c5dec75bacf27444ef0072dcfb571c965d",
+      "original_excerpt_id": "R1-E1"
+    },
+    {
+      "excerpt_id": "DVSU3-E2",
+      "source_id": "DVSU3",
+      "source_title": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_tier": 1,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU3-E2; R1-E2; source=https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "text": "Here is what Admiral Dewey says in a letter to Senator STEW\u00ad ART: Replying to the first of the questions which y:m propound, viz, whether or not in view of the favorable reports made by officers of the Navy upon the U. S. S. Holland since she has been in the possession of the Government, I agree with those officersastothegreat value of thi\"' type of boats for harbor and coast defense, I have to state that I do, and that my opinion as to its value has not changed since my testimony before the House Committee on Naval Affairs in April last . What did Admiral Dewey say at that time?",
+      "text_hash": "f058ecfdd2b484ffa105125773c7d7e8dd50b9fa79b2bbbbe40b711fbfa1e57b",
+      "original_excerpt_id": "R1-E2"
+    },
+    {
+      "excerpt_id": "DVSU3-E3",
+      "source_id": "DVSU3",
+      "source_title": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "source_tier": 1,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU3-E3; R1-E3; source=https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "text": "Here is what Admiral Dewey says in a letter to Senator STEW\u00ad ART: Replying to the first of the questions which y:m propound, viz, whether or not in view of the favorable reports made by officers of the Navy upon the U. S. S. Holland since she has been in the possession of the Government, I agree with those officersastothegreat value of thi\"' type of boats for harbor and coast defense, I have to state that I do, and that my opinion as to its value has not changed since my testimony before the House Committee on Naval Affairs in April last . What did Admiral Dewey say at that time? Let me read it: Gentlemen, I saw the operation of the boat down off .Mount Vernon the oth e r day.",
+      "text_hash": "4e7bf453a8aae75b341170082eb5f25c52983feb55cfbc71cf1ec23a2b629961",
+      "original_excerpt_id": "R1-E3"
+    },
+    {
+      "excerpt_id": "DVSU4-E1",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "John Philip Holland Submarine design, 1870s\u20131900s Irish immigrant John Philip Holland designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000 (about $4.7 million today). It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential. On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+      "text_hash": "ad3794f3e8d11f47f5143e1359bfd3e8da5e14dc5e95ad5b8f3ed4bca80dba8c",
+      "original_excerpt_id": "R2-E1"
+    },
+    {
+      "excerpt_id": "DVSU4-E2",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E2; R2-E2; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+      "text_hash": "e8753e4b42f7d41f80863fc1f13af139d5f72ebd8c3801599e98eee991b73286",
+      "original_excerpt_id": "R2-E2"
+    },
+    {
+      "excerpt_id": "DVSU4-E3",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E3; R2-E4; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "Navy commissioned USS Holland as its first submarine, establishing the U.S.",
+      "text_hash": "d666bd9915d6efcf4ae35a090ea91a3c39635ea5b45151ef6ce1f9faf16d7851",
+      "original_excerpt_id": "R2-E4"
+    },
+    {
+      "excerpt_id": "DVSU4-E4",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E4; R2-E5; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "USS Holland spent most of her ten years in service at the U.S.",
+      "text_hash": "782bd54f72cfe2789f4b2f24582d26a445eccba6e8bb41ed24c69de7c9a22cfd",
+      "original_excerpt_id": "R2-E5"
+    },
+    {
+      "excerpt_id": "DVSU4-E5",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E5; R2-E6; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force.",
+      "text_hash": "b2e4c99e15d867a8e1ae80ddfbdfc1266a6bef320c4d02dce1f9ef6b263552af",
+      "original_excerpt_id": "R2-E6"
+    },
+    {
+      "excerpt_id": "DVSU4-E6",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E6; R2-E7; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+      "text_hash": "56ea95b6324b5793460710b6e1d6eb485adc3f5f561539c891d042abd80519dd",
+      "original_excerpt_id": "R2-E7"
+    },
+    {
+      "excerpt_id": "DVSU4-E7",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU4-E7; R2-E9; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "text": "Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S.",
+      "text_hash": "fbcc56a01db13d9bbbc13276526fcc16ffcfebec7719278c5f4496654a651a9a",
+      "original_excerpt_id": "R2-E9"
+    },
+    {
+      "excerpt_id": "DVSU5-E1",
+      "source_id": "DVSU5",
+      "source_title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_tier": 2,
+      "source_capture_method": "fetched_page",
+      "locator": "DVSU5-E1; R3-E2; source=https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "text": "John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d See page for author, Public domain, via Wikimedia Commons John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d Following his work in the early 1890s, the design that John Holland presented to the US Navy in 1898 has formed the basis of the designs for all submarines built since. These features include: \u201cEfficient hydrodynamic hull shape [teardrop-shape with bulbous bow and tapered stern] with good seakeeping ability on the open ocean. Separate main and auxiliary ballast systems enable rapid diving and surfacing with minimial changes to the longitudinal center of gravity while underway. Accomplished by operating with full or nearly full ballast tanks when submerged. Allowed precise control of trim angle while submerged. Able to dive to and accurately maintain a significant depth [up of 75 feet (23 m)]. Diving planes provide the means to precisely control depth [stern planes only, located behind the propeller]. Dual propulsion systems driving a single propeller at the stern. Internal combustion engine provides reliable power on the surface, enabling long transits while charging the batteries [up to 200 nautical miles (370 km) at 6 knots] Lead-acid storage batteries provide power to run submerged for a considerable distance [about 30 nautical miles (56 km) at 5.5 knots]. Conning tower for directing ship and weapons activities on the surface or semi-submerged. No periscope. View ports around the top of the conning tower provided the commander with intermittent views while \u201cporpoising\u201d semi-submerged near the surface. Offensive weapons systems. One reloadable torpedo tube at the bow, with three self-propelled torpedoes carried internally. One pneumatic dynamite gun at the bow that, on the surface, fired large projectiles, sometimes called \u201caerial torpedoes.\u201d [This was subsequently removed]. John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+      "text_hash": "88650f850efb886582a258207a98742c78f7aaa4a9c4af83d60f2312136f6b56",
+      "original_excerpt_id": "R3-E2"
+    }
+  ],
+  "search_result_audit": [
+    {
+      "url": "https://www.doncio.navy.mil/Chips/ArticleDetails.aspx?ID=7716",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "Eight Things to Know about U.S. Navy\u2019s First Submarine",
+      "accepted": false,
+      "variants": [
+        {
+          "text_hash": "31602244b8c4265fa127f76ab958e9d22000a383b8556ff380e4b56533160f00",
+          "text_chars": 126,
+          "rejected_reason": "machine_not_found_in_capture",
+          "mentions_machine": false,
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "rejected_reason": "no_exact_text_variant"
+    },
+    {
+      "url": "https://www.history.navy.mil/content/dam/museums/hrnm/Daybook/DaybookReloadsV1-2021/The%20Daybook-Volume%2018-Issue%203.pdf",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "USS Holland: A Dynamite Submarine",
+      "accepted": false,
+      "variants": [
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "rejected_reason": "no_exact_text_variant"
+    },
+    {
+      "url": "https://americanhistory.si.edu/subs/history/subsbeforenuc/early/holland.html",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "Model of the USS Holland (SS-1)",
+      "accepted": false,
+      "variants": [
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "rejected_reason": "no_exact_text_variant"
+    },
+    {
+      "url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "Paving the Way: Navy Undersea Innovators",
+      "accepted": true,
+      "variants": [
+        {
+          "selected": true,
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "mentions_machine": true,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        {
+          "selected": false,
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "source_id": "S1",
+      "source_tier": 2,
+      "source_tier_label": "Tier 2 museum/authoritative secondary",
+      "selected_capture_method": "fetched_page",
+      "source_variant_selection": {
+        "selection_rule": "highest Anton-slot coverage, then distinct required-slot excerpts, then excerpt count; fetched_page wins exact ties",
+        "selected_variant": {
+          "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+          "text_chars": 15464,
+          "excerpt_count": 2,
+          "method_priority": 1,
+          "covered_slot_count": 2,
+          "source_capture_method": "fetched_page",
+          "distinct_slot_excerpt_count": 0
+        },
+        "evaluated_variants": [
+          {
+            "text_hash": "d988354edcfc4bf9be8505ff8ddac739198c7acbd0f9f4fc0cdbbf2483532625",
+            "text_chars": 15464,
+            "excerpt_count": 2,
+            "method_priority": 1,
+            "covered_slot_count": 2,
+            "source_capture_method": "fetched_page",
+            "distinct_slot_excerpt_count": 0
+          }
+        ],
+        "selected_capture_method": "fetched_page"
+      }
+    },
+    {
+      "url": "https://www.usni.org/magazines/proceedings/1960/january/story-holland-submarine-pictorial",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "The Story Of The Holland Submarine (Pictorial)",
+      "accepted": false,
+      "variants": [
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "rejected_reason": "no_exact_text_variant"
+    },
+    {
+      "url": "https://www.usni.org/magazines/proceedings/2007/april/our-archive-uss-holland-ss-1",
+      "query": "Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "title": "From Our Archive: USS Holland (SS-1)",
+      "accepted": false,
+      "variants": [
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "text_hash": "",
+          "text_chars": 0,
+          "rejected_reason": "empty_capture",
+          "mentions_machine": false,
+          "source_capture_method": "tavily_raw_content"
+        }
+      ],
+      "rejected_reason": "no_exact_text_variant"
+    }
+  ],
+  "source_slot_coverage": {
+    "covered_slots": [
+      "engineering_decision",
+      "reality"
+    ],
+    "missing_slots": [
+      "original_problem",
+      "tradeoff"
+    ],
+    "required_slots": [
+      "original_problem",
+      "engineering_decision",
+      "tradeoff",
+      "reality"
+    ],
+    "evidence_by_slot": {
+      "reality": [
+        "S1-E1",
+        "S1-E2"
+      ],
+      "engineering_decision": [
+        "S1-E1",
+        "S1-E2"
+      ]
+    },
+    "checked_excerpt_count": 2,
+    "distinct_slot_excerpt_count": 0,
+    "needs_distinct_slot_excerpts": true,
+    "distinct_required_excerpt_ids": [],
+    "distinct_slot_excerpt_assignment": {}
+  },
+  "prior_claim_assessments": [
+    {
+      "claims": [
+        {
+          "id": "C1",
+          "claim": "USS Holland (SS-1) was the Navy's first submarine",
+          "scope": "machine",
+          "reason": "Both excerpts explicitly identify USS Holland (SS 1) as the Navy's first submarine.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "Navy\u2019s first submarine, USS Holland (SS 1)",
+              "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E1",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C2",
+          "claim": "John Holland began sketching submarine designs as early as 1869",
+          "scope": "event/time",
+          "reason": "Both excerpts confirm John Holland began sketching submarine designs as early as 1869.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "John Holland began sketching submarine designs as early as 1869",
+              "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E1",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C3",
+          "claim": "John Holland built five experimental submarines between 1878 and 1895 before the Holland design",
+          "scope": "event/time",
+          "reason": "Both excerpts state Holland built five experimental submarines between 1878 and 1895 before arriving at the more successful Holland design.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C4",
+          "claim": "USS Holland included dual propulsion systems",
+          "scope": "machine",
+          "reason": "Excerpt S1-E2 explicitly lists dual propulsion systems as a major component of the Holland design.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "Holland included all the major components of a modern submarine: dual propulsion systems",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C5",
+          "claim": "USS Holland had a fixed center of gravity",
+          "scope": "machine",
+          "reason": "Excerpt S1-E2 explicitly lists a fixed center of gravity as a major component.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "a fixed center of gravity",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C6",
+          "claim": "USS Holland had separate main and auxiliary ballast systems",
+          "scope": "machine",
+          "reason": "Excerpt S1-E2 explicitly lists separate main and auxiliary ballast systems as a major component.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "separate main and auxiliary ballast systems",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C7",
+          "claim": "USS Holland had a hydrodynamic shape",
+          "scope": "machine",
+          "reason": "Excerpt S1-E2 explicitly lists a hydrodynamic shape as a major component.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "a hydrodynamic shape",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C8",
+          "claim": "USS Holland had a modern weapons system",
+          "scope": "machine",
+          "reason": "Excerpt S1-E2 explicitly lists a modern weapons system as a major component.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "a modern weapons system",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": []
+        },
+        {
+          "id": "C9",
+          "claim": "USS Holland was commissioned on October 12, 1900",
+          "scope": "event/time",
+          "reason": "No excerpt provides information about the commissioning date of USS Holland.",
+          "status": "insufficient",
+          "evidence": [],
+          "counterevidence": []
+        }
+      ],
+      "method": "model_source_assessment",
+      "status": "assessed",
+      "machine": "SS-1 USS Holland",
+      "version": 1,
+      "calibration": "not_calibrated",
+      "probability": null,
+      "subject_context": "Every US Submarine Class Ever Built (2026)",
+      "provenance_status": "captured",
+      "claims_fingerprint": "cb666d2db64b23508d359ff04f4e8eec52272333052302d2042f3647a9247cd4",
+      "source_fingerprint": "a7caf57daeb1500de6e1eb5598c8c179e2c731849fa385621646a39f55e54cc0"
+    },
+    {
+      "claims": [
+        {
+          "id": "C1",
+          "claim": "USS Holland (SS-1) was the U.S. Navy's first submarine.",
+          "scope": "machine",
+          "reason": "Multiple excerpts explicitly identify USS Holland (SS-1) as the Navy's first submarine.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "Navy\u2019s first submarine, USS Holland (SS 1)",
+              "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E1",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            },
+            {
+              "quote": "The Beginning of Submarines in the US Navy",
+              "locator": "DVSU2-E3",
+              "excerpt_id": "DVSU2-E3",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "intended_role"
+          ]
+        },
+        {
+          "id": "C2",
+          "claim": "USS Holland incorporated dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+          "scope": "machine",
+          "reason": "Source explicitly lists these as major components Holland included in the design.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "design"
+          ]
+        },
+        {
+          "id": "C3",
+          "claim": "USS Holland (SS-1) had an interior consisting of one contiguous compartment.",
+          "scope": "machine",
+          "reason": "Source explicitly describes the internal arrangement as a single contiguous space.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "The interior space was one contiguous compartment",
+              "locator": "DVSU2-E1",
+              "excerpt_id": "DVSU2-E1",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "design"
+          ]
+        },
+        {
+          "id": "C4",
+          "claim": "John Holland built five experimental submarines between 1878 and 1895 before developing the USS Holland design.",
+          "scope": "machine",
+          "reason": "Source documents Holland's iterative development process leading to the successful design.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design",
+              "locator": "S1-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E1",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "design"
+          ]
+        },
+        {
+          "id": "C5",
+          "claim": "USS Holland (SS-1) was delivered to the Navy on 17 March 1898.",
+          "scope": "event/time",
+          "reason": "The excerpt contains a date fragment but context is unclear whether this refers to delivery, contract, or another milestone.",
+          "status": "insufficient",
+          "evidence": [
+            {
+              "quote": "Navy on 17 March 1898",
+              "locator": "DVSU2-E1",
+              "excerpt_id": "DVSU2-E1",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": []
+        },
+        {
+          "id": "C6",
+          "claim": "The Holland-class submarine design was licensed by Electric Boat Company to Vickers for manufacture in the United Kingdom and Europe starting in 1900.",
+          "scope": "variant",
+          "reason": "Source documents the licensing agreement that extended Holland's design influence internationally.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "an agreement was made on 27th October 1900 between the Electric Boat Company and Vickers Sons & Maxim Ltd of Barrow-in-Furness, giving Vickers 25-year licence to manufacture the Holland-class of submarines",
+              "locator": "DVSU2-E5",
+              "excerpt_id": "DVSU2-E5",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            },
+            {
+              "quote": "the licence also covered the whole of Europe and allowed Vickers to grant sub-licences to other firms and countries",
+              "locator": "DVSU2-E6",
+              "excerpt_id": "DVSU2-E6",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "outcome"
+          ]
+        },
+        {
+          "id": "C7",
+          "claim": "USS Holland's design established the principles that became standard for successful submarine construction.",
+          "scope": "machine",
+          "reason": "Source indicates Holland's design incorporated components of a modern submarine and that successful submarine design principles were understood by the 1890s.",
+          "status": "supported",
+          "evidence": [
+            {
+              "quote": "Holland included all the major components of a modern submarine",
+              "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+              "excerpt_id": "S1-E2",
+              "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+              "source_title": "Paving the Way: Navy Undersea Innovators"
+            },
+            {
+              "quote": "The principles that make up a successful submarine design were well understood by the 1890s",
+              "locator": "DVSU2-E1",
+              "excerpt_id": "DVSU2-E1",
+              "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+              "source_title": "Alexander the Great to John Phillip Holland"
+            }
+          ],
+          "counterevidence": [],
+          "narrative_roles": [
+            "outcome"
+          ]
+        }
+      ],
+      "method": "model_source_assessment",
+      "status": "assessed",
+      "machine": "SS-1 USS Holland",
+      "version": 1,
+      "calibration": "not_calibrated",
+      "probability": null,
+      "subject_context": "Every US Submarine Class Ever Built (2026)",
+      "provenance_status": "captured",
+      "claims_fingerprint": "c679247dd22d38c090ca1f0aee8c42eb01d39a22a27a1c07b0fc0e567a340ac5",
+      "source_fingerprint": "bc4ebde04262af502c2a064e71b6d505dc7908d07bf3bd17ed21ec017cf6cf5a"
+    }
+  ],
+  "dvsu_research_supplements": [
+    {
+      "new_source_ids": [
+        "DVSU1",
+        "DVSU2"
+      ],
+      "added_excerpt_count": 6
+    },
+    {
+      "added_excerpt_count": 11,
+      "new_source_ids": [
+        "DVSU3",
+        "DVSU4",
+        "DVSU5"
+      ]
+    }
+  ],
+  "source_discovery_requests": [
+    {
+      "model": "gpt-5-2",
+      "usage": {
+        "total_tokens": 543,
+        "prompt_tokens": 216,
+        "completion_tokens": 327
+      },
+      "subject": "USS Holland",
+      "provider": "kie",
+      "lead_count": 6,
+      "request_id": "chatcmpl-56ca1d2f381940e197187f85",
+      "search_tool": "web_search",
+      "credits_consumed": 0.25
+    },
+    {
+      "model": "gpt-5-2",
+      "usage": {
+        "total_tokens": 678,
+        "prompt_tokens": 325,
+        "completion_tokens": 353
+      },
+      "subject": "USS Holland",
+      "provider": "kie",
+      "lead_count": 6,
+      "request_id": "chatcmpl-7524705004b34f6ebd45dd86",
+      "search_tool": "web_search",
+      "credits_consumed": 0.28
+    },
+    {
+      "model": "gpt-5-2",
+      "usage": {
+        "total_tokens": 774,
+        "prompt_tokens": 498,
+        "completion_tokens": 276
+      },
+      "subject": "USS Holland",
+      "provider": "kie",
+      "lead_count": 6,
+      "request_id": "chatcmpl-439a416c328b44ffb5c9bd88",
+      "search_tool": "web_search",
+      "credits_consumed": 0.24
+    }
+  ],
+  "traceable_source_slot_coverage": {
+    "covered_slots": [
+      "engineering_decision",
+      "reality"
+    ],
+    "missing_slots": [
+      "original_problem",
+      "tradeoff"
+    ],
+    "required_slots": [
+      "original_problem",
+      "engineering_decision",
+      "tradeoff",
+      "reality"
+    ],
+    "evidence_by_slot": {
+      "reality": [
+        "S1-E1",
+        "S1-E2"
+      ],
+      "engineering_decision": [
+        "S1-E1",
+        "S1-E2"
+      ]
+    },
+    "checked_excerpt_count": 2,
+    "distinct_slot_excerpt_count": 0,
+    "needs_distinct_slot_excerpts": true,
+    "distinct_required_excerpt_ids": [],
+    "distinct_slot_excerpt_assignment": {}
+  },
+  "source_recapture": {
+    "urls": [
+      "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+      "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/"
+    ],
+    "added_excerpt_count": 11,
+    "errors": [],
+    "paid_search_calls": 0
+  },
+  "claim_assessment": {
+    "version": 1,
+    "status": "needs_review",
+    "machine": "SS-1 USS Holland",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "claims": [],
+    "probability": null,
+    "method": "model_source_assessment",
+    "warnings": [
+      "Assessment returned invalid or unsupported claim evidence."
+    ],
+    "source_fingerprint": "2fcac35532b7cc1a5ef235747b94c0ba90ca731d980a0a6dfef08f77e3c3d80f",
+    "raw_response": "```json\n{\n  \"claims\": [\n    {\n      \"claim\": \"Admiral Dewey attributed great value to USS Holland's type for harbor and coast defense based on favorable Navy officer reports.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"intended_role\"],\n      \"status\": \"supported\",\n      \"reason\": \"Admiral Dewey's 1901 letter explicitly endorses the Holland type's value for harbor and coast defense. The identity_requires_review excerpt is anchored by DVSU4-E1 which confirms USS Holland (SS 1) as the Navy's first submarine purchased in 1900.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU3-E1\", \"quote\": \"I agree with those officersastothegreat value of thi\\\"' type of boats for harbor and coast defense\"},\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"designed and constructed the U.S. Navy's first submarine, USS Holland (SS 1)\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": [\n        {\"excerpt_id\": \"DVSU3-E1\", \"status\": \"same_machine\", \"anchor_excerpt_id\": \"DVSU4-E1\", \"reason\": \"Congressional record discusses U.S.S. Holland after Navy acquisition in 1900; DVSU4-E1 confirms USS Holland (SS 1) as the Navy's first submarine purchased April 11, 1900\"}\n      ]\n    },\n    {\n      \"claim\": \"USS Holland incorporated dual propulsion systems, fixed center of gravity, separate main and auxiliary ballast systems, hydrodynamic shape, and modern weapons system.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\"],\n      \"status\": \"supported\",\n      \"reason\": \"Multiple sources explicitly list these as the major components Holland included in the design.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"S1-E2\", \"quote\": \"Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system\"},\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"USS Holland's interior space was one contiguous compartment.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly describes the internal arrangement as a single compartment.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU2-E4\", \"quote\": \"USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"USS Holland had one reloadable bow torpedo tube carrying three torpedoes and a pneumatic dynamite gun that was subsequently removed.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"design\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source details the weapons configuration including the later removal of the dynamite gun.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU5-E1\", \"quote\": \"One reloadable torpedo tube at the bow, with three self-propelled torpedoes carried internally. One pneumatic dynamite gun at the bow that, on the surface, fired large projectiles, sometimes called \\\"aerial torpedoes.\\\" [This was subsequently removed]\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"actual_use\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly states the vessel's primary operational use. The identity_requires_review excerpts are anchored by DVSU4-E1 which identifies USS Holland (SS 1).\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine\"},\n        {\"excerpt_id\": \"DVSU4-E6\", \"quote\": \"USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.\"}\n      ],\n      \"counterevidence\": [],\n      \"identity_reviews\": [\n        {\"excerpt_id\": \"DVSU4-E6\", \"status\": \"same_machine\", \"anchor_excerpt_id\": \"DVSU4-E1\", \"reason\": \"Same source page; DVSU4-E1 explicitly identifies USS Holland (SS 1) and describes the same ten-year service period\"}\n      ]\n    },\n    {\n      \"claim\": \"The U.S. Navy commissioned USS Holland on October 12, 1900, establishing the U.S. Submarine Force.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"outcome\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly states the commissioning date and its significance in establishing the submarine force.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"The Navy ordered seven more Holland-type boats after trials, which became the A-class submarines with Navy-specified improvements.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"outcome\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source explicitly describes the follow-on orders resulting from Holland's successful trials.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"It also ordered seven more Holland -type boats, sufficiently impressed by Holland 's potential\"},\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy's A -class of submarines\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"An 1900 agreement gave Vickers a 25-year license to manufacture Holland-class submarines for the UK and Europe using Electric Boat patents.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [\"outcome\"],\n      \"status\": \"supported\",\n      \"reason\": \"Source describes the licensing agreement that extended Holland's design influence internationally.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU2-E6\", \"quote\": \"an agreement was made on 27th October 1900 between the Electric Boat Company and Vickers Sons & Maxim Ltd of Barrow-in-Furness, giving Vickers 25-year licence to manufacture the Holland-class of submarines, using Electric Boats patents\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"The Navy purchased USS Holland on April 11, 1900, for $165,000 after two years of trials and modifications.\",\n      \"scope\": \"machine\",\n      \"narrative_roles\": [],\n      \"status\": \"supported\",\n      \"reason\": \"Source provides specific purchase date, price, and trial period.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU4-E1\", \"quote\": \"After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000\"}\n      ],\n      \"counterevidence\": []\n    },\n    {\n      \"claim\": \"John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.\",\n      \"scope\": \"event\",\n      \"narrative_roles\": [],\n      \"status\": \"supported\",\n      \"reason\": \"Source provides the specific demonstration date.\",\n      \"evidence\": [\n        {\"excerpt_id\": \"DVSU5-E1\", \"quote\": \"John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.\"}\n      ],\n      \"counterevidence\": []\n    }\n  ]\n}\n```",
+    "raw_response_truncated": false
+  }
+}

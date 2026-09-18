@@ -1,0 +1,12 @@
+f84c43d987a5b301a10c70d35bd2d5fdeb187bb1
+7320810603c8c9aa8d3bc8856ec39eb6f6bf1ae183422c188fc2f661e2851c7c  storyengine/backend/factual_pdf_source.py
+364582b67c3502b225a2d08be9683df010001985031253e722f9e530466c46fa  storyengine/backend/contextual_source_identity.py
+799c99f29dd14a676850bf076f210b70e529bb6de825eef7b3361a398a1f1960  storyengine/backend/factual_machine_summary.py
+660616e5e7cfa4f10a097d876e1ac6828ecf200c6d4d0bba10141a061e8da51c  storyengine/backend/pipeline_executor.py
+Id=storyengine-backend.service
+ActiveState=active
+ActiveEnterTimestamp=Thu 2026-09-17 00:07:48 UTC
+
+Id=storyengine-worker.service
+ActiveState=active
+ActiveEnterTimestamp=Thu 2026-09-17 00:07:59 UTC

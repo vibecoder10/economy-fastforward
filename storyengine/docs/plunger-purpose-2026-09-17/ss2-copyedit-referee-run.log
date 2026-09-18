@@ -1,0 +1,52 @@
+[INIT] Starting pipeline initialization...
+[INIT] Loading key: anthropic_api_key...
+[INIT]   ✓ anthropic_api_key loaded
+[INIT] Loading key: airtable_api_key...
+[INIT]   - airtable_api_key not found
+[INIT] Loading key: elevenlabs_api_key...
+[INIT]   ✓ elevenlabs_api_key loaded
+[INIT] Loading key: elevenlabs_voice_id...
+[INIT]   ✓ elevenlabs_voice_id loaded
+[INIT] Loading key: elevenlabs_model_id...
+[INIT]   ✓ elevenlabs_model_id loaded
+[INIT] Loading key: elevenlabs_voice_style...
+[INIT]   ✓ elevenlabs_voice_style loaded
+[INIT] Loading key: kie_ai_api_key...
+[INIT]   ✓ kie_ai_api_key loaded
+[INIT] Loading key: openai_api_key...
+[INIT]   - openai_api_key not found
+[INIT] Loading key: gemini_api_key...
+[INIT]   - gemini_api_key not found
+[INIT] Creating lightweight pipeline...
+[INIT] SupabaseAdapter OK
+[INIT] AnthropicClient OK
+[INIT] GoogleClient OK
+[INIT] SlackClient OK
+[INIT] ImageClient OK
+[INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+  GEMINI_API_KEY not found - thumbnail analysis will be skipped
+[INIT] GeminiClient OK
+[INIT] Pipeline ready!
+Traceback (most recent call last):
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 214, in <module>
+    main()
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 211, in main
+    asyncio.run(_run())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 173, in _run
+    check, raw, packet, subject, package = _offline_check(video)
+                                           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 114, in _offline_check
+    preview, package, subject, outline, briefing = _preview_and_package(video)
+                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/clawd/projects/economy-fastforward/storyengine/docs/plunger-purpose-2026-09-17/ss2-copyedit-referee.py", line 50, in _preview_and_package
+    raise RuntimeError("research_payload is absent")
+RuntimeError: research_payload is absent

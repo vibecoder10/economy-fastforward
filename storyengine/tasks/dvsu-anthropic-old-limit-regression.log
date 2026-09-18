@@ -1,0 +1,25 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_anthropic_usage_limit_keeps_action_and_reset_without_raw_provider_body __
+
+    def test_anthropic_usage_limit_keeps_action_and_reset_without_raw_provider_body():
+        safe = humanize_error(ERROR)
+>       assert "Anthropic" in safe and "usage limit" in safe
+E       AssertionError: assert ('Anthropic' in 'Something went wrong. Please try again.')
+
+backend/tests/functional/test_anthropic_usage_limit.py:10: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  error_utils:error_utils.py:107 [humanize_error] (no context) | raw: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.'}, 'request_id': 'private-request-id'}
+_ test_raw_anthropic_limit_pauses_shared_queue_without_mislabeling_credentials _
+
+    def test_raw_anthropic_limit_pauses_shared_queue_without_mislabeling_credentials():
+        blocker = provider_blocker(ERROR)
+>       assert blocker["provider"] == "Anthropic"
+               ^^^^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not subscriptable
+
+backend/tests/functional/test_anthropic_usage_limit.py:20: TypeError
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_anthropic_usage_limit.py::test_anthropic_usage_limit_keeps_action_and_reset_without_raw_provider_body
+FAILED backend/tests/functional/test_anthropic_usage_limit.py::test_raw_anthropic_limit_pauses_shared_queue_without_mislabeling_credentials
+2 failed in 0.04s
