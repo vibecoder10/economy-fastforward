@@ -2,7 +2,10 @@
   "mcpServers": {
     "storyengine": {
       "type": "http",
-      "url": "https://storyengine.dev/api/mcp"
+      "url": "https://storyengine.dev/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${STORYENGINE_MCP_TOKEN}"
+      }
     }
   }
 }
