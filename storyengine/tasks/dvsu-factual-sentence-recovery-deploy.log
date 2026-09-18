@@ -1,0 +1,35 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-factual-sentence-recovery","changed_at":"2026-09-12 22:42:36.138119+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T22:42:36.316402+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-factual-sentence-recovery","changed_at":"2026-09-12 22:42:36.138119+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T22:42:36.651332+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-factual-sentence-recovery","changed_at":"2026-09-12 22:42:36.138119+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T22:42:41.681836+00:00"}
+Updating 5407ba3df..b7af5afa4
+Fast-forward
+ storyengine/backend/factual_machine_pipeline.py    |  2 +-
+ storyengine/backend/factual_machine_summary.py     | 35 +++++++++++++++++---
+ .../backend/tests/test_factual_machine_summary.py  | 38 ++++++++++++++++++++++
+ 3 files changed, 69 insertions(+), 6 deletions(-)
+code: 5407ba3df -> b7af5afa4
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 1909738)
+worker code parity: commit=b7af5afa4 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed b7af5afa4; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-factual-sentence-recovery","changed_at":"2026-09-12 22:43:00.673006+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-12T22:43:00.818753+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-factual-sentence-recovery","changed_at":"2026-09-12T22:43:00.673006+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":399,"limit":9000,"remaining":8601,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":13,"limit":100,"remaining":87},"units_used":399,"ceiling":9000,"remaining":8601}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-12T22:43:00Z dvsu-factual-sentence-recovery deployed 5407ba3df -> b7af5afa4 
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

@@ -1,0 +1,231 @@
+{
+  "sources": 6,
+  "excerpts": 24,
+  "discovery_receipts": 2,
+  "source_recapture": {
+    "urls": [
+      "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "https://www.navsource.net/archives/08/08002.htm"
+    ],
+    "errors": [],
+    "paid_search_calls": 0,
+    "added_excerpt_count": 3
+  },
+  "dvsu_research_supplements": [
+    {
+      "new_source_ids": [
+        "DVSU1",
+        "DVSU2"
+      ],
+      "added_excerpt_count": 5
+    },
+    {
+      "new_source_ids": [
+        "DVSU3",
+        "DVSU4"
+      ],
+      "added_excerpt_count": 3
+    }
+  ],
+  "recovery": {
+    "stage": "discovery_completed",
+    "version": 1,
+    "missing_fields": [
+      "intended_role"
+    ],
+    "source_fingerprint": "48fb501fe0adaadc94f66c36289bd5c7cfcc4b59d2ed67cd0758f73d341cac95"
+  },
+  "prior_assessment_count": 2,
+  "assessment": {
+    "version": 1,
+    "status": "assessed",
+    "source_fingerprint": "48fb501fe0adaadc94f66c36289bd5c7cfcc4b59d2ed67cd0758f73d341cac95",
+    "provenance_status": "captured",
+    "claims": [
+      {
+        "id": "C1",
+        "status": "supported",
+        "roles": [
+          "intended_role"
+        ],
+        "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+        "evidence_ids": [
+          "S2-E1",
+          "DVSU4-E1"
+        ]
+      },
+      {
+        "id": "C2",
+        "status": "supported",
+        "roles": [
+          "design"
+        ],
+        "claim": "USS Plunger (SS-2) featured single hull construction with the pressure hull wrapped around frames and internal tankage.",
+        "evidence_ids": [
+          "DVSU4-E1"
+        ]
+      },
+      {
+        "id": "C3",
+        "status": "supported",
+        "roles": [
+          "design"
+        ],
+        "claim": "USS Plunger (SS-2) was powered by an Otto Gas Engine Works gasoline engine and Electro Dynamic electric motors driving a single screw.",
+        "evidence_ids": [
+          "DVSU4-E1"
+        ]
+      },
+      {
+        "id": "C4",
+        "status": "supported",
+        "roles": [
+          "actual_use"
+        ],
+        "claim": "USS Plunger (SS-2) ran test dives and conducted experimental work on machinery, armaments, and tactics at Newport and Provincetown.",
+        "evidence_ids": [
+          "DVSU3-E1"
+        ]
+      },
+      {
+        "id": "C5",
+        "status": "supported",
+        "roles": [
+          "actual_use"
+        ],
+        "claim": "USS Plunger (SS-2) trained her own crew and crews of other submarines nearing completion.",
+        "evidence_ids": [
+          "DVSU3-E1"
+        ]
+      },
+      {
+        "id": "C6",
+        "status": "disputed",
+        "roles": [
+          "actual_use"
+        ],
+        "claim": "President Theodore Roosevelt made a test dive aboard USS Plunger (SS-2) on 25 March 1905.",
+        "evidence_ids": [
+          "DVSU3-E1"
+        ]
+      },
+      {
+        "id": "C7",
+        "status": "supported",
+        "roles": [
+          "outcome"
+        ],
+        "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+        "evidence_ids": [
+          "S2-E1",
+          "DVSU4-E1"
+        ]
+      },
+      {
+        "id": "C8",
+        "status": "supported",
+        "roles": [
+          "outcome"
+        ],
+        "claim": "USS Plunger (SS-2) was sold for scrapping on 26 January 1922.",
+        "evidence_ids": [
+          "S2-E1",
+          "DVSU4-E2"
+        ]
+      },
+      {
+        "id": "C9",
+        "status": "supported",
+        "roles": [
+          "design"
+        ],
+        "claim": "USS Plunger (SS-2) was armed with one 18-inch torpedo tube and carried 5 torpedoes.",
+        "evidence_ids": [
+          "DVSU4-E1"
+        ]
+      },
+      {
+        "id": "C10",
+        "status": "supported",
+        "roles": [],
+        "claim": "USS Plunger (SS-2) was renamed USS A-1 (Submarine Torpedo Boat No.2) on 17 November 1911.",
+        "evidence_ids": [
+          "S2-E1",
+          "DVSU4-E2"
+        ]
+      }
+    ]
+  },
+  "brief": {
+    "version": 2,
+    "machine": "SS-2 USS Plunger",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "fields": {
+      "intended_role": [],
+      "design": [
+        "F29ace72d2c419373b239",
+        "F7aec576484e80e1eea0f",
+        "F977a0e11858b5345baf7"
+      ],
+      "actual_use": [
+        "F802fc6828cd90666d2f1",
+        "Fa9d12aeb5f1ef7f5da5b"
+      ],
+      "outcome": [
+        "F7ba7bfd8664aee21fa3b",
+        "Ff5f1cbc70fb84c8bc2a4"
+      ]
+    },
+    "facts": [
+      {
+        "fact_id": "F29ace72d2c419373b239",
+        "claim": "USS Plunger (SS-2) featured single hull construction with the pressure hull wrapped around frames and internal tankage.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F7aec576484e80e1eea0f",
+        "claim": "USS Plunger (SS-2) was armed with one 18-inch torpedo tube and carried 5 torpedoes.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F7ba7bfd8664aee21fa3b",
+        "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F802fc6828cd90666d2f1",
+        "claim": "USS Plunger (SS-2) trained her own crew and crews of other submarines nearing completion.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F902ea90f368274596956",
+        "claim": "USS Plunger (SS-2) was renamed USS A-1 (Submarine Torpedo Boat No.2) on 17 November 1911.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F977a0e11858b5345baf7",
+        "claim": "USS Plunger (SS-2) was powered by an Otto Gas Engine Works gasoline engine and Electro Dynamic electric motors driving a single screw.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Fa9d12aeb5f1ef7f5da5b",
+        "claim": "USS Plunger (SS-2) ran test dives and conducted experimental work on machinery, armaments, and tactics at Newport and Provincetown.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Fc19948a898bdd7e36535",
+        "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Ff5f1cbc70fb84c8bc2a4",
+        "claim": "USS Plunger (SS-2) was sold for scrapping on 26 January 1922.",
+        "scope": "machine"
+      }
+    ],
+    "ready": false,
+    "missing_fields": [
+      "intended_role"
+    ]
+  }
+}

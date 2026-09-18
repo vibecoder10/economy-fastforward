@@ -1,0 +1,80 @@
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/factual_machine_summary.py", line 682, in generate_factual_machine_summary
+Sep 16 21:38:51 srv1318038 arq[3848997]:     raw_draft = await anthropic_client.generate(
+Sep 16 21:38:51 srv1318038 arq[3848997]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 371, in generate
+Sep 16 21:38:51 srv1318038 arq[3848997]:     response = await _create_with_5xx_retry()
+Sep 16 21:38:51 srv1318038 arq[3848997]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 315, in _create_with_5xx_retry
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return await _asyncio.to_thread(_create)
+Sep 16 21:38:51 srv1318038 arq[3848997]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return await loop.run_in_executor(None, func_call)
+Sep 16 21:38:51 srv1318038 arq[3848997]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+Sep 16 21:38:51 srv1318038 arq[3848997]:     result = self.fn(*self.args, **self.kwargs)
+Sep 16 21:38:51 srv1318038 arq[3848997]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/shared/clients/anthropic_client.py", line 302, in _create
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return self.client.messages.create(**kwargs)
+Sep 16 21:38:51 srv1318038 arq[3848997]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_utils/_utils.py", line 282, in wrapper
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return func(*args, **kwargs)
+Sep 16 21:38:51 srv1318038 arq[3848997]:            ^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/resources/messages/messages.py", line 996, in create
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return self._post(
+Sep 16 21:38:51 srv1318038 arq[3848997]:            ^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_base_client.py", line 1364, in post
+Sep 16 21:38:51 srv1318038 arq[3848997]:     return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+Sep 16 21:38:51 srv1318038 arq[3848997]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/anthropic/_base_client.py", line 1137, in request
+Sep 16 21:38:51 srv1318038 arq[3848997]:     raise self._make_status_error_from_response(err.response) from None
+Sep 16 21:38:51 srv1318038 arq[3848997]: anthropic.BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:38:51 srv1318038 arq[3848997]: ============================================================
+Sep 16 21:38:51 srv1318038 arq[3848997]: [humanize_error] (no context) | raw: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:38:51 srv1318038 arq[3848997]: [script] failed video=44dbf2b2-a27a-47ea-a608-4c31c906be9a: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:38:51 srv1318038 arq[3848997]: Traceback (most recent call last):
+Sep 16 21:38:51 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/worker.py", line 174, in _run_stage
+Sep 16 21:38:51 srv1318038 arq[3848997]:     raise RuntimeError(error_msg)
+Sep 16 21:38:51 srv1318038 arq[3848997]: RuntimeError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:38:52 srv1318038 arq[3848997]: 21:38:52:   4.50s ! script:44dbf2b2-a27a-47ea-a608-4c31c906be9a:1:arq_run_script failed, RuntimeError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:38:52 srv1318038 arq[3848997]: Traceback (most recent call last):
+Sep 16 21:38:52 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/venv/lib/python3.12/site-packages/arq/worker.py", line 599, in run_job
+Sep 16 21:38:52 srv1318038 arq[3848997]:     result = await asyncio.wait_for(task, timeout_s)
+Sep 16 21:38:52 srv1318038 arq[3848997]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:52 srv1318038 arq[3848997]:   File "/usr/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+Sep 16 21:38:52 srv1318038 arq[3848997]:     return await fut
+Sep 16 21:38:52 srv1318038 arq[3848997]:            ^^^^^^^^^
+Sep 16 21:38:52 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/worker.py", line 235, in arq_run_script
+Sep 16 21:38:52 srv1318038 arq[3848997]:     return await _run_stage(ctx, "script", "run_script", video_id, tenant_id, attempt)
+Sep 16 21:38:52 srv1318038 arq[3848997]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 16 21:38:52 srv1318038 arq[3848997]:   File "/home/clawd/projects/economy-fastforward/storyengine/backend/worker.py", line 174, in _run_stage
+Sep 16 21:38:52 srv1318038 arq[3848997]:     raise RuntimeError(error_msg)
+Sep 16 21:38:52 srv1318038 arq[3848997]: RuntimeError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'prompt is too long: 229871 tokens > 200000 maximum'}, 'request_id': 'req_011Cf7qo4nUNwD529qJVQYQW'}
+Sep 16 21:42:27 srv1318038 arq[3848997]: 21:42:27: recording health: Sep-16 21:42:27 j_complete=0 j_failed=1 j_retried=0 j_ongoing=0 queued=0
+Sep 16 22:32:36 srv1318038 arq[3870947]: 22:32:36: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 16 22:32:36 srv1318038 arq[3870947]: 22:32:36: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=10
+Sep 16 22:44:22 srv1318038 arq[3875443]: 22:44:22: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 16 22:44:22 srv1318038 arq[3875443]: 22:44:22: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=10
+Sep 16 22:55:41 srv1318038 arq[3880136]: 22:55:41: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 16 22:55:41 srv1318038 arq[3880136]: 22:55:41: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=10
+Sep 16 23:18:27 srv1318038 arq[3888296]: 23:18:27: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 16 23:18:27 srv1318038 arq[3888296]: 23:18:27: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=10
+Sep 16 23:44:03 srv1318038 arq[3899448]: 23:44:03: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 16 23:44:03 srv1318038 arq[3899448]: 23:44:03: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=10
+Sep 17 00:07:59 srv1318038 arq[3907903]: 00:07:59: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 00:07:59 srv1318038 arq[3907903]: 00:07:59: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=9
+Sep 17 00:12:50 srv1318038 arq[3909887]: 00:12:50: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 00:12:50 srv1318038 arq[3909887]: 00:12:50: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=9
+Sep 17 00:16:57 srv1318038 arq[3911559]: 00:16:57: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 00:16:57 srv1318038 arq[3911559]: 00:16:57: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=9
+Sep 17 00:23:45 srv1318038 arq[3914245]: 00:23:45: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 00:23:45 srv1318038 arq[3914245]: 00:23:45: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=9
+Sep 17 13:59:26 srv1318038 arq[4187218]: 13:59:26: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 13:59:26 srv1318038 arq[4187218]: 13:59:26: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=6
+Sep 17 14:20:13 srv1318038 arq[2409]: 14:20:13: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 14:20:13 srv1318038 arq[2409]: 14:20:13: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=6
+Sep 17 14:31:45 srv1318038 arq[7123]: 14:31:45: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 14:31:45 srv1318038 arq[7123]: 14:31:45: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=6
+Sep 17 14:43:34 srv1318038 arq[11900]: 14:43:34: Starting worker for 18 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 14:43:34 srv1318038 arq[11900]: 14:43:34: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=6
+Sep 17 15:14:53 srv1318038 arq[24865]: 15:14:53: Starting worker for 19 functions: arq_run_research, arq_run_roster_images, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_machine_script_preview, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 17 15:14:53 srv1318038 arq[24865]: 15:14:53: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=6

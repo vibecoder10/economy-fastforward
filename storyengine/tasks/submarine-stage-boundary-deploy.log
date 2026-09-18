@@ -1,0 +1,41 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-selection-boundary","changed_at":"2026-09-15 19:36:47.939743+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:36:48.183396+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-selection-boundary","changed_at":"2026-09-15 19:36:47.939743+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:36:48.496123+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-selection-boundary","changed_at":"2026-09-15 19:36:47.939743+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:36:53.526268+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   f561ddf6d..40deebbf1  main       -> origin/main
+Updating f561ddf6d..40deebbf1
+Fast-forward
+ skills/video-pipeline/research/agent.py            |  6 ++--
+ storyengine/backend/pipeline_executor.py           | 23 +++++++++------
+ storyengine/backend/roster_coverage.py             |  7 +++--
+ storyengine/backend/roster_selection.py            | 31 ++++++++++++++++++++
+ .../functional/test_run_all_research_resume.py     |  5 ++--
+ .../backend/tests/test_roster_stage_integration.py | 18 ++++++++++++
+ .../backend/tests/test_runtime_roster_selection.py | 33 ++++++++++++++++++++++
+ 7 files changed, 108 insertions(+), 15 deletions(-)
+code: f561ddf6d -> 40deebbf1
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3319676)
+worker code parity: commit=40deebbf1 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 40deebbf1; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-selection-boundary","changed_at":"2026-09-15 19:37:12.502640+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:37:12.635201+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-selection-boundary","changed_at":"2026-09-15T19:37:12.502640+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":410,"limit":9000,"remaining":8590,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":12,"limit":100,"remaining":88},"units_used":410,"ceiling":9000,"remaining":8590}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T19:37:12Z submarine-selection-boundary deployed f561ddf6d -> 40deebbf1 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

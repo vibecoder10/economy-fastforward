@@ -1,0 +1,12 @@
+{
+  "fixture": "Synthetic conflicting dates; not historical evidence or a real fetch. Exercises research-card contract only, not later script referee.",
+  "confidences": [
+    "high",
+    "high"
+  ],
+  "claims": [
+    "HMS Argus entered service in 1918.",
+    "HMS Argus entered service in 1920."
+  ],
+  "contract_warnings": []
+}

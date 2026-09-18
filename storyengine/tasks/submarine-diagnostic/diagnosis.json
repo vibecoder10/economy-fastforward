@@ -1,0 +1,13 @@
+{
+  "stop_reason": "max_tokens",
+  "output_tokens": 16524,
+  "text_chars": 52659,
+  "complete_roster_rows_in_prefix": 55,
+  "failure": "JSON string truncated in fact_sheet; provider reported max_tokens",
+  "response_path": "tasks/submarine-diagnostic/response.json",
+  "continuation_stop_reason": "end_turn",
+  "continuation_output_tokens": 1340,
+  "continuation_searches": 0,
+  "combined_parser_passed": true,
+  "combined_roster_count": 55
+}

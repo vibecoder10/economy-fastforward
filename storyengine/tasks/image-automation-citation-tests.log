@@ -1,0 +1,9 @@
+........................................................................ [ 76%]
+......................                                                   [100%]
+=============================== warnings summary ===============================
+tests/test_image_gather_acceptance.py::test_run_all_orders_roster_gather_then_research[images_ready]
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+94 passed, 1 warning in 5.22s

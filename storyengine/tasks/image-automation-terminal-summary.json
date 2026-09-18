@@ -1,0 +1,46 @@
+{
+  "at": "2026-09-16T01:30:38.037528+00:00",
+  "release": "f92c863b5",
+  "task": "completed",
+  "selected": 20,
+  "missing": 0,
+  "roster": 20,
+  "research_cards": 1,
+  "original_roster_history": [
+    58
+  ],
+  "replay_added_model_calls": 0,
+  "focused_checks": 94,
+  "new_selections": [
+    {
+      "machine": "SS-105 through SS-162 S-class",
+      "title": "File:USS S-2 September 1919 Bridgeport, Connecticut.jpg",
+      "score": 76.0,
+      "view": "side"
+    },
+    {
+      "machine": "SS-163 through SS-165 Barracuda (V-1) class",
+      "title": "File:USSBaracudaSS163.jpg",
+      "score": 55.0,
+      "view": "three_quarter"
+    },
+    {
+      "machine": "SS-563 through SS-568 Tang class",
+      "title": "File:Uss Tang 0856301.jpg",
+      "score": 76.0,
+      "view": "side"
+    },
+    {
+      "machine": "SSN-585, SSN-588 through SSN-592 Skipjack class",
+      "title": "File:USS Snook (SSN-592) off Rio de Janeiro in 1984.JPEG",
+      "score": 61.0,
+      "view": "side"
+    },
+    {
+      "machine": "SSN-774 through SSN-799+ Virginia class",
+      "title": "File:US Navy 040730-N-1234E-002 PCU Virginia (SSN 774) returns to the General Dynamics Electric Boat shipyard.jpg",
+      "score": 78.0,
+      "view": "three_quarter"
+    }
+  ]
+}

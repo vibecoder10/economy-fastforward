@@ -1,0 +1,13 @@
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15T19:53:50.818775+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":470,"limit":9000,"remaining":8530,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":14,"limit":100,"remaining":86},"units_used":470,"ceiling":9000,"remaining":8530}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T19:53:50Z submarine-audit-budget deployed 40deebbf1 -> c798a0c1c 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

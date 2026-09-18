@@ -1,0 +1,119 @@
+{
+  "at": "2026-09-15T19:57:31.041119+00:00",
+  "task": {
+    "status": "running",
+    "message": "Researching the saved roster\u2026",
+    "error": null,
+    "via_agent": null,
+    "needs_review": false,
+    "task_type": "autobuild"
+  },
+  "video_status": "idea_logged",
+  "selection": {
+    "status": "completed",
+    "version": 1,
+    "settings": {
+      "version": 1,
+      "target_count": 20,
+      "duration_minutes": 20.0,
+      "minutes_per_machine": 1.0
+    },
+    "target_count": 20,
+    "selected_count": 20,
+    "independent_audit": {
+      "passed": true,
+      "sources": [
+        {
+          "url": "https://www.history.navy.mil/our-collections/photography/us-navy-ships/alphabetical-listing/h/uss-holland--submarine-torpedo-boat--1-0.html",
+          "supports": "Holland class SS-1 commissioned 1900, first US Navy submarine"
+        },
+        {
+          "url": "https://www.navalnews.com/naval-news/2026/04/u-s-navy-commissions-26th-virginia-class-submarine-uss-idaho-ssn-799/",
+          "supports": "Virginia class SSN-774+, 26th submarine USS Idaho commissioned April 25, 2026"
+        },
+        {
+          "url": "https://www.history.navy.mil/browse-by-topic/ships/submarines/uss-nautilus.html",
+          "supports": "Nautilus SSN-571 commissioned September 30, 1954, first nuclear submarine"
+        }
+      ],
+      "summary": "All 20 selected entries passed audit. Each is a real, distinct US submarine class that was built/commissioned and exists in historical record by 2026. Verified against Naval History and Heritage Command, Wikipedia, GlobalSecurity.org, NavSource, Naval Encyclopedia, and other institutional sources. All designations, hull numbers, built counts, years, and status information are accurate.",
+      "version": 2,
+      "findings": [],
+      "fingerprint": "0fa59f186b663d91a61a68433317f58a7e42de4cb376d77860cb063bca10686e"
+    },
+    "minutes_per_machine": 1.0
+  },
+  "phase": "unit_research",
+  "count": 20,
+  "validation": {
+    "passed": true,
+    "warnings": [],
+    "hard_warnings": [],
+    "complete_title": true,
+    "roster_count": 20,
+    "target_count": 20,
+    "roster": [
+      "SS-1 Holland class",
+      "SS-2 through SS-8 Plunger class",
+      "SS-105 through SS-162 S-class",
+      "SS-163 through SS-165 Barracuda (V-1) class",
+      "SS-212 through SS-284 Gato class",
+      "SS-285 through SS-416 Balao class",
+      "SS-417 through SS-525 Tench class",
+      "SS-563 through SS-568 Tang class",
+      "AGSS-569 Albacore class",
+      "SS-580 through SS-582 Barbel class",
+      "SSN-571 Nautilus class",
+      "SSN-585, SSN-588 through SSN-592 Skipjack class",
+      "SSN-593 through SSN-621 Thresher/Permit class",
+      "SSN-637 through SSN-687 Sturgeon class",
+      "SSN-688 through SSN-773 Los Angeles class",
+      "SSN-21 through SSN-23 Seawolf class",
+      "SSN-774 through SSN-799+ Virginia class",
+      "SSBN-598 through SSBN-602 George Washington class",
+      "SSBN-608 through SSBN-615 Ethan Allen class",
+      "SSBN-616 through SSBN-645 Lafayette class"
+    ],
+    "soft_warnings": [],
+    "needs_review": false
+  },
+  "hold": {
+    "units": [
+      {
+        "passed": true,
+        "machine": "SS-1 Holland class",
+        "warnings": []
+      }
+    ],
+    "passed": true,
+    "in_progress": false,
+    "target_machine": "SS-1 Holland class",
+    "target_machine_passed": true
+  },
+  "cards": 1,
+  "history_counts": [
+    58
+  ],
+  "names": [
+    "SS-1 Holland class",
+    "SS-2 through SS-8 Plunger class",
+    "SS-105 through SS-162 S-class",
+    "SS-163 through SS-165 Barracuda (V-1) class",
+    "SS-212 through SS-284 Gato class",
+    "SS-285 through SS-416 Balao class",
+    "SS-417 through SS-525 Tench class",
+    "SS-563 through SS-568 Tang class",
+    "AGSS-569 Albacore class",
+    "SS-580 through SS-582 Barbel class",
+    "SSN-571 Nautilus class",
+    "SSN-585, SSN-588 through SSN-592 Skipjack class",
+    "SSN-593 through SSN-621 Thresher/Permit class",
+    "SSN-637 through SSN-687 Sturgeon class",
+    "SSN-688 through SSN-773 Los Angeles class",
+    "SSN-21 through SSN-23 Seawolf class",
+    "SSN-774 through SSN-799+ Virginia class",
+    "SSBN-598 through SSBN-602 George Washington class",
+    "SSBN-608 through SSBN-615 Ethan Allen class",
+    "SSBN-616 through SSBN-645 Lafayette class"
+  ]
+}

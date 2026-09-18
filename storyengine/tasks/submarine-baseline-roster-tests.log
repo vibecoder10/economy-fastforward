@@ -1,0 +1,72 @@
+F.......F.......                                                         [100%]
+=================================== FAILURES ===================================
+_____________ test_all_machines_pass_in_order_and_status_advances ______________
+
+    def test_all_machines_pass_in_order_and_status_advances():
+        units = _units()  # all pending
+        ex, statuses, executed = _run_autobuild(_video_after_research(units))
+    
+        assert ex.machine_calls == _ROSTER, (
+            f"expected run_one_machine_research called once per machine IN ORDER, got {ex.machine_calls}"
+        )
+        assert ex.run_research_call_count == 1, "run_research must run exactly once, not per machine"
+    
+        advance_writes = [
+            (q, a) for (q, a) in executed
+            if "UPDATE videos SET status" in q and len(a) >= 1 and a[0] == "ready_for_scripting"
+        ]
+        assert advance_writes, f"expected _advance('ready_for_scripting') to write the status, got {executed}"
+    
+        # The loop must never itself report a terminal failure/pause — the
+        # outer loop's own next iteration (a plain status check) is what ends it.
+        terminal = [s for s, _m in statuses if s in ("failed",)]
+>       assert not terminal, f"a fully-passing roster must not surface a failed task status, got {statuses}"
+E       AssertionError: a fully-passing roster must not surface a failed task status, got [('running', 'Building your video…'), ('running', 'Checking roster and continuing research…'), ('running', 'Researching machine 1/3: Machine A'), ('running', 'Researching machine 2/3: Machine B'), ('running', 'Researching machine 3/3: Machine C'), ('failed', "'id'")]
+E       assert not ['failed']
+
+backend/tests/functional/test_g8_roster_research_loop.py:240: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  generation_claims:generation_claims.py:282 [generation_claims] release failed tenant=tenant-1 video=video-1 stage=main — row will self-clear via the 2h stale sweep on the next acquire
+Traceback (most recent call last):
+  File "/private/var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/se-baseline-v4hslcgz/storyengine/backend/generation_claims.py", line 273, in release
+    pool = await database.get_pool()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/se-baseline-v4hslcgz/storyengine/backend/database.py", line 30, in get_pool
+    raise RuntimeError("DATABASE_URL not set")
+RuntimeError: DATABASE_URL not set
+__ test_capped_full_generation_saved_card_repairs_before_research_and_passes ___
+
+    def test_capped_full_generation_saved_card_repairs_before_research_and_passes():
+        db = _capped_saved_card_db()
+        executor, statuses = _run_persisted_repair(
+            db, {"status": "completed", "passed": True, "warnings": []},
+        )
+    
+        assert len(executor.repair_calls) == 1
+        assert executor.run_research_call_count == 0
+        assert executor.machine_calls == []
+        assert db.row["status"] == "ready_for_scripting"
+>       assert not any(status in {"failed", "needs_review"} for status, _message in statuses)
+E       assert not True
+E        +  where True = any(<generator object test_capped_full_generation_saved_card_repairs_before_research_and_passes.<locals>.<genexpr> at 0x10706fbc0>)
+
+backend/tests/functional/test_g8_roster_research_loop.py:535: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  generation_claims:generation_claims.py:282 [generation_claims] release failed tenant=tenant-1 video=video-1 stage=main — row will self-clear via the 2h stale sweep on the next acquire
+Traceback (most recent call last):
+  File "/private/var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/se-baseline-v4hslcgz/storyengine/backend/generation_claims.py", line 273, in release
+    pool = await database.get_pool()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/se-baseline-v4hslcgz/storyengine/backend/database.py", line 30, in get_pool
+    raise RuntimeError("DATABASE_URL not set")
+RuntimeError: DATABASE_URL not set
+=============================== warnings summary ===============================
+../../../../../../../../Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_g8_roster_research_loop.py::test_all_machines_pass_in_order_and_status_advances
+FAILED backend/tests/functional/test_g8_roster_research_loop.py::test_capped_full_generation_saved_card_repairs_before_research_and_passes
+2 failed, 14 passed, 1 warning in 3.23s

@@ -1,0 +1,30 @@
+[
+  {
+    "machine": "SS-163 through SS-165 Barracuda (V-1) class",
+    "selected": "File:USSBaracudaSS163.jpg",
+    "score": 55.0,
+    "identity": "confirmed",
+    "reason": "Aerial three-quarter view of USS Barracuda SS-163 underway at sea. Hull profile, conning tower, and general layout visible but image is small (750x272), low resolution, and water obscures lower hull. Moderate coverage with much of hull hidden below waterline."
+  },
+  {
+    "machine": "SS-563 through SS-568 Tang class",
+    "selected": "File:Uss Tang 0856301.jpg",
+    "score": 76.0,
+    "identity": "confirmed",
+    "reason": "Clean side profile at low perspective showing the full hull length, sail with number 563, streamlined deck, and bow. This is the early configuration without PUFFS domes. Palm tree and distant shore partially frame but do not obstruct the submarine. Water hides the lower hull below the waterline. Good reference for original Tang-class profile."
+  },
+  {
+    "machine": "SSN-585, SSN-588 through SSN-592 Skipjack class",
+    "selected": "File:USS Snook (SSN-592) off Rio de Janeiro in 1984.JPEG",
+    "score": 61.0,
+    "identity": "confirmed",
+    "reason": "Color photo of SSN-592 underway at surface in calm harbor waters with good side profile showing teardrop hull, sail, and sail planes. Low-angle near-side perspective is useful. Hull below waterline not visible, bow and stern details limited by distance and angle. Scenic background does not obscure the submarine."
+  },
+  {
+    "machine": "SSN-774 through SSN-799+ Virginia class",
+    "selected": "File:US Navy 040730-N-1234E-002 PCU Virginia (SSN 774) returns to the General Dynamics Electric Boat shipyard.jpg",
+    "score": 78.0,
+    "identity": "confirmed",
+    "reason": "High-angle three-quarter view from port bow showing full hull profile, sail with multiple masts deployed, and deck detail; good sharpness and resolution. Hull below waterline hidden by water, and elevated camera angle introduces some perspective distortion, but overall very informative."
+  }
+]

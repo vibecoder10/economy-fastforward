@@ -1,0 +1,61 @@
+{
+  "project": "/Users/ryanayler/economy-fastforward/storyengine",
+  "task": "dvsu-image-configuration",
+  "route": "code",
+  "schema": 1,
+  "status": "complete",
+  "created": "2026-09-13T00:36:46.519094+00:00",
+  "checks": {
+    "image-configuration-regressions": {
+      "status": "passed",
+      "rules": [
+        "/Users/ryanayler/.codex/learning-rules.json#G08"
+      ],
+      "at": "2026-09-13T00:38:47.488951+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-image-configuration-learning.image-configuration-regressions.log": "cb047e2a24a8bf7669cb200659789e0f849f02898c5a0dad2a0394e0922929cd"
+      }
+    }
+  },
+  "events": {
+    "real-configuration-check": {
+      "kind": "reuse",
+      "note": "Actual generated Vindictive with forward gun turrets rejected by both corrected configuration judges; actual generated Argus passed. Source photo and generated pixels inspected in browser. No regeneration or DB mutation in this probe.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-image-configuration-live-probe.jsonl": "53d05fc14c10fde2e48f3a62f330cc52b3248b1847caeeabd1750445cbbdf743"
+      },
+      "resolves": null
+    },
+    "deployed-configuration-repair": {
+      "kind": "reuse",
+      "note": "6c970dbac backend and worker deployed with verified parity after zero active work. Corrected image QA, stale-image revalidation and deterministic factual subject mapping are in production; representative corrected generation is still running under an owned main claim. Full video acceptance remains open.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-ship-configuration-deploy.log": "4b449f1c506c3d43d7020767fee6deb6799f2f1afcb4fecf608f62ed08778ed5"
+      },
+      "resolves": null
+    },
+    "corrected-deployed-canary": {
+      "kind": "reuse",
+      "note": "Deployed scene3 canary completed3/3 verified views, all3 visually inspected; forward and aft flight decks present. All21 script/narration rows unchanged. Owned main claim released before resuming original application queue.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-vindictive-configuration-canary.jsonl": "d3a1c1d71a661926dd618bc9d6f720a53a4b4c3d33c10b8fc0dc12fa6346dce9"
+      },
+      "resolves": null
+    }
+  },
+  "required": [
+    "image-configuration-regressions"
+  ],
+  "outcome": "reused",
+  "inputs": {
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/static_docu.py": "c19b37e02701f0aca8d7d2260a522839ee21f838ad850b1f4f5cbc0ad3113c40"
+  },
+  "versions": {
+    "/Users/ryanayler/.codex/learning-rules.json#G08": "b0c72ff25712ba3634697bd0a13bc40c07c54659fa84555b063e2cf415d31ada",
+    "/Users/ryanayler/.codex/learning-rules.json#G07": "79634ca2dfc6293afb646528c9a5bba2ece1f235264ac6640b399988cf011850",
+    "/Users/ryanayler/.codex/learning-rules.json#G01": "0ef11c128df3f87c750c93c2512d7e6d499dd2fbb8c8f07b03a40655c1c37ed8",
+    "/Users/ryanayler/.codex/learning-rules.json#G10": "5d0b62810db1b100fed26fd75ec4c70639076df996acc40b06799c26239d5a69"
+  },
+  "tags": [],
+  "updated": "2026-09-13T00:48:09.530694+00:00"
+}

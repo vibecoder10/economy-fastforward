@@ -1,0 +1,33 @@
+{
+  "id_matches": true,
+  "payload_matches_proposal": true,
+  "source_packages_unchanged": true,
+  "other_previews_unchanged": true,
+  "production_columns_unchanged": true,
+  "ss2": {
+    "paragraph": "Developed from the original Holland design, the A-class submarines were intended for port defense, with their crews living ashore or aboard tenders. USS Plunger, SS-2, embodied this concept through single hull construction, its pressure hull wrapped around frames with tankage inside, and armed with a single torpedo tube. After commissioning, Plunger ran test dives and conducted experimental work on machinery, armaments, and tactics. She also trained her own crew and those of other submarines nearing completion, extending her influence beyond a single hull. A defender by design, a teacher in practice, a target by final assignment.",
+    "word_count": 96,
+    "passed": true,
+    "warnings": [],
+    "packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39",
+    "copyedit_receipt": {
+      "minimal_edits": [
+        {
+          "to": "with their crews living ashore or aboard tenders",
+          "from": "with crews living ashore or aboard tenders rather than at sea"
+        },
+        {
+          "to": "a teacher in practice",
+          "from": "a teacher by necessity"
+        }
+      ],
+      "referee_rerun": true,
+      "original_paragraph_sha256": "01eca71d295dd17e8b94d2fb2a1bd4604936f7a5bd9df54c809a053932ed8e5c",
+      "fresh_referee_packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39"
+    },
+    "factual_passed": true,
+    "editorial_passed": true,
+    "support_rows": 5
+  },
+  "updated_at": "2026-09-17T17:22:42.721798+00:00"
+}

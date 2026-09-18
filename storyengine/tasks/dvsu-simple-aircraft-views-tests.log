@@ -1,0 +1,8 @@
+...........................                                              [100%]
+=============================== warnings summary ===============================
+tests/functional/test_static_docu_view_chaining.py::test_fresh_aircraft_views_all_use_historical_reference
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+27 passed, 1 warning in 0.85s

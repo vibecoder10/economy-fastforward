@@ -1,0 +1,174 @@
+{
+  "machine": "SS-2 USS Plunger",
+  "subject_context": "Every US Submarine Class Ever Built (2026)",
+  "source_package_excerpt_count": 16,
+  "eligible_candidate_count": 16,
+  "evidence_payload_utf8_bytes": 17527,
+  "claim_assessment_utf8_bytes": 28495,
+  "previous_assessment_utf8_bytes": 16040,
+  "previous_assessment_embedded_in_claim_assessment": true,
+  "writer_prompt_utf8_bytes": 48839,
+  "writer_system_utf8_bytes": 129,
+  "writer_max_tokens": 900,
+  "budget_result": {
+    "error": "Script request exceeds the conservative model input budget."
+  },
+  "current_claim_count": 8,
+  "previous_claim_count": 12,
+  "new_claims": [
+    {
+      "id": "C1",
+      "roles": [
+        "intended_role"
+      ],
+      "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C2",
+      "roles": [
+        "design"
+      ],
+      "claim": "USS Plunger (SS-2) was built at Crescent Shipyard, Elizabethport, N.J. under subcontract from J.P. Holland's company.",
+      "evidence_ids": [
+        "S1-E6",
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C3",
+      "roles": [
+        "design"
+      ],
+      "claim": "USS Plunger (SS-2) had a displacement of 149 tons surfaced and 168 tons submerged.",
+      "evidence_ids": [
+        "S1-E5"
+      ]
+    },
+    {
+      "id": "C4",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) conducted a demonstration dive with President Theodore Roosevelt aboard on 25 August 1905, remaining submerged for three hours.",
+      "evidence_ids": [
+        "S2-E9",
+        "S2-E10"
+      ]
+    },
+    {
+      "id": "C5",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was renamed USS A-1 on 17 November 1911.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C6",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C7",
+      "roles": [
+        "outcome"
+      ],
+      "claim": "USS Plunger (SS-2) was struck from the Naval Register on 24 February 1913 and sold for scrapping on 26 January 1922.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C8",
+      "roles": [],
+      "claim": "USS Plunger (SS-2) was commissioned on 19 September 1903 at the Holland Co., New Suffolk, Long Island, NY.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    }
+  ],
+  "narrative_role_claims": [
+    {
+      "id": "C1",
+      "roles": [
+        "intended_role"
+      ],
+      "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C2",
+      "roles": [
+        "design"
+      ],
+      "claim": "USS Plunger (SS-2) was built at Crescent Shipyard, Elizabethport, N.J. under subcontract from J.P. Holland's company.",
+      "evidence_ids": [
+        "S1-E6",
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C3",
+      "roles": [
+        "design"
+      ],
+      "claim": "USS Plunger (SS-2) had a displacement of 149 tons surfaced and 168 tons submerged.",
+      "evidence_ids": [
+        "S1-E5"
+      ]
+    },
+    {
+      "id": "C4",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) conducted a demonstration dive with President Theodore Roosevelt aboard on 25 August 1905, remaining submerged for three hours.",
+      "evidence_ids": [
+        "S2-E9",
+        "S2-E10"
+      ]
+    },
+    {
+      "id": "C5",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was renamed USS A-1 on 17 November 1911.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C6",
+      "roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C7",
+      "roles": [
+        "outcome"
+      ],
+      "claim": "USS Plunger (SS-2) was struck from the Naval Register on 24 February 1913 and sold for scrapping on 26 January 1922.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "representative-audit-budget",
+  "input": "Saved20 named roster; live failed audit verifies12and reports search quota exhaustion at max_uses12; backend/roster_selection.py,roster_coverage.py",
+  "action": "Define selection_search_budget(payload)=max(12,min(40,len(unit_roster)+4)); bind into selection_fingerprint and actual audit WEB_SEARCH_TOOL max_uses. Preserve all factual checks, roster, provider model, output limits. Focused fake-provider budget/fingerprint tests. Parent reviews/deploys only these files and new test then one normal re-audit request; no archive repeat.",
+  "writeBoundary": "backend/roster_selection.py;backend/roster_coverage.py;backend/tests/test_selection_audit_budget.py;tasks receipts;CHECKLIST/JOURNAL/card",
+  "expectedOutput": "Budget24for20roster, bounded40; stale failed12searchaudit invalidated; fresh independent audit of saved20",
+  "dependencies": "Astra plan completeness PASS; user roster rerun authority; idle after failed research request",
+  "acceptance": "Targeted tests pass; saved20 retained; fresh source audit passes or honest failure; no research/image/script side stage",
+  "stop": "No manual passing, source fabrication or blind repeated runs; provider/account/factual failure reported after focused repair."
+}

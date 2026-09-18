@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "error": "Error: Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design."
+}

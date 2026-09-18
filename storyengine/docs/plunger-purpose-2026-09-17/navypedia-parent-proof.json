@@ -1,0 +1,23 @@
+{
+  "mode": "offline actual source/merge/prompt projections; pending evidence not approved",
+  "source_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+  "context_chars": 1452,
+  "context_verified": true,
+  "source_contiguous": true,
+  "excluded_naval_service": true,
+  "extractor_candidates": 1,
+  "added_excerpts": 1,
+  "pending_class_contexts": 1,
+  "writer_budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 33476,
+    "output_tokens_reserved": 900,
+    "context_limit": 200000
+  },
+  "assessment_budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 31942,
+    "output_tokens_reserved": 4500,
+    "context_limit": 200000
+  }
+}

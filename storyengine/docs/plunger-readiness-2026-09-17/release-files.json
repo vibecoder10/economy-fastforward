@@ -1,0 +1,24 @@
+{
+  "modified_source_files": [
+    "backend/dvsu_research_handoff.py",
+    "backend/pipeline_executor.py",
+    "backend/research_claim_assessment.py",
+    "backend/routes/pipeline.py",
+    "backend/worker.py",
+    "frontend/src/components/production/ResearchTab.tsx",
+    "frontend/src/components/production/ScriptVoiceTab.tsx",
+    "frontend/src/lib/api.ts"
+  ],
+  "untracked_new_source_files": [
+    "backend/machine_preview_jobs.py",
+    "backend/migrations/160_machine_preview_jobs.sql",
+    "backend/tests/test_dvsu_assessment_migration.py",
+    "backend/tests/test_dvsu_global_handoff.py",
+    "backend/tests/test_machine_preview_jobs.py",
+    "frontend/src/lib/machine-preview-job.ts",
+    "frontend/src/lib/machine-preview-job.test.ts"
+  ],
+  "scoped_diff_stat": "storyengine/backend/dvsu_research_handoff.py       | 103 ++++++++++++++-\n storyengine/backend/pipeline_executor.py           | 141 ++++++++++++++++++++-\n storyengine/backend/research_claim_assessment.py   |  55 ++++++--\n storyengine/backend/routes/pipeline.py             |  89 ++++++++++++-\n storyengine/backend/worker.py                      |  12 ++\n .../src/components/production/ResearchTab.tsx      |   4 +-\n .../src/components/production/ScriptVoiceTab.tsx   |   4 +-\n storyengine/frontend/src/lib/api.ts                |  80 ++++++++----\n 8 files changed, 439 insertions(+), 49 deletions(-)",
+  "staged": false,
+  "committed": false
+}

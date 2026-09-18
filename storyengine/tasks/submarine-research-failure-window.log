@@ -1,0 +1,319 @@
+Hint: You are currently not seeing messages from other users and the system.
+      Users in groups 'adm', 'systemd-journal' can see all messages.
+      Pass -q to turn off this notice.
+Sep 16 21:07:00 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:00.355093+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (108ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 107.9}
+Sep 16 21:07:01 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:01.085122+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (72ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 72.0}
+Sep 16 21:07:01 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:01.813862+00:00", "level": "INFO", "message": "[machine-source] fetch failed for https://www.history.navy.mil/research/histories/ship-histories/danfs/a/albacore-agss-569-iii.html: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)", "module": "pipeline_executor"}
+Sep 16 21:07:01 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:01.900039+00:00", "level": "INFO", "message": "GET /api/billing/subscription \u2192 200 (73ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 73.1}
+Sep 16 21:07:03 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:03.143797+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (274ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 273.6}
+Sep 16 21:07:04 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:04.079963+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.7}
+Sep 16 21:07:04 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:04.238418+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (430ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 430.3}
+Sep 16 21:07:05 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:05.540985+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.5}
+Sep 16 21:07:06 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:06.334511+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (58ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 58.5}
+Sep 16 21:07:06 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:06.672042+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (250ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 250.0}
+Sep 16 21:07:07 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:07.119825+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.0}
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:07:08 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:07:08 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:07:09 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:09.822668+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1176ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1175.8}
+Sep 16 21:07:09 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:09.944400+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (385ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 385.0}
+Sep 16 21:07:10 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:10.065796+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.4}
+Sep 16 21:07:10 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:10.680971+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 53.7}
+Sep 16 21:07:13 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:13.208398+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.9}
+Sep 16 21:07:15 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:15.197845+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (628ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 627.9}
+Sep 16 21:07:16 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:16.434650+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.7}
+Sep 16 21:07:18 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:18.230570+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.1}
+Sep 16 21:07:18 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:18.938439+00:00", "level": "INFO", "message": "GET /api/review/pending \u2192 200 (194ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 193.5}
+Sep 16 21:07:19 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:19.069065+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.9}
+Sep 16 21:07:19 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:19.936613+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (240ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 239.9}
+Sep 16 21:07:22 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:22.069577+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.1}
+Sep 16 21:07:23 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:23.385600+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (64ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 63.7}
+Sep 16 21:07:25 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:25.072793+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (59ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 58.8}
+Sep 16 21:07:27 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:27.092308+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (293ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 293.2}
+Sep 16 21:07:27 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:27.986509+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (426ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 426.0}
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:28.191318+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.6}
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:07:28 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:07:28 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:07:28 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:28.526843+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.2}
+Sep 16 21:07:29 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:29.241138+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1107ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1106.8}
+Sep 16 21:07:31 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:31.070386+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (58ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 57.5}
+Sep 16 21:07:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:33.028785+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.5}
+Sep 16 21:07:34 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:34.172603+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.4}
+Sep 16 21:07:34 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:34.358017+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (240ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 240.1}
+Sep 16 21:07:37 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:37.121178+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.7}
+Sep 16 21:07:37 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:37.617612+00:00", "level": "INFO", "message": "[machine-source] fetch failed for https://www.history.navy.mil/research/histories/ship-histories/danfs/b/barbel-ii.html: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)", "module": "pipeline_executor"}
+Sep 16 21:07:37 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:37.696754+00:00", "level": "INFO", "message": "[machine-source] fetch failed for https://www.history.navy.mil/content/history/nhhc/our-collections/photography/numerical-list-of-images/nhhc-series/nh-series/NH-89000/NH-896: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)", "module": "pipeline_executor"}
+Sep 16 21:07:37 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:37.755567+00:00", "level": "INFO", "message": "[machine-source] fetch failed for https://www.history.navy.mil/our-collections/photography/numerical-list-of-images/nhhc-series/nh-series/NH-65000/NH-65416-KN.html: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)", "module": "pipeline_executor"}
+Sep 16 21:07:38 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:38.592980+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (58ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 57.5}
+Sep 16 21:07:39 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:39.376976+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (434ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 434.5}
+Sep 16 21:07:40 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:40.066895+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.6}
+Sep 16 21:07:43 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:43.046015+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.6}
+Sep 16 21:07:43 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:43.093573+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.2}
+Sep 16 21:07:44 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:44.716032+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (234ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 233.7}
+Sep 16 21:07:46 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:46.115390+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (55ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.2}
+Sep 16 21:07:48 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:48.213007+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.6}
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:07:48 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:07:49 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:07:49 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:07:49 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:49.066960+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.0}
+Sep 16 21:07:49 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:49.172805+00:00", "level": "INFO", "message": "GET /api/review/pending \u2192 200 (152ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 152.4}
+Sep 16 21:07:49 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:49.794699+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1073ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1072.9}
+Sep 16 21:07:50 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:50.163275+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (692ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 692.4}
+Sep 16 21:07:51 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:51.467748+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (257ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 257.0}
+Sep 16 21:07:52 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:52.171637+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (58ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 58.2}
+Sep 16 21:07:53 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:53.486501+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (59ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 59.4}
+Sep 16 21:07:55 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:55.792235+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (59ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 58.8}
+Sep 16 21:07:56 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:56.445504+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 57.1}
+Sep 16 21:07:56 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:56.843402+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (253ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 253.3}
+Sep 16 21:07:58 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:07:58.274930+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.3}
+Sep 16 21:08:01 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:01.102099+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (66ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 66.4}
+Sep 16 21:08:02 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:02.145387+00:00", "level": "INFO", "message": "GET /api/billing/subscription \u2192 200 (110ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 109.5}
+Sep 16 21:08:02 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:02.235049+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (108ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 107.8}
+Sep 16 21:08:03 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:03.183644+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (298ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 297.7}
+Sep 16 21:08:04 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:04.069409+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (56ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 56.3}
+Sep 16 21:08:04 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:04.480248+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (441ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 441.4}
+Sep 16 21:08:07 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:07.082973+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (55ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.4}
+Sep 16 21:08:07 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:07.378578+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (55ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.3}
+Sep 16 21:08:10 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:10.070957+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (57ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 57.1}
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:08:10 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:08:10 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:08:11 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:11.012999+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (314ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 313.5}
+Sep 16 21:08:11 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:11.324315+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1153ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1153.0}
+Sep 16 21:08:12 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:12.515079+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 53.8}
+Sep 16 21:08:13 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:13.065123+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.3}
+Sep 16 21:08:16 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:16.129598+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (422ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 422.5}
+Sep 16 21:08:18 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:18.898300+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.0}
+Sep 16 21:08:19 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:19.404266+00:00", "level": "INFO", "message": "GET /api/review/pending \u2192 200 (150ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 150.0}
+Sep 16 21:08:20 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:20.487173+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (248ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 247.7}
+Sep 16 21:08:22 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:22.916511+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (58ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 58.4}
+Sep 16 21:08:23 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:23.989949+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (61ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 60.9}
+Sep 16 21:08:28 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:28.139520+00:00", "level": "WARNING", "message": "[humanize_error] (no context) | raw: Kie source search returned no usable source list. Completed research is saved; retry to resume.", "module": "error_utils"}
+Sep 16 21:08:29 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:29.392535+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (71ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 71.0}
+Sep 16 21:08:31 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:31.266414+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (423ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 423.0}
+Sep 16 21:08:32 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:32.773689+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (29ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.2}
+Sep 16 21:08:32 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:32.961178+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (38ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 38.2}
+Sep 16 21:08:32 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:08:32 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:08:32 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:08:32 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.016464+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (85ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 85.0}
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.219099+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (294ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 294.5}
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.234198+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (296ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 296.4}
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.451845+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (345ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 345.0}
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.488619+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (379ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 379.0}
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.534673+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (605ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 605.1}
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:08:33 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:08:33 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:08:33 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:08:33 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:33.748765+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (641ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 641.2}
+Sep 16 21:08:34 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:34.825438+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1717ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1716.7}
+Sep 16 21:08:35 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:35.243237+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (2313ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 2312.7}
+Sep 16 21:08:36 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:36.457814+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (31ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 31.2}
+Sep 16 21:08:38 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:38.187595+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (54ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 54.2}
+Sep 16 21:08:39 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:39.054606+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (32ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 31.5}
+Sep 16 21:08:40 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:40.955692+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (27ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 26.9}
+Sep 16 21:08:41 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:41.686818+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (245ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 244.9}
+Sep 16 21:08:42 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:42.720897+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (28ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 27.8}
+Sep 16 21:08:44 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:44.114000+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (29ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.2}
+Sep 16 21:08:46 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:46.017919+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (53ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 53.0}
+Sep 16 21:08:46 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:46.044320+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (30ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 30.5}
+Sep 16 21:08:47 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:47.032175+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (592ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 592.1}
+Sep 16 21:08:47 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:47.825278+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (30ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.6}
+Sep 16 21:08:48 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:48.425436+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (288ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 287.8}
+Sep 16 21:08:49 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:49.044250+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (29ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.3}
+Sep 16 21:08:49 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:49.294808+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (194ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 194.5}
+Sep 16 21:08:51 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:51.470902+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (72ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 71.8}
+Sep 16 21:08:52 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:52.041238+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (30ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.5}
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Starting pipeline initialization...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: anthropic_api_key...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT]   ✓ anthropic_api_key loaded
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: airtable_api_key...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT]   - airtable_api_key not found
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_api_key...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_model_id...
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 16 21:08:52 srv1318038 python3[3836488]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] Loading key: kie_ai_api_key...
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] Loading key: openai_api_key...
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT]   - openai_api_key not found
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] Loading key: gemini_api_key...
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT]   - gemini_api_key not found
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] Creating lightweight pipeline...
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] SupabaseAdapter OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] AnthropicClient OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] GoogleClient OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] SlackClient OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] ImageClient OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 16 21:08:53 srv1318038 python3[3836488]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] GeminiClient OK
+Sep 16 21:08:53 srv1318038 python3[3836488]: [INIT] Pipeline ready!
+Sep 16 21:08:53 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:53.980346+00:00", "level": "INFO", "message": "GET /api/pipeline/roster-dashboard/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (1157ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 1156.7}
+Sep 16 21:08:54 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:54.677962+00:00", "level": "INFO", "message": "GET /api/review/pending \u2192 200 (190ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 190.4}
+Sep 16 21:08:55 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:55.046107+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (29ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 28.9}
+Sep 16 21:08:56 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:56.079533+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (256ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 256.5}
+Sep 16 21:08:56 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:56.671635+00:00", "level": "INFO", "message": "GET /api/videos/44dbf2b2-a27a-47ea-a608-4c31c906be9a/assets \u2192 200 (59ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 59.3}
+Sep 16 21:08:57 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:57.644915+00:00", "level": "INFO", "message": "GET /api/pipeline/actions/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (449ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 448.7}
+Sep 16 21:08:58 srv1318038 python3[3836488]: {"timestamp": "2026-09-16T21:08:58.044067+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (30ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 29.8}

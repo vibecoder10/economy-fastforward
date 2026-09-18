@@ -1,0 +1,46 @@
+{
+  "release": "0229e9fbdf4a7979f9a74dbe26b489ce58d7b925",
+  "previous": "9e77c2cb40963ca3c0df988484be2d436440c08d",
+  "commits": [
+    "fce298f8",
+    "0229e9fb"
+  ],
+  "authorization": "User: deploy",
+  "migrations": [
+    "161_source_discovery_operations.sql",
+    "162_dvsu_script_operations.sql"
+  ],
+  "backend_worker_parity": true,
+  "services_healthy": true,
+  "frontend_http": 200,
+  "drain": "normal",
+  "lock": "clear",
+  "source_hashes_matching": 19,
+  "ui_verified": [
+    "S-1 READY TO SCRIPT; Saved evidence is ready for writing",
+    "0/20 production scenes;2/20 previews distinct",
+    "Historical error text preserved with internal marker removed"
+  ],
+  "live_s1_ready": true,
+  "paid_operations_created": 0,
+  "preservation": {
+    "unchanged": {
+      "video": true,
+      "scripts": true,
+      "cards": false,
+      "assets": true,
+      "jobs": true,
+      "claims": true,
+      "ledger": true
+    },
+    "card_changes": [
+      {
+        "machine": "SS-105 USS S-1",
+        "fields": [
+          "validation"
+        ]
+      }
+    ]
+  },
+  "next": "Separate approval for one S1 preview with $1.50 ceiling; no discovery/production promotion/media/upload"
+}

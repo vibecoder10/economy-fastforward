@@ -1,0 +1,14 @@
+{
+  "scope": "one read-only VPS public-source preflight; no extractor, provider, database, code, or generation action",
+  "url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+  "request_headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "Accept": "text/html"
+  },
+  "http_status": 200,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+  "body_bytes": 26140,
+  "remote_public_html_path": "/tmp/navypedia-purpose.html",
+  "result": "success: the public HTML was retained on the VPS for a separately authorized extractor proof."
+}

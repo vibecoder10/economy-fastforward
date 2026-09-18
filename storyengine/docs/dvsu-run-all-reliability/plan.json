@@ -1,0 +1,87 @@
+{
+  "round": 2,
+  "planCompleteness": "PASS \u2014 Astra; bounded worker interfaces and write sets explicit",
+  "steps": [
+    {
+      "id": "reliability-baseline",
+      "title": "Saved submarine inventory",
+      "inputSource": "Live read-only se.sh DB records; current Git dirty state",
+      "action": "Snapshot video/cards/scripts/assets/jobs/claims/ledger; hash and inventory reusable artifacts",
+      "writeBoundary": "docs/dvsu-run-all-reliability/; CHECKLIST.md; JOURNAL; SE-0002",
+      "expectedOutput": "baseline-*.json and ss105-source-package.json",
+      "dependencies": "None",
+      "acceptanceEvidence": "Authoritative readback, exact S-1 fixture; no production writes",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    },
+    {
+      "id": "reliability-writing",
+      "title": "Evidence-led writer contract",
+      "inputSource": "Saved SS105 package; dvsu_script_brief.py; factual_machine_summary.py; existing tests",
+      "action": "Make narrative roles optional guidance; valid nonempty supported packet remains required. Retain 80\u2013110 words, citations, identity and factual audit. Editorial v2 requires evidence-led coherent spoken narration, not mandatory purpose/consequence/verdict. Preserve valid v1 receipts. Update writer/reviewer prompts and tests; parent owns orchestration/cache compatibility.",
+      "writeBoundary": "backend/dvsu_script_brief.py; backend/factual_machine_summary.py; backend/tests/test_dvsu_script_brief.py; backend/tests/test_dvsu_script_writer.py; notes/dvsu-quality-law.md",
+      "expectedOutput": "writer implementation and writer-tests.log",
+      "dependencies": "baseline",
+      "acceptanceEvidence": "S1 packet ready without intended_role; factual guards remain; valid v1 accepted and missing audit rejected",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    },
+    {
+      "id": "reliability-source",
+      "title": "Durable source adapter",
+      "inputSource": "factual_source_search.py and existing Kie tests",
+      "action": "Add typed failure details and sanitizer. Extend discover_sources with optional operation_state/checkpoint/guard keyword hooks. Persist submitted before request, response receipt before parsing, success leads; resume confirmed responses without requery; uncertain submitted -> reconciliation. One malformed retry and two explicit transient retries maximum persisted across calls (total <=4); before each request require guard. Classify 401/403/402/429/5xx, empty, truncated, malformed, transport; transport after submission uncertain. Parse plain/fenced JSON array and object sources list or text blocks only; no URL scraping from prose. Parent integrates durable hooks into source gathering.",
+      "writeBoundary": "backend/factual_source_search.py; backend/tests/test_source_discovery_reliability.py; backend/tests/functional/test_kie_factual_source_search.py",
+      "expectedOutput": "adapter + offline failure/restart tests",
+      "dependencies": "baseline",
+      "acceptanceEvidence": "Receipts before parse; failed checkpoint prevents call; recovered parse/attempt limits; safe URLs unchanged",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    },
+    {
+      "id": "reliability-tasks",
+      "title": "Exact task ownership",
+      "inputSource": "task_store.py; machine_preview_jobs.py; callers and tests",
+      "action": "Scope DB task updates to tenant/video/type/job; null job updates only null job rows. Add required=False keyword for strict critical persistence. Machine-preview critical start uses required=True. Persist typed source errors in result and sanitize UI error marker via existing humanization helpers. No broad terminal updates.",
+      "writeBoundary": "backend/task_store.py; backend/machine_preview_jobs.py; backend/tests/test_task_store_ownership.py; backend/tests/test_machine_preview_jobs.py",
+      "expectedOutput": "task isolation tests and typed preview status",
+      "dependencies": "baseline",
+      "acceptanceEvidence": "Two tasks/tenants cannot affect each other; strict DB failure stops work; error string marker absent",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    },
+    {
+      "id": "reliability-integration",
+      "title": "Shared readiness and replay",
+      "inputSource": "Workers writing/source/tasks outputs; baseline; actions/executor/worker/frontend existing flow",
+      "action": "Remove script-triggered discovery; reuse valid saved assessments/previews; wire source journal through checkpointed research operations. Add end-to-end offline replay using real orchestration with stub providers, test stage and asset reuse, cancellation and budget stops. Update UI additive errors and evidence-led copy. Only ordinary local naming/helpers/test-fixture choices delegated. Journal each DVSU writer/reviewer response before parsing. Claim by tenant/video/machine/input/request fingerprint; unresolved submission stops for reconciliation. Shared client adds opt-in no_resubmit with SDK and wrapper retries disabled; other callers unchanged. Recheck roster/evidence/title/cancel/cap before each call. Require actual reviewed scene artifacts before voice.",
+      "writeBoundary": "backend/pipeline_executor.py; backend/actions.py; backend/dvsu_research_handoff.py; backend/factual_machine_pipeline.py; backend/worker.py; backend/tests; frontend/src; frontend/tests; additive migration if required for source journal; backend/source_discovery_journal.py; backend/dvsu_script_operations.py; backend/migrations/161_source_discovery_operations.sql; backend/migrations/162_dvsu_script_operations.sql; ../skills/video-pipeline/shared/clients/anthropic_client.py",
+      "expectedOutput": "replay tests, baseline comparison, frontend checks",
+      "dependencies": "writing,source,tasks",
+      "acceptanceEvidence": "S1 no discovery; no duplicate submits; resume/independent completion; complete chain proves control flow only; saved writing responses replay without another call; failed post-response checkpoint retains unresolved submission; existing default client continuation tests pass",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    },
+    {
+      "id": "reliability-release",
+      "title": "Review and gated release packet",
+      "inputSource": "All checks and frozen baseline",
+      "action": "Review diffs; record scoped release/rollback and estimate. Stop for separate deployment and capped paid run approval after offline work complete. Final live proof requires approved S1 canary then remaining scenes/media/render and Ryan review.",
+      "writeBoundary": "docs/dvsu-run-all-reliability/; CHECKLIST; JOURNAL; SE-0002",
+      "expectedOutput": "REPORT.md, RELEASE.md, review.json",
+      "dependencies": "integration",
+      "acceptanceEvidence": "No completion claim beyond evidence; real MP4 and gallery readback pending authorized live run",
+      "authorityStop": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+      "done": true,
+      "evidence": "REPORT.md; final-verification.log; preservation.json"
+    }
+  ],
+  "authority": "Local offline code/tests/docs only. No paid providers, deploy, push, production writes or publication. Stop and return material missing decisions to Astra.",
+  "review": "Astra integration review: focused offline checks passing; live delivery open.",
+  "liveDeliveryComplete": false
+}

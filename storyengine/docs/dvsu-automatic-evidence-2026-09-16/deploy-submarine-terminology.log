@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17 14:43:10.557994+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T14:43:10.705580+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17 14:43:10.557994+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T14:43:11.019739+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17 14:43:10.557994+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T14:43:16.050672+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   7af5ab8ff..58ca96c30  main       -> origin/main
+Updating 7af5ab8ff..58ca96c30
+Fast-forward
+ storyengine/backend/factual_machine_summary.py | 2 +-
+ storyengine/notes/dvsu-quality-law.md          | 4 ++++
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+code: 7af5ab8ff -> 58ca96c30
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 11900)
+worker code parity: commit=58ca96c30 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 58ca96c30; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17 14:43:35.095139+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T14:43:35.232712+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-submarine-terminology-20260917","changed_at":"2026-09-17T14:43:35.095139+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":90,"limit":9000,"remaining":8910,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":3,"limit":100,"remaining":97},"units_used":90,"ceiling":9000,"remaining":8910}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T14:43:34Z dvsu-submarine-terminology-20260917 deployed 7af5ab8ff -> 58ca96c30 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

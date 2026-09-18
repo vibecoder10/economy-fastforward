@@ -1,0 +1,46 @@
+Clean HEAD 9e77c2cb in /var/folders/3f/31k811211wj8gkbqtfths8540000gn/T/dvsu-head-rwe3s8lg
+.........F.F                                                             [100%]
+=================================== FAILURES ===================================
+__________ test_guide_does_not_confuse_roster_with_detailed_research ___________
+
+    def test_guide_does_not_confuse_roster_with_detailed_research():
+        payload={'roster_selection':{'status':'completed'},'research_phase':'roster_complete','unit_roster':['Holland'],'fact_sheet':'selection source'}
+        assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='not_started'
+        payload['research_phase']='unit_research'
+        assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='in_progress'
+        payload['unit_research_hold_validation']={'passed':True}
+>       assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='done'
+E       AssertionError: assert 'in_progress' == 'done'
+E         
+E         - done
+E         + in_progress
+
+tests/functional/test_roster_settings_stage.py:63: AssertionError
+______ test_roster_ready_worker_message_does_not_claim_detailed_research _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dedc10>
+
+    def test_roster_ready_worker_message_does_not_claim_detailed_research(monkeypatch):
+        import worker
+        import pipeline_executor
+        import task_store
+        ex=type('Executor',(),{'run_research':AsyncMock(return_value={'status':'roster_ready'})})()
+        monkeypatch.setattr(pipeline_executor,'PipelineExecutor',lambda tenant:ex)
+        persist=AsyncMock()
+        monkeypatch.setattr(task_store,'db_persist_task',persist)
+        asyncio.run(worker._run_stage({'job_try':1},'research','run_research','v','t',1))
+        assert persist.call_args.args[3]=='completed'
+>       assert 'detailed research is next' in persist.call_args.kwargs['message']
+E       AssertionError: assert 'detailed research is next' in 'Roster selection complete; gather images is next.'
+
+tests/functional/test_roster_settings_stage.py:90: AssertionError
+=============================== warnings summary ===============================
+../../../../../../../../../Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/functional/test_roster_settings_stage.py::test_guide_does_not_confuse_roster_with_detailed_research
+FAILED tests/functional/test_roster_settings_stage.py::test_roster_ready_worker_message_does_not_claim_detailed_research
+2 failed, 10 passed, 1 warning in 0.50s

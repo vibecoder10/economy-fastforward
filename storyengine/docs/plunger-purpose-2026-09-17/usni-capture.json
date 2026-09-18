@@ -1,0 +1,30 @@
+{
+  "scope": "bounded read-only capture through current source-extraction paths",
+  "machine": "SS-2 USS Plunger",
+  "usni": {
+    "url": "https://www.usni.org/magazines/proceedings/2012/june/preparing-todays-undersea-warfare",
+    "direct_fetch_method": "PipelineExecutor._fetch_source_text",
+    "direct_http_status": 403,
+    "direct_visible_text_characters": 0,
+    "direct_visible_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fallback_fetch_method": "PipelineExecutor._fetch_source_fallback_text",
+    "fallback_capture_method_returned": "",
+    "fallback_visible_text_characters": 0,
+    "fallback_visible_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fallback_normalized_text": "",
+    "strict_ss2_candidates": [],
+    "result": "blocked: direct HTTP 403 and the existing fallback path returned no archive or alternate capture."
+  },
+  "pigboats": {
+    "verified_clicked_source_url": "https://pigboats.com/Submarine_Classes",
+    "approved_link_url": "https://pigboats.com/A-class",
+    "fetch_method": "PipelineExecutor._fetch_source_text",
+    "http_status": 403,
+    "visible_text_characters": 0,
+    "visible_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "heading_sections_matching_a_class_or_plunger": [],
+    "strict_ss2_candidates": [],
+    "result": "blocked: HTTP 403 returned no visible text, heading section, class context, member section, or strict SS-2 candidate."
+  },
+  "result": "No exact purpose sentence, Plunger sentence, Grayling boundary, or class-context comparison is available from these actual captures. No source-code, provider, model, database, deployment, or live-generation action occurred."
+}

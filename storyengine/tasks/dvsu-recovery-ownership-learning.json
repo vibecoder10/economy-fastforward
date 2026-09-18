@@ -1,0 +1,35 @@
+{
+  "project": "/Users/ryanayler/economy-fastforward/storyengine",
+  "task": "dvsu-recovery-ownership",
+  "route": "code",
+  "schema": 1,
+  "status": "open",
+  "created": "2026-09-12T21:49:20.138821+00:00",
+  "checks": {
+    "recovery-ownership-regressions": {
+      "status": "passed",
+      "rules": [],
+      "at": "2026-09-12T21:50:51.643959+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-recovery-ownership-learning.recovery-ownership-regressions.log": "d3a36fa6425bd467d980b6d3a0d03c33866f01ccd183db8738d028aad09658f6"
+      }
+    }
+  },
+  "events": {},
+  "required": [
+    "recovery-ownership-regressions"
+  ],
+  "outcome": null,
+  "inputs": {
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/worker.py": "79c1cbb4fa79bf79e5aec3a904123d9ba5c7926c1ded06d48b781b62e3614772",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/pipeline_executor.py": "bb0bb51d9841ab8e29d6db6220c562daf13e7f0122dd3f7cfe52365d490a8e6b"
+  },
+  "versions": {
+    "/Users/ryanayler/.codex/learning-rules.json#G08": "b0c72ff25712ba3634697bd0a13bc40c07c54659fa84555b063e2cf415d31ada",
+    "/Users/ryanayler/.codex/learning-rules.json#G07": "79634ca2dfc6293afb646528c9a5bba2ece1f235264ac6640b399988cf011850",
+    "/Users/ryanayler/.codex/learning-rules.json#G01": "0ef11c128df3f87c750c93c2512d7e6d499dd2fbb8c8f07b03a40655c1c37ed8",
+    "/Users/ryanayler/.codex/learning-rules.json#G10": "5d0b62810db1b100fed26fd75ec4c70639076df996acc40b06799c26239d5a69"
+  },
+  "tags": [],
+  "updated": "2026-09-12T21:49:20.139124+00:00"
+}

@@ -11,7 +11,7 @@ have clobbered each other this way. The protocol:
 
 1. **Deploy ONLY via the script:** `~/projects/economy-fastforward/storyengine/scripts/vps-deploy.sh <your-session-name> [--with-frontend]` (on the VPS). Never raw-kill uvicorn, never `pkill -f uvicorn` (it has matched voice-osiris and the ssh session itself).
 2. **The lock file is law:** `~/deploy.lock` on the VPS. Before ANY prod work that must not be interrupted (a deploy, a proof run, a paid pipeline run), write your session name + task + timestamp into it; delete it when done. The deploy script refuses to run while it exists. If you find a lock older than ~2 hours, it's probably stale — check `~/deploys.log` and proceed with `--force` only then.
-3. **Local tree discipline:** don't build in the shared `~/economy-fastforward` checkout — use a git worktree + feature branch, fold back to main only deploy-ready work (main must ALWAYS be deployable, because any session's restart ships it). Run `git status` before touching shared files.
+3. **Local tree discipline:** the only canonical local checkout is `/Users/ryanayler/AgentVault/Projects/story-engine`. Use a temporary git worktree + feature branch for isolated work, fold back to main only when deploy-ready, and remove the worktree after integration. Main must always remain deployable because a restart can ship it. Run `git status` before touching shared files.
 4. **After deploying**, append what you shipped to `~/deploys.log` (the script does this) and confirm the service came back: `systemctl is-active storyengine-backend.service`.
 
 ---

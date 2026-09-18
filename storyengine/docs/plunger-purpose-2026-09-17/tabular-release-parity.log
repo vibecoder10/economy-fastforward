@@ -1,0 +1,5 @@
+backend=b4473f5d25e82673978441b4ee3a2210a55dc50f
+worker=/home/clawd/projects/economy-fastforward/storyengine/backend
+worker_pid=57593
+worker_cwd=/home/clawd/projects/economy-fastforward/storyengine/backend
+worker_commit=b4473f5d25e82673978441b4ee3a2210a55dc50f

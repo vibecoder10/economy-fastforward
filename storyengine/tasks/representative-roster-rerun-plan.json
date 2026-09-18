@@ -1,0 +1,13 @@
+{
+  "id": "representative-rerun",
+  "title": "Build: rerun saved roster with one named boat per class",
+  "inputSource": "Live video44dbf2b2-a27a-47ea-a608-4c31c906be9a tenant561b872d-7b73-45e3-9c44-7f30c3566eda; tasks/representative-roster-before-rerun-full.json; deployed9a29062a; Terra read-only inspections",
+  "action": "Under exclusive generation claim and transaction, refuse active work/scripts/later status; snapshot full research_payload plus compact research rows in roster_selection_history; retire only archived active research rows and derived payload research/image readiness; retain class roster as input and caches. Call normal research endpoint once; monitor audited20 individual boats.",
+  "writeBoundary": "tasks/representative-roster-prepare.py and focused offline helper test; exact tenant/video research_payload and archived compact rows only; CHECKLIST/JOURNAL/SE-0002",
+  "expectedOutput": "Backup, archive receipt, one request receipt and final live20 roster/API/UI verification",
+  "dependencies": "Astra plan-completeness PASS; explicit user rerun authority; Terra script review; no active work",
+  "acceptanceEvidence": "Archive equals previous full payload and compact rows; no scripts/cache deletions;20source-audited named machines with distinct classes/no ranges; Roster complete and no later stage triggered",
+  "authorityStop": "User explicitly authorized roster rerun and Terra subagents. Stop for active work, scripts/later status, provider/account error or failed acceptance; no blind retry, quality bypass, rendering or publication.",
+  "done": false,
+  "evidence": "Terra inspected route and preservation: normal POST research stops on saved research, hence archival preparation required."
+}

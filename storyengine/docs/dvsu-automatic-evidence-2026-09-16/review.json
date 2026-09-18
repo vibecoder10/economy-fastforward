@@ -1,0 +1,16 @@
+{
+  "astra_review": "PASS for scoped release",
+  "baseline": "c5956e190",
+  "round": 1,
+  "tests": "101 focused pass,10 endpoint/source-to-writer pass (8 overlap),10 legacy route pass;113 distinct tests",
+  "fixture_limits": "Model responses mocked in protocol tests; actual original PDFpage77 independently fetched/extracted locally. Real quality awaits canary.",
+  "fixes": [
+    "PDF locator persisted and bounded",
+    "Contextual identity requires exact-hull anchor sameclaim; stale assessment rejected",
+    "free known-source recapture before discovery",
+    "source_urls validated in existing research route",
+    "sourcequotes remain outside writerbrief"
+  ],
+  "compatibility": "Old exact-identity assessment receipt shape retained; no global cacheversion bump",
+  "canary_authority": "User authorized spending on Holland only and requests completion; one bounded Holland research+conditionalpreview verification. No paidsearch with explicit source_urls; preserve production and othermachines."
+}

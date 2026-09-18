@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-preview-label-20260916","changed_at":"2026-09-16 22:43:59.209858+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T22:43:59.340260+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-preview-label-20260916","changed_at":"2026-09-16 22:43:59.209858+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T22:43:59.656293+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-preview-label-20260916","changed_at":"2026-09-16 22:43:59.209858+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T22:44:04.688092+00:00"}
+Updating 64ddf60de..7e6adc151
+Fast-forward
+ storyengine/backend/factual_machine_research.py    |  2 +-
+ .../test_named_submarine_research_identity.py      | 96 ++++++++++++++++++++++
+ 2 files changed, 97 insertions(+), 1 deletion(-)
+code: 64ddf60de -> 7e6adc151
+From https://github.com/vibecoder10/economy-fastforward
+   64ddf60de..7e6adc151  main       -> origin/main
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3875443)
+worker code parity: commit=7e6adc151 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 7e6adc151; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-preview-label-20260916","changed_at":"2026-09-16 22:44:23.640785+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T22:44:23.761785+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-preview-label-20260916","changed_at":"2026-09-16T22:44:23.640785+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":240,"limit":9000,"remaining":8760,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":8,"limit":100,"remaining":92},"units_used":240,"ceiling":9000,"remaining":8760}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T22:44:23Z dvsu-preview-label-20260916 deployed 64ddf60de -> 7e6adc151 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

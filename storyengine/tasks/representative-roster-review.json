@@ -1,0 +1,14 @@
+{
+  "status": "deployed_verified",
+  "tests": "18 passed",
+  "selected_tang": {
+    "name": "USS Tang",
+    "designation": "SS-563",
+    "class_name": "Tang class",
+    "source": "https://www.history.navy.mil/research/histories/ship-histories/danfs/t/tang-ii.html"
+  },
+  "live_roster_changed": false,
+  "next": "Release scoped roster rule and convert saved class entries through source-verified selection; preserve original roster/research/images and revalidate exact-member identity before reuse.",
+  "release": "9a29062a7",
+  "deployment_evidence": "tasks/representative-roster-deploy.log"
+}

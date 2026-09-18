@@ -39,7 +39,7 @@ mutate) | `se deploy` | `se restart [svc]` | `se token [--mint]` |
 - `frontend/src/app/` - pages; `frontend/src/lib/api.ts` - API client
 - `schema.sql` + `migrations/` - DB shape; query via `se db`
 - Plans/handoffs at this root: GOAL.md, HANDOFF.md (one file, no dated copies)
-- Planning notes (not code): `~/Desktop/Agent Vault/Projects/storyengine/`
+- Canonical local project: `/Users/ryanayler/AgentVault/Projects/story-engine/`
 
 ## Hard rules
 

@@ -1,0 +1,36 @@
+{
+  "release": "6a590ed4c9d91d47c0d513551b7ad1d48cb1c716",
+  "previous_release": "270cf80f076b572a5a9e3996f8f5276c06b93125",
+  "deployment": "dvsu-channel-contract-20260917",
+  "deployed_at_utc": "2026-09-17T14:21:34Z",
+  "scope": [
+    "backend/factual_machine_summary.py",
+    "backend/script_research_packet.py",
+    "backend/tests/test_dvsu_script_writer.py",
+    "backend/tests/test_automatic_evidence_handoff.py",
+    "frontend/src/lib/api.ts",
+    "frontend/src/lib/machine-preview-recovery.ts",
+    "frontend/src/lib/machine-preview-recovery.test.ts"
+  ],
+  "validation": {
+    "backend": "100 passed, 1 dependency warning",
+    "frontend": "11 checks passed; TypeScript and production build passed",
+    "paid_canary": false,
+    "database_writes": false,
+    "production_script_promotion": false
+  },
+  "health": {
+    "backend": "active",
+    "worker": "active with commit parity",
+    "frontend_http": 200,
+    "api": "healthy",
+    "active_work": 0,
+    "drain": "normal",
+    "deploy_lock": "clear"
+  },
+  "public_asset": {
+    "url": "https://storyengine.dev/_next/static/chunks/5658-06b62f458d380b36.js",
+    "sha256": "848f206a47ee4e118173ab09f53f745b90ad6441a5bd2d4f6a4bc1c066bbdab1",
+    "marker": "Machine preview recovery baseline is ambiguous"
+  }
+}

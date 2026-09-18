@@ -1,0 +1,12 @@
+2026-09-17 reliability-tasks local verification
+
+Command:
+cd backend && ./venv/bin/python -m pytest tests/test_task_store_ownership.py tests/test_machine_preview_jobs.py tests/functional/test_c16d_task_store_job_id_conflict.py -q
+
+Result: 19 passed, 1 warning in 0.39s.
+The warning is Starlette's multipart PendingDeprecationWarning from an existing route test.
+
+Evidence covered: full tenant/video/task/job scoping (including NULL job identity),
+strict preview-start persistence before executor invocation, typed source-discovery
+error marker removal plus bounded result details, terminal CAS behavior, and exact
+generation-claim owner release.

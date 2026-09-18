@@ -1,0 +1,154 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-run-all-reliability","changed_at":"2026-09-17 20:08:09.100353+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T20:08:09.239531+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-run-all-reliability","changed_at":"2026-09-17 20:08:09.100353+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T20:08:09.552487+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-run-all-reliability","changed_at":"2026-09-17 20:08:09.100353+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T20:08:14.583771+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   9e77c2cb4..fce298f8b  main       -> origin/main
+Updating 9e77c2cb4..fce298f8b
+Fast-forward
+ .../shared/clients/anthropic_client.py             |  19 +-
+ storyengine/backend/dvsu_research_handoff.py       |   4 +-
+ storyengine/backend/dvsu_script_brief.py           |  21 +-
+ storyengine/backend/dvsu_script_operations.py      |  64 ++++
+ storyengine/backend/factual_machine_pipeline.py    | 143 +++-----
+ storyengine/backend/factual_machine_summary.py     |  62 +---
+ storyengine/backend/factual_source_search.py       | 385 +++++++++++++++++++--
+ storyengine/backend/machine_preview_jobs.py        |  46 ++-
+ .../migrations/161_source_discovery_operations.sql |  15 +
+ .../migrations/162_dvsu_script_operations.sql      |  17 +
+ storyengine/backend/pipeline_executor.py           | 118 ++++---
+ storyengine/backend/source_discovery_journal.py    |  78 +++++
+ storyengine/backend/task_store.py                  |  66 +++-
+ .../functional/test_factual_machine_pipeline.py    |  92 ++---
+ .../functional/test_kie_factual_source_search.py   |  49 ++-
+ .../backend/tests/test_anthropic_no_resubmit.py    | 127 +++++++
+ .../backend/tests/test_dvsu_global_handoff.py      |  28 +-
+ .../backend/tests/test_dvsu_research_handoff.py    |  10 +-
+ .../backend/tests/test_dvsu_role_quality.py        |   5 +-
+ .../backend/tests/test_dvsu_run_all_replay.py      | 215 ++++++++++++
+ .../tests/test_dvsu_saved_evidence_replay.py       |  97 ++++++
+ .../backend/tests/test_dvsu_script_brief.py        |  40 ++-
+ .../backend/tests/test_dvsu_script_operations.py   |  74 ++++
+ .../backend/tests/test_dvsu_script_writer.py       |  63 ++--
+ .../backend/tests/test_dvsu_voice_artifact_gate.py | 102 ++++++
+ .../backend/tests/test_machine_preview_jobs.py     |  57 +++
+ .../backend/tests/test_source_discovery_journal.py |  66 ++++
+ .../tests/test_source_discovery_reliability.py     | 236 +++++++++++++
+ .../backend/tests/test_task_store_ownership.py     | 134 +++++++
+ .../backend/tests/test_worker_source_failures.py   | 124 +++++++
+ storyengine/backend/worker.py                      |  63 +++-
+ .../dvsu-run-all-reliability/replay-fixtures.json  |   1 +
+ .../docs/dvsu-run-all-reliability/verify.sh        |   4 +
+ .../production/ScriptVoiceTab.factual.test.ts      |  12 +
+ .../src/components/production/ScriptVoiceTab.tsx   |  17 +-
+ storyengine/frontend/src/lib/api.ts                |  15 +-
+ storyengine/notes/dvsu-quality-law.md              |   4 +
+ 37 files changed, 2295 insertions(+), 378 deletions(-)
+ create mode 100644 storyengine/backend/dvsu_script_operations.py
+ create mode 100644 storyengine/backend/migrations/161_source_discovery_operations.sql
+ create mode 100644 storyengine/backend/migrations/162_dvsu_script_operations.sql
+ create mode 100644 storyengine/backend/source_discovery_journal.py
+ create mode 100644 storyengine/backend/tests/test_anthropic_no_resubmit.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_run_all_replay.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_saved_evidence_replay.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_script_operations.py
+ create mode 100644 storyengine/backend/tests/test_dvsu_voice_artifact_gate.py
+ create mode 100644 storyengine/backend/tests/test_source_discovery_journal.py
+ create mode 100644 storyengine/backend/tests/test_source_discovery_reliability.py
+ create mode 100644 storyengine/backend/tests/test_task_store_ownership.py
+ create mode 100644 storyengine/backend/tests/test_worker_source_failures.py
+ create mode 100644 storyengine/docs/dvsu-run-all-reliability/replay-fixtures.json
+ create mode 100755 storyengine/docs/dvsu-run-all-reliability/verify.sh
+code: 9e77c2cb4 -> fce298f8b
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=171 applied=169 pending=2
+pending 161_source_discovery_operations.sql
+pending 162_dvsu_script_operations.sql
+applying 161_source_discovery_operations.sql
+applying 162_dvsu_script_operations.sql
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 132116)
+worker code parity: commit=fce298f8b directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 18.8s
+  Running TypeScript ...
+  Finished TypeScript in 25.4s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 598ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed fce298f8b; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-run-all-reliability","changed_at":"2026-09-17 20:09:42.860700+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T20:09:42.998140+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-run-all-reliability","changed_at":"2026-09-17T20:09:42.860700+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":420,"limit":9000,"remaining":8580,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":14,"limit":100,"remaining":86},"units_used":420,"ceiling":9000,"remaining":8580}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T20:09:42Z dvsu-run-all-reliability deployed 9e77c2cb4 -> fce298f8b --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

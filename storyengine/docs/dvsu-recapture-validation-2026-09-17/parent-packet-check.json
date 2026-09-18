@@ -1,0 +1,17 @@
+{
+  "packet_utf8_bytes": 20276,
+  "claim_count": 12,
+  "diagnostics": {
+    "version": 1,
+    "rejected_claims": [
+      {
+        "index": 2,
+        "reason": "quote_mismatch"
+      }
+    ],
+    "raw_claim_count": 9,
+    "accepted_claim_count": 8
+  },
+  "provider_calls": 0,
+  "budget_tests_passed": 15
+}

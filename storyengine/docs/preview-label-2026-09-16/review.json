@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "round": 1,
+  "release": "7e6adc15105d6a5b90ae135330bf15fdce68c4b5",
+  "tests_passed": 98,
+  "deployed_at": "2026-09-16T22:44:23Z",
+  "readiness": {
+    "http_status": 200,
+    "status": "completed",
+    "ready": true,
+    "machine": "SS-1 USS Holland",
+    "scene": 1,
+    "summary": "Machine script preview is ready.",
+    "warnings": [],
+    "next_action": "run_machine_script_preview"
+  },
+  "production_script_unchanged": true,
+  "provider_generation_started": false,
+  "evidence": [
+    "tests.log",
+    "deploy.log",
+    "production-readback.txt",
+    "readiness-before.json",
+    "readiness-after.json",
+    "script-before.json",
+    "script-after.json"
+  ]
+}

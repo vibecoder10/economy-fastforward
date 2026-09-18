@@ -1,0 +1,28 @@
+{
+  "machine": "General Dynamics FB-111A Aardvark",
+  "source_fetches": [
+    {
+      "url": "https://www.sacmuseum.org/visit/exhibit/fb-111a-aardvark/",
+      "chars": 3424,
+      "excerpt_count": 6
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/1891240/USAFmuseum/fb-111a-sit-in-cockpit/",
+      "chars": 0,
+      "excerpt_count": 0
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Upcoming/Photos/igpage/60/igsort/Title/igtag/Bomber/?igcategory=Featured+Accessions",
+      "chars": 0,
+      "excerpt_count": 0
+    },
+    {
+      "url": "https://www.nationalmuseum.af.mil/Upcoming/Photos/igpage/62/igtag/Bomber/?igcategory=Memorial+Park",
+      "chars": 0,
+      "excerpt_count": 0
+    }
+  ],
+  "factual_card_excerpt_count": 6,
+  "warnings": [],
+  "production_write": false
+}

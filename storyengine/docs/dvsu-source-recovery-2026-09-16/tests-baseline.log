@@ -1,0 +1,660 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-I-49 HMS Argus-HMS Argus entered service in 1918.] _
+
+machine = 'I-49 HMS Argus', excerpt = 'HMS Argus entered service in 1918.'
+kie_receipt = False
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-Wittemann-Lewis XNBL-1 Barling Bomber-The XNBL-1 first flew in 1923.] _
+
+machine = 'Wittemann-Lewis XNBL-1 Barling Bomber'
+excerpt = 'The XNBL-1 first flew in 1923.', kie_receipt = False
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-North American AJ Savage-The AJ Savage was designed as a carrier-based bomber.] _
+
+machine = 'North American AJ Savage'
+excerpt = 'The AJ Savage was designed as a carrier-based bomber.'
+kie_receipt = False
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-I-49 HMS Argus-HMS Argus entered service in 1918.] _
+
+machine = 'I-49 HMS Argus', excerpt = 'HMS Argus entered service in 1918.'
+kie_receipt = True
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-Wittemann-Lewis XNBL-1 Barling Bomber-The XNBL-1 first flew in 1923.] _
+
+machine = 'Wittemann-Lewis XNBL-1 Barling Bomber'
+excerpt = 'The XNBL-1 first flew in 1923.', kie_receipt = True
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+_ test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-North American AJ Savage-The AJ Savage was designed as a carrier-based bomber.] _
+
+machine = 'North American AJ Savage'
+excerpt = 'The AJ Savage was designed as a carrier-based bomber.'
+kie_receipt = True
+
+    @pytest.mark.parametrize("machine,excerpt", [
+        (MACHINE, "HMS Argus entered service in 1918."),
+        ("Wittemann-Lewis XNBL-1 Barling Bomber", "The XNBL-1 first flew in 1923."),
+        ("North American AJ Savage", "The AJ Savage was designed as a carrier-based bomber."),
+    ])
+    @pytest.mark.parametrize("kie_receipt", [False, True])
+    def test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it(machine, excerpt, kie_receipt):
+        package = _package(_candidate(text=excerpt), machine=machine)
+        if kie_receipt:
+            package["source_discovery_requests"] = [
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-123", "credits_consumed": 0.32},
+                {"provider": "kie", "model": "gpt-5-2", "request_id": "search-124", "credits_consumed": 0.16},
+            ]
+        from factual_machine_summary import REVIEW_CONTEXT_VERSION
+        from machine_research_summary import saved_research_summary
+        card = factual.build_factual_evidence_card(machine, package)
+        sentence = excerpt
+        card["research_summary"] = saved_research_summary(machine, package, {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }, "Every British Carrier")
+        locked_roster = [machine] + [f"Pending factual machine {index}" for index in range(2, 21)]
+        payload = {
+            "machine_script_contract": factual.FACTUAL_MACHINE_SCRIPT_CONTRACT,
+            "unit_roster": locked_roster,
+            "machine_raw_source_packages": {pe._verified_source_cache_key(machine): package},
+            "unit_research_cards": [card],
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [
+                    {"machine": machine, "passed": False, "warnings": ["old Anton warning"]},
+                    {"machine": "Pending factual machine 2", "passed": False, "warnings": ["missing"]},
+                ],
+            },
+        }
+        executor = object.__new__(pe.PipelineExecutor)
+        executor.tenant_id = "tenant-1"
+        client = _assessment_client()
+        executor._pipeline = SimpleNamespace(anthropic=client)
+        calls = {"gather": 0, "raw": 0, "card": 0, "upsert": 0}
+    
+        async def load_cards(_self, _video_id, current_payload, _roster, target_machine=None):
+            return current_payload
+    
+        async def gather(_self, _title, _machine, _payload):
+            calls["gather"] += 1
+            raise AssertionError("valid factual cache should be reused despite legacy passed=False")
+    
+        async def checkpoint_raw(_self, *_args):
+            calls["raw"] += 1
+            return "UPDATE 1"
+    
+        async def checkpoint_card(_self, *_args):
+            calls["card"] += 1
+            return "UPDATE 1"
+    
+        async def upsert(_self, *_args):
+            calls["upsert"] += 1
+    
+        async def log(_self, *_args, **_kwargs):
+            return None
+    
+        executor._load_machine_research_cards = MethodType(load_cards, executor)
+        executor._gather_verified_machine_source_package = MethodType(gather, executor)
+        executor._checkpoint_machine_raw_source_package = MethodType(checkpoint_raw, executor)
+        executor._checkpoint_one_machine_research_result = MethodType(checkpoint_card, executor)
+        executor._upsert_machine_research_card = MethodType(upsert, executor)
+        executor._log_activity = MethodType(log, executor)
+    
+        generated = {
+            "passed": True,
+            "paragraph": sentence,
+            "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}],
+            "sources": [{"excerpt_id": "S1-E1", "source_url": "https://example.test/argus"}],
+            "review_context_version": REVIEW_CONTEXT_VERSION,
+        }
+        writer = AsyncMock(return_value=generated)
+        with patch("generation_ledger.record_ledger_entry", AsyncMock()) as ledger, \
+             patch("factual_machine_summary.generate_factual_machine_summary", writer):
+            result = asyncio.run(executor._run_unit_research_hold(
+                "video-1", "Every British Carrier", payload, locked_roster, target_machine=machine,
+            ))
+        assert ledger.await_count == (2 if kie_receipt else 0)
+        if kie_receipt:
+            assert [call.kwargs["kie_task_id"] for call in ledger.await_args_list] == ["search-123", "search-124"]
+            assert ledger.await_args_list[0].kwargs["actual_cost"] == pytest.approx(0.0016)
+    
+        assert calls == {"gather": 0, "raw": 2, "card": 1, "upsert": 1}
+        assert client.generate.await_count == 1
+        assert writer.await_count == 1
+        card = pe._research_card_for_machine(result, machine)
+        assert card["machine_research_contract"] == factual.FACTUAL_MACHINE_SCRIPT_CONTRACT
+        assert result["machine_raw_source_packages"][pe._verified_source_cache_key(machine)]["claim_assessment"]["status"] == "assessed"
+        assert card["claim_assessment"]["status"] == "assessed"
+>       assert result["unit_research_hold_validation"]["target_machine_passed"] is True
+E       assert False is True
+
+storyengine/backend/tests/functional/test_factual_machine_research.py:256: AssertionError
+=============================== warnings summary ===============================
+../../../Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-I-49 HMS Argus-HMS Argus entered service in 1918.]
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-Wittemann-Lewis XNBL-1 Barling Bomber-The XNBL-1 first flew in 1923.]
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[False-North American AJ Savage-The AJ Savage was designed as a carrier-based bomber.]
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-I-49 HMS Argus-HMS Argus entered service in 1918.]
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-Wittemann-Lewis XNBL-1 Barling Bomber-The XNBL-1 first flew in 1923.]
+FAILED storyengine/backend/tests/functional/test_factual_machine_research.py::test_targeted_factual_hold_assesses_small_cached_package_then_reuses_it[True-North American AJ Savage-The AJ Savage was designed as a carrier-based bomber.]
+6 failed, 12 deselected, 1 warning in 2.25s

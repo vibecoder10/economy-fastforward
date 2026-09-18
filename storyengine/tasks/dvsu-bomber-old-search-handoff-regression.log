@@ -1,0 +1,23 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_research_provider_limit_stops_before_roster_recovery ___________
+
+    def test_research_provider_limit_stops_before_roster_recovery():
+        message = "Tavily is out of credits. Add credits, then resume; completed research is saved."
+        statuses, advances, calls = _build(initial_status="idea_logged", factual_script_current=False, research_result={"status": "failed", "error": message})
+>       assert statuses[-1] == ("failed", message)
+E       assert ('failed', "'...ne_research'") == ('failed', 'T...ch is saved.')
+E         
+E         At index 1 diff: "'Executor' object has no attribute 'run_one_machine_research'" != 'Tavily is out of credits. Add credits, then resume; completed research is saved.'
+E         Use -v to get more diff
+
+backend/tests/functional/test_run_all_completion_errors.py:97: AssertionError
+=============================== warnings summary ===============================
+backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/economy-fastforward/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_run_all_completion_errors.py::test_research_provider_limit_stops_before_roster_recovery
+1 failed, 18 deselected, 1 warning in 0.27s

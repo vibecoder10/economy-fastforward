@@ -1,0 +1,25 @@
+{
+  "round": 1,
+  "status": "PASS",
+  "scope": "Read-only audit DoD, not implementation or production accuracy",
+  "reviewer": "Astra",
+  "workers": [
+    "Terra discovery",
+    "Terra judgment",
+    "Terra consumption"
+  ],
+  "checks": [
+    "Read all three maps",
+    "Checked core source behavior: factual confidence assignment; exact quotation gate; model reviewer; source discovery caps; cheap-first repairs; UI readiness; migration 153 identity",
+    "Executed synthetic conflicting-excerpts probe: two high confidence segments, zero research contract warnings",
+    "Corrected migration 081 vs 153 attribution in consumption map",
+    "Report separates legacy Anton and factual_100_v1; records existing adaptation and downstream review"
+  ],
+  "limits": [
+    "No provider calls",
+    "No production inspection or changes",
+    "No full test-suite execution",
+    "No measured factual error rate or calibrated probabilities"
+  ],
+  "output": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/REPORT.md"
+}

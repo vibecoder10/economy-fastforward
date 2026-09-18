@@ -1,0 +1,15 @@
+{
+  "round": 1,
+  "astra_review": "PASS for bounded source recovery repair",
+  "tests_final": "38 passed",
+  "tests_targeted": "18 passed (11 overlap final)",
+  "additional_functional": "12 passed; 6 failures reproduced unchanged at baseline cc9ee724b",
+  "baseline_evidence": "tests-baseline.log",
+  "source_recovery": "1152-character exact section recovered training",
+  "limits": [
+    "No live archive fallback proof: availability returned429 locally; mocked contract tests pass",
+    "No current claim assessment or new script acceptance",
+    "intended operational role still not established by recovered section"
+  ],
+  "no_paid_calls": true
+}

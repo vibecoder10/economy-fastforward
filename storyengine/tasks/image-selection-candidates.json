@@ -1,0 +1,67 @@
+{
+  "collected_at": "2026-09-15",
+  "scope": "public metadata only; no image downloads or provider calls",
+  "pages_used": 8,
+  "candidates": [
+    {
+      "vessel": "USS Albacore (AGSS-569)",
+      "angle": "underway, starboard-side/elevated view",
+      "source_page": "https://commons.wikimedia.org/wiki/File:USS_Albacore_(AGSS-569)_underway_off_Newport,_Rhode_Island_(USA),_on_11_March_1957_(80-G-K-22262).jpg",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/USS_Albacore_(AGSS-569)_underway_off_Newport,_Rhode_Island_(USA),_on_11_March_1957_(80-G-K-22262).jpg",
+      "caption": "The U.S. Navy submarine USS Albacore (AGSS-569) underway off Newport, Rhode Island, 11 March 1957.",
+      "dimensions": "739 x 554",
+      "named_vessel_evidence": "File description names USS Albacore (AGSS-569); source is U.S. Navy photo 80-G-K-22262 / Naval History & Heritage Command.",
+      "membership_evidence_url": null,
+      "membership_excerpt": null,
+      "missing_evidence": "No class-membership claim collected; Albacore is outside the requested Barbel-class membership set."
+    },
+    {
+      "vessel": "USS Albacore (AGSS-569)",
+      "angle": "museum exterior, port-side/broadside context",
+      "source_page": "https://commons.wikimedia.org/wiki/File:USS_Albacore_(AGSS-569),_Portsmouth,_NH.jpg",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/USS_Albacore_(AGSS-569),_Portsmouth,_NH.jpg",
+      "caption": "USS Albacore (AGSS-569), Portsmouth, NH; taken 26 September 2016.",
+      "dimensions": "2688 x 1520",
+      "named_vessel_evidence": "File title and description name USS Albacore (AGSS-569).",
+      "membership_evidence_url": null,
+      "membership_excerpt": null,
+      "missing_evidence": "No class-membership claim collected."
+    },
+    {
+      "vessel": "USS Barbel (SS-580)",
+      "angle": "launching view",
+      "source_page": "https://commons.wikimedia.org/wiki/File:USS_Barbel;0858005.jpg",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/USS_Barbel;0858005.jpg",
+      "caption": "Launching of USS Barbel (SS-580), 19 July 1958 at Portsmouth Naval Shipyard.",
+      "dimensions": "900 x 720",
+      "named_vessel_evidence": "Commons description names USS Barbel (SS-580).",
+      "membership_evidence_url": "https://www.history.navy.mil/research/histories/ship-histories/danfs/b/barbel-ii.html",
+      "membership_excerpt": "SS-580 ... class Barbel.",
+      "missing_evidence": "Only one distinct-angle file page was collected within the eight-page limit."
+    },
+    {
+      "vessel": "USS Blueback (SS-581)",
+      "angle": "underway side profile",
+      "source_page": "https://commons.wikimedia.org/wiki/File:USS_Blueback_(SS-581)_underway_c1981.jpg",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/USS_Blueback_(SS-581)_underway_c1981.jpg",
+      "caption": "The U.S. Navy submarine USS Blueback (SS-581) underway, circa 1981.",
+      "dimensions": "1662 x 401",
+      "named_vessel_evidence": "Commons description names USS Blueback (SS-581); source listed as U.S. Navy All Hands magazine, April 1981, p. 11.",
+      "membership_evidence_url": "https://www.history.navy.mil/research/histories/ship-histories/danfs/b/blueback-ii.html",
+      "membership_excerpt": "SS-581 ... cl. Barbel.",
+      "missing_evidence": "A Commons category lists further files, but no second distinct file page was collected within the eight-page limit."
+    },
+    {
+      "vessel": "USS Bonefish (SS-582)",
+      "angle": "port-side underway aerial view",
+      "source_page": "https://commons.wikimedia.org/wiki/File:USS_Bonefish;0858205.jpg",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/USS_Bonefish;0858205.jpg",
+      "caption": "Port side view of USS Bonefish (SS-582) during WESTPAC, 1980-1981; underway in Subic Bay, Philippines.",
+      "dimensions": "800 x 563",
+      "named_vessel_evidence": "Commons description names USS Bonefish (SS-582).",
+      "membership_evidence_url": "https://www.history.navy.mil/research/histories/ship-histories/danfs/b/bonefish-ii.html",
+      "membership_excerpt": "SS-582 ... cl. Barbel.",
+      "missing_evidence": "NHHC text names a 7 July 1969 underway photo (USN 1140662), but no separate file page was collected for a second angle."
+    }
+  ]
+}

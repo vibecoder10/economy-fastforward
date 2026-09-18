@@ -1,0 +1,288 @@
+{
+  "before": "docs/plunger-readiness-2026-09-17/live-before.json",
+  "after": "docs/plunger-purpose-2026-09-17/live-after-g2-flat.json",
+  "unchanged": true,
+  "errors": [],
+  "unavailable_fields": [
+    "script_hash",
+    "validation_hash"
+  ],
+  "title": "Every US Submarine Class Ever Built (2026)",
+  "title_source": "video_title",
+  "packages": [
+    {
+      "key": "SS1",
+      "machine": "SS-1 USS Holland",
+      "ready": true,
+      "preparation_candidate": false,
+      "missing_fields": [],
+      "legacy_explicit_role_claims": 10
+    },
+    {
+      "key": "SS2",
+      "machine": "SS-2 USS Plunger",
+      "ready": true,
+      "preparation_candidate": false,
+      "missing_fields": [],
+      "legacy_explicit_role_claims": 10
+    },
+    {
+      "key": "SS105",
+      "machine": "SS-105 USS S-1",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS163",
+      "machine": "SS-163 USS Barracuda",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS212",
+      "machine": "SS-212 USS Gato",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS285",
+      "machine": "SS-285 USS Balao",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS417",
+      "machine": "SS-417 USS Tench",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS563",
+      "machine": "SS-563 USS Tang",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS580",
+      "machine": "SS-580 USS Barbel",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN21",
+      "machine": "SSN-21 USS Seawolf",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN571",
+      "machine": "SSN-571 USS Nautilus",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN585",
+      "machine": "SSN-585 USS Skipjack",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN593",
+      "machine": "SSN-593 USS Thresher",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN637",
+      "machine": "SSN-637 USS Sturgeon",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN688",
+      "machine": "SSN-688 USS Los Angeles",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN774",
+      "machine": "SSN-774 USS Virginia",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "AGSS569",
+      "machine": "AGSS-569 USS Albacore",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN598",
+      "machine": "SSBN-598 USS George Washington",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN608",
+      "machine": "SSBN-608 USS Ethan Allen",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN616",
+      "machine": "SSBN-616 USS Lafayette",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    }
+  ],
+  "ready_count": 2,
+  "preparation_candidate_count": 18,
+  "preparation_candidate_note": "Package-only preparation candidates; API base gates are untested by this audit.",
+  "ss2_preview": {
+    "word_count": 96,
+    "passed": true,
+    "factual_passed": true,
+    "support_audit": [
+      {
+        "sentence": "Developed from the original Holland design, the A-class submarines were intended for port defense, with their crews living ashore or aboard tenders.",
+        "supported": true,
+        "explanation": "E5e8799ff4e522cdc7472 states 'These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.' This directly supports all clauses: development from Holland, port defense intent, and crew living arrangements.",
+        "unsupported_claims": []
+      },
+      {
+        "sentence": "USS Plunger, SS-2, embodied this concept through single hull construction, its pressure hull wrapped around frames with tankage inside, and armed with a single torpedo tube.",
+        "supported": true,
+        "explanation": "E556ba07641c942e87679 states 'A-1 illustrates typical single hull construction. The pressure hull is wrapped around the frames, and any tankage is inside.' Plunger was A-1/SS-2, so this applies. E29d8aa1af0a534717367 and E06a111b4020e2630d219 confirm 'one 18\" torpedo tube' supporting 'single torpedo tube.' The phrase 'embodied this concept' is a reasonable paraphrase linking the class design to this specific vessel.",
+        "unsupported_claims": []
+      },
+      {
+        "sentence": "After commissioning, Plunger ran test dives and conducted experimental work on machinery, armaments, and tactics.",
+        "supported": true,
+        "explanation": "E81afe3c9079681916795 states 'She ran test dves and did experimental work on machinery, armaments, and tseties' (OCR errors for 'dives' and 'tactics'). This directly supports all clauses.",
+        "unsupported_claims": []
+      },
+      {
+        "sentence": "She also trained her own crew and those of other submarines nearing completion, extending her influence beyond a single hull.",
+        "supported": true,
+        "explanation": "E4b8cc08a32901b5d66e5 states 'Perhaps her greatest contribution was training her own crew and those of other submarines nearing completion.' The phrase 'extending her influence beyond a single hull' is a stylistic interpretation of training crews for other submarines, which is supported by the quote.",
+        "unsupported_claims": []
+      },
+      {
+        "sentence": "A defender by design, a teacher in practice, a target by final assignment.",
+        "supported": true,
+        "explanation": "'Defender by design' is supported by E5e8799ff4e522cdc7472 stating port defense intent. 'Teacher in practice' is supported by E4b8cc08a32901b5d66e5 on training crews. 'Target by final assignment' is supported by E4473c24d811765f78167 and E525ef003adc4b23d945a stating 'Authorized as an experimental target, designated Target E, 29 August 1916.'",
+        "unsupported_claims": []
+      }
+    ],
+    "editorial_review": {
+      "checks": {
+        "verdict": true,
+        "actual_use": true,
+        "consequence": true,
+        "spoken_style": true,
+        "design_intent": true,
+        "gap_or_supported_substitute": true
+      },
+      "issues": [],
+      "passed": true,
+      "version": 1
+    }
+  }
+}

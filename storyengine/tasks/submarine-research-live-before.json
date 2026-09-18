@@ -1,0 +1,219 @@
+{
+  "id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "status": "idea_logged",
+  "max_spend": null,
+  "total_cost": 0.018500000000000003,
+  "contract": "factual_100_v1",
+  "roster": [
+    {
+      "name": "USS Holland",
+      "role": "First commissioned US Navy submarine",
+      "years": "1900",
+      "source": "https://www.history.navy.mil/our-collections/photography/us-navy-ships/alphabetical-listing/h/uss-holland--submarine-torpedo-boat--1-0.html",
+      "status": "production",
+      "class_name": "Holland class",
+      "built_count": "1 submarine in class",
+      "designation": "SS-1"
+    },
+    {
+      "name": "USS Plunger",
+      "role": "Early submarine development, lead ship of class",
+      "years": "1903",
+      "source": "https://en.wikipedia.org/wiki/USS_Plunger_(SS-2)",
+      "status": "production",
+      "class_name": "Plunger class",
+      "built_count": "7 submarines in class",
+      "designation": "SS-2"
+    },
+    {
+      "name": "USS S-1",
+      "role": "First of largest interwar submarine class",
+      "years": "1920",
+      "source": "https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm",
+      "status": "production",
+      "class_name": "S-class",
+      "built_count": "51 submarines in class",
+      "designation": "SS-105"
+    },
+    {
+      "name": "USS Barracuda",
+      "role": "First V-boat fleet submarine",
+      "years": "1924",
+      "source": "http://www.navsource.org/archives/08/08163.htm",
+      "status": "production",
+      "class_name": "Barracuda (V-1) class",
+      "built_count": "3 submarines in class",
+      "designation": "SS-163"
+    },
+    {
+      "name": "USS Gato",
+      "role": "Lead ship of primary WWII fleet submarine class",
+      "years": "1941",
+      "source": "https://en.wikipedia.org/wiki/USS_Gato_(SS-212)",
+      "status": "production",
+      "class_name": "Gato class",
+      "built_count": "77 submarines in class",
+      "designation": "SS-212"
+    },
+    {
+      "name": "USS Balao",
+      "role": "Lead ship of improved WWII fleet submarine with deeper diving depth",
+      "years": "1943",
+      "source": "https://www.history.navy.mil/content/history/museums/nmusn/explore/photography/ships-us/ships-usn-b/uss-balao-ss-285.html",
+      "status": "production",
+      "class_name": "Balao class",
+      "built_count": "120 submarines in class",
+      "designation": "SS-285"
+    },
+    {
+      "name": "USS Tench",
+      "role": "Lead ship of late WWII/post-WWII fleet submarine",
+      "years": "1944",
+      "source": "https://www.history.navy.mil/research/histories/ship-histories/danfs/t/tench.html",
+      "status": "production",
+      "class_name": "Tench class",
+      "built_count": "29 submarines commissioned in class",
+      "designation": "SS-417"
+    },
+    {
+      "name": "USS Tang",
+      "role": "Lead ship of first purpose-built post-WWII diesel-electric attack submarine class",
+      "years": "1951",
+      "source": "https://en.wikipedia.org/wiki/USS_Tang_(SS-563)",
+      "status": "production",
+      "class_name": "Tang class",
+      "built_count": "6 submarines in class",
+      "designation": "SS-563"
+    },
+    {
+      "name": "USS Albacore",
+      "role": "Experimental research submarine testing teardrop hull",
+      "years": "1953",
+      "source": "https://en.wikipedia.org/wiki/USS_Albacore_(AGSS-569)",
+      "status": "production",
+      "class_name": "Albacore (experimental)",
+      "built_count": "1 submarine",
+      "designation": "AGSS-569"
+    },
+    {
+      "name": "USS Barbel",
+      "role": "Lead ship of last US diesel-electric attack submarine class",
+      "years": "1959",
+      "source": "https://www.globalsecurity.org/military/systems/ship/ss-580.htm",
+      "status": "production",
+      "class_name": "Barbel class",
+      "built_count": "3 submarines in class",
+      "designation": "SS-580"
+    },
+    {
+      "name": "USS Nautilus",
+      "role": "First nuclear-powered submarine",
+      "years": "1954",
+      "source": "https://www.history.navy.mil/browse-by-topic/ships/submarines/uss-nautilus.html",
+      "status": "production",
+      "class_name": "Nautilus (unique)",
+      "built_count": "1 submarine",
+      "designation": "SSN-571"
+    },
+    {
+      "name": "USS Skipjack",
+      "role": "Lead ship of first high-speed nuclear attack submarine with teardrop hull",
+      "years": "1959",
+      "source": "https://en.wikipedia.org/wiki/Skipjack-class_submarine",
+      "status": "production",
+      "class_name": "Skipjack class",
+      "built_count": "6 submarines in class",
+      "designation": "SSN-585"
+    },
+    {
+      "name": "USS Thresher",
+      "role": "Lead ship of quieter deep-diving nuclear attack submarine class",
+      "years": "1961",
+      "source": "https://en.wikipedia.org/wiki/Permit-class_submarine",
+      "status": "production",
+      "class_name": "Thresher/Permit class",
+      "built_count": "14 submarines in class",
+      "designation": "SSN-593"
+    },
+    {
+      "name": "USS Sturgeon",
+      "role": "Lead ship of long-range Cold War nuclear attack submarine class",
+      "years": "1967",
+      "source": "https://en.wikipedia.org/wiki/Sturgeon-class_submarine",
+      "status": "production",
+      "class_name": "Sturgeon class",
+      "built_count": "37 submarines in class",
+      "designation": "SSN-637"
+    },
+    {
+      "name": "USS Los Angeles",
+      "role": "Lead ship of most numerous nuclear attack submarine class",
+      "years": "1976",
+      "source": "https://en.wikipedia.org/wiki/Los_Angeles-class_submarine",
+      "status": "production",
+      "class_name": "Los Angeles class",
+      "built_count": "62 submarines in class",
+      "designation": "SSN-688"
+    },
+    {
+      "name": "USS Seawolf",
+      "role": "Lead ship of advanced high-speed quiet nuclear attack submarine class",
+      "years": "1997",
+      "source": "https://en.wikipedia.org/wiki/Seawolf-class_submarine",
+      "status": "production",
+      "class_name": "Seawolf class",
+      "built_count": "3 submarines in class",
+      "designation": "SSN-21"
+    },
+    {
+      "name": "USS Virginia",
+      "role": "Lead ship of current production nuclear attack submarine class",
+      "years": "2004",
+      "source": "https://www.navytimes.com/news/your-navy/2026/04/27/us-navy-commissions-newest-virginia-class-submarine-uss-idaho/",
+      "status": "production",
+      "class_name": "Virginia class",
+      "built_count": "26 submarines commissioned as of April 2026",
+      "designation": "SSN-774"
+    },
+    {
+      "name": "USS George Washington",
+      "role": "Lead ship of first nuclear-powered ballistic missile submarine class",
+      "years": "1959",
+      "source": "https://www.history.navy.mil/content/history/museums/nmusn/explore/photography/ships-us/ships-usn-g/uss-george-washington-ssbn-598.html",
+      "status": "production",
+      "class_name": "George Washington class",
+      "built_count": "5 submarines in class",
+      "designation": "SSBN-598"
+    },
+    {
+      "name": "USS Ethan Allen",
+      "role": "Lead ship of second-generation ballistic missile submarine class",
+      "years": "1961",
+      "source": "https://en.wikipedia.org/wiki/Ethan_Allen-class_submarine",
+      "status": "production",
+      "class_name": "Ethan Allen class",
+      "built_count": "5 submarines in class",
+      "designation": "SSBN-608"
+    },
+    {
+      "name": "USS Lafayette",
+      "role": "Lead ship of largest Cold War ballistic missile submarine class",
+      "years": "1963",
+      "source": "https://en.wikipedia.org/wiki/Lafayette-class_submarine",
+      "status": "production",
+      "class_name": "Lafayette class",
+      "built_count": "31 submarines in class (includes subvariants)",
+      "designation": "SSBN-616"
+    }
+  ],
+  "cards": null,
+  "source_package_keys": [],
+  "images": {
+    "total": 20,
+    "status": "completed",
+    "missing": [],
+    "version": 1,
+    "verified": 20,
+    "roster_fingerprint": "c03bd4eb3ff83480d61de6207c00e26127642cdfcd01472ea00bcab04b0bd838"
+  }
+}

@@ -1,0 +1,111 @@
+    sources: list[dict] = []
+    source_keys: set[tuple[str, str]] = set()
+
+    if not paragraph:
+        warnings.append("Paragraph is required.")
+    if _word_count(paragraph) > MAX_WORDS:
+        warnings.append(f"Paragraph exceeds the {MAX_WORDS}-word hard cap; rewrite it without truncation.")
+    if paragraph and minimum_words and _word_count(paragraph) < minimum_words:
+        warnings.append(f"Paragraph is below the {minimum_words}-word hard floor; rewrite it with supported facts.")
+    if paragraph and not candidate_mentions_machine(paragraph, machine):
+        warnings.append(f"Paragraph does not name the exact locked machine {machine}.")
+
+    paragraph_sentences = _sentences(paragraph)
+    # Exact ordered coverage is stronger than abbreviation heuristics.
+    if isinstance(raw_claim_map, list) and raw_claim_map:
+        mapped_parts = [_compact(row.get("sentence")) for row in raw_claim_map if isinstance(row, dict)]
+        if len(mapped_parts) == len(raw_claim_map) and all(mapped_parts) and " ".join(mapped_parts) == paragraph:
+            paragraph_sentences = mapped_parts
+    if not isinstance(raw_claim_map, list) or not raw_claim_map:
+        warnings.append("Every sentence needs a claim_map row with evidence.")
+        raw_claim_map = []
+
+    mapped_sentences: list[str] = []
+    normalized_rows: list[dict] = []
+    for index, row in enumerate(raw_claim_map, start=1):
+        if not isinstance(row, dict):
+            warnings.append(f"claim_map row {index} must be an object.")
+            continue
+        sentence = _compact(row.get("sentence"))
+        if sentence not in paragraph_sentences:
+            warnings.append(f"claim_map row {index} sentence is not an exact sentence in the paragraph.")
+        else:
+            mapped_sentences.append(sentence)
+        citations = row.get("citations")
+        if not isinstance(citations, list) or not citations:
+            warnings.append(f"claim_map row {index} needs at least one citation.")
+            citations = []
+        normalized_citations: list[dict] = []
+        cited_text: list[str] = []
+        corroborating_hosts: set[str] = set()
+        authoritative_record = False
+        for citation_index, citation in enumerate(citations, start=1):
+            if not isinstance(citation, dict):
+                warnings.append(f"claim_map row {index} citation {citation_index} must be an object.")
+                continue
+            excerpt_id = _compact(citation.get("excerpt_id"))
+            quote = str(citation.get("quote") or "")
+            candidate = candidates.get(excerpt_id)
+            if candidate is None:
+                warnings.append(f"claim_map row {index} cites unknown or wrong-machine excerpt {excerpt_id or '(missing)'}.")
+                continue
+            candidate_text = str(candidate.get("text") or "")
+            # New drafts select locked excerpt IDs; code supplies source text.
+            # Explicit quotations from old saved drafts still require exact matching.
+            if "quote" not in citation:
+                quote = candidate_text
+            if not quote or quote not in candidate_text:
+                warnings.append(
+                    f"claim_map row {index} citation {excerpt_id} quote is not an exact substring of the fetched excerpt."
+                )
+                continue
+            provenance = {
+                "excerpt_id": excerpt_id,
+                "source_id": _compact(candidate.get("source_id")),
+                "source_title": _compact(candidate.get("source_title")),
+                "source_url": _compact(candidate.get("source_url")),
+                "locator": _compact(candidate.get("locator") or excerpt_id),
+                "quote": quote,
+                "source_capture_method": _compact(candidate.get("source_capture_method")),
+            }
+            normalized_citations.append(provenance)
+            cited_text.append(quote)
+            if _requires_record_corroboration(quote):
+                host = (urlparse(provenance["source_url"]).hostname or "").lower().removeprefix("www.")
+                if host:
+                    corroborating_hosts.add(host)
+                authoritative_record = authoritative_record or str(candidate.get("source_tier")) in {"1", "2"}
+            source_key = (excerpt_id, quote)
+            if source_key not in source_keys:
+                sources.append(dict(provenance))
+                source_keys.add(source_key)
+        if sentence and cited_text:
+            unsupported_numbers = sorted(_numeric_keys(sentence, machine) - _numeric_keys(" ".join(cited_text), machine))
+            if unsupported_numbers:
+                warnings.append(
+                    f"claim_map row {index} introduced unsupported numerical detail(s): "
+                    + ", ".join(unsupported_numbers)
+                )
+            if (_requires_record_corroboration(sentence)
+                    and not authoritative_record and len(corroborating_hosts) < 2):
+                uncorroborated_sentences.append(sentence)
+                warnings.append(
+                    f"claim_map row {index} historical record or class construction count lacks independent corroboration. "
+                    "Remove the optional record/count qualification while retaining supported ordinary facts, "
+                    "or cite a primary/museum record or two distinct source hosts supporting the same claim."
+                )
+        normalized = {"sentence": sentence, "citations": normalized_citations}
+        if isinstance(row.get("fact_ids"), list):
+            normalized["fact_ids"] = list(row["fact_ids"])
+        normalized_rows.append(normalized)
+
+    if paragraph_sentences and (
+        len(mapped_sentences) != len(paragraph_sentences)
+        or sorted(mapped_sentences) != sorted(paragraph_sentences)
+    ):
+        warnings.append("claim_map must cover every paragraph sentence exactly once.")
+    draft["claim_map"] = normalized_rows
+    if uncorroborated_sentences:
+        draft["uncorroborated_record_sentences"] = uncorroborated_sentences
+    return draft, list(dict.fromkeys(warnings)), sources
+

@@ -1,0 +1,79 @@
+{
+  "reviewed_at": "2026-09-16T20:28:48.049459+00:00",
+  "input": "tasks/named-machine-image-live-latest.json",
+  "scope": "Receipt-only source review for roster indices 10-19; no network or provider calls.",
+  "result": "All ten later submarine selections have direct caption support or cited-context disambiguation. One caption omits its hull number; its cited article context resolves the target.",
+  "entries": [
+    {
+      "target": "SSN-571 USS Nautilus",
+      "source": "https://commons.wikimedia.org/wiki/File:SS-571-Nautilus-trials.gif",
+      "image_caption": "USS Nautilus (SS-571), the U.S. Navy's first nucelar-powered submarine, on its initial sea trials, 10 January 1955.",
+      "support": "direct name and hull",
+      "limits": ["top-down view", "GIF resolution", "lower hull not visible"]
+    },
+    {
+      "target": "SSN-585 USS Skipjack",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_Skipjack_(SSN-585)_underway,_circa_in_the_1970s.jpg",
+      "image_caption": "The U.S. Navy submarine USS Skipjack (SSN-585) underway, circa in the 1970s.",
+      "support": "direct name and hull",
+      "limits": ["bow wave obscures lower hull", "thumbnail resolution", "slight foreshortening"]
+    },
+    {
+      "target": "SSN-593 USS Thresher",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_Thresher;0859306.jpg",
+      "image_caption": "USS Thresher (SSN-593), starboard quarter view, taken while the submarine was underway on 30 April 1961.",
+      "support": "direct name and hull",
+      "limits": ["water obscures lower hull and stern planes", "aerial foreshortening", "small image"]
+    },
+    {
+      "target": "SSN-637 USS Sturgeon",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_STURGEON_(SSN-637)_underway_off_Long_Island,_N.Y.jpeg",
+      "image_caption": "A starboard bow view of the nuclear-powered attack submarine USS STURGEON (SSN-637) underway off Long Island, N.Y.",
+      "support": "direct name and hull",
+      "limits": ["aft hull and control surfaces hidden", "surface wash", "aerial foreshortening"]
+    },
+    {
+      "target": "SSN-688 USS Los Angeles",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_Los_Angeles;0868802.jpg",
+      "image_caption": "USS Los Angeles, lead boat of the class.",
+      "support": "caption names USS Los Angeles but omits hull; cited article context identifies USS Los Angeles (SSN-688), lead ship of her class",
+      "exception": "caption-only hull omission; resolved by cited context, not filename",
+      "limits": ["heavy wake obscures lower hull and stern", "aerial foreshortening", "bow spray"]
+    },
+    {
+      "target": "SSN-21 USS Seawolf",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_Seawolf_(SSN-21)_(21274044216).jpg",
+      "image_caption": "The U.S. Navy’s newest attack submarine, USS Seawolf (SSN 21), conducts Bravo sea trials off the coast of Connecticut in preparation for its scheduled commissioning in July 1997.",
+      "support": "direct name and hull",
+      "limits": ["partial hull", "bow wave", "aerial foreshortening"]
+    },
+    {
+      "target": "SSN-774 USS Virginia",
+      "source": "https://commons.wikimedia.org/wiki/File:US_Navy_040730-N-1234E-002_PCU_Virginia_(SSN_774)_returns_to_the_General_Dynamics_Electric_Boat_shipyard.jpg",
+      "image_caption": "PCU Virginia (SSN 774) returns to the General Dynamics Electric Boat shipyard following the successful completion of its first voyage in open seas called alpha sea trials.",
+      "support": "direct name and hull; PCU is the pre-commissioning designation, not a different submarine",
+      "limits": ["mostly submerged hull", "bow wash", "stern planes unclear"]
+    },
+    {
+      "target": "SSBN-598 USS George Washington",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_George_Washington_(SSBN-598)_underway_at_sea,_circa_in_the_1970s.jpg",
+      "image_caption": "The U.S. Navy ballistic missile submarine USS George Washington (SSBN-598) underway, circa in the 1970s.",
+      "support": "direct name and hull",
+      "limits": ["lower hull submerged", "stern and propeller hidden", "film grain"]
+    },
+    {
+      "target": "SSBN-608 USS Ethan Allen",
+      "source": "https://commons.wikimedia.org/wiki/File:USSEthanAllenSSBN-608.jpg",
+      "image_caption": "USS Ethan Allen (SSBN-608)",
+      "support": "direct name and hull",
+      "limits": ["bow unclear", "stern obscured", "moderate resolution"]
+    },
+    {
+      "target": "SSBN-616 USS Lafayette",
+      "source": "https://commons.wikimedia.org/wiki/File:USS_Lafayette_SSBN-616.jpg",
+      "image_caption": "A starboard bow view of the nuclear-powered strategic missile submarine USS LAFAYETTE (SSBN-616) underway.",
+      "support": "direct name and hull",
+      "limits": ["stern and planes hidden", "lower hull submerged", "aft missile deck partly hidden"]
+    }
+  ]
+}

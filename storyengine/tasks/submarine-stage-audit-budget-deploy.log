@@ -1,0 +1,35 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15 19:53:26.233351+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:53:26.482360+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15 19:53:26.233351+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:53:26.802413+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15 19:53:26.233351+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:53:31.833830+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   40deebbf1..c798a0c1c  main       -> origin/main
+Updating 40deebbf1..c798a0c1c
+Fast-forward
+ storyengine/backend/roster_coverage.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+code: 40deebbf1 -> c798a0c1c
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3325391)
+worker code parity: commit=c798a0c1c directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed c798a0c1c; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15 19:53:50.818775+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:53:50.958046+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-audit-budget","changed_at":"2026-09-15T19:53:50.818775+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":440,"limit":9000,"remaining":8560,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":13,"limit":100,"remaining":87},"units_used":440,"ceiling":9000,"remaining":8560}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T19:53:50Z submarine-audit-budget deployed 40deebbf1 -> c798a0c1c 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

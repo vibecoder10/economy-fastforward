@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-12",
+  "release": "bcd4f65c66c1a4e9d5afecf87ea998f05dfe6054",
+  "deploy_exit_code": 0,
+  "migration_159_applied": true,
+  "backend_healthy": true,
+  "worker_pid": 1817991,
+  "worker_release_matches": true,
+  "frontend_build_passed": true,
+  "frontend_http_status": 200,
+  "drain": "normal",
+  "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+  "queue_id": "acc28406-2899-47c0-a8b0-5d5673bf1e93",
+  "video_id": "3f902e62-3ffa-4472-baf4-d0dfe9a20e49",
+  "database_readback": {
+    "paused": true,
+    "provider": "Anthropic",
+    "reason": "Anthropic needs credits before production can continue. Add credits, then resume this list.",
+    "resume_count": 0,
+    "status": "failed",
+    "attempt_count": 1,
+    "active_tasks": 0
+  },
+  "browser_readback": {
+    "url": "https://storyengine.dev/calendar",
+    "production_paused_visible": true,
+    "resume_control_visible": true,
+    "individual_retry_disabled": true,
+    "title_input_empty": true
+  },
+  "checks": {
+    "backend_tests_passed": 169,
+    "frontend_tests_passed": 5,
+    "typescript_passed": true,
+    "isolated_postgres_proof": "tasks/dvsu-provider-pause-db-proof.json"
+  },
+  "paid_provider_calls_this_code_task": 0,
+  "production_resume_triggered": false,
+  "remaining_acceptance": "Funded original-video production, source and audiovisual review, delivery and actual subsequent-video progression."
+}

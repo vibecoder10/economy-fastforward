@@ -1,0 +1,70 @@
+{
+  "release": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "deployed_at_utc": "2026-09-16T22:32:37Z",
+  "approved_by_user": true,
+  "scope": "Six reviewed backend source/test files; no frontend change",
+  "origin_main": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "vps_checkout": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "production_source_hashes_match_tested_code": true,
+  "backend_worker_active": true,
+  "worker_parity_verified": true,
+  "api_health": {
+    "status": "healthy",
+    "service": "storyengine-api",
+    "database": true,
+    "active_tasks": 0,
+    "active_work": {
+      "background_tasks": 0,
+      "generation_claims": 0,
+      "total": 0
+    },
+    "drain": {
+      "mode": "normal",
+      "reason": "deploy command exited with status 0",
+      "owner": "deploy:dvsu-script-compiler-20260916",
+      "changed_at": "2026-09-16T22:32:37.569251+00:00",
+      "known": true,
+      "draining": false
+    },
+    "storage": true,
+    "queue": "arq",
+    "youtube_quota": {
+      "date_pt": "2026-09-16",
+      "general": {
+        "used": 210,
+        "limit": 9000,
+        "remaining": 8790,
+        "project_limit": 10000,
+        "configured_ceiling": 9000
+      },
+      "video_uploads": {
+        "used": 0,
+        "limit": 100,
+        "remaining": 100
+      },
+      "search_calls": {
+        "used": 7,
+        "limit": 100,
+        "remaining": 93
+      },
+      "units_used": 210,
+      "ceiling": 9000,
+      "remaining": 8790
+    }
+  },
+  "public_homepage_http": 200,
+  "deployment_lock_clear": true,
+  "generation_started": false,
+  "paid_provider_calls": 0,
+  "tests": "94 passing offline tests from reviewed exact source hashes",
+  "real_saved_packet_replay": "20/20; no provider generation",
+  "human_narration_acceptance": false,
+  "evidence": [
+    "deploy.log",
+    "production-readback.txt",
+    "public-health.json",
+    "final-tests.log",
+    "replay.json"
+  ],
+  "next": "Quote/authorize one representative script-only canary before full episode rerun"
+}

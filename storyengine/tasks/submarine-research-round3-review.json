@@ -1,0 +1,17 @@
+{
+  "round": 3,
+  "status": "PASS_LOCAL",
+  "backend_tests": 68,
+  "frontend_tests": 9,
+  "frontend_build": "passed",
+  "saved_replay": [
+    "Holland assessment replay validates 9 claims with zero provider calls",
+    "S-1 saved paragraph and claim_map exact sentence parity passes"
+  ],
+  "live_initial": {
+    "cards": 10,
+    "summaries_passed": 8,
+    "stop": "Kie source search returned no usable source list before Nautilus package saved"
+  },
+  "next": "Deploy bounded recovery, resume saved research; completed summaries reused, no source rediscovery for valid saved packages."
+}

@@ -1,0 +1,124 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-roster-stage","changed_at":"2026-09-15 19:27:20.326297+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:27:20.462258+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-roster-stage","changed_at":"2026-09-15 19:27:20.326297+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:27:20.795005+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-roster-stage","changed_at":"2026-09-15 19:27:20.326297+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:27:25.825051+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   6e5944030..f561ddf6d  main       -> origin/main
+Updating 6e5944030..f561ddf6d
+Fast-forward
+ SYSTEM_STATE.md                                    |   3 +
+ skills/video-pipeline/research/agent.py            |  45 +++-
+ storyengine/backend/actions.py                     |  88 ++++++-
+ storyengine/backend/pipeline_executor.py           | 292 ++++++++++++++++++++-
+ storyengine/backend/production_guide.py            |  13 +
+ storyengine/backend/roster_coverage.py             |  71 +++++
+ storyengine/backend/roster_selection.py            | 109 ++++++++
+ storyengine/backend/routes/pipeline.py             |  63 ++++-
+ .../functional/test_g8_roster_research_loop.py     |  62 +++++
+ .../tests/functional/test_roster_settings_stage.py |  90 +++++++
+ .../functional/test_run_all_research_resume.py     |  46 ++--
+ .../backend/tests/test_roster_stage_integration.py | 177 +++++++++++++
+ .../backend/tests/test_runtime_roster_selection.py |  67 +++++
+ storyengine/backend/worker.py                      |   5 +-
+ .../frontend/src/app/pipeline/[videoId]/page.tsx   |   1 +
+ .../src/components/production/ResearchTab.tsx      |  17 +-
+ .../src/components/production/RosterStagePanel.tsx | 106 ++++++--
+ .../components/production/StaticDocuStageRail.tsx  |  77 ++++--
+ storyengine/frontend/src/lib/api.ts                |   6 +
+ .../frontend/src/lib/static-docu-navigation.ts     |   6 +-
+ .../frontend/tests/research-stage-status.test.mjs  |  28 +-
+ storyengine/frontend/tests/roster-remove.test.mjs  |   5 +
+ 22 files changed, 1296 insertions(+), 81 deletions(-)
+ create mode 100644 storyengine/backend/roster_selection.py
+ create mode 100644 storyengine/backend/tests/functional/test_roster_settings_stage.py
+ create mode 100644 storyengine/backend/tests/test_roster_stage_integration.py
+ create mode 100644 storyengine/backend/tests/test_runtime_roster_selection.py
+code: 6e5944030 -> f561ddf6d
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3315759)
+worker code parity: commit=f561ddf6d directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+
+> frontend@1.0.0 build
+> next build --webpack
+
+▲ Next.js 16.2.1 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 24.5s
+  Running TypeScript ...
+  Finished TypeScript in 22.3s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/34) ...
+  Generating static pages using 3 workers (8/34) 
+  Generating static pages using 3 workers (16/34) 
+  Generating static pages using 3 workers (25/34) 
+✓ Generating static pages using 3 workers (34/34) in 740ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /activity
+├ ○ /analytics
+├ ○ /autopilot
+├ ○ /billing
+├ ○ /calendar
+├ ○ /chat
+├ ƒ /chat/[videoId]
+├ ○ /dashboard
+├ ○ /demo
+├ ○ /discovery
+├ ○ /docs
+├ ○ /forgot-password
+├ ○ /ideas
+├ ○ /learnings
+├ ○ /login
+├ ○ /onboarding
+├ ○ /pipeline
+├ ƒ /pipeline/[videoId]
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /profile
+├ ○ /render
+├ ○ /reset-password
+├ ○ /review
+├ ƒ /scene-control/[videoId]
+├ ○ /settings
+├ ○ /settings/agent-access
+├ ○ /settings/drive-callback
+├ ○ /settings/keys
+├ ○ /settings/youtube-callback
+├ ○ /system-prompts
+├ ○ /terms
+├ ○ /verify-email
+└ ○ /videos
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+frontend: activating
+frontend health: HTTP 200
+DONE — deployed f561ddf6d; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-roster-stage","changed_at":"2026-09-15 19:28:58.523265+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T19:28:58.660133+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-roster-stage","changed_at":"2026-09-15T19:28:58.523265+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":380,"limit":9000,"remaining":8620,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":11,"limit":100,"remaining":89},"units_used":380,"ceiling":9000,"remaining":8620}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T19:28:58Z submarine-roster-stage deployed 6e5944030 -> f561ddf6d --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

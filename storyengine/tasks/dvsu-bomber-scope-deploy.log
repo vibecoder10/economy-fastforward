@@ -1,0 +1,37 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-scope","changed_at":"2026-09-13 04:36:17.470834+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:36:17.604592+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-scope","changed_at":"2026-09-13 04:36:17.470834+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:36:17.979481+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-bomber-scope","changed_at":"2026-09-13 04:36:17.470834+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:36:23.010336+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   184dc4760..c12d3cb10  main       -> origin/main
+Updating 184dc4760..c12d3cb10
+Fast-forward
+ storyengine/backend/roster_coverage.py             | 28 ++++++++++++++++++----
+ .../tests/functional/test_roster_coverage.py       | 19 +++++++++++++++
+ .../functional/test_run_all_research_resume.py     |  5 ++--
+ 3 files changed, 46 insertions(+), 6 deletions(-)
+code: 184dc4760 -> c12d3cb10
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 2043116)
+worker code parity: commit=c12d3cb10 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed c12d3cb10; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-bomber-scope","changed_at":"2026-09-13 04:36:41.884193+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-13T04:36:42.031095+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-bomber-scope","changed_at":"2026-09-13T04:36:41.884193+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-12","general":{"used":749,"limit":9000,"remaining":8251,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":23,"limit":100,"remaining":77},"units_used":749,"ceiling":9000,"remaining":8251}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-13T04:36:41Z dvsu-bomber-scope deployed 184dc4760 -> c12d3cb10 
+== disk ==
+/dev/sda1       193G   53G  141G  28% /

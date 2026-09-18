@@ -1,0 +1,120 @@
+Sep 12 18:16:14 srv1318038 npm[1802109]: - Local:         http://localhost:3001
+Sep 12 18:16:14 srv1318038 npm[1802109]: - Network:       http://76.13.119.181:3001
+Sep 12 18:16:14 srv1318038 npm[1802109]: ✓ Ready in 211ms
+Sep 12 18:57:45 srv1318038 npm[1818533]: > frontend@1.0.0 start
+Sep 12 18:57:45 srv1318038 npm[1818533]: > next start --port 3001
+Sep 12 18:57:45 srv1318038 npm[1818545]: ▲ Next.js 16.2.1
+Sep 12 18:57:45 srv1318038 npm[1818545]: - Local:         http://localhost:3001
+Sep 12 18:57:45 srv1318038 npm[1818545]: - Network:       http://76.13.119.181:3001
+Sep 12 18:57:45 srv1318038 npm[1818545]: ✓ Ready in 146ms
+Sep 13 00:13:38 srv1318038 npm[1945348]: > frontend@1.0.0 start
+Sep 13 00:13:38 srv1318038 npm[1945348]: > next start --port 3001
+Sep 13 00:13:38 srv1318038 npm[1945360]: ▲ Next.js 16.2.1
+Sep 13 00:13:38 srv1318038 npm[1945360]: - Local:         http://localhost:3001
+Sep 13 00:13:38 srv1318038 npm[1945360]: - Network:       http://76.13.119.181:3001
+Sep 13 00:13:38 srv1318038 npm[1945360]: ✓ Ready in 174ms
+Sep 13 02:03:27 srv1318038 npm[1986790]: > frontend@1.0.0 start
+Sep 13 02:03:27 srv1318038 npm[1986790]: > next start --port 3001
+Sep 13 02:03:27 srv1318038 npm[1986802]: ▲ Next.js 16.2.1
+Sep 13 02:03:27 srv1318038 npm[1986802]: - Local:         http://localhost:3001
+Sep 13 02:03:27 srv1318038 npm[1986802]: - Network:       http://76.13.119.181:3001
+Sep 13 02:03:27 srv1318038 npm[1986802]: ✓ Ready in 153ms
+Sep 13 04:53:16 srv1318038 npm[2050383]: > frontend@1.0.0 start
+Sep 13 04:53:16 srv1318038 npm[2050383]: > next start --port 3001
+Sep 13 04:53:17 srv1318038 npm[2050403]: ▲ Next.js 16.2.1
+Sep 13 04:53:17 srv1318038 npm[2050403]: - Local:         http://localhost:3001
+Sep 13 04:53:17 srv1318038 npm[2050403]: - Network:       http://76.13.119.181:3001
+Sep 13 04:53:17 srv1318038 npm[2050403]: ✓ Ready in 173ms
+Sep 13 05:45:53 srv1318038 npm[2073052]: > frontend@1.0.0 start
+Sep 13 05:45:53 srv1318038 npm[2073052]: > next start --port 3001
+Sep 13 05:45:53 srv1318038 npm[2073068]: ▲ Next.js 16.2.1
+Sep 13 05:45:53 srv1318038 npm[2073068]: - Local:         http://localhost:3001
+Sep 13 05:45:53 srv1318038 npm[2073068]: - Network:       http://76.13.119.181:3001
+Sep 13 05:45:53 srv1318038 npm[2073068]: ✓ Ready in 295ms
+Sep 13 06:06:11 srv1318038 npm[2088062]: > frontend@1.0.0 start
+Sep 13 06:06:11 srv1318038 npm[2088062]: > next start --port 3001
+Sep 13 06:06:11 srv1318038 npm[2088074]: ▲ Next.js 16.2.1
+Sep 13 06:06:11 srv1318038 npm[2088074]: - Local:         http://localhost:3001
+Sep 13 06:06:11 srv1318038 npm[2088074]: - Network:       http://76.13.119.181:3001
+Sep 13 06:06:11 srv1318038 npm[2088074]: ✓ Ready in 213ms
+Sep 13 08:33:48 srv1318038 npm[2088074]: Error: Failed to find Server Action "x". This request might be from an older or newer deployment.
+Sep 13 08:33:48 srv1318038 npm[2088074]: Read more: https://nextjs.org/docs/messages/failed-to-find-server-action
+Sep 13 08:33:48 srv1318038 npm[2088074]:     at ignore-listed frames
+Sep 15 16:27:40 srv1318038 npm[3248874]: > frontend@1.0.0 start
+Sep 15 16:27:40 srv1318038 npm[3248874]: > next start --port 3001
+Sep 15 16:27:41 srv1318038 npm[3248886]: ▲ Next.js 16.2.1
+Sep 15 16:27:41 srv1318038 npm[3248886]: - Local:         http://localhost:3001
+Sep 15 16:27:41 srv1318038 npm[3248886]: - Network:       http://76.13.119.181:3001
+Sep 15 16:27:41 srv1318038 npm[3248886]: ✓ Ready in 204ms
+Sep 15 17:49:29 srv1318038 npm[3279027]: > frontend@1.0.0 start
+Sep 15 17:49:29 srv1318038 npm[3279027]: > next start --port 3001
+Sep 15 17:49:29 srv1318038 npm[3279040]: ▲ Next.js 16.2.1
+Sep 15 17:49:29 srv1318038 npm[3279040]: - Local:         http://localhost:3001
+Sep 15 17:49:29 srv1318038 npm[3279040]: - Network:       http://76.13.119.181:3001
+Sep 15 17:49:29 srv1318038 npm[3279040]: ✓ Ready in 172ms
+Sep 15 19:28:56 srv1318038 npm[3316276]: > frontend@1.0.0 start
+Sep 15 19:28:56 srv1318038 npm[3316276]: > next start --port 3001
+Sep 15 19:28:56 srv1318038 npm[3316288]: ▲ Next.js 16.2.1
+Sep 15 19:28:56 srv1318038 npm[3316288]: - Local:         http://localhost:3001
+Sep 15 19:28:56 srv1318038 npm[3316288]: - Network:       http://76.13.119.181:3001
+Sep 15 19:28:56 srv1318038 npm[3316288]: ✓ Ready in 163ms
+Sep 15 20:32:52 srv1318038 npm[3339167]: > frontend@1.0.0 start
+Sep 15 20:32:52 srv1318038 npm[3339167]: > next start --port 3001
+Sep 15 20:32:52 srv1318038 npm[3339179]: ▲ Next.js 16.2.1
+Sep 15 20:32:52 srv1318038 npm[3339179]: - Local:         http://localhost:3001
+Sep 15 20:32:52 srv1318038 npm[3339179]: - Network:       http://76.13.119.181:3001
+Sep 15 20:32:52 srv1318038 npm[3339179]: ✓ Ready in 153ms
+Sep 15 20:59:36 srv1318038 npm[3350349]: > frontend@1.0.0 start
+Sep 15 20:59:36 srv1318038 npm[3350349]: > next start --port 3001
+Sep 15 20:59:37 srv1318038 npm[3350361]: ▲ Next.js 16.2.1
+Sep 15 20:59:37 srv1318038 npm[3350361]: - Local:         http://localhost:3001
+Sep 15 20:59:37 srv1318038 npm[3350361]: - Network:       http://76.13.119.181:3001
+Sep 15 20:59:37 srv1318038 npm[3350361]: ✓ Ready in 165ms
+Sep 15 21:44:36 srv1318038 npm[3350361]: Error: Failed to find Server Action. This request might be from an older or newer deployment.
+Sep 15 21:44:36 srv1318038 npm[3350361]: Read more: https://nextjs.org/docs/messages/failed-to-find-server-action
+Sep 15 21:44:36 srv1318038 npm[3350361]:     at ignore-listed frames
+Sep 15 21:44:37 srv1318038 npm[3350361]: Error: Failed to find Server Action. This request might be from an older or newer deployment.
+Sep 15 21:44:37 srv1318038 npm[3350361]: Read more: https://nextjs.org/docs/messages/failed-to-find-server-action
+Sep 15 21:44:37 srv1318038 npm[3350361]:     at ignore-listed frames
+Sep 15 23:23:28 srv1318038 npm[3400376]: > frontend@1.0.0 start
+Sep 15 23:23:28 srv1318038 npm[3400376]: > next start --port 3001
+Sep 15 23:23:29 srv1318038 npm[3400388]: ▲ Next.js 16.2.1
+Sep 15 23:23:29 srv1318038 npm[3400388]: - Local:         http://localhost:3001
+Sep 15 23:23:29 srv1318038 npm[3400388]: - Network:       http://76.13.119.181:3001
+Sep 15 23:23:29 srv1318038 npm[3400388]: ✓ Ready in 177ms
+Sep 16 19:15:39 srv1318038 npm[3799113]: > frontend@1.0.0 start
+Sep 16 19:15:39 srv1318038 npm[3799113]: > next start --port 3001
+Sep 16 19:15:40 srv1318038 npm[3799125]: ▲ Next.js 16.2.1
+Sep 16 19:15:40 srv1318038 npm[3799125]: - Local:         http://localhost:3001
+Sep 16 19:15:40 srv1318038 npm[3799125]: - Network:       http://76.13.119.181:3001
+Sep 16 19:15:40 srv1318038 npm[3799125]: ✓ Ready in 192ms
+Sep 16 20:58:11 srv1318038 npm[3837053]: > frontend@1.0.0 start
+Sep 16 20:58:11 srv1318038 npm[3837053]: > next start --port 3001
+Sep 16 20:58:11 srv1318038 npm[3837065]: ▲ Next.js 16.2.1
+Sep 16 20:58:11 srv1318038 npm[3837065]: - Local:         http://localhost:3001
+Sep 16 20:58:11 srv1318038 npm[3837065]: - Network:       http://76.13.119.181:3001
+Sep 16 20:58:11 srv1318038 npm[3837065]: ✓ Ready in 138ms
+Sep 16 21:11:37 srv1318038 npm[3842845]: > frontend@1.0.0 start
+Sep 16 21:11:37 srv1318038 npm[3842845]: > next start --port 3001
+Sep 16 21:11:37 srv1318038 npm[3842857]: ▲ Next.js 16.2.1
+Sep 16 21:11:37 srv1318038 npm[3842857]: - Local:         http://localhost:3001
+Sep 16 21:11:37 srv1318038 npm[3842857]: - Network:       http://76.13.119.181:3001
+Sep 16 21:11:37 srv1318038 npm[3842857]: ✓ Ready in 165ms
+Sep 16 22:56:46 srv1318038 npm[3880679]: > frontend@1.0.0 start
+Sep 16 22:56:46 srv1318038 npm[3880679]: > next start --port 3001
+Sep 16 22:56:47 srv1318038 npm[3880691]: ▲ Next.js 16.2.1
+Sep 16 22:56:47 srv1318038 npm[3880691]: - Local:         http://localhost:3001
+Sep 16 22:56:47 srv1318038 npm[3880691]: - Network:       http://76.13.119.181:3001
+Sep 16 22:56:47 srv1318038 npm[3880691]: ✓ Ready in 150ms
+Sep 16 23:19:22 srv1318038 npm[3888755]: > frontend@1.0.0 start
+Sep 16 23:19:22 srv1318038 npm[3888755]: > next start --port 3001
+Sep 16 23:19:22 srv1318038 npm[3888778]: ▲ Next.js 16.2.1
+Sep 16 23:19:22 srv1318038 npm[3888778]: - Local:         http://localhost:3001
+Sep 16 23:19:22 srv1318038 npm[3888778]: - Network:       http://76.13.119.181:3001
+Sep 16 23:19:22 srv1318038 npm[3888778]: ✓ Ready in 138ms
+Sep 17 14:21:32 srv1318038 npm[3301]: > frontend@1.0.0 start
+Sep 17 14:21:32 srv1318038 npm[3301]: > next start --port 3001
+Sep 17 14:21:33 srv1318038 npm[3314]: ▲ Next.js 16.2.1
+Sep 17 14:21:33 srv1318038 npm[3314]: - Local:         http://localhost:3001
+Sep 17 14:21:33 srv1318038 npm[3314]: - Network:       http://76.13.119.181:3001
+Sep 17 14:21:33 srv1318038 npm[3314]: ✓ Ready in 325ms

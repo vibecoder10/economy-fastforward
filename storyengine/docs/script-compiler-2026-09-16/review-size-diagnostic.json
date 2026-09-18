@@ -1,0 +1,142 @@
+[
+  {
+    "machine": "SS-1 USS Holland",
+    "saved_normalized_review_bytes": 13122,
+    "draft_bytes": 6065,
+    "alternates_bytes": 2,
+    "packet_bytes": 11518
+  },
+  {
+    "machine": "SS-2 USS Plunger",
+    "saved_normalized_review_bytes": 27215,
+    "draft_bytes": 11009,
+    "alternates_bytes": 8611,
+    "packet_bytes": 13043
+  },
+  {
+    "machine": "SS-105 USS S-1",
+    "saved_normalized_review_bytes": 21297,
+    "draft_bytes": 6861,
+    "alternates_bytes": 7186,
+    "packet_bytes": 14589
+  },
+  {
+    "machine": "SS-163 USS Barracuda",
+    "saved_normalized_review_bytes": 21993,
+    "draft_bytes": 13126,
+    "alternates_bytes": 1582,
+    "packet_bytes": 11640
+  },
+  {
+    "machine": "SS-212 USS Gato",
+    "saved_normalized_review_bytes": 27746,
+    "draft_bytes": 10283,
+    "alternates_bytes": 9907,
+    "packet_bytes": 13606
+  },
+  {
+    "machine": "SS-285 USS Balao",
+    "saved_normalized_review_bytes": 45992,
+    "draft_bytes": 21290,
+    "alternates_bytes": 17145,
+    "packet_bytes": 26023
+  },
+  {
+    "machine": "SS-417 USS Tench",
+    "saved_normalized_review_bytes": 31841,
+    "draft_bytes": 12133,
+    "alternates_bytes": 12202,
+    "packet_bytes": 19576
+  },
+  {
+    "machine": "SS-563 USS Tang",
+    "saved_normalized_review_bytes": 25627,
+    "draft_bytes": 9090,
+    "alternates_bytes": 9036,
+    "packet_bytes": 15327
+  },
+  {
+    "machine": "AGSS-569 USS Albacore",
+    "saved_normalized_review_bytes": 15606,
+    "draft_bytes": 8315,
+    "alternates_bytes": 2,
+    "packet_bytes": 12913
+  },
+  {
+    "machine": "SS-580 USS Barbel",
+    "saved_normalized_review_bytes": 28814,
+    "draft_bytes": 11613,
+    "alternates_bytes": 9915,
+    "packet_bytes": 18896
+  },
+  {
+    "machine": "SSN-571 USS Nautilus",
+    "saved_normalized_review_bytes": 9761,
+    "draft_bytes": 2389,
+    "alternates_bytes": 1068,
+    "packet_bytes": 8654
+  },
+  {
+    "machine": "SSN-585 USS Skipjack",
+    "saved_normalized_review_bytes": 39680,
+    "draft_bytes": 16525,
+    "alternates_bytes": 15588,
+    "packet_bytes": 20751
+  },
+  {
+    "machine": "SSN-593 USS Thresher",
+    "saved_normalized_review_bytes": 29973,
+    "draft_bytes": 11825,
+    "alternates_bytes": 10773,
+    "packet_bytes": 19750
+  },
+  {
+    "machine": "SSN-637 USS Sturgeon",
+    "saved_normalized_review_bytes": 22047,
+    "draft_bytes": 11889,
+    "alternates_bytes": 2631,
+    "packet_bytes": 12279
+  },
+  {
+    "machine": "SSN-688 USS Los Angeles",
+    "saved_normalized_review_bytes": 7133,
+    "draft_bytes": 1347,
+    "alternates_bytes": 2,
+    "packet_bytes": 3117
+  },
+  {
+    "machine": "SSN-21 USS Seawolf",
+    "saved_normalized_review_bytes": 29263,
+    "draft_bytes": 10411,
+    "alternates_bytes": 11663,
+    "packet_bytes": 23715
+  },
+  {
+    "machine": "SSN-774 USS Virginia",
+    "saved_normalized_review_bytes": 40519,
+    "draft_bytes": 18360,
+    "alternates_bytes": 14755,
+    "packet_bytes": 26733
+  },
+  {
+    "machine": "SSBN-598 USS George Washington",
+    "saved_normalized_review_bytes": 28289,
+    "draft_bytes": 16853,
+    "alternates_bytes": 3617,
+    "packet_bytes": 25952
+  },
+  {
+    "machine": "SSBN-608 USS Ethan Allen",
+    "saved_normalized_review_bytes": 16135,
+    "draft_bytes": 9085,
+    "alternates_bytes": 2,
+    "packet_bytes": 14829
+  },
+  {
+    "machine": "SSBN-616 USS Lafayette",
+    "saved_normalized_review_bytes": 49998,
+    "draft_bytes": 27381,
+    "alternates_bytes": 15039,
+    "packet_bytes": 32033
+  }
+]

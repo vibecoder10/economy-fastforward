@@ -1,0 +1,13 @@
+{
+  "commit": "d8b010fdf573b007f481e3685ee041de487567e6",
+  "deployed_at_utc": "2026-09-16T19:15:40Z",
+  "approved_by": "Ryan: deploy",
+  "backend": "healthy",
+  "worker": "active; same commit and checkout",
+  "frontend": "HTTP200; production build passed",
+  "drain": "normal",
+  "deploy_lock": "clear",
+  "browser": "Local and live Research inspector verified; Saved research summary / Not yet saved visible for legacy Holland card",
+  "generation_started": false,
+  "live_pipeline_proof": "pending"
+}

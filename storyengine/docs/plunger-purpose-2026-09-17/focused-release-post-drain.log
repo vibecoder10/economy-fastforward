@@ -1,0 +1,1 @@
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-focused-purpose-20260917","changed_at":"2026-09-17 16:57:06.301449+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T16:57:15.104933+00:00"}

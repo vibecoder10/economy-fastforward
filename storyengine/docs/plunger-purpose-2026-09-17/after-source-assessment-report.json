@@ -1,0 +1,82 @@
+{
+  "scope": {
+    "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "machine_key": "SS2",
+    "machine": "SS-2 USS Plunger",
+    "requested_source_urls": [
+      "https://pigboats.com/A-class"
+    ]
+  },
+  "request_receipt": {
+    "source_refresh_posts": 1,
+    "source_refresh_status": 200,
+    "source_refresh_duration_ms": 14437,
+    "no_spend_readiness_posts": 1,
+    "no_spend_readiness_status": 200,
+    "preview_posts": 0,
+    "retries": 0,
+    "receipt": "purpose-source-refresh-requests.json"
+  },
+  "current_package_delta": {
+    "sources_before_after": [6, 6],
+    "candidate_excerpts_before_after": [24, 24],
+    "assessment_claims_before_after": [10, 10],
+    "discovery_requests_before_after": [2, 2],
+    "pigboats_source_or_excerpt_present": false,
+    "identity_review_or_class_anchor_present": false,
+    "source_recapture": {
+      "urls": [
+        "https://www.historycentral.com/navy/Submarine/plunger.html",
+        "https://www.navsource.net/archives/08/08002.htm"
+      ],
+      "added_excerpt_count": 3,
+      "paid_search_calls": 0,
+      "errors": []
+    }
+  },
+  "assessment": {
+    "version": 1,
+    "status": "assessed",
+    "provenance_status": "captured",
+    "dvsu_recovery": {
+      "stage": "discovery_completed",
+      "version": 1,
+      "missing_fields": ["intended_role"]
+    },
+    "current_claims_by_role": {
+      "intended_role": [
+        {
+          "id": "C1",
+          "status": "supported",
+          "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+          "evidence_excerpt_ids": ["S2-E1", "DVSU4-E1"],
+          "brief_eligible": false
+        }
+      ],
+      "design": ["C2", "C3", "C9"],
+      "actual_use": ["C4", "C5"],
+      "outcome": ["C7", "C8"]
+    }
+  },
+  "current_compact_brief": {
+    "ready": false,
+    "missing_fields": ["intended_role"],
+    "field_fact_counts": {
+      "intended_role": 0,
+      "design": 3,
+      "actual_use": 2,
+      "outcome": 2
+    }
+  },
+  "preservation": {
+    "purpose_before_audit": "live-after-source-audit.json",
+    "original_before_audit": "live-original-before-after-source-audit.json",
+    "both_unchanged": true,
+    "errors": [],
+    "unavailable_comparison_fields": ["script_hash", "validation_hash"],
+    "scripts_after": 0,
+    "production_other19_holland_roster_and_old_source_prefixes": "unchanged by both audits"
+  },
+  "result": "The requested URL did not add a Pigboats capture or class anchor. The no-spend readiness check remains preparable, not ready, because intended_role has no brief-eligible fact. No preview was started."
+}

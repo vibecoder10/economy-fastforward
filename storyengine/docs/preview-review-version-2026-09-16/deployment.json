@@ -1,0 +1,5 @@
+{
+  "status": "verified",
+  "release": "1857c383e2cfb0ea4c1b55840dc3c91884199dc1",
+  "summary": "Round1 Terra implementation/Astra review PASS. Fixed frontend review version5->6; regression reads actual UI/backend constants.6tests,production build and actual saved Holland preview replay pass. Release1857c383e deployed22:56:48UTC; publicly served JS checks version6; APIhealthy,frontend200,worker parity,drainnormal,lockclear. Saved preview and production script/validation hashes unchanged. No provider generation. Evidence docs/preview-review-version-2026-09-16/. Next: refresh existing Holland preview and review wording; do not regenerate just to clear stale UI warning."
+}

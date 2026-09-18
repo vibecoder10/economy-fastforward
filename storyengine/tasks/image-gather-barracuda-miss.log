@@ -1,0 +1,6 @@
+-- 1 rows
+{"machine": "SS-163 through SS-165 Barracuda (V-1) class", "machine_key": "ss163throughss165barracudav1class", "reason_code": "vision_rejected", "reason_detail": "A candidate photo was found and hosted, but it didn't look like this specific machine to the vision check. Worth retrying with a different photo, or pasting one yourself.", "checked_at": "2026-09-15 20:38:40.567253+00:00"}
+
+Sep 15 20:33:22 srv1318038 arq[3338659]: 20:33:22:   0.38s → roster_images:44dbf2b2-a27a-47ea-a608-4c31c906be9a:1:arq_run_roster_images('44dbf2b2-a27a-47ea-a608-4c31c906be9a', UUID('561b872d-7b73-45e3-9c44-7f30c3566…)
+Sep 15 20:36:29 srv1318038 arq[3338659]: Reference view ranking unavailable; retaining candidate order
+Sep 15 20:38:15 srv1318038 arq[3338659]: Reference view ranking unavailable; retaining candidate order

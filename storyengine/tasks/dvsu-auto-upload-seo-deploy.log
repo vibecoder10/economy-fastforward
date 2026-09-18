@@ -1,0 +1,59 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:28.304290+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:28.629227+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:33.660298+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:38.691575+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:43.723479+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:48.756320+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:53.787750+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:50:58.816554+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:03.847481+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:08.875286+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:13.907476+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:18.940105+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:23.972381+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:29.030101+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:34.063834+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:39.095812+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:44.127869+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:49.159515+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:54.190470+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:51:59.222175+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:52:04.255898+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:52:09.287723+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":1,"generation_claims":1,"total":2},"checked_at":"2026-09-15T16:52:14.319105+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T16:52:19.353726+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:50:28.148209+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T16:52:24.384663+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   6bbb259d5..4f8a2f438  main       -> origin/main
+Updating 6bbb259d5..4f8a2f438
+Fast-forward
+ storyengine/backend/queue_delivery.py              | 15 ++++++++-
+ .../tests/functional/test_queue_delivery.py        | 37 ++++++++++++++++++++++
+ storyengine/backend/youtube_publish.py             |  5 ++-
+ 3 files changed, 55 insertions(+), 2 deletions(-)
+code: 6bbb259d5 -> 4f8a2f438
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3257991)
+worker code parity: commit=4f8a2f438 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 4f8a2f438; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15 16:52:43.581181+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T16:52:43.726370+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-auto-upload-seo","changed_at":"2026-09-15T16:52:43.581181+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":170,"limit":9000,"remaining":8830,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":170,"ceiling":9000,"remaining":8830}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T16:52:43Z dvsu-auto-upload-seo deployed 6bbb259d5 -> 4f8a2f438 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

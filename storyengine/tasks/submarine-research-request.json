@@ -1,0 +1,10 @@
+{
+  "at": "2026-09-16T21:00:36.536091+00:00",
+  "http": 200,
+  "response": {
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "running",
+    "message": "Machine research started",
+    "error": null
+  }
+}

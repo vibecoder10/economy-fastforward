@@ -1,0 +1,35 @@
+{
+  "method": "one authorized corrective ordinary local httpx GET, then production _html_to_visible_text(preserve_sections=True); no provider, database, or production write",
+  "requested_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+  "final_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+  "http_status": 200,
+  "original_html_bytes": 26140,
+  "normalized_visible_chars": 1773,
+  "saved_original_html": "docs/plunger-purpose-2026-09-17/navypedia-us-ss-a-original.html",
+  "saved_normalized_visible_text": "docs/plunger-purpose-2026-09-17/navypedia-us-ss-a-visible.txt",
+  "normalized_sections": [
+    {
+      "needle": "These developments of the original Holland were intended for port defense",
+      "present": true,
+      "section": "9.1903 target 7.1921 SS8 Shark, 11.1911- A7 92 Crescent, Elizabethport 1/1901 19.10.1901 9.1903 stricken 1.1922\n\nTechnical data Displacement standard, t Displacement normal, t 107 / 123 Length, m 19.5 Breadth, m 3.60 Draught, m 3.20 No of shafts 1 Machinery 1 Otto petrol engine / 1 electric motor Power, h. p. 160 / 150 Max speed, kts 8 / 7 Fuel, t petrol 2.2 Endurance, nm(kts) Armament 1 - 450 TT (bow, 5) Complement 7 Diving depth operational, m 25\n\nGraphics A2 1912\" /> A2 1912\n\nProject history These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.\n\nModernizations None.\n\nNaval service All except Plunger were shipped to the Philippines (1st Submarine Division, Asiatic Torpedo Fleet off Cavite naval base, Luzon) aboard colliers in pairs 1908, 1909 and 1915, ending their careers in the Far East as targets. © Ivan Gogin, 2014 © 2007-2026 - navypedia.org Privacy terms"
+    },
+    {
+      "needle": "SS2",
+      "present": true,
+      "section": "\"A\" submarines (PLUNGER (A1)) (1903)\n\nNAVYPEDIA Support the project with paypal Login Register --> <!--\n\nMenu --> HOME FIGHTING SHIPS OF THE WORLD UNITED STATES OF AMERICA SUBMARINES \"A\" submarines (PLUNGER (A1)) (1903)\n\nPhoto A2 1912\n\nShips No Name Yard No Builder Laid down Launched Comm Fate SS2 Plunger, 11.1911- A1 97 Crescent, Elizabethport 5/1901 1.2.1902 9.1903 stricken 2.1913 SS3 Adder, 11.1911- A2 88 Crescent, Elizabethport 10/1900 22.7.1901 1.1903 target 9.1920 SS4 Grampus, 11.1911- A3 76 Union Iron Wks, San Francisco 12/1900 31.7.1902 5.1903 stricken 1.1922 SS5 Moccasin, 11.1911- A4 89 Crescent, Elizabethport 11/1900 20.8.1901 1.1903 stricken 1.1922 SS6 Pike, 11.1911- A5 77 Union Iron Wks, San Francisco 12/1900 14.1.1903 5.1903 stricken 1.1922 SS7 Porpoise, 11.1911- A6 91 Crescent, Elizabethport 12/1900 23.9.1902 9.1903 target 7.1921 SS8 Shark, 11.1911- A7 92 Crescent, Elizabethport 1/1901 19.10.1901 9.1903 stricken 1.1922\n\nTechnical data Displacement standard, t Displacement normal, t 107 / 123 Length, m 19.5 Breadth, m 3.60 Draught, m 3.20 No of shafts 1 Machinery 1 Otto petrol engine / 1 electric motor Power, h. p. 160 / 150 Max speed, kts 8 / 7 Fuel, t petrol 2.2 Endurance, nm(kts) Armament 1 - 450 TT (bow, 5) Complement 7 Diving depth operational, m 25\n\nGraphics "
+    },
+    {
+      "needle": "Plunger",
+      "present": true,
+      "section": "\"A\" submarines (PLUNGER (A1)) (1903)\n\nNAVYPEDIA Support the project with paypal Login Register --> <!--\n\nMenu --> HOME FIGHTING SHIPS OF THE WORLD UNITED STATES OF AMERICA SUBMARINES \"A\" submarines (PLUNGER (A1)) (1903)\n\nPhoto A2 1912\n\nShips No Name Yard No Builder Laid down Launched Comm Fate SS2 Plunger, 11.1911- A1 97 Crescent, Elizabethport 5/1901 1.2.1902 9.1903 stricken 2.1913 SS3 Adder, 11.1911- A2 88 Crescent, Elizabethport 10/1900 22.7.1901 1.1903 target 9.1920 SS4 Grampus, 11.1911- A3 76 Union Iron Wks, San Francisco 12/1900 31.7.1902 5.1903 stricken 1.1922 SS5 Moccasin, 11.1911- A4 89 Crescent, Elizabethport 11/1900 20.8.1901 1.1903 stricken 1.1922 SS6 Pike, 11.1911- A5 77 Union Iron Wks, San Francisco 12/1900 14.1.1903 5.1903 stricken 1.1922 SS7 Porpoise, 11.1911- A6 91 Crescent, Elizabethport 12/1900 23.9.1902 9.1903 target 7.1921 SS8 Shark, 11.1911- A7 92 Crescent, Elizabethport 1/1901 19.10.1901 9.1903 stricken 1.1922\n\nTechnical data Displacement standard, t Displacement normal, t 107 / 123 Length, m 19.5 Breadth, m 3.60 Draught, m 3.20 No of shafts 1 Machinery 1 Otto petrol engine / 1 electric motor Power, h. p. 160 / 150 Max speed, kts 8 / 7 Fuel, t petrol 2.2 Endurance, nm(kts) Armament 1 - 450 TT (bow, 5) Complement 7 Diving depth operational, m 25\n\nGraphics A2 1912\""
+    }
+  ],
+  "current_class_context_extractor_on_visible_text": {
+    "machine": "SS-2 USS Plunger",
+    "returned": false,
+    "candidate_chars": 0,
+    "predicate_accepts": false,
+    "candidate": ""
+  },
+  "limitation": "This is source/extractor preflight only. It performs no assessment, package merge, research, generation, or live write."
+}

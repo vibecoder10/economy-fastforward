@@ -1,0 +1,45 @@
+{
+  "diagnostic": "stored_raw_claim_assessment_replay",
+  "input": "live-before-flat.json: research_payload.machine_raw_source_packages.SS105.claim_assessment.raw_response",
+  "machine": "SS-105 USS S-1",
+  "subject_context": "Every US Submarine Class Ever Built (2026)",
+  "execution": {
+    "network": false,
+    "model": false,
+    "database": false,
+    "parser": "factual_machine_summary._parse_json_object",
+    "normalizer": "research_claim_assessment._eligible + _validated_claims"
+  },
+  "parser_result": {
+    "accepted": true,
+    "object_type": "dict",
+    "claim_count": 9,
+    "raw_response_fenced_json": true,
+    "raw_response_truncated": false
+  },
+  "eligible_candidates": 17,
+  "whole_response_normalizes": false,
+  "first_whole_response_failure": {
+    "claim": "C2",
+    "field": "evidence[0].quote",
+    "guard": "research_claim_assessment._quote_rows:74-75, via _validated_claims:100-105",
+    "failure_kind": "exact_quote_mismatch",
+    "excerpt_id": "DVSU1-E1",
+    "raw_quote": "in 1922, when she was modified to both bring her up to current standards with a larger deck gun and to fit her for experimental use as a base for a small scouting seaplane",
+    "source_text_quote": "until 1922, when she was modified to both bring her up to current standards with a larger deck gun and to fit her for experimental use as a base for a small scouting seaplane",
+    "difference": "The raw quote begins at 'in 1922'; the stored candidate contains 'until 1922'. This is a content omission, so typography normalization cannot resolve it."
+  },
+  "claims": [
+    {"id":"C1","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"S1-E1","source_id":"S1","quote_substring":true,"identity_requires_review":false},{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C2","normalizes_individually":false,"first_failing_field":"evidence[0].quote","failure_kind":"exact_quote_mismatch","evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":false,"identity_requires_review":false,"source_url":"https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm","source_title":"https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm","locator":"DVSU1-E1; R1-E1; source=https://www.ibiblio.org/hyperwar/OnlineLibrary/photos/sh-usn/usnsh-s/ss105.htm"},{"excerpt_id":"S1-E7","source_id":"S1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C3","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false},{"excerpt_id":"S1-E8","source_id":"S1","quote_substring":true,"identity_requires_review":false},{"excerpt_id":"S1-E10","source_id":"S1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C4","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C5","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C6","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C7","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C8","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"S1-E1","source_id":"S1","quote_substring":true,"identity_requires_review":false},{"excerpt_id":"DVSU1-E4","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]},
+    {"id":"C9","normalizes_individually":true,"first_failing_field":null,"evidence_candidates":[{"excerpt_id":"DVSU1-E1","source_id":"DVSU1","quote_substring":true,"identity_requires_review":false}]}
+  ],
+  "excluded_causes": ["missing_excerpt_id", "missing_candidate", "identity_review", "class_context", "invalid_narrative_roles", "unsupported_status_shape"],
+  "conclusion": "C2 alone causes the stored nine-claim response to normalize to None. The failure is an exact-evidence quote mismatch, not an eligibility or identity-review rejection."
+}

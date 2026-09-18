@@ -1,0 +1,11 @@
+Command:
+  cd backend && ./venv/bin/python -m pytest -q tests/functional/test_factual_machine_pipeline.py tests/functional/test_script_voice_machine_preview.py
+
+Result:
+  44 passed in 0.24s
+
+The four updated UI source assertions preserve the current contracts:
+- nonfactual full-roster research remains gated while factual batches defer preparable cards to server preflight;
+- isolated preview blocks only when neither ready nor preparable before paid confirmation;
+- factual preview success uses machinePreviewPassesContract with its identity/editorial requirements;
+- factual per-card Run Script stays enabled for preparation, while nonfactual cards remain disabled when research is not ready.

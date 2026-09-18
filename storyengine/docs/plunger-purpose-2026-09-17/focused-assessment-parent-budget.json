@@ -1,0 +1,18 @@
+{
+  "mode": "offline actual saved-evidence focused request; no provider call",
+  "context_ids": [
+    "DVSU5-E1"
+  ],
+  "anchor_id": "DVSU1-E2",
+  "anchor_text": "USS Plunger SS-2 US Navy (SS: dp. 149 (n.), 168 (subm.); 1.",
+  "missing": [
+    "intended_role"
+  ],
+  "candidate_count": 2,
+  "budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 7407,
+    "output_tokens_reserved": 1800,
+    "context_limit": 200000
+  }
+}

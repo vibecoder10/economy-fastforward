@@ -1,0 +1,18 @@
+{
+  "release": "dvsu-submarine-terminology-20260917",
+  "commit": "58ca96c30f1490c2f1bbed8c0f049fd6308c035a",
+  "deployed_at_utc": "2026-09-17T14:43:34Z",
+  "backend_summary_sha256": "da3c12f7e202867c08a29acadf24fdb99b8c3240566aa5eed7f37ff731cdf9fa",
+  "verification": {
+    "backend": "active",
+    "worker": "active",
+    "api": "healthy",
+    "frontend_http": 200,
+    "drain": "normal",
+    "active_work": 0,
+    "deploy_lock": "clear",
+    "live_preview_copy_edit": true,
+    "paid_request": false
+  },
+  "scope": "The release contains only the prompt terminology rule and the scoped quality-law entry. The live preview CAS receipt is preview-terminology-copy-edit-receipt.json."
+}

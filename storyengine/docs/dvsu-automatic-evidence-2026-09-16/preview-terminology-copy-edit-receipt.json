@@ -1,0 +1,28 @@
+{
+  "operation": "user-requested SS1 preview terminology copy edit",
+  "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+  "cas_result": "UPDATE 1",
+  "replacements": [
+    {"from": "The boat incorporated", "to": "The submarine incorporated"},
+    {"from": "Holland-type boats that", "to": "Holland-type submarines that"}
+  ],
+  "before_after_unchanged": {
+    "status": "ready_for_voice",
+    "total_cost": "0.055900000000000001228704638034372464971966110169887542724609375",
+    "script_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "validation_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "roster_hash": "3f799d54775e69265c249cd4258fdb27",
+    "roster_count": 20,
+    "source_packages_hash": "33b046d97b24db319b81a2e14615a6a3"
+  },
+  "preview": {
+    "passed": true,
+    "factual_passed": true,
+    "warnings": [],
+    "support_audit_reviewed_sentence_count": 2,
+    "model_review_rerun": false,
+    "existing_reviews_apply_to_original_wording": true
+  },
+  "scope": "Only research_payload.machine_script_previews.SS1 and updated_at changed. Original model response remains immutable in canary-ui-editorial-response.json."
+}

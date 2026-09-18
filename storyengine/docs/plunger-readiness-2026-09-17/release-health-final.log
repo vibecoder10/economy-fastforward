@@ -1,0 +1,13 @@
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-global-handoff-20260917","changed_at":"2026-09-17T15:15:57.042157+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":120,"limit":9000,"remaining":8880,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":4,"limit":100,"remaining":96},"units_used":120,"ceiling":9000,"remaining":8880}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T15:15:56Z dvsu-global-handoff-20260917 deployed 58ca96c30 -> b53879e6d --with-frontend
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

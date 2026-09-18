@@ -1,0 +1,14 @@
+{
+  "http_status": 200,
+  "status": "needs_review",
+  "ready": false,
+  "machine": "SS-1 USS Holland",
+  "scene": 1,
+  "summary": "Script preview evidence gate failed: SS-1 USS Holland: Missing intended_role evidence; request targeted research for intended_role.; Missing actual_use evidence; request targeted research for actual_use.; Missing outcome evidence; request targeted research for outcome.",
+  "warnings": [
+    "Missing intended_role evidence; request targeted research for intended_role.",
+    "Missing actual_use evidence; request targeted research for actual_use.",
+    "Missing outcome evidence; request targeted research for outcome."
+  ],
+  "next_action": "run_one_machine_research_refresh"
+}

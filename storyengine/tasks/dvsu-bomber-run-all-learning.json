@@ -1,0 +1,47 @@
+{
+  "project": "/Users/ryanayler/economy-fastforward/storyengine",
+  "task": "dvsu-bomber-run-all-recurrence",
+  "route": "code",
+  "schema": 1,
+  "status": "complete",
+  "created": "2026-09-13T04:15:10.558733+00:00",
+  "checks": {
+    "orchestration-regression": {
+      "status": "passed",
+      "rules": [],
+      "at": "2026-09-13T05:55:33.797313+00:00",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-bomber-run-all-learning.orchestration-regression.log": "609eee6a0ed15f86d6dd9f8e5f8fc27516d44e2e79b1c35b9e8fdcca6d0ed550"
+      }
+    }
+  },
+  "events": {
+    "kie-connected-live": {
+      "kind": "reuse",
+      "note": "Reused saved exact-machine sources; actual Run All cleared28cards via5Kie source requests, then saved22scripts before the independently verified Anthropic account limit.",
+      "evidence": {
+        "/Users/ryanayler/economy-fastforward/storyengine/tasks/dvsu-kie-connected-proof.json": "925dfaf3e9acfc401607111247026bb6984fc880807bad1be2512b359558e9f2"
+      },
+      "resolves": null
+    }
+  },
+  "required": [
+    "orchestration-regression"
+  ],
+  "outcome": "reused",
+  "inputs": {
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/pipeline_executor.py": "dd789b9b8cc62eb0dd14f753c9e1ff1057d24884104c6583edbacce420f2bc7c",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/actions.py": "ce5a095eaed24ac00514e6742816c3a47d137ec96659f3a43bf0b546f45f80c8",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/factual_source_search.py": "1e311cf2103f2a3283ea7211a1ef5785198cebcadbb6eb7c45c236051c513a95",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/error_utils.py": "91d2da9a63740d1f5a610f3f1d3cbb728a928ad768d6f536e76b1093d434a276",
+    "/Users/ryanayler/economy-fastforward/storyengine/backend/queue_controls.py": "7ce220a98ba8e748b87a6b5bd3d924f22507d1399a63c065e103eb07122d54cf"
+  },
+  "versions": {
+    "/Users/ryanayler/.codex/learning-rules.json#G08": "b0c72ff25712ba3634697bd0a13bc40c07c54659fa84555b063e2cf415d31ada",
+    "/Users/ryanayler/.codex/learning-rules.json#G07": "79634ca2dfc6293afb646528c9a5bba2ece1f235264ac6640b399988cf011850",
+    "/Users/ryanayler/.codex/learning-rules.json#G01": "0ef11c128df3f87c750c93c2512d7e6d499dd2fbb8c8f07b03a40655c1c37ed8",
+    "/Users/ryanayler/.codex/learning-rules.json#G10": "5d0b62810db1b100fed26fd75ec4c70639076df996acc40b06799c26239d5a69"
+  },
+  "tags": [],
+  "updated": "2026-09-13T05:58:55.648312+00:00"
+}

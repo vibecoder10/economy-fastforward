@@ -1,0 +1,397 @@
+{
+  "schema_version": 2,
+  "paragraph": "SS-1 USS Holland incorporated all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. The interior space was one contiguous compartment. Armament included one reloadable bow torpedo tube carrying three torpedoes and a pneumatic dynamite gun that was subsequently removed. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+  "claim_map": [
+    {
+      "sentence": "SS-1 USS Holland incorporated all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+      "citations": [
+        {
+          "excerpt_id": "S1-E2",
+          "source_id": "S1",
+          "source_title": "Paving the Way: Navy Undersea Innovators",
+          "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+          "quote": "Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU4-E1",
+          "source_id": "DVSU4",
+          "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+          "quote": "John Philip Holland Submarine design, 1870s\u20131900s Irish immigrant John Philip Holland designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000 (about $4.7 million today). It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential. On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+          "source_capture_method": "fetched_page"
+        }
+      ]
+    },
+    {
+      "sentence": "The interior space was one contiguous compartment.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU2-E4",
+          "source_id": "DVSU2",
+          "source_title": "Alexander the Great to John Phillip Holland",
+          "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+          "locator": "DVSU2-E4",
+          "quote": "Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+          "source_capture_method": "fetched_page"
+        }
+      ]
+    },
+    {
+      "sentence": "Armament included one reloadable bow torpedo tube carrying three torpedoes and a pneumatic dynamite gun that was subsequently removed.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU5-E1",
+          "source_id": "DVSU5",
+          "source_title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+          "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+          "locator": "DVSU5-E1; R3-E2; source=https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+          "quote": "John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d See page for author, Public domain, via Wikimedia Commons John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d Following his work in the early 1890s, the design that John Holland presented to the US Navy in 1898 has formed the basis of the designs for all submarines built since. These features include: \u201cEfficient hydrodynamic hull shape [teardrop-shape with bulbous bow and tapered stern] with good seakeeping ability on the open ocean. Separate main and auxiliary ballast systems enable rapid diving and surfacing with minimial changes to the longitudinal center of gravity while underway. Accomplished by operating with full or nearly full ballast tanks when submerged. Allowed precise control of trim angle while submerged. Able to dive to and accurately maintain a significant depth [up of 75 feet (23 m)]. Diving planes provide the means to precisely control depth [stern planes only, located behind the propeller]. Dual propulsion systems driving a single propeller at the stern. Internal combustion engine provides reliable power on the surface, enabling long transits while charging the batteries [up to 200 nautical miles (370 km) at 6 knots] Lead-acid storage batteries provide power to run submerged for a considerable distance [about 30 nautical miles (56 km) at 5.5 knots]. Conning tower for directing ship and weapons activities on the surface or semi-submerged. No periscope. View ports around the top of the conning tower provided the commander with intermittent views while \u201cporpoising\u201d semi-submerged near the surface. Offensive weapons systems. One reloadable torpedo tube at the bow, with three self-propelled torpedoes carried internally. One pneumatic dynamite gun at the bow that, on the surface, fired large projectiles, sometimes called \u201caerial torpedoes.\u201d [This was subsequently removed]. John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+          "source_capture_method": "fetched_page"
+        }
+      ]
+    },
+    {
+      "sentence": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU4-E1",
+          "source_id": "DVSU4",
+          "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+          "quote": "John Philip Holland Submarine design, 1870s\u20131900s Irish immigrant John Philip Holland designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000 (about $4.7 million today). It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential. On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU4-E6",
+          "source_id": "DVSU4",
+          "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+          "locator": "DVSU4-E6; R2-E7; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+          "quote": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+          "source_capture_method": "fetched_page"
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "excerpt_id": "S1-E2",
+      "source_id": "S1",
+      "source_title": "Paving the Way: Navy Undersea Innovators",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "quote": "Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU4-E1",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "quote": "John Philip Holland Submarine design, 1870s\u20131900s Irish immigrant John Philip Holland designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000 (about $4.7 million today). It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential. On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU2-E4",
+      "source_id": "DVSU2",
+      "source_title": "Alexander the Great to John Phillip Holland",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "locator": "DVSU2-E4",
+      "quote": "Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU5-E1",
+      "source_id": "DVSU5",
+      "source_title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "locator": "DVSU5-E1; R3-E2; source=https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+      "quote": "John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d See page for author, Public domain, via Wikimedia Commons John Philip Holland Father of today\u2019s Submarines - 1898 \u201cJohn Philip Holland (born February 24?, 1841, Liscannor, County Clare, Ireland\u2014died August 12, 1914, Newark, New Jersey, U.S.) was an Irish-born inventor who was the father of the modern submarine. He designed and built the first underwater vessel accepted by the U.S. Navy.\u201d Following his work in the early 1890s, the design that John Holland presented to the US Navy in 1898 has formed the basis of the designs for all submarines built since. These features include: \u201cEfficient hydrodynamic hull shape [teardrop-shape with bulbous bow and tapered stern] with good seakeeping ability on the open ocean. Separate main and auxiliary ballast systems enable rapid diving and surfacing with minimial changes to the longitudinal center of gravity while underway. Accomplished by operating with full or nearly full ballast tanks when submerged. Allowed precise control of trim angle while submerged. Able to dive to and accurately maintain a significant depth [up of 75 feet (23 m)]. Diving planes provide the means to precisely control depth [stern planes only, located behind the propeller]. Dual propulsion systems driving a single propeller at the stern. Internal combustion engine provides reliable power on the surface, enabling long transits while charging the batteries [up to 200 nautical miles (370 km) at 6 knots] Lead-acid storage batteries provide power to run submerged for a considerable distance [about 30 nautical miles (56 km) at 5.5 knots]. Conning tower for directing ship and weapons activities on the surface or semi-submerged. No periscope. View ports around the top of the conning tower provided the commander with intermittent views while \u201cporpoising\u201d semi-submerged near the surface. Offensive weapons systems. One reloadable torpedo tube at the bow, with three self-propelled torpedoes carried internally. One pneumatic dynamite gun at the bow that, on the surface, fired large projectiles, sometimes called \u201caerial torpedoes.\u201d [This was subsequently removed]. John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.\u201d 18 https://lynceans.org/all-posts/a-brief-look-back-at-the-worlds-first-modern-submarine-2/ USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU4-E6",
+      "source_id": "DVSU4",
+      "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+      "locator": "DVSU4-E6; R2-E7; source=https://navalunderseamuseum.org/undersea-pioneers2/",
+      "quote": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+      "source_capture_method": "fetched_page"
+    }
+  ],
+  "passed": false,
+  "warnings": [
+    "claim_map row 4 sentence is not an exact sentence in the paragraph.",
+    "claim_map must cover every paragraph sentence exactly once.",
+    "Factual research summary is missing required claims or citations"
+  ],
+  "subject_context": "Every US Submarine Class Ever Built (2026)",
+  "source_fingerprint": "96ff186bf1d5f6d526aca0443a6d208d6f429ad5e0f50611254c4a54a027fa77",
+  "review_context_version": 6,
+  "claim_assessment": {
+    "version": 1,
+    "status": "assessed",
+    "machine": "SS-1 USS Holland",
+    "subject_context": "Every US Submarine Class Ever Built (2026)",
+    "claims": [
+      {
+        "id": "C1",
+        "claim": "Admiral Dewey attributed great value to USS Holland's type for harbor and coast defense based on favorable Navy officer reports.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Admiral Dewey's 1901 letter explicitly endorses the Holland type's value for harbor and coast defense. The identity_requires_review excerpt is anchored by DVSU4-E1 which confirms USS Holland (SS 1) as the Navy's first submarine purchased in 1900.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU3-E1",
+            "quote": "I agree with those officersastothegreat value of thi\"' type of boats for harbor and coast defense",
+            "source_url": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+            "source_title": "https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77",
+            "locator": "DVSU3-E1; R1-E1; source=https://www.govinfo.gov/content/pkg/GPO-CRECB-1901-pt4-v34/pdf/GPO-CRECB-1901-pt4-v34-2.pdf#page=77"
+          },
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1)",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "intended_role"
+        ],
+        "identity_reviews": [
+          {
+            "excerpt_id": "DVSU3-E1",
+            "status": "same_machine",
+            "anchor_excerpt_id": "DVSU4-E1",
+            "reason": "Congressional record discusses U.S.S. Holland after Navy acquisition in 1900; DVSU4-E1 confirms USS Holland (SS 1) as the Navy's first submarine purchased April 11, 1900"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "claim": "USS Holland incorporated dual propulsion systems, fixed center of gravity, separate main and auxiliary ballast systems, hydrodynamic shape, and modern weapons system.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Multiple sources explicitly list these as the major components Holland included in the design.",
+        "evidence": [
+          {
+            "excerpt_id": "S1-E2",
+            "quote": "Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "Paving the Way: Navy Undersea Innovators",
+            "locator": "S1-E2; query=Use web search to find 6 real source pages specifically about the subject 'USS Holland' (locked roster identity: 'SS-1 USS Holland') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts."
+          },
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "design"
+        ]
+      },
+      {
+        "id": "C3",
+        "claim": "USS Holland's interior space was one contiguous compartment.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source explicitly describes the internal arrangement as a single compartment.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU2-E4",
+            "quote": "USS Holland (SS-1) internal and external arrangements. The interior space was one contiguous compartment.",
+            "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "source_title": "Alexander the Great to John Phillip Holland",
+            "locator": "DVSU2-E4"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "design"
+        ]
+      },
+      {
+        "id": "C4",
+        "claim": "USS Holland had one reloadable bow torpedo tube carrying three torpedoes and a pneumatic dynamite gun that was subsequently removed.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source details the weapons configuration including the later removal of the dynamite gun.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU5-E1",
+            "quote": "One reloadable torpedo tube at the bow, with three self-propelled torpedoes carried internally. One pneumatic dynamite gun at the bow that, on the surface, fired large projectiles, sometimes called \u201caerial torpedoes.\u201d [This was subsequently removed]",
+            "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "source_title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "locator": "DVSU5-E1; R3-E2; source=https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "design"
+        ]
+      },
+      {
+        "id": "C5",
+        "claim": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source explicitly states the vessel's primary operational use. The identity_requires_review excerpts are anchored by DVSU4-E1 which identifies USS Holland (SS 1).",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          },
+          {
+            "excerpt_id": "DVSU4-E6",
+            "quote": "USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine.",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E6; R2-E7; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          },
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "John Philip Holland Submarine design, 1870s\u20131900s Irish immigrant John Philip Holland designed and constructed the U.S. Navy\u2019s first submarine, USS Holland (SS 1). John Holland began sketching submarine designs as early as 1869 and built five experimental submarines between 1878 and 1895 before arriving at Holland \u2019s more successful design. Holland included all the major components of a modern submarine: dual propulsion systems, a fixed center of gravity, separate main and auxiliary ballast systems, a hydrodynamic shape, and a modern weapons system. After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000 (about $4.7 million today). It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential. On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force. USS Holland spent most of her ten years in service at the U.S. Naval Academy as a training submarine. The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines.",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "actual_use"
+        ],
+        "identity_reviews": [
+          {
+            "excerpt_id": "DVSU4-E6",
+            "status": "same_machine",
+            "anchor_excerpt_id": "DVSU4-E1",
+            "reason": "Same source page; DVSU4-E1 explicitly identifies USS Holland (SS 1) and describes the same ten-year service period"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "claim": "The U.S. Navy commissioned USS Holland on October 12, 1900, establishing the U.S. Submarine Force.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source explicitly states the commissioning date and its significance in establishing the submarine force.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "On October 12, 1900, the U.S. Navy commissioned USS Holland as its first submarine, establishing the U.S. Submarine Force",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "outcome"
+        ]
+      },
+      {
+        "id": "C7",
+        "claim": "The Navy ordered seven more Holland-type boats after trials, which became the A-class submarines with Navy-specified improvements.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source explicitly describes the follow-on orders resulting from Holland's successful trials.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "It also ordered seven more Holland -type boats, sufficiently impressed by Holland \u2019s potential",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          },
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "The seven new Holland- type submarines, built with Navy-specified improvements, became the Navy\u2019s A -class of submarines",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "outcome"
+        ]
+      },
+      {
+        "id": "C8",
+        "claim": "An 1900 agreement gave Vickers a 25-year license to manufacture Holland-class submarines for the UK and Europe using Electric Boat patents.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source describes the licensing agreement that extended Holland's design influence internationally.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU2-E6",
+            "quote": "an agreement was made on 27th October 1900 between the Electric Boat Company and Vickers Sons & Maxim Ltd of Barrow-in-Furness, giving Vickers 25-year licence to manufacture the Holland-class of submarines, using Electric Boats patents",
+            "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "source_title": "Alexander the Great to John Phillip Holland",
+            "locator": "DVSU2-E6"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": [
+          "outcome"
+        ]
+      },
+      {
+        "id": "C9",
+        "claim": "The Navy purchased USS Holland on April 11, 1900, for $165,000 after two years of trials and modifications.",
+        "scope": "machine",
+        "status": "supported",
+        "reason": "Source provides specific purchase date, price, and trial period.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU4-E1",
+            "quote": "After two years of Navy trials and modifications to Holland, the Navy purchased the submarine on April 11, 1900, for $165,000",
+            "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "source_title": "https://navalunderseamuseum.org/undersea-pioneers2/",
+            "locator": "DVSU4-E1; R2-E1; source=https://navalunderseamuseum.org/undersea-pioneers2/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": []
+      },
+      {
+        "id": "C10",
+        "claim": "John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.",
+        "scope": "event",
+        "status": "supported",
+        "reason": "Source provides the specific demonstration date.",
+        "evidence": [
+          {
+            "excerpt_id": "DVSU5-E1",
+            "quote": "John P. Holland first demonstrated the Holland VI to the U.S. Navy on 17 March 1898.",
+            "source_url": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "source_title": "https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/",
+            "locator": "DVSU5-E1; R3-E2; source=https://submarinemuseum.au/explore/australia-submarine/submarines/a-history-of-submarines/"
+          }
+        ],
+        "counterevidence": [],
+        "narrative_roles": []
+      }
+    ],
+    "probability": null,
+    "provenance_status": "captured",
+    "method": "model_source_assessment",
+    "calibration": "not_calibrated",
+    "source_fingerprint": "2fcac35532b7cc1a5ef235747b94c0ba90ca731d980a0a6dfef08f77e3c3d80f",
+    "claims_fingerprint": "f6dbd585713a03e2332ccb8c66fcdf940c3dc295f1051cc5b7576ade40b3a552"
+  }
+}

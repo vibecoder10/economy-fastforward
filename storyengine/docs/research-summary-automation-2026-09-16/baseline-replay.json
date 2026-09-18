@@ -1,0 +1,86 @@
+{
+  "source": "Git HEAD f92c863b5 original module, not changing working tree",
+  "roster_count": 20,
+  "packages": [
+    {
+      "machine": "SS-1 Holland class",
+      "stored_excerpts": 10,
+      "eligible_before": 8,
+      "leads": 6,
+      "empty_capture_leads": 5,
+      "stored_passed": true
+    },
+    {
+      "machine": "SS-2 through SS-8 Plunger class",
+      "stored_excerpts": 0,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 6,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-105 through SS-162 S-class",
+      "stored_excerpts": 0,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 4,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-163 through SS-165 Barracuda (V-1) class",
+      "stored_excerpts": 0,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 5,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-212 through SS-284 Gato class",
+      "stored_excerpts": 40,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 2,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-285 through SS-416 Balao class",
+      "stored_excerpts": 30,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 3,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-417 through SS-525 Tench class",
+      "stored_excerpts": 0,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 6,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-563 through SS-568 Tang class",
+      "stored_excerpts": 15,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 4,
+      "stored_passed": false
+    },
+    {
+      "machine": "SS-580 through SS-582 Barbel class",
+      "stored_excerpts": 20,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 4,
+      "stored_passed": false
+    },
+    {
+      "machine": "AGSS-569 Albacore class",
+      "stored_excerpts": 40,
+      "eligible_before": 0,
+      "leads": 6,
+      "empty_capture_leads": 2,
+      "stored_passed": false
+    }
+  ]
+}

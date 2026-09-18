@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-aggregate-gate","changed_at":"2026-09-16 21:27:02.719769+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:27:02.921783+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-aggregate-gate","changed_at":"2026-09-16 21:27:02.719769+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:27:03.300574+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-research-aggregate-gate","changed_at":"2026-09-16 21:27:02.719769+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:27:08.331974+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   44b29cd96..582c1b97a  main       -> origin/main
+Updating 44b29cd96..582c1b97a
+Fast-forward
+ storyengine/backend/pipeline_executor.py              |  3 +++
+ .../tests/test_submarine_research_integration.py      | 19 +++++++++++++++++++
+ 2 files changed, 22 insertions(+)
+code: 44b29cd96 -> 582c1b97a
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3848997)
+worker code parity: commit=582c1b97a directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 582c1b97a; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-aggregate-gate","changed_at":"2026-09-16 21:27:27.643576+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T21:27:27.766021+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-research-aggregate-gate","changed_at":"2026-09-16T21:27:27.643576+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":180,"limit":9000,"remaining":8820,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":6,"limit":100,"remaining":94},"units_used":180,"ceiling":9000,"remaining":8820}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T21:27:27Z submarine-research-aggregate-gate deployed 44b29cd96 -> 582c1b97a 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

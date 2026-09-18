@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-tabular-purpose-20260917","changed_at":"2026-09-17 16:45:09.390482+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T16:45:09.534733+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-tabular-purpose-20260917","changed_at":"2026-09-17 16:45:09.390482+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T16:45:09.912996+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:dvsu-tabular-purpose-20260917","changed_at":"2026-09-17 16:45:09.390482+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T16:45:14.946390+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   0f26b62e6..b4473f5d2  main       -> origin/main
+Updating 0f26b62e6..b4473f5d2
+Fast-forward
+ storyengine/backend/factual_class_context.py       | 53 ++++++++++++++++-
+ .../backend/tests/test_factual_class_context.py    | 66 ++++++++++++++++++++++
+ 2 files changed, 118 insertions(+), 1 deletion(-)
+code: 0f26b62e6 -> b4473f5d2
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=169 applied=169 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 57593)
+worker code parity: commit=b4473f5d2 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed b4473f5d2; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-tabular-purpose-20260917","changed_at":"2026-09-17 16:45:34.201664+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T16:45:34.339935+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-tabular-purpose-20260917","changed_at":"2026-09-17T16:45:34.201664+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-17","general":{"used":240,"limit":9000,"remaining":8760,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":8,"limit":100,"remaining":92},"units_used":240,"ceiling":9000,"remaining":8760}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-17T16:45:33Z dvsu-tabular-purpose-20260917 deployed 0f26b62e6 -> b4473f5d2 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

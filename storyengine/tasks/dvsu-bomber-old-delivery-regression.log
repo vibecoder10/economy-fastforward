@@ -1,0 +1,61 @@
+...............FF                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_run_all_carries_explicit_upload_plan_into_durable_job __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1074ab210>
+
+    @pytest.mark.asyncio
+    async def test_run_all_carries_explicit_upload_plan_into_durable_job(monkeypatch):
+        async def fetch(query, *args):
+            if 'channel_profiles' in query:
+                return {'youtube_channel_id': 'configured-channel', 'connected': True}
+            return {'id': 'video', 'status': 'idea_logged', 'pipeline_stages': ['research','script','voice','images','thumbnail','render','upload']}
+        enqueue = AsyncMock()
+        monkeypatch.setattr(pipeline, 'fetch_one', fetch)
+        monkeypatch.setattr(pipeline, '_is_task_active', AsyncMock(return_value=False))
+        monkeypatch.setattr(pipeline.generation_claims, 'acquire', AsyncMock(return_value=True))
+        monkeypatch.setattr(pipeline, '_enqueue_or_fallback', enqueue)
+        await pipeline.run_build('video', _request(object()), BackgroundTasks(), pipeline.BuildRequest(target='finish'), 'tenant')
+>       assert enqueue.call_args.kwargs['delivery_mode'] == 'youtube_unlisted'
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'delivery_mode'
+
+backend/tests/functional/test_durable_run_all_dispatch.py:424: KeyError
+___ test_configured_upload_without_connected_channel_is_visible_before_spend ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1074ab5d0>
+
+    @pytest.mark.asyncio
+    async def test_configured_upload_without_connected_channel_is_visible_before_spend(monkeypatch):
+        async def fetch(query, *args):
+            if 'channel_profiles' in query:
+                return {'youtube_channel_id': None, 'connected': False}
+            return {'id': 'video', 'status': 'idea_logged', 'pipeline_stages': ['render','upload']}
+        acquire = AsyncMock(return_value=True)
+        monkeypatch.setattr(pipeline, 'fetch_one', fetch)
+        monkeypatch.setattr(pipeline, '_is_task_active', AsyncMock(return_value=False))
+        monkeypatch.setattr(pipeline.generation_claims, 'acquire', acquire)
+        with pytest.raises(HTTPException, match='') as exc:
+            await pipeline.run_build('video', _request(object()), BackgroundTasks(), pipeline.BuildRequest(target='finish'), 'tenant')
+>       assert exc.value.status_code == 409
+E       AssertionError: assert 503 == 409
+E        +  where 503 = HTTPException(status_code=503, detail='The durable queue response is uncertain. StoryEngine kept the Run All reservation to prevent a duplicate; check activity before retrying.').status_code
+E        +    where HTTPException(status_code=503, detail='The durable queue response is uncertain. StoryEngine kept the Run All reservation to prevent a duplicate; check activity before retrying.') = <ExceptionInfo HTTPException(status_code=503, detail='The durable queue response is uncertain. StoryEngine kept the Run All reservation to prevent a duplicate; check activity before retrying.') tblen=3>.value
+
+backend/tests/functional/test_durable_run_all_dispatch.py:441: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  routes.pipeline:pipeline.py:887 arq enqueue failed for autobuild/video (durable queue required): 'object' object has no attribute 'enqueue_job'
+=============================== warnings summary ===============================
+backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/economy-fastforward/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+tests/functional/test_durable_run_all_dispatch.py::test_configured_upload_without_connected_channel_is_visible_before_spend
+  /Users/ryanayler/economy-fastforward/storyengine/backend/venv/lib/python3.11/site-packages/_pytest/raises.py:613: PytestWarning: matching against an empty string will *always* pass. If you want to check for an empty message you need to pass '^$'. If you don't want to match you should pass `None` or leave out the parameter.
+    super().__init__(match=match, check=check)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/functional/test_durable_run_all_dispatch.py::test_run_all_carries_explicit_upload_plan_into_durable_job
+FAILED backend/tests/functional/test_durable_run_all_dispatch.py::test_configured_upload_without_connected_channel_is_visible_before_spend
+2 failed, 15 passed, 2 warnings in 0.39s

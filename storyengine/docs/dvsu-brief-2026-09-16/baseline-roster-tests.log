@@ -1,0 +1,101 @@
+F...FF.FFF                                                               [100%]
+=================================== FAILURES ===================================
+_________ test_real_roster_stage_saves_twenty_and_stops_before_detail __________
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x104f8fbd0>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+
+    def test_real_roster_stage_saves_twenty_and_stops_before_detail(stage):
+        ex,video,events,writes,discover,_=stage
+        result=asyncio.run(ex.run_roster_selection('v'))
+>       assert result['status']=='roster_ready',result
+E       AssertionError: {'status': 'failed', 'video_id': 'v', 'error': "Candidate 0: record the selected machine's class_name; Candidate 1: re...elected machine's class_name; Candidate 19: record the selected machine's class_name", 'roster_selection_failed': True}
+E       assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:60: AssertionError
+___ test_fresh_selection_is_visible_and_detail_starts_only_on_separate_call ____
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x105d6d750>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x105d6d710>
+
+    def test_fresh_selection_is_visible_and_detail_starts_only_on_separate_call(stage,monkeypatch):
+        ex,video,events,_,discover,_=stage
+        video['research_payload']={'machine_script_contract':'factual_machine_v1'}
+>       assert asyncio.run(ex.run_roster_selection('v'))['status']=='roster_ready'
+E       AssertionError: assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:119: AssertionError
+_______ test_stale_runtime_with_detailed_work_is_not_promoted_as_legacy ________
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x105d5ec50>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+
+    def test_stale_runtime_with_detailed_work_is_not_promoted_as_legacy(stage):
+        ex,video,_,_,discover,_=stage
+>       assert asyncio.run(ex.run_roster_selection('v'))['status']=='roster_ready'
+E       AssertionError: assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:139: AssertionError
+_______ test_script_gate_checks_ordered_paragraphs_not_literal_equality ________
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x105843650>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+
+    def test_script_gate_checks_ordered_paragraphs_not_literal_equality(stage):
+        ex,video,_,_,_,_=stage
+>       assert asyncio.run(ex.run_roster_selection('v'))['status']=='roster_ready'
+E       AssertionError: assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:165: AssertionError
+______________ test_live_gate_keeps_mixed_build_and_source_checks ______________
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x105d7ab50>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+
+    def test_live_gate_keeps_mixed_build_and_source_checks(stage):
+        ex,video,_,_,_,_=stage
+>       assert asyncio.run(ex.run_roster_selection('v'))['status']=='roster_ready'
+E       AssertionError: assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:174: AssertionError
+__ test_saved_surplus_candidates_are_bounded_then_audited_without_rediscovery __
+
+stage = (<pipeline_executor.PipelineExecutor object at 0x106a00e50>, {'id': 'v', 'status': 'idea_logged', 'render_mode': 'stat...e 3', 'Candidate 4', 'Candidate 5', ...], 'roster_contract': 'CONFIRMED', 'fact_sheet': 'compact selected facts', ...})
+
+    def test_saved_surplus_candidates_are_bounded_then_audited_without_rediscovery(stage):
+        from roster_selection import selection_settings
+        ex,video,events,writes,discover,selected=stage
+        saved=copy.deepcopy(selected)
+        saved.pop('unit_research_cards')
+        saved['unit_roster'].append({'name':'Surplus class','status':'production','built_count':'1 completed'})
+        saved['recommended_final_roster'].append('Surplus class')
+        saved['roster_selection']={'version':1,'settings':selection_settings(20,1),'status':'needs_review'}
+        video['research_payload']=saved
+        result=asyncio.run(ex.run_roster_selection('v'))
+>       assert result['status']=='roster_ready',result
+E       AssertionError: {'status': 'failed', 'video_id': 'v', 'error': "Candidate 0: record the selected machine's class_name; Candidate 1: re...elected machine's class_name; Candidate 19: record the selected machine's class_name", 'roster_selection_failed': True}
+E       assert 'failed' == 'roster_ready'
+E         
+E         - roster_ready
+E         + failed
+
+tests/test_roster_stage_integration.py:190: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_roster_stage_integration.py::test_real_roster_stage_saves_twenty_and_stops_before_detail
+FAILED tests/test_roster_stage_integration.py::test_fresh_selection_is_visible_and_detail_starts_only_on_separate_call
+FAILED tests/test_roster_stage_integration.py::test_stale_runtime_with_detailed_work_is_not_promoted_as_legacy
+FAILED tests/test_roster_stage_integration.py::test_script_gate_checks_ordered_paragraphs_not_literal_equality
+FAILED tests/test_roster_stage_integration.py::test_live_gate_keeps_mixed_build_and_source_checks
+FAILED tests/test_roster_stage_integration.py::test_saved_surplus_candidates_are_bounded_then_audited_without_rediscovery
+6 failed, 4 passed in 1.42s

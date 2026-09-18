@@ -1,0 +1,20 @@
+{
+  "machine": "SS-1 USS Holland",
+  "passed": true,
+  "warnings": [],
+  "word_count": 71,
+  "review_context_version": 6,
+  "writer_request_budget": {
+    "method": "utf8_byte_upper_bound",
+    "context_limit": 200000,
+    "output_tokens_reserved": 900,
+    "input_token_upper_bound": 13340
+  },
+  "review_request_budget": {
+    "method": "utf8_byte_upper_bound",
+    "context_limit": 200000,
+    "output_tokens_reserved": 1200,
+    "input_token_upper_bound": 17000
+  },
+  "saved": false
+}

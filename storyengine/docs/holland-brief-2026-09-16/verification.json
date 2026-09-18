@@ -1,0 +1,46 @@
+{
+  "human_review": "PASS for local four-field example",
+  "writer_claim_words": 47,
+  "writer_brief_bytes": 931,
+  "writer_brief_words": 77,
+  "script_words": 99,
+  "repeated_and_reordered_output_identical": true,
+  "four_fields_present": true,
+  "brief_sha256": "eeadd6cca167c97c505c381ba0a65b27deb9d3bed995fc38de9a91e10f912f92",
+  "live_data_writes": 0,
+  "paid_provider_calls": 0,
+  "production_assessment_pass_created": false,
+  "production_preview_created": false,
+  "sentence_fact_map": [
+    [
+      "F1"
+    ],
+    [
+      "F2"
+    ],
+    [
+      "F1",
+      "F3"
+    ],
+    [
+      "F3"
+    ],
+    [
+      "F4"
+    ],
+    [
+      "F1",
+      "F3",
+      "F4"
+    ],
+    [
+      "F3",
+      "F4"
+    ]
+  ],
+  "editorial_interpretations": [
+    "Classroom is a metaphor for documented training.",
+    "Final contribution verdict synthesizes training and design succession; it does not assert combat failure."
+  ],
+  "remaining_app_gap": "Only the pure brief builder was exercised with human-reviewed local facts. Normal source ingestion, current assessment and factual/editorial provider preview were not run. PDF evidence is page77, beyond current first8page source fetch. No production-ready claim."
+}

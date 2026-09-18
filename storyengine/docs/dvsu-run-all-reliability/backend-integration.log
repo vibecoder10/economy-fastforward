@@ -1,0 +1,43 @@
+......................................................................F. [ 38%]
+........................................................................ [ 77%]
+...........................................                              [100%]
+=================================== FAILURES ===================================
+__________ test_revision_compare_and_swap_blocks_duplicate_submission __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c4dccd0>
+
+    @pytest.mark.asyncio
+    async def test_revision_compare_and_swap_blocks_duplicate_submission(monkeypatch):
+        store = {'state': {}, 'revision': 0}
+        async def query(sql, *args):
+            assert 'tenant_id' in sql and 'video_id' in sql
+            if sql.startswith('INSERT'):
+                return copy.deepcopy(store)
+            if args[4] != store['revision']: return None
+            store.update(state=json.loads(args[3]), revision=store['revision'] + 1)
+            return {'revision': store['revision']}
+        monkeypatch.setattr(journal, 'fetch_one', query)
+        first = await journal.SourceDiscoveryJournal.open('tenant','video','S1','Title',{})
+        duplicate = await journal.SourceDiscoveryJournal.open('tenant','video','S1','Title',{})
+        await first.checkpoint({'status':'submitted','attempts':1})
+        with pytest.raises(RuntimeError, match='checkpoint conflict'):
+            await duplicate.checkpoint({'status':'submitted','attempts':1})
+        resumed = await journal.SourceDiscoveryJournal.open('tenant','video','S1','Title',{})
+>       assert resumed.state == {'status':'submitted','attempts':1}
+E       AssertionError: assert {'status': 's...f5a52508e6be'} == {'status': 's...'attempts': 1}
+E         
+E         Omitting 2 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'operation_id': 'fbe710e1833b72b4154e70aaef651f3f2234cb2b22e856ad2551f5a52508e6be'}
+E         Use -v to get more diff
+
+backend/tests/test_source_discovery_journal.py:23: AssertionError
+=============================== warnings summary ===============================
+backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/test_source_discovery_journal.py::test_revision_compare_and_swap_blocks_duplicate_submission
+1 failed, 186 passed, 1 warning in 2.97s

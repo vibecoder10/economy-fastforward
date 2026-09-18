@@ -11102,6 +11102,69 @@ class PipelineExecutor:
             if self._db_write_missed(result):
                 raise RuntimeError("Roster save refused because the video is no longer available for this tenant")
 
+        # Preserve unrelated saved data/cards/packages; selected fields are
+        # the only replacement surface for this pre-unit stage. Shared by
+        # both the DVSU v2 path and the legacy research.agent path below -
+        # "acts"/"shared_context" are new DESIGN.md fields the legacy path
+        # never produces, so adding them here does not change its behavior.
+        selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit", "roster_candidate_overflow",
+                          "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook", "acts", "shared_context"}
+
+        from factual_machine_research import is_factual_machine_contract
+        if is_factual_machine_contract(payload):
+            # DVSU research pipeline v2 (docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md):
+            # Call 1 (thesis+acts) + Call 2 (roster+shared-context), generated
+            # once. No separate roster-coverage audit / repair-loop by design -
+            # a machine that can't find real sources at Call 3 is the
+            # validation. Only the existing purely-structural
+            # roster_selection.selection_validation gates this output.
+            try:
+                from dvsu_roster_v2 import run_thesis_roster_and_context
+                from roster_selection import bound_selection_candidates
+                await self._log_activity("Research Agent", video_id, "started",
+                                          f"DVSU v2: generating thesis, acts and roster ({settings['target_count']} target)")
+                draft = await run_thesis_roster_and_context(
+                    self._pipeline.anthropic, title,
+                    checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+                )
+                if not isinstance(draft, dict):
+                    raise ValueError("DVSU roster generation returned no structured payload")
+                draft = bound_selection_candidates(draft, settings["target_count"])
+                merged = dict(payload)
+                merged.update({key: value for key, value in draft.items() if key in selection_keys})
+                if previous_roster is not None and previous_roster != merged.get("unit_roster") and not history:
+                    previous_payload = copy.deepcopy(payload)
+                    previous_payload.pop("roster_selection_history", None)
+                    history.append({"payload": previous_payload, "saved_at": datetime.now(timezone.utc).isoformat()})
+                if history:
+                    merged["roster_selection_history"] = history
+                if await self._pipeline.should_cancel():
+                    return {"status": "cancelled", "video_id": video_id, "message": "Stopped before DVSU roster draft was saved."}
+                # selection_validation reads its target/pacing back out of
+                # payload["roster_selection"]["settings"] - must be set before
+                # the check runs, not only after it passes.
+                merged["roster_selection"] = selection_state("needs_review", selected_count=len(merged.get("unit_roster") or []))
+                check = selection_validation(title, merged)
+                merged["unit_roster_validation"] = check
+                if check.get("passed"):
+                    merged["research_phase"] = "roster_complete"
+                    merged["roster_selection"] = selection_state("completed", selected_count=check["roster_count"])
+                    result = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                           json.dumps(merged), video_id, self.tenant_id)
+                    if self._db_write_missed(result):
+                        return {"status": "failed", "video_id": video_id, "error": "Roster save refused",
+                                "roster_selection_failed": True}
+                    await self._log_activity("Research Agent", video_id, "completed",
+                                              f"DVSU v2 roster complete: {check['roster_count']} entries")
+                    return {"status": "roster_ready", "video_id": video_id, "selected_count": check["roster_count"]}
+                reasons = list(check.get("warnings") or [])
+                await save_draft(merged, status="needs_review", reason="; ".join(map(str, reasons))[:1200])
+                return {"status": "failed", "video_id": video_id, "error": "; ".join(map(str, reasons)),
+                        "roster_selection_failed": True}
+            except Exception as exc:
+                await self._log_activity("Research Agent", video_id, "failed", str(exc))
+                return {"status": "failed", "video_id": video_id, "error": str(exc), "roster_selection_failed": True}
+
         try:
             from research.agent import run_research
             from roster_coverage import selection_scope_policy, audit_roster_selection
@@ -11120,10 +11183,8 @@ class PipelineExecutor:
             if not isinstance(draft, dict):
                 raise ValueError("Roster selection returned no structured payload")
             draft = bound_selection_candidates(draft, settings["target_count"])
-            # Preserve unrelated saved data/cards/packages; selected fields are
-            # the only replacement surface for this pre-unit stage.
-            selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit", "roster_candidate_overflow",
-                              "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook"}
+            # selection_keys (incl. "acts"/"shared_context", DVSU v2 fields
+            # this legacy draft never produces) is defined once, above.
             merged = dict(payload)
             merged.update({key: value for key, value in draft.items() if key in selection_keys})
             if previous_roster is not None and previous_roster != merged.get("unit_roster") and not history:
@@ -13154,20 +13215,40 @@ class PipelineExecutor:
                         return payload
                 return payload
 
-            cache_key = _verified_source_cache_key(target_machine or "")
-            cached_package = ((payload.get("machine_raw_source_packages") or {}).get(cache_key))
+            # --- DVSU research pipeline v2, Call 3 (docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md) ---
+            # Replaces the old source-capture (_gather_verified_machine_source_package /
+            # supplement_missing_research), Kie-source-discovery ledger accounting,
+            # research_claim_assessment.assess_verified_package, and
+            # factual_machine_summary.generate_factual_machine_summary steps for this
+            # one locked machine. See dvsu_research_v2.py's module docstring and
+            # tests/test_dvsu_research_v2.py for how the Call-3 packet is turned into
+            # a card/source-package that still satisfies every legacy contract check
+            # below (factual_card_contract_warnings / research_summary_ready /
+            # dvsu_research_handoff.package_brief_warnings - the exact three gates the
+            # bulk coordinator above checks for "already done").
+            existing_card = _research_card_for_machine(payload, target_machine or "")
+            existing_package = _verified_source_package_for_machine(payload, target_machine or "")
+            existing_summary = (existing_card or {}).get("research_summary") if isinstance(existing_card, dict) else None
+            if (not factual_card_contract_warnings(target_machine or "", existing_card, existing_package)
+                    and research_summary_ready(target_machine or "", existing_package, existing_summary, title)
+                    and not package_brief_warnings(target_machine or "", existing_package, title)):
+                # No-spend skip: a direct single-machine call (bypassing the bulk
+                # coordinator's own pre-check above) must not re-pay for Call 3
+                # when this machine's saved evidence is already fully current.
+                payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
+                    payload, target_machine or "", [], locked_roster=roster,
+                )
+                await self._log_activity(
+                    bot_name, video_id, "completed",
+                    f"Factual source research already complete for {target_machine}",
+                )
+                return payload
+
             from factual_machine_pipeline import source_fingerprint as _evidence_fingerprint
-            original_package_fingerprint = _evidence_fingerprint(target_machine or '', cached_package)
-            prior_discovery_ids = {
-                str(row.get('request_id') or '').strip()
-                for row in ((cached_package or {}).get('source_discovery_requests') or [])
-                if isinstance(row, dict) and str(row.get('request_id') or '').strip()
-            }
-            prior_singleton = (cached_package or {}).get('source_discovery')
-            if isinstance(prior_singleton, dict) and str(prior_singleton.get('request_id') or '').strip():
-                prior_discovery_ids.add(str(prior_singleton['request_id']).strip())
+            original_package_fingerprint = _evidence_fingerprint(target_machine or '', existing_package)
+
             async def _handoff_guard(_stage):
-                """Recheck mutable stop conditions before every recovery provider phase."""
+                """Recheck mutable stop conditions before Call 3's provider work."""
                 try:
                     fresh = await self._get_video(video_id)
                 except Exception:
@@ -13200,169 +13281,53 @@ class PipelineExecutor:
                 )
                 return not self._db_write_missed(result)
 
-            async def _handoff_assess(candidate, stage):
-                if not await _handoff_guard(stage):
-                    raise RecoveryStopped('Research recovery guard stopped before narrative assessment.')
-                from research_claim_assessment import assess_verified_package, current_assessment
-                if current_assessment(target_machine or '', candidate, title) is not None:
-                    return candidate
-                candidate['claim_assessment'] = await assess_verified_package(
-                    target_machine or '', candidate, getattr(self._pipeline, 'anthropic', None),
-                    subject_context=title, require_narrative_roles=False,
-                )
-                return candidate
-            if not factual_package_contract_warnings(target_machine or "", cached_package):
-                # Migrate saved immutable evidence before any recapture/search.
-                try:
-                    cached_package = await _handoff_assess(cached_package, 'saved_assessment')
-                except RecoveryStopped as exc:
-                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or '', [str(exc)], locked_roster=roster)
-                    return payload
-                if not await _handoff_checkpoint(cached_package, 'saved_assessment'):
-                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or '', ['research recovery guard or checkpoint refused'], locked_roster=roster)
-                    return payload
-                try:
-                    verified_source_package = await supplement_missing_research(
-                        self, title, target_machine or "", payload, cached_package, cache_key,
-                        assess=_handoff_assess, checkpoint=_handoff_checkpoint, guard=_handoff_guard, video_id=video_id,
-                    )
-                except RecoveryStopped as exc:
-                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or '', [str(exc)], locked_roster=roster)
-                    return payload
-            else:
-                if not await _handoff_guard('before_initial_gather'):
-                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or '', ['research recovery guard refused initial source capture'], locked_roster=roster)
-                    return payload
-                verified_source_package = await self._gather_verified_machine_source_package(
-                    title, target_machine or "", payload, video_id=video_id,
-                )
-            payload.setdefault("machine_raw_source_packages", {})[target_code] = verified_source_package
-            if _evidence_fingerprint(target_machine or '', verified_source_package) != original_package_fingerprint:
-                _clear_machine_preview_artifacts(payload, target_code)
-            package_checkpoint = await self._checkpoint_machine_raw_source_package(
-                video_id, target_code, verified_source_package, locked_roster_snapshot,
-            )
-            if self._db_write_missed(package_checkpoint):
-                warnings = ["persisted unit_roster changed concurrently; raw source package checkpoint refused"]
-                payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                    payload, target_machine or "", warnings, locked_roster=roster,
-                )
+            if not await _handoff_guard('before_call3_research'):
+                payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                    payload, target_machine or '', ['research recovery guard refused before per-machine research'], locked_roster=roster)
                 return payload
 
-            discoveries = verified_source_package.get("source_discovery_requests")
-            if not isinstance(discoveries, list):
-                discoveries = [verified_source_package.get("source_discovery") or {}]
-            seen_discovery_ids: set[str] = set()
-            for discovery in discoveries:
-                if not isinstance(discovery, dict):
-                    continue
-                request_id = str(discovery.get("request_id") or "").strip()
-                if (discovery.get("provider") != "kie" or not request_id
-                        or discovery.get("credits_consumed") is None or request_id in seen_discovery_ids
-                        or request_id in prior_discovery_ids):
-                    continue
-                seen_discovery_ids.add(request_id)
-                from generation_ledger import record_ledger_entry
-                from factual_source_search import USD_PER_CREDIT
-                credits = float(discovery["credits_consumed"])
-                await record_ledger_entry(
-                    tenant_id=self.tenant_id, video_id=video_id, stage="research",
-                    model="kie/" + str(discovery.get("model") or "gpt-5-2"),
-                    units=credits, unit_cost=USD_PER_CREDIT, actual_cost=credits * USD_PER_CREDIT,
-                    kie_task_id=request_id,
-                )
+            from dvsu_research_v2 import run_machine_research_packet, adapt_packet_to_factual_card
+            act_number = next(
+                (int(row.get("act_number") or 0) for row in (payload.get("unit_roster") or [])
+                 if isinstance(row, dict) and _unit_display_name(row.get("machine")) == target_machine),
+                0,
+            )
+            shared_context = list(payload.get("shared_context") or [])
+            packet = await run_machine_research_packet(
+                getattr(self._pipeline, "anthropic", None), target_machine or "", act_number, title,
+                shared_context, checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+            )
+            adapted = adapt_packet_to_factual_card(
+                target_machine or "", act_number, packet, roster.index(target_machine or "") + 1, title,
+            )
+            verified_source_package = adapted["package"]
+            card = adapted["card"]
+
+            if not await _handoff_checkpoint(verified_source_package, 'call3_package'):
+                payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
+                    payload, target_machine or '', ['research recovery guard or checkpoint refused'], locked_roster=roster)
+                return payload
+            if _evidence_fingerprint(target_machine or '', verified_source_package) != original_package_fingerprint:
+                _clear_machine_preview_artifacts(payload, target_code)
+            # No Kie/Tavily source-discovery ledger accounting here (cost-tracking
+            # REMOVAL, not a dropped-cost bug): Call 3 only ever calls
+            # run_machine_research_packet, which uses Anthropic web search -
+            # _gather_verified_machine_source_package (the Kie/Tavily source this
+            # block used to account for) is no longer called on this path, so there
+            # is nothing left to ledger. Anthropic web-search cost is not ledgered
+            # anywhere in this codebase, same as Calls 1-2 in dvsu_roster_v2.py.
 
             package_warnings = factual_package_contract_warnings(
                 target_machine or "", verified_source_package,
             )
-            assessment_warnings = []
-            if not package_warnings:
-                from research_claim_assessment import (
-                    assess_verified_package, current_assessment, has_supported_claim,
-                )
-                if not await _handoff_guard('before_final_assessment'):
-                    payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or '', ['research recovery guard stopped before final assessment'], locked_roster=roster)
-                    return payload
-                assessment = await assess_verified_package(
-                    target_machine or "", verified_source_package,
-                    getattr(self._pipeline, "anthropic", None), subject_context=title,
-                    require_narrative_roles=True,
-                )
-                verified_source_package["claim_assessment"] = assessment
-                # Source capture is already durable above. Persist the assessment
-                # separately before generating prose, including failed receipts.
-                assessment_checkpoint = await self._checkpoint_machine_raw_source_package(
-                    video_id, target_code, verified_source_package, locked_roster_snapshot,
-                )
-                if self._db_write_missed(assessment_checkpoint):
-                    payload["unit_research_hold_validation"] = _hold_validation_with_unit_verdict(
-                        payload, target_machine or "",
-                        ["persisted unit_roster changed concurrently; claim assessment checkpoint refused"],
-                        locked_roster=roster,
-                    )
-                    return payload
-                if not current_assessment(target_machine or "", verified_source_package, title):
-                    assessment_warnings = list(assessment.get("warnings") or [
-                        "Source-backed claim assessment is missing, invalid, or stale.",
-                    ])
-                elif not has_supported_claim(assessment):
-                    assessment_warnings = ["Source assessment found no supported claims; review the retained conflicts and evidence."]
-            existing = _research_card_for_machine(payload, target_machine or "")
-            existing_summary = (existing or {}).get("research_summary") if isinstance(existing, dict) else None
-            card = build_factual_evidence_card(target_machine or "", verified_source_package)
             card_warnings = factual_card_contract_warnings(
                 target_machine or "", card, verified_source_package,
             )
-            summary_warnings = list(assessment_warnings)
-            if not package_warnings and not card_warnings and not assessment_warnings:
-                if research_summary_ready(target_machine or "", verified_source_package, existing_summary, title):
-                    card["research_summary"] = existing_summary
-                else:
-                    from factual_machine_summary import generate_factual_machine_summary
-                    if not await _handoff_guard('before_research_summary'):
-                        payload['unit_research_hold_validation'] = _hold_validation_with_unit_verdict(
-                            payload, target_machine or '', ['research recovery guard stopped before research summary'], locked_roster=roster)
-                        return payload
-                    try:
-                        summary_result = await generate_factual_machine_summary(
-                            target_machine or "", verified_source_package,
-                            getattr(self._pipeline, "anthropic", None),
-                            subject_context=title, purpose="research", previous_summary=existing_summary,
-                        )
-                    except ValueError as exc:
-                        # Invalid local generation setup is reviewable for this
-                        # machine. Provider/account failures still propagate so
-                        # their existing budget/credential stop paths remain
-                        # authoritative.
-                        summary_result = {"passed": False, "warnings": [str(exc)]}
-                    saved_summary = saved_research_summary(
-                        target_machine or "", verified_source_package, summary_result, title,
-                    )
-                    # The model's self-reported pass is insufficient.  The
-                    # stored artifact must meet the exact reusable-summary
-                    # contract (including claims and citations) before this
-                    # unit can advance or be reused.
-                    if not research_summary_ready(
-                        target_machine or "", verified_source_package, saved_summary, title,
-                    ):
-                        saved_summary["passed"] = False
-                        saved_summary["warnings"] = list(dict.fromkeys(
-                            list(saved_summary.get("warnings") or [])
-                            + ["Factual research summary is missing required claims or citations"]
-                        ))
-                    card["research_summary"] = saved_summary
-                    if not saved_summary.get("passed"):
-                        summary_warnings = list(summary_result.get("warnings") or ["Factual research summary failed review"])
-                        summary_warnings.extend(saved_summary.get("warnings") or [])
-            narrative_warnings = (package_brief_warnings(target_machine or "", verified_source_package, title)
-                                  if not package_warnings and not assessment_warnings else [])
-            card["script_brief_readiness"] = {"passed": not narrative_warnings,
-                                              "warnings": narrative_warnings}
+            summary = card.get("research_summary") if isinstance(card, dict) else None
+            summary_warnings = [] if (isinstance(summary, dict) and summary.get("passed") is True) else list(
+                (summary or {}).get("warnings") or ["Mechanical research summary did not pass readiness"]
+            )
+            narrative_warnings = list((card.get("script_brief_readiness") or {}).get("warnings") or [])
             warnings = list(dict.fromkeys(package_warnings + card_warnings + summary_warnings + narrative_warnings))
             current_cards = [
                 item for item in (payload.get("unit_research_cards") or [])

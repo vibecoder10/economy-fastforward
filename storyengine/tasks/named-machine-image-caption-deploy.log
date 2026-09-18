@@ -1,0 +1,37 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:named-submarine-image-repair","changed_at":"2026-09-16 20:29:09.546177+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:29:09.671388+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:named-submarine-image-repair","changed_at":"2026-09-16 20:29:09.546177+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:29:10.032464+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:named-submarine-image-repair","changed_at":"2026-09-16 20:29:09.546177+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:29:15.062213+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   9919c0d5b..b1f828c21  main       -> origin/main
+Updating 9919c0d5b..b1f828c21
+Fast-forward
+ storyengine/backend/reference_selection.py         |  77 ++++++++++++---
+ .../tests/test_submarine_caption_identity.py       | 105 +++++++++++++++++++++
+ 2 files changed, 170 insertions(+), 12 deletions(-)
+ create mode 100644 storyengine/backend/tests/test_submarine_caption_identity.py
+code: 9919c0d5b -> b1f828c21
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3827010)
+worker code parity: commit=b1f828c21 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed b1f828c21; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:named-submarine-image-repair","changed_at":"2026-09-16 20:29:34.151751+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-16T20:29:34.269585+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:named-submarine-image-repair","changed_at":"2026-09-16T20:29:34.151751+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-16","general":{"used":90,"limit":9000,"remaining":8910,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":0,"limit":100,"remaining":100},"search_calls":{"used":3,"limit":100,"remaining":97},"units_used":90,"ceiling":9000,"remaining":8910}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-16T20:29:33Z named-submarine-image-repair deployed 9919c0d5b -> b1f828c21 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

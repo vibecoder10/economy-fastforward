@@ -1,0 +1,17 @@
+{
+  "release": "f10e8f57048655c27511b05eae91c5910d9296e3",
+  "url": "https://storyengine.dev/pipeline/44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "surface": "Existing authenticated Chrome tab, CUA DOM/locator readback",
+  "run_all_enabled": true,
+  "remaining_card_buttons": 18,
+  "remaining_card_buttons_enabled": 18,
+  "production_scene_count": 0,
+  "passed_preview_count": 2,
+  "batch_confirmation_opened": true,
+  "confirmation_text": "Run all factual script cards? 18 cards need research preparation before writing. Existing reviewed sections will be reused. The server will check each card before any writing.",
+  "confirmation_cancelled": true,
+  "paid_run_started": false,
+  "followup": "Final reload verified corrected subtitles; all18buttons andRunAllenabled.",
+  "passed_preview_subtitles": 2,
+  "incorrect_failed_subtitles": 0
+}

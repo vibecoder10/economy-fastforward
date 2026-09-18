@@ -1,0 +1,36 @@
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-stream-fields","changed_at":"2026-09-15 18:37:17.857491+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T18:37:18.030604+00:00"}
+drain: enabled; waiting for active work to finish (timeout 7200s)
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-stream-fields","changed_at":"2026-09-15 18:37:17.857491+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T18:37:18.392102+00:00"}
+{"drain":{"mode":"draining","reason":"safe production deploy","owner":"deploy:submarine-stream-fields","changed_at":"2026-09-15 18:37:17.857491+00:00","draining":true},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T18:37:23.425238+00:00"}
+From https://github.com/vibecoder10/economy-fastforward
+   9a0480b4e..6e5944030  main       -> origin/main
+Updating 9a0480b4e..6e5944030
+Fast-forward
+ .../shared/clients/anthropic_client.py             |  9 ++++++-
+ .../tests/test_research_response_continuation.py   | 29 ++++++++++++++++++++++
+ 2 files changed, 37 insertions(+), 1 deletion(-)
+code: 9a0480b4e -> 6e5944030
+migrations_dir=/home/clawd/projects/economy-fastforward/storyengine/backend/migrations
+total=168 applied=168 pending=0
+migrations complete
+schema: strict migrations complete
+backend: active
+backend health: verified (drain still enabled)
+worker: active (pid 3298266)
+worker code parity: commit=6e5944030 directory=/home/clawd/projects/economy-fastforward/storyengine/backend
+DONE — deployed 6e5944030; automatic undrain follows (log: /home/clawd/deploys.log)
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-stream-fields","changed_at":"2026-09-15 18:37:42.447221+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-15T18:37:42.587704+00:00"}
+-- post-deploy health --
+== services ==
+storyengine-backend: active
+storyengine-frontend: active
+== api ==
+{"status":"healthy","service":"storyengine-api","database":true,"active_tasks":0,"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:submarine-stream-fields","changed_at":"2026-09-15T18:37:42.447221+00:00","known":true,"draining":false},"storage":true,"queue":"arq","youtube_quota":{"date_pt":"2026-09-15","general":{"used":350,"limit":9000,"remaining":8650,"project_limit":10000,"configured_ceiling":9000},"video_uploads":{"used":1,"limit":100,"remaining":99},"search_calls":{"used":10,"limit":100,"remaining":90},"units_used":350,"ceiling":9000,"remaining":8650}}
+== frontend ==
+http 200
+== deploy lock ==
+no lock (clear to deploy)
+== last deploy ==
+2026-09-15T18:37:42Z submarine-stream-fields deployed 9a0480b4e -> 6e5944030 
+== disk ==
+/dev/sda1       193G   60G  134G  31% /

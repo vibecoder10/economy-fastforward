@@ -1,0 +1,7 @@
+Command:
+
+`backend/venv/bin/python -m pytest -q backend/tests/test_source_discovery_reliability.py backend/tests/functional/test_kie_factual_source_search.py backend/tests/test_dvsu_targeted_discovery.py backend/tests/test_factual_pdf_source.py`
+
+Result: `43 passed`.
+
+Coverage includes checkpoint failure before and after a received provider response, completed/parsed/received/submitted restart states, received account/HTTP400/transient replay, receipt-history retention, key-redacted response truncation and finish-reason detection, retry checkpoints and limits, malformed-only retry, safe parsing without prose URL extraction, unsafe URL filtering, ambiguous transport reconciliation, retryable pre-connect transport, and the durable-context integration fixtures.

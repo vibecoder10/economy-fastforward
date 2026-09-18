@@ -1,0 +1,37 @@
+{
+  "captured_at": "2026-09-17",
+  "scope": "Local configured estimates and frozen baseline only; no provider pricing was queried.",
+  "configured_inputs": {
+    "script_cost_estimate_usd": 0.02,
+    "voice_price_per_1k_chars_usd": 0.1,
+    "voice_flat_estimate_usd": 0.3,
+    "static_views_target_per_scene": 3,
+    "picture_cost_default_usd": 0.05,
+    "static_image_estimate_per_scene_usd": 0.15,
+    "image_price_by_model_usd": {
+      "gpt-image-2": 0.05,
+      "nano-banana-2": 0.04,
+      "z-image": 0.004
+    }
+  },
+  "sources": {
+    "configured_constants": "backend/actions.py:65-77 re-exports /Users/ryanayler/AgentVault/Projects/story-engine/skills/video-pipeline/shared/channel_profile.py:528-599; inspected by importing local actions constants",
+    "voice_metering": "backend/pipeline_executor.py:17539-17570",
+    "script_ledger_estimate": "backend/pipeline_executor.py:17424-17434",
+    "static_view_count": "backend/static_docu_contract.py:7",
+    "baseline_video": "docs/dvsu-run-all-reliability/baseline-video.json",
+    "baseline_ledger": "docs/dvsu-run-all-reliability/baseline-ledger.json"
+  },
+  "baseline": {
+    "video_status": "ready_for_voice",
+    "total_cost_usd": 0.0573,
+    "ledger_entries": [
+      {
+        "stage": "research",
+        "model": "kie/gpt-5-2",
+        "entries": 44,
+        "cost_usd": 0.0573
+      }
+    ]
+  }
+}

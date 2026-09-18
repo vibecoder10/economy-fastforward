@@ -1,0 +1,40 @@
+Sep 15 18:38:29 srv1318038 arq[3298266]: Could not save curiosity structure: 'SupabaseAdapter' object has no attribute 'update_idea_curiosity_structure'
+Sep 15 18:42:41 srv1318038 arq[3298266]: 18:42:41: recording health: Sep-15 18:42:41 j_complete=0 j_failed=0 j_retried=0 j_ongoing=1 queued=1
+Sep 15 18:44:17 srv1318038 arq[3298266]: Could not save curiosity structure: 'SupabaseAdapter' object has no attribute 'update_idea_curiosity_structure'
+Sep 15 18:45:13 srv1318038 arq[3298266]: [humanize_error] (no context) | raw: Research gate failed; not advancing to scripting: Roster validation failed
+Sep 15 18:45:13 srv1318038 arq[3298266]: [humanize_error] (no context) | raw: Research gate failed; not advancing to scripting: Roster validation failed
+Sep 15 18:45:33 srv1318038 arq[3298266]: 18:45:33: 449.66s ← autobuild:44dbf2b2-a27a-47ea-a608-4c31c906be9a:4:arq_run_autobuild ● {'status': 'failed', 'message': 'Research gate failed; not advancing to scripti…
+Sep 15 18:47:41 srv1318038 arq[3298266]: 18:47:41: recording health: Sep-15 18:47:41 j_complete=1 j_failed=0 j_retried=0 j_ongoing=0 queued=0
+Sep 15 19:27:43 srv1318038 arq[3315759]: 19:27:43: Starting worker for 17 functions: arq_run_research, arq_run_script, arq_run_voice, arq_run_image_prompts, arq_run_storyboards, arq_run_images, arq_run_sound_prompts, arq_run_sound_effects, arq_run_video_scripts, arq_run_video_generation, arq_run_thumbnail, arq_run_render, arq_run_upload, arq_run_autobuild, arq_run_custom_film_runtime, arq_run_custom_film_director, arq_run_scene_storyboards
+Sep 15 19:27:43 srv1318038 arq[3315759]: 19:27:43: redis_version=7.0.15 mem_usage=1.34M clients_connected=2 db_keys=12
+Sep 15 19:29:07 srv1318038 arq[3315759]: 19:29:07:   0.38s → research:44dbf2b2-a27a-47ea-a608-4c31c906be9a:1:arq_run_research('44dbf2b2-a27a-47ea-a608-4c31c906be9a', UUID('561b872d-7b73-45e3-9c44-7f30c3566…)
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Starting pipeline initialization...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: anthropic_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ anthropic_api_key loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: airtable_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   - airtable_api_key not found
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: elevenlabs_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: elevenlabs_model_id...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: kie_ai_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: openai_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   - openai_api_key not found
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Loading key: gemini_api_key...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT]   - gemini_api_key not found
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] Creating lightweight pipeline...
+Sep 15 19:29:08 srv1318038 arq[3315759]: [INIT] SupabaseAdapter OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] AnthropicClient OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] GoogleClient OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] SlackClient OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] ImageClient OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 15 19:29:09 srv1318038 arq[3315759]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] GeminiClient OK
+Sep 15 19:29:09 srv1318038 arq[3315759]: [INIT] Pipeline ready!
+Sep 15 19:29:57 srv1318038 arq[3315759]: Research payload missing fields: ['historical_parallels', 'framework_analysis', 'character_dossier', 'narrative_arc', 'counter_arguments', 'visual_seeds']

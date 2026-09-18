@@ -1,0 +1,245 @@
+{
+  "before": "docs/plunger-readiness-2026-09-17/live-before.json",
+  "after": "docs/plunger-purpose-2026-09-17/live-after-focused-flat.json",
+  "unchanged": true,
+  "errors": [],
+  "unavailable_fields": [
+    "script_hash",
+    "validation_hash"
+  ],
+  "title": "Every US Submarine Class Ever Built (2026)",
+  "title_source": "video_title",
+  "packages": [
+    {
+      "key": "SS1",
+      "machine": "SS-1 USS Holland",
+      "ready": true,
+      "preparation_candidate": false,
+      "missing_fields": [],
+      "legacy_explicit_role_claims": 10
+    },
+    {
+      "key": "SS2",
+      "machine": "SS-2 USS Plunger",
+      "ready": true,
+      "preparation_candidate": false,
+      "missing_fields": [],
+      "legacy_explicit_role_claims": 10
+    },
+    {
+      "key": "SS105",
+      "machine": "SS-105 USS S-1",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS163",
+      "machine": "SS-163 USS Barracuda",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS212",
+      "machine": "SS-212 USS Gato",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS285",
+      "machine": "SS-285 USS Balao",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS417",
+      "machine": "SS-417 USS Tench",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS563",
+      "machine": "SS-563 USS Tang",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SS580",
+      "machine": "SS-580 USS Barbel",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN21",
+      "machine": "SSN-21 USS Seawolf",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN571",
+      "machine": "SSN-571 USS Nautilus",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN585",
+      "machine": "SSN-585 USS Skipjack",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN593",
+      "machine": "SSN-593 USS Thresher",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN637",
+      "machine": "SSN-637 USS Sturgeon",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN688",
+      "machine": "SSN-688 USS Los Angeles",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSN774",
+      "machine": "SSN-774 USS Virginia",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "AGSS569",
+      "machine": "AGSS-569 USS Albacore",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN598",
+      "machine": "SSBN-598 USS George Washington",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN608",
+      "machine": "SSBN-608 USS Ethan Allen",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "legacy_explicit_role_claims": 0
+    },
+    {
+      "key": "SSBN616",
+      "machine": "SSBN-616 USS Lafayette",
+      "ready": false,
+      "preparation_candidate": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "legacy_explicit_role_claims": 0
+    }
+  ],
+  "ready_count": 2,
+  "preparation_candidate_count": 18,
+  "preparation_candidate_note": "Package-only preparation candidates; API base gates are untested by this audit.",
+  "ss2_preview": {
+    "word_count": 0,
+    "passed": null,
+    "factual_passed": null,
+    "support_audit": null,
+    "editorial_review": null
+  }
+}

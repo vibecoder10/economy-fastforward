@@ -1,0 +1,100 @@
+Sep 17 16:35:08 srv1318038 python3[53176]: [INIT]   - airtable_api_key not found
+Sep 17 16:35:08 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_api_key...
+Sep 17 16:35:08 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 17 16:35:08 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_model_id...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Loading key: kie_ai_api_key...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Loading key: openai_api_key...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   - openai_api_key not found
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Loading key: gemini_api_key...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT]   - gemini_api_key not found
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] Creating lightweight pipeline...
+Sep 17 16:35:09 srv1318038 python3[53176]: [INIT] SupabaseAdapter OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] AnthropicClient OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] GoogleClient OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] SlackClient OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] ImageClient OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 17 16:35:10 srv1318038 python3[53176]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] GeminiClient OK
+Sep 17 16:35:10 srv1318038 python3[53176]: [INIT] Pipeline ready!
+Sep 17 16:35:13 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:13.403833+00:00", "level": "INFO", "message": "[AutoYTSync] Tenant 44ecc95a: sync complete", "module": "main"}
+Sep 17 16:35:13 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:13.656446+00:00", "level": "INFO", "message": "[AutoYTSync] Tenant 561b872d: sync complete", "module": "main"}
+Sep 17 16:35:21 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:21.939861+00:00", "level": "WARNING", "message": "[humanize_error] (no context) | raw: Factual source research stopped at SS-2 USS Plunger: Missing intended_role evidence; request targeted research for intended_role.", "module": "error_utils"}
+Sep 17 16:35:22 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:22.154788+00:00", "level": "INFO", "message": "POST /api/pipeline/machine-research-one/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (13352ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 13351.8}
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Starting pipeline initialization...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: anthropic_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ anthropic_api_key loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: airtable_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   - airtable_api_key not found
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_api_key loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_voice_id...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_voice_id loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_model_id...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_model_id loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: elevenlabs_voice_style...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ elevenlabs_voice_style loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: kie_ai_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   ✓ kie_ai_api_key loaded
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: openai_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   - openai_api_key not found
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Loading key: gemini_api_key...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT]   - gemini_api_key not found
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Creating lightweight pipeline...
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] SupabaseAdapter OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] AnthropicClient OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] GoogleClient OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] SlackClient OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] ImageClient OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] ElevenLabsClient OK (voice=Wq15xSaY3gWvazBRaGEU)
+Sep 17 16:35:23 srv1318038 python3[53176]:   GEMINI_API_KEY not found - thumbnail analysis will be skipped
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] GeminiClient OK
+Sep 17 16:35:23 srv1318038 python3[53176]: [INIT] Pipeline ready!
+Sep 17 16:35:24 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:24.074094+00:00", "level": "INFO", "message": "POST /api/pipeline/machine-script-preview-readiness/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (884ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 883.7}
+Sep 17 16:35:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:34.538055+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (84ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 84.2}
+Sep 17 16:35:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:35:34.551694+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (107ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 107.1}
+Sep 17 16:36:12 srv1318038 python3[53176]: [Scrape] Scraping 3 channels via YouTube Data API for tenant ee93e6d1-a9cc-44c3-81e9-84adee8329aa
+Sep 17 16:36:13 srv1318038 python3[53176]: [Scrape] Laugh__LEARN9820: 10 videos listed
+Sep 17 16:36:13 srv1318038 python3[53176]: [Scrape] Error listing EnglishGlowUp-q5b: Could not resolve a channel id from 'https://www.youtube.com/@EnglishGlowUp-q5b'
+Sep 17 16:36:14 srv1318038 python3[53176]: [Scrape] Laugh_&_LEARN: 10 videos listed
+Sep 17 16:36:14 srv1318038 python3[53176]: [Scrape] Phase 1 done: 20 video stubs.
+Sep 17 16:36:14 srv1318038 python3[53176]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 16:36:14 srv1318038 python3[53176]: [Scrape] Extracting metadata...
+Sep 17 16:36:14 srv1318038 python3[53176]: [Scrape] Phase 2 done: 20 videos (20 enriched, 0 from stubs, 20 with publish dates)
+Sep 17 16:36:15 srv1318038 python3[53176]: [Scrape] Done: 20 saved (0 new, 20 updated), 0 with transcripts
+Sep 17 16:36:15 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:15.554748+00:00", "level": "INFO", "message": "[AutoScrape] Tenant ee93e6d1: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 16:36:15 srv1318038 python3[53176]: [Scrape] Scraping 2 channels via YouTube Data API for tenant 44ecc95a-80f3-4261-8294-f963c03af2bd
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] dailyenglishworld103: 10 videos listed
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] Laugh_&_LEARN: 10 videos listed
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] Phase 1 done: 20 video stubs.
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] Extracting metadata...
+Sep 17 16:36:16 srv1318038 python3[53176]: [Scrape] Phase 2 done: 20 videos (20 enriched, 0 from stubs, 20 with publish dates)
+Sep 17 16:36:17 srv1318038 python3[53176]: [Scrape] Done: 20 saved (0 new, 20 updated), 0 with transcripts
+Sep 17 16:36:17 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:17.893649+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 44ecc95a: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 16:36:17 srv1318038 python3[53176]: [Scrape] Scraping 1 channels via YouTube Data API for tenant 561b872d-7b73-45e3-9c44-7f30c3566eda
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] UCO4gtSa3rpOutrZ45-OjYyA: 10 videos listed
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] Phase 1 done: 10 video stubs.
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] Extracting metadata...
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] Phase 2 done: 10 videos (10 enriched, 0 from stubs, 10 with publish dates)
+Sep 17 16:36:18 srv1318038 python3[53176]: [Scrape] Done: 10 saved (0 new, 10 updated), 0 with transcripts
+Sep 17 16:36:18 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:18.924665+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 561b872d: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Scraping 1 channels via YouTube Data API for tenant 094f0be2-49db-4a6d-b271-86c833bdfed0
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] All-In Podcast: 10 videos listed
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Phase 1 done: 10 video stubs.
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Phase 1.5: all stubs have publish dates, skipping
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Extracting metadata...
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Phase 2 done: 10 videos (10 enriched, 0 from stubs, 10 with publish dates)
+Sep 17 16:36:19 srv1318038 python3[53176]: [Scrape] Done: 10 saved (0 new, 10 updated), 0 with transcripts
+Sep 17 16:36:20 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:20.135354+00:00", "level": "INFO", "message": "[AutoScrape] Tenant 094f0be2: daily scrape complete (10 per channel)", "module": "main"}
+Sep 17 16:36:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:34.504363+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (61ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 60.7}
+Sep 17 16:36:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:36:34.531402+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (86ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 86.2}
+Sep 17 16:37:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:37:34.464066+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (55ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 55.1}
+Sep 17 16:37:34 srv1318038 python3[53176]: {"timestamp": "2026-09-17T16:37:34.465768+00:00", "level": "INFO", "message": "GET /api/pipeline/task/44dbf2b2-a27a-47ea-a608-4c31c906be9a \u2192 200 (53ms)", "module": "logging_config", "tenant_id": "ee93e6d1", "duration_ms": 52.7}

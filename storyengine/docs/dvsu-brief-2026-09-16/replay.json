@@ -1,0 +1,232 @@
+[
+  {
+    "machine": "SS-1 USS Holland",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 138,
+    "brief_bytes": 1233,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-2 USS Plunger",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 201,
+    "brief_bytes": 1766,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-105 USS S-1",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "outcome"
+    ],
+    "brief_words": 184,
+    "brief_bytes": 1609,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-163 USS Barracuda",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 200,
+    "brief_bytes": 1696,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-212 USS Gato",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design",
+      "actual_use"
+    ],
+    "brief_words": 233,
+    "brief_bytes": 1861,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-285 USS Balao",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 205,
+    "brief_bytes": 1748,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-417 USS Tench",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 195,
+    "brief_bytes": 1676,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-563 USS Tang",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 210,
+    "brief_bytes": 1870,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "AGSS-569 USS Albacore",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "outcome"
+    ],
+    "brief_words": 178,
+    "brief_bytes": 1634,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SS-580 USS Barbel",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 191,
+    "brief_bytes": 1638,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-571 USS Nautilus",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 80,
+    "brief_bytes": 726,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-585 USS Skipjack",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 219,
+    "brief_bytes": 1931,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-593 USS Thresher",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design"
+    ],
+    "brief_words": 194,
+    "brief_bytes": 1717,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-637 USS Sturgeon",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design"
+    ],
+    "brief_words": 164,
+    "brief_bytes": 1574,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-688 USS Los Angeles",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 47,
+    "brief_bytes": 427,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-21 USS Seawolf",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 136,
+    "brief_bytes": 1163,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSN-774 USS Virginia",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 163,
+    "brief_bytes": 1558,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSBN-598 USS George Washington",
+    "ready": false,
+    "missing_fields": [
+      "intended_role"
+    ],
+    "brief_words": 190,
+    "brief_bytes": 1717,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSBN-608 USS Ethan Allen",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use",
+      "outcome"
+    ],
+    "brief_words": 162,
+    "brief_bytes": 1378,
+    "writer_prompt_words": null
+  },
+  {
+    "machine": "SSBN-616 USS Lafayette",
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "actual_use"
+    ],
+    "brief_words": 150,
+    "brief_bytes": 1397,
+    "writer_prompt_words": null
+  }
+]

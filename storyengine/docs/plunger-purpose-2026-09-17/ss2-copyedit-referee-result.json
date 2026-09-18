@@ -1,0 +1,29 @@
+{
+  "mode": "one_referee_only_uncertain",
+  "offline_check": {
+    "mode": "offline_check",
+    "network_requests": 0,
+    "provider_calls": 0,
+    "database_mutations": 0,
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+    "machine": "SS-2 USS Plunger",
+    "saved_packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39",
+    "expected_packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39",
+    "saved_source_fingerprint": "8cdb9d6e4b4602da99a92c69e24ab0b900728ce6d0853160b0c4cbb2209544b1",
+    "expected_packet_source_fingerprint": "ef052f874e52998b640aeeb6b8b8da0d468b3727567fe461173232357e6f8233",
+    "edited_word_count": 96,
+    "changed_claim_map_rows": 2,
+    "fact_ids_preserved": true,
+    "prompt_bytes": 23332,
+    "review_budget": {
+      "method": "utf8_byte_upper_bound",
+      "input_token_upper_bound": 24576,
+      "output_tokens_reserved": 2200,
+      "context_limit": 200000
+    },
+    "ready_for_parent_go_only": true
+  },
+  "error": "'str' object has no attribute 'get'",
+  "no_retry_permitted": true
+}

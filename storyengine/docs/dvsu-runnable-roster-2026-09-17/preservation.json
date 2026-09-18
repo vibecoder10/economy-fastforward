@@ -1,0 +1,19 @@
+{
+  "unchanged": true,
+  "before": {
+    "id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "ready_for_voice",
+    "script_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "validation_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "research_hash": "c5a4a9092e751bf902da13c4fdba4467",
+    "scene_count": 0
+  },
+  "after": {
+    "id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "ready_for_voice",
+    "script_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "validation_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "research_hash": "c5a4a9092e751bf902da13c4fdba4467",
+    "scene_count": 0
+  }
+}

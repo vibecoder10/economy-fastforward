@@ -1,0 +1,6 @@
+2026-09-17 bounded repeat free-fetch verification
+URLs: historycentral Plunger; navsource 08002
+HistoryCentral: prefix=1716 chars; exact normalized substring=true; foreign=false; training=true; testing=true; before SS-7=true.
+NavSource: prefix=2180 chars; exact normalized substring=true; foreign=false; armament=true; propulsion=true; renamed USS A-1 retained under current anchored exception.
+Budget: old 21 excerpts / 25,521 conservative bytes; hypothetical old+2 prefixes 23 excerpts / 30,061 conservative bytes; 48,000-byte guard=true.
+No provider, live-data, source-code, or deployment write.

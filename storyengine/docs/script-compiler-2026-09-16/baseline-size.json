@@ -1,0 +1,15 @@
+{
+  "source": "tasks/submarine-research-assembled-briefings.json",
+  "machine_count": 20,
+  "all_briefings_compact_utf8_bytes": 768782,
+  "field_utf8_bytes": {
+    "machine": 423,
+    "scene": 31,
+    "paragraph": 9099,
+    "claim_map": 224038,
+    "sources": 135057,
+    "claim_assessment": 398553
+  },
+  "raw_archive_preserved": true,
+  "token_count_measured": false
+}

@@ -1,0 +1,274 @@
+{
+  "machine": "SS-2 USS Plunger",
+  "terminal_job": {
+    "id": "2308290c-bf50-4883-8ab9-ba6a288dddda",
+    "tenant_id": "561b872d-7b73-45e3-9c44-7f30c3566eda",
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "machine": "SS-2 USS Plunger",
+    "status": "needs_review",
+    "result": {
+      "error": "Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design.",
+      "status": "needs_review",
+      "machine": "SS-2 USS Plunger",
+      "summary": "One-machine research saved raw source evidence, but SS-2 USS Plunger still needs review before script preview.",
+      "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "next_action": "review_research_warnings_before_script_preview",
+      "preparation_required": true
+    },
+    "error": "Missing intended_role evidence; request targeted research for intended_role.; Missing design evidence; request targeted research for design.",
+    "created_at": "2026-09-17 15:33:22.617146+00:00",
+    "updated_at": "2026-09-17 15:34:33.784942+00:00",
+    "remaining_main_claims": 0
+  },
+  "before_counts": {
+    "sources": 2,
+    "candidate_excerpts": 16,
+    "discovery_receipts": 1
+  },
+  "after_counts": {
+    "sources": 4,
+    "candidate_excerpts": 21,
+    "discovery_receipts": 2
+  },
+  "observed_capture": {
+    "recapture": {
+      "urls": [
+        "https://www.historycentral.com/navy/Submarine/plunger.html",
+        "https://www.navsource.net/archives/08/08002.htm"
+      ],
+      "errors": [],
+      "paid_search_calls": 0,
+      "added_excerpt_count": 5
+    },
+    "supplements": [
+      {
+        "new_source_ids": [
+          "DVSU1",
+          "DVSU2"
+        ],
+        "added_excerpt_count": 5
+      }
+    ],
+    "new_sources": [
+      {
+        "source_id": "DVSU1",
+        "url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+        "title": "https://www.historycentral.com/navy/Submarine/plunger.html"
+      },
+      {
+        "source_id": "DVSU2",
+        "url": "https://www.navsource.net/archives/08/08002.htm",
+        "title": "https://www.navsource.net/archives/08/08002.htm"
+      }
+    ],
+    "errors": [],
+    "last_gap": {
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "added_excerpt_count": 0
+    }
+  },
+  "recovery_receipt": {
+    "stage": "discovery_completed",
+    "version": 1,
+    "missing_fields": [
+      "intended_role",
+      "design"
+    ],
+    "source_fingerprint": "2703684b4900400b4160fa8d3d84f64f56c37181c61711b46be6ca40f41f25be"
+  },
+  "discovery_receipts": [
+    {
+      "model": "gpt-5-2",
+      "usage": {
+        "total_tokens": 571,
+        "prompt_tokens": 218,
+        "completion_tokens": 353
+      },
+      "subject": "USS Plunger",
+      "provider": "kie",
+      "lead_count": 6,
+      "request_id": "chatcmpl-806febdb995d41e5a47bbd58",
+      "search_tool": "web_search",
+      "credits_consumed": 0.27
+    },
+    {
+      "model": "gpt-5-2",
+      "usage": {
+        "total_tokens": 714,
+        "prompt_tokens": 361,
+        "completion_tokens": 353
+      },
+      "subject": "USS Plunger",
+      "provider": "kie",
+      "lead_count": 6,
+      "request_id": "chatcmpl-d17f939342d14d0a8d38a600",
+      "search_tool": "web_search",
+      "credits_consumed": 0.28
+    }
+  ],
+  "assessment_claims": [
+    {
+      "id": "C1",
+      "status": "supported",
+      "narrative_roles": [
+        "intended_role"
+      ],
+      "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+      "reason": "The source explicitly identifies SS-2 as an 'Adder Class Submarine Torpedo Boat', indicating its classification as a torpedo-armed submarine.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C2",
+      "status": "supported",
+      "narrative_roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+      "reason": "Source documents the vessel's post-service use as an experimental target with specific designation and date.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C3",
+      "status": "supported",
+      "narrative_roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) conducted a demonstration dive with President Theodore Roosevelt aboard on 25 August 1905 off Long Island Sound.",
+      "reason": "Multiple excerpts confirm Roosevelt's dive aboard SS-2 with specific date and location.",
+      "evidence_ids": [
+        "S2-E9",
+        "S2-E10"
+      ]
+    },
+    {
+      "id": "C4",
+      "status": "supported",
+      "narrative_roles": [
+        "actual_use"
+      ],
+      "claim": "USS Plunger (SS-2) was present at Oyster Bay to give an exhibition for President Roosevelt.",
+      "reason": "Source confirms the submarine was stationed at Oyster Bay for a presidential exhibition.",
+      "evidence_ids": [
+        "DVSU2-E1"
+      ]
+    },
+    {
+      "id": "C5",
+      "status": "supported",
+      "narrative_roles": [
+        "outcome"
+      ],
+      "claim": "USS Plunger (SS-2) was sold for scrapping on 26 January 1922.",
+      "reason": "Source provides the final disposition with specific date of sale for scrapping.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C6",
+      "status": "supported",
+      "narrative_roles": [
+        "outcome"
+      ],
+      "claim": "USS Plunger (SS-2) was struck from the Naval Register on 24 February 1913.",
+      "reason": "Source documents the administrative removal from naval registry with specific date.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    },
+    {
+      "id": "C7",
+      "status": "insufficient",
+      "narrative_roles": [],
+      "claim": "USS Plunger (SS-2) had a displacement of 149 tons normal and 168 tons submerged.",
+      "reason": "Displacement figures alone without engineering configuration do not qualify as design per assessment rules.",
+      "evidence_ids": [
+        "DVSU1-E2"
+      ]
+    },
+    {
+      "id": "C8",
+      "status": "insufficient",
+      "narrative_roles": [],
+      "claim": "USS Plunger (SS-2) was renamed USS A-1 (Submarine Torpedo Boat No.2) on 17 November 1911.",
+      "reason": "A rename or redesignation alone without operations, testing, training or conversion is not actual_use per assessment rules.",
+      "evidence_ids": [
+        "S2-E1"
+      ]
+    }
+  ],
+  "brief": {
+    "ready": false,
+    "missing_fields": [
+      "intended_role",
+      "design"
+    ],
+    "fields": {
+      "intended_role": [],
+      "design": [],
+      "actual_use": [
+        "F4ca8ded14f4f04bd274d",
+        "Fc359cb9abe431425362e",
+        "Fcc6b432c7f892b2bb1da"
+      ],
+      "outcome": [
+        "F720028c51fd436f147f6",
+        "Fa3b5cb8e663a1ae76e37"
+      ]
+    },
+    "facts": [
+      {
+        "fact_id": "F4ca8ded14f4f04bd274d",
+        "claim": "USS Plunger (SS-2) was present at Oyster Bay to give an exhibition for President Roosevelt.",
+        "scope": "event"
+      },
+      {
+        "fact_id": "F62871c41a710e2ccead2",
+        "claim": "USS Plunger (SS-2) was classified as an Adder Class Submarine Torpedo Boat.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "F720028c51fd436f147f6",
+        "claim": "USS Plunger (SS-2) was sold for scrapping on 26 January 1922.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Fa3b5cb8e663a1ae76e37",
+        "claim": "USS Plunger (SS-2) was struck from the Naval Register on 24 February 1913.",
+        "scope": "machine"
+      },
+      {
+        "fact_id": "Fc359cb9abe431425362e",
+        "claim": "USS Plunger (SS-2) conducted a demonstration dive with President Theodore Roosevelt aboard on 25 August 1905 off Long Island Sound.",
+        "scope": "event"
+      },
+      {
+        "fact_id": "Fcc6b432c7f892b2bb1da",
+        "claim": "USS Plunger (SS-2) was authorized as an experimental target designated Target E on 29 August 1916.",
+        "scope": "machine"
+      }
+    ]
+  },
+  "gate_evidence": {
+    "saved_recovery_stage": "discovery_completed",
+    "recapture_added_excerpt_count": 5,
+    "recapture_errors": [],
+    "targeted_discovery_added_excerpt_count": 0,
+    "targeted_discovery_remaining_missing_fields": [
+      "intended_role",
+      "design"
+    ]
+  },
+  "evidence_conclusion": "The persisted receipts show a completed recapture and one added discovery receipt, but no accepted targeted-discovery excerpts and an unchanged intended_role/design gap. The compact brief rejected the supported classification claim as classification-only and retained no usable design fact; this is a source-coverage/role-usability outcome under the saved rules, not a writer or retry failure."
+}

@@ -1,0 +1,72 @@
+{
+  "phase": "implementation",
+  "gate": "Astra completeness PASS",
+  "outcome": "Research UI matches accepted20submarines and assembles source-backed confidence/conflict research",
+  "steps": [
+    {
+      "id": "identity-map",
+      "input": "ResearchTab.tsx; pipeline roster-dashboard/research API; accepted names JSON",
+      "action": "Read-only trace label/card joins and stale range identity handling; identify exact repair locations and acceptance cases",
+      "write": "tasks/submarine-research-identity-map.md only",
+      "output": "bounded source map and gaps",
+      "dependencies": "accepted20roster",
+      "acceptance": "show exact canonical name mapping and stale-card isolation",
+      "stop": "No implementation/provider/deploy; return material gaps"
+    },
+    {
+      "id": "assessment-map",
+      "input": "machine_research_summary.py; factual_machine_research.py; factual_machine_pipeline.py; factual_machine_summary.py; probability audit REPORT",
+      "action": "Read-only locate source assessment integration and evidence/summary fingerprints; propose exact minimal hooks without implementing",
+      "write": "tasks/submarine-research-assessment-map.md only",
+      "output": "schema and callsites current behavior",
+      "dependencies": "user chose source-backedconfidence/conflicts",
+      "acceptance": "identify preserved exact source quotes, conflict handling, writer context",
+      "stop": "No implementation/provider/deploy; Astra decides design"
+    }
+  ],
+  "round": 1,
+  "worktree": "/tmp/storyengine-submarine-research",
+  "architecture": "For factual research, persist versioned source assessment inside exact-machine raw package; original quotes untouched. Supported/disputed/insufficient/out_of_scope are evidence assessments, numerical probability null. Fingerprint original package excluding assessment to prevent self-reference; full package hash invalidates downstream summaries. One bounded assessment model call per stale valid package, no retry. Independent summary referee remains. No script generation.",
+  "execution": [
+    {
+      "id": "A",
+      "input": "identity map; reproduced Nautilus false negative/Tang wrong-hull positive; accepted20",
+      "action": "Fix single named USS submarine source identity to require whole name plus exact hull in same excerpt; support naval prefix conversions by numeric hull, punctuation and S-1 names; reject class/ranges and wronghull. Require exact normalized full-name joins for named submarines in backend card/package/roster helpers; preserve other contracts. Replace unconditional evidence confidence high with unassessed and provenance captured. Attach package claim_assessment to card if present.",
+      "write": "backend/factual_machine_research.py; backend/pipeline_executor.py identity helpers only; backend/tests/test_named_submarine_research_identity.py; existing related tests if required",
+      "output": "bounded patch + regression evidence",
+      "dependencies": "worker B schema claim_assessment; parent later owns executor integration",
+      "acceptance": "all20synthetic exactname+hull pass; wrongTang/Seawolf/classcard fail; correctfailedcard remains; aircraft/class regressions",
+      "stop": "No API/provider/deploy/commit; material gaps toAstra"
+    },
+    {
+      "id": "B",
+      "input": "assessment map; existing factual writer/referee/persistence modules",
+      "action": "Implement assessment schema/model validation and summary/briefing propagation per parent detailed contract",
+      "write": "new backend/research_claim_assessment.py; backend/machine_research_summary.py; backend/factual_machine_summary.py; backend/factual_machine_pipeline.py; new backend/tests/test_research_claim_assessment.py and impacted summary tests",
+      "output": "validated ledger and prompt/cache wiring",
+      "dependencies": "no executor edits; parent integrates after A",
+      "acceptance": "exact quotes bound to eligible excerpt ids; disputed needs competing evidence; distinct events not automatically conflicts; numeric probability null; invalid/mutated/stale receipt notready; empty/malformed no blindretry; prompt injectiontreateddata; cachedledger zero calls",
+      "stop": "No actual provider/API/deploy/commit; missing design toAstra"
+    },
+    {
+      "id": "C",
+      "input": "ResearchTab current components+source map; package claim_assessment schema",
+      "action": "Strict named submarine card/package/preview joins and exact source excerpt filter; retain canonical20labels; dynamic submarine headings; evidence assessment display with support/conflicts, quoted sources and Notassessed state",
+      "write": "frontend/src/components/production/ResearchTab.tsx; new frontend/tests/submarine-research.test.mjs",
+      "output": "UI parity and existing-style assessment section",
+      "dependencies": "B schema; existing design styles only, no libraries",
+      "acceptance": "20nameorder; stale samehullclass excluded; rightcardaccepted; assessment/source/conflict display SSR; types/build",
+      "stop": "No API/provider/deploy/commit; newscope toAstra"
+    },
+    {
+      "id": "parent",
+      "input": "A/B/C reviewed patches",
+      "action": "Wire assess_verified_package after existing rawcheckpoint and costledger, beforecard; checkpoint assessment and stop on invalid; review tests once; updateSYSTEM_STATE; scopedcommit/deploy via se.sh; normalresearch-only run once and inspect savedresults",
+      "write": "executor factual branch; SYSTEM_STATE; tasks/CHECKLIST/JOURNAL/card",
+      "output": "deployed capability and actual research-run receipt",
+      "dependencies": "A/B/Cpassing; idle prod; originalroster/imagespreserved",
+      "acceptance": "live20namesmatch; research card assessmentspersist and assembledbriefingscurrent; truthfulunresolved states; no script/render",
+      "stop": "No bypasses/blindretries; account/budget/provider failure reported with savedresults"
+    }
+  ]
+}

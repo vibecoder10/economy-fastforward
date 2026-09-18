@@ -1,0 +1,13 @@
+{
+  "scope": "one read-only production-VPS public fetch; no extractor retry, provider, database, or generation action",
+  "url": "https://pigboats.com/A-class",
+  "request_headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "Accept": "text/html"
+  },
+  "http_status": 403,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://pigboats.com/A-class",
+  "body_bytes": 5637,
+  "result": "publisher-side access denial before HTML extraction. The deployed browser-header fetch cannot obtain the source page on the VPS, so the zero-excerpt refresh was not caused by class-context parsing or strict identity filtering."
+}

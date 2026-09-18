@@ -1,0 +1,31 @@
+{
+  "status": 200,
+  "response": {
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "running",
+    "message": "Machine research started",
+    "error": null
+  },
+  "preserved_passed": [
+    "SS-1 USS Holland",
+    "SS-2 USS Plunger",
+    "SS-105 USS S-1",
+    "SS-163 USS Barracuda",
+    "SS-212 USS Gato",
+    "SS-285 USS Balao",
+    "SS-417 USS Tench",
+    "SS-563 USS Tang",
+    "AGSS-569 USS Albacore",
+    "SS-580 USS Barbel",
+    "SSN-571 USS Nautilus",
+    "SSN-585 USS Skipjack",
+    "SSN-593 USS Thresher",
+    "SSN-637 USS Sturgeon",
+    "SSN-688 USS Los Angeles",
+    "SSN-21 USS Seawolf",
+    "SSN-774 USS Virginia",
+    "SSBN-598 USS George Washington",
+    "SSBN-608 USS Ethan Allen",
+    "SSBN-616 USS Lafayette"
+  ]
+}

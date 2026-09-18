@@ -1,0 +1,5 @@
+{
+  "round1": "Astra FAIL: range precondition reversed; runtime selection version dropped; incomplete compact snapshot; missing backend import path; partial archive comparison",
+  "round2": "Astra PASS: all five corrections inspected; actual legacy fixture accepted;3tests pass; production transaction archived1compact row and old20 payload; full old58history retained",
+  "request": "single POST /api/pipeline/research returned running at2026-09-16T19:34:43Z; final acceptance pending"
+}

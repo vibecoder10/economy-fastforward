@@ -1,0 +1,316 @@
+{
+  "paragraph": "Developed from the original Holland design, the A-class submarines were intended for port defense, with their crews living ashore or aboard tenders. USS Plunger, SS-2, embodied this concept through single hull construction, its pressure hull wrapped around frames with tankage inside, and armed with a single torpedo tube. After commissioning, Plunger ran test dives and conducted experimental work on machinery, armaments, and tactics. She also trained her own crew and those of other submarines nearing completion, extending her influence beyond a single hull. A defender by design, a teacher in practice, a target by final assignment.",
+  "word_count": 96,
+  "passed": true,
+  "warnings": [],
+  "claim_map": [
+    {
+      "sentence": "Developed from the original Holland design, the A-class submarines were intended for port defense, with their crews living ashore or aboard tenders.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU1-E2",
+          "source_id": "DVSU1",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU1-E2; R1-E3; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "USS Plunger SS-2",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU5-E1",
+          "source_id": "DVSU5",
+          "source_title": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "source_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "locator": "DVSU5-E1; R1-E1; source=https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "quote": "These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.",
+          "source_capture_method": "fetched_page"
+        }
+      ],
+      "fact_ids": [
+        "Fefe16dd6f8625d901a42"
+      ]
+    },
+    {
+      "sentence": "USS Plunger, SS-2, embodied this concept through single hull construction, its pressure hull wrapped around frames with tankage inside, and armed with a single torpedo tube.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU3-E1",
+          "source_id": "DVSU3",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "a. 1 18\" tt; cl. A-l",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU4-E1",
+          "source_id": "DVSU4",
+          "source_title": "https://www.navsource.net/archives/08/08002.htm",
+          "source_url": "https://www.navsource.net/archives/08/08002.htm",
+          "locator": "DVSU4-E1; R2-E1; source=https://www.navsource.net/archives/08/08002.htm",
+          "quote": "A-1 illustrates typical single hull construction. The pressure hull is wrapped around the frames, and any tankage is inside.",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU4-E1",
+          "source_id": "DVSU4",
+          "source_title": "https://www.navsource.net/archives/08/08002.htm",
+          "source_url": "https://www.navsource.net/archives/08/08002.htm",
+          "locator": "DVSU4-E1; R2-E1; source=https://www.navsource.net/archives/08/08002.htm",
+          "quote": "Armament, one 18\" torpedo tube, 5 torpedoes",
+          "source_capture_method": "fetched_page"
+        }
+      ],
+      "fact_ids": [
+        "F7bb01291525bdfaf0f48",
+        "Fc8948d3dee8d90f47fd5"
+      ]
+    },
+    {
+      "sentence": "After commissioning, Plunger ran test dives and conducted experimental work on machinery, armaments, and tactics.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU3-E1",
+          "source_id": "DVSU3",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "She ran test d ves and did experimental work on machinery, armaments, and tseties giving the Navy invaluable information on the new seienee of submarine warfare.",
+          "source_capture_method": "fetched_page"
+        }
+      ],
+      "fact_ids": [
+        "F05cf115ffa40fd7874cf"
+      ]
+    },
+    {
+      "sentence": "She also trained her own crew and those of other submarines nearing completion, extending her influence beyond a single hull.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU3-E1",
+          "source_id": "DVSU3",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "Perhaps her greatest contribution was training her own crew and those of other submarines nearing completion.",
+          "source_capture_method": "fetched_page"
+        }
+      ],
+      "fact_ids": [
+        "F3bdec6b5e2cadbe05a7b"
+      ]
+    },
+    {
+      "sentence": "A defender by design, a teacher in practice, a target by final assignment.",
+      "citations": [
+        {
+          "excerpt_id": "DVSU1-E2",
+          "source_id": "DVSU1",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU1-E2; R1-E3; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "USS Plunger SS-2",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU3-E1",
+          "source_id": "DVSU3",
+          "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+          "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+          "quote": "Perhaps her greatest contribution was training her own crew and those of other submarines nearing completion.",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU4-E2",
+          "source_id": "DVSU4",
+          "source_title": "https://www.navsource.net/archives/08/08002.htm",
+          "source_url": "https://www.navsource.net/archives/08/08002.htm",
+          "locator": "DVSU4-E2; R2-E2; source=https://www.navsource.net/archives/08/08002.htm",
+          "quote": "Authorized as an experimental target, designated Target E , 29 August 1916",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "DVSU5-E1",
+          "source_id": "DVSU5",
+          "source_title": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "source_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "locator": "DVSU5-E1; R1-E1; source=https://www.navypedia.org/ships/usa/us_ss_a.htm",
+          "quote": "These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.",
+          "source_capture_method": "fetched_page"
+        },
+        {
+          "excerpt_id": "S2-E1",
+          "source_id": "S2",
+          "source_title": "Submarine Photo Index — Plunger / A-1 (SS-2)",
+          "source_url": "https://www.navsource.net/archives/08/08002.htm",
+          "locator": "S2-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Plunger' (locked roster identity: 'SS-2 USS Plunger') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+          "quote": "Authorized as an experimental target, designated Target E , 29 August 1916",
+          "source_capture_method": "fetched_page"
+        }
+      ],
+      "fact_ids": [
+        "Fefe16dd6f8625d901a42",
+        "F3bdec6b5e2cadbe05a7b",
+        "Fb6a256effb11ed73c280"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "excerpt_id": "DVSU1-E2",
+      "source_id": "DVSU1",
+      "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "locator": "DVSU1-E2; R1-E3; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+      "quote": "USS Plunger SS-2",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU5-E1",
+      "source_id": "DVSU5",
+      "source_title": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+      "source_url": "https://www.navypedia.org/ships/usa/us_ss_a.htm",
+      "locator": "DVSU5-E1; R1-E1; source=https://www.navypedia.org/ships/usa/us_ss_a.htm",
+      "quote": "These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU3-E1",
+      "source_id": "DVSU3",
+      "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+      "quote": "a. 1 18\" tt; cl. A-l",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU4-E1",
+      "source_id": "DVSU4",
+      "source_title": "https://www.navsource.net/archives/08/08002.htm",
+      "source_url": "https://www.navsource.net/archives/08/08002.htm",
+      "locator": "DVSU4-E1; R2-E1; source=https://www.navsource.net/archives/08/08002.htm",
+      "quote": "A-1 illustrates typical single hull construction. The pressure hull is wrapped around the frames, and any tankage is inside.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU4-E1",
+      "source_id": "DVSU4",
+      "source_title": "https://www.navsource.net/archives/08/08002.htm",
+      "source_url": "https://www.navsource.net/archives/08/08002.htm",
+      "locator": "DVSU4-E1; R2-E1; source=https://www.navsource.net/archives/08/08002.htm",
+      "quote": "Armament, one 18\" torpedo tube, 5 torpedoes",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU3-E1",
+      "source_id": "DVSU3",
+      "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+      "quote": "She ran test d ves and did experimental work on machinery, armaments, and tseties giving the Navy invaluable information on the new seienee of submarine warfare.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU3-E1",
+      "source_id": "DVSU3",
+      "source_title": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "source_url": "https://www.historycentral.com/navy/Submarine/plunger.html",
+      "locator": "DVSU3-E1; R1-E1; source=https://www.historycentral.com/navy/Submarine/plunger.html",
+      "quote": "Perhaps her greatest contribution was training her own crew and those of other submarines nearing completion.",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "DVSU4-E2",
+      "source_id": "DVSU4",
+      "source_title": "https://www.navsource.net/archives/08/08002.htm",
+      "source_url": "https://www.navsource.net/archives/08/08002.htm",
+      "locator": "DVSU4-E2; R2-E2; source=https://www.navsource.net/archives/08/08002.htm",
+      "quote": "Authorized as an experimental target, designated Target E , 29 August 1916",
+      "source_capture_method": "fetched_page"
+    },
+    {
+      "excerpt_id": "S2-E1",
+      "source_id": "S2",
+      "source_title": "Submarine Photo Index — Plunger / A-1 (SS-2)",
+      "source_url": "https://www.navsource.net/archives/08/08002.htm",
+      "locator": "S2-E1; query=Use web search to find 6 real source pages specifically about the subject 'USS Plunger' (locked roster identity: 'SS-2 USS Plunger') for a factual documentary titled 'Every US Submarine Class Ever Built (2026)'. Prefer official government, manufacturer, museum and archive history/fact-sheet pages. Include service, development, production and design facts. Match the exact aircraft variant or named vessel; do not substitute a related model. Prefer substantive article pages over photo-gallery listings. Return only a compact JSON array of objects with title and exact_source_url. Use original source URLs, never invented URLs or AI encyclopedias. No prose or excerpts.",
+      "quote": "Authorized as an experimental target, designated Target E , 29 August 1916",
+      "source_capture_method": "fetched_page"
+    }
+  ],
+  "review_context_version": 6,
+  "subject_context": "Every US Submarine Class Ever Built (2026)",
+  "compiler_version": 2,
+  "packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39",
+  "selected_fact_ids": [
+    "Fb6a256effb11ed73c280",
+    "Fefe16dd6f8625d901a42",
+    "F05cf115ffa40fd7874cf",
+    "F7bb01291525bdfaf0f48",
+    "Fc8948d3dee8d90f47fd5",
+    "Fec8dcdcce6091f9c05df",
+    "Ff5f1cbc70fb84c8bc2a4",
+    "F058444270de63f222884",
+    "F3bdec6b5e2cadbe05a7b"
+  ],
+  "script_packet_receipt": {
+    "compiler_version": 2,
+    "prompt_rules_version": 5,
+    "packet_fingerprint": "059c65fc8fd207ef56bb2c1bfb00386af60cfb6caaf9cfbec5d8162d6e83da39",
+    "source_fingerprint": "ef052f874e52998b640aeeb6b8b8da0d468b3727567fe461173232357e6f8233"
+  },
+  "review_request_budget": {
+    "method": "utf8_byte_upper_bound",
+    "input_token_upper_bound": 24414,
+    "output_tokens_reserved": 2200,
+    "context_limit": 200000
+  },
+  "support_audit": [
+    {
+      "sentence": "Developed from the original Holland design, the A-class submarines were intended for port defense, with their crews living ashore or aboard tenders.",
+      "supported": true,
+      "explanation": "E5e8799ff4e522cdc7472 states 'These developments of the original Holland were intended for port defense, the crews living ashore or aboard tenders.' This directly supports all clauses: development from Holland, port defense intent, and crew living arrangements.",
+      "unsupported_claims": []
+    },
+    {
+      "sentence": "USS Plunger, SS-2, embodied this concept through single hull construction, its pressure hull wrapped around frames with tankage inside, and armed with a single torpedo tube.",
+      "supported": true,
+      "explanation": "E556ba07641c942e87679 states 'A-1 illustrates typical single hull construction. The pressure hull is wrapped around the frames, and any tankage is inside.' Plunger was A-1/SS-2, so this applies. E29d8aa1af0a534717367 and E06a111b4020e2630d219 confirm 'one 18\" torpedo tube' supporting 'single torpedo tube.' The phrase 'embodied this concept' is a reasonable paraphrase linking the class design to this specific vessel.",
+      "unsupported_claims": []
+    },
+    {
+      "sentence": "After commissioning, Plunger ran test dives and conducted experimental work on machinery, armaments, and tactics.",
+      "supported": true,
+      "explanation": "E81afe3c9079681916795 states 'She ran test dves and did experimental work on machinery, armaments, and tseties' (OCR errors for 'dives' and 'tactics'). This directly supports all clauses.",
+      "unsupported_claims": []
+    },
+    {
+      "sentence": "She also trained her own crew and those of other submarines nearing completion, extending her influence beyond a single hull.",
+      "supported": true,
+      "explanation": "E4b8cc08a32901b5d66e5 states 'Perhaps her greatest contribution was training her own crew and those of other submarines nearing completion.' The phrase 'extending her influence beyond a single hull' is a stylistic interpretation of training crews for other submarines, which is supported by the quote.",
+      "unsupported_claims": []
+    },
+    {
+      "sentence": "A defender by design, a teacher in practice, a target by final assignment.",
+      "supported": true,
+      "explanation": "'Defender by design' is supported by E5e8799ff4e522cdc7472 stating port defense intent. 'Teacher in practice' is supported by E4b8cc08a32901b5d66e5 on training crews. 'Target by final assignment' is supported by E4473c24d811765f78167 and E525ef003adc4b23d945a stating 'Authorized as an experimental target, designated Target E, 29 August 1916.'",
+      "unsupported_claims": []
+    }
+  ],
+  "factual_passed": true,
+  "editorial_review": {
+    "version": 1,
+    "passed": true,
+    "issues": [],
+    "checks": {
+      "actual_use": true,
+      "consequence": true,
+      "design_intent": true,
+      "gap_or_supported_substitute": true,
+      "spoken_style": true,
+      "verdict": true
+    }
+  },
+  "editorial_review_version": 1
+}

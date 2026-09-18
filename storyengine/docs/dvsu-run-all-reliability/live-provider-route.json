@@ -1,0 +1,1 @@
+{"storyengine-backend.service": {"pid": "134487", "model": "claude-opus-4-5-20251101", "provider_host": "api.anthropic.com"}, "storyengine-worker.service": {"pid": "134614", "model": "claude-opus-4-5-20251101", "provider_host": "api.anthropic.com"}}

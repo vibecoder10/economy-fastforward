@@ -1,0 +1,34 @@
+Gateway timeout diagnosis — read-only, 2026-09-17
+
+Observed request timing
+- Retry marker: 2026-09-17T07:03:21-07:00.
+- Client response: HTTP 504 at 2026-09-17T07:04:22-07:00.
+- Backend journal: POST /api/pipeline/machine-script-preview/44dbf2b2-a27a-47ea-a608-4c31c906be9a -> 200 in 66732.7ms at 2026-09-17T14:04:28.964039Z.
+- The request therefore completed about 6.7 seconds after Nginx's applicable 60-second proxy read timeout, which explains the client-side 504 despite the completed backend/database preview.
+
+Active Nginx config evidence
+The requested `sudo nginx -T` could not run noninteractively: sudo requires a terminal/password. A non-sudo `nginx -T` reached configuration testing but stopped while reading an unrelated certificate that is inaccessible to the deploy user. Direct read-only inspection of the enabled StoryEngine vhost succeeded:
+
+/etc/nginx/sites-enabled/storyengine -> /etc/nginx/sites-available/storyengine
+
+     16 server {
+     17     listen 443 ssl;
+     18     server_name storyengine.dev;
+     24     location /api/ {
+     25         proxy_pass http://localhost:8001;
+     26         proxy_http_version 1.1;
+     27         proxy_set_header Host $host;
+     28         proxy_set_header X-Real-IP $remote_addr;
+     29         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+     30         proxy_set_header X-Forwarded-Proto $scheme;
+     31     }
+
+No `proxy_read_timeout`, `proxy_send_timeout`, or `proxy_connect_timeout` directive appears in the active `/api/` location or parent `http` block (`/etc/nginx/nginx.conf:12-61`). Nginx's default `proxy_read_timeout` is 60 seconds, so the `/api/` location uses that default ([official directive reference](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout)). The only observed explicit proxy read timeout is `/etc/nginx/sites-available/storyengine:41` for unrelated `/hermes/` traffic: `proxy_read_timeout 75s;`.
+
+Tracked configuration owner
+- No tracked Nginx configuration exists in this repository (`git ls-files` returns only `infra/Caddyfile.example` as reverse-proxy configuration).
+- `infra/Caddyfile.example:17-28` is an un-applied Caddy example, while the live listener is the Nginx vhost above. `scripts/vps-deploy.sh` restarts application services only and does not manage Nginx.
+- The authoritative active configuration owner is therefore the unmanaged VPS file `/etc/nginx/sites-available/storyengine`, enabled through `/etc/nginx/sites-enabled/storyengine`.
+
+Supported minimal repair scope (not performed)
+Change only the active StoryEngine `/api/` location in `/etc/nginx/sites-available/storyengine` to declare a `proxy_read_timeout` above the observed 66.733-second backend duration; 75 seconds matches the existing `/hermes/` convention and leaves unrelated vhosts/routes untouched. A privileged syntax check/reload and a subsequent single bounded preview verification require separate authorization.

@@ -1,0 +1,1 @@
+{"drain":{"mode":"normal","reason":"deploy command exited with status 0","owner":"deploy:dvsu-verdict-guard-20260917","changed_at":"2026-09-17 17:05:53.687999+00:00","draining":false},"active_work":{"background_tasks":0,"generation_claims":0,"total":0},"checked_at":"2026-09-17T17:23:30.496687+00:00"}

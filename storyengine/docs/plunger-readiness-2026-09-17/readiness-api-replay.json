@@ -1,0 +1,365 @@
+{
+  "mode": "local_snapshot_actual_readiness_replay",
+  "video_title": "Every US Submarine Class Ever Built (2026)",
+  "render_mode": "static_docu",
+  "roster_count": 20,
+  "results": [
+    {
+      "machine": "SS-1 USS Holland",
+      "scene": 1,
+      "status": "completed",
+      "ready": true,
+      "preparable": false,
+      "preparation_required": false,
+      "missing_fields": [],
+      "warnings": [],
+      "error": null
+    },
+    {
+      "machine": "SS-2 USS Plunger",
+      "scene": 2,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-105 USS S-1",
+      "scene": 3,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-163 USS Barracuda",
+      "scene": 4,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-212 USS Gato",
+      "scene": 5,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-285 USS Balao",
+      "scene": 6,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-417 USS Tench",
+      "scene": 7,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-563 USS Tang",
+      "scene": 8,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "AGSS-569 USS Albacore",
+      "scene": 9,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SS-580 USS Barbel",
+      "scene": 10,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-571 USS Nautilus",
+      "scene": 11,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-585 USS Skipjack",
+      "scene": 12,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-593 USS Thresher",
+      "scene": 13,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-637 USS Sturgeon",
+      "scene": 14,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-688 USS Los Angeles",
+      "scene": 15,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-21 USS Seawolf",
+      "scene": 16,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSN-774 USS Virginia",
+      "scene": 17,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "design",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing design evidence; request targeted research for design.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSBN-598 USS George Washington",
+      "scene": 18,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSBN-608 USS Ethan Allen",
+      "scene": 19,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use",
+        "outcome"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use.",
+        "Missing outcome evidence; request targeted research for outcome."
+      ],
+      "error": null
+    },
+    {
+      "machine": "SSBN-616 USS Lafayette",
+      "scene": 20,
+      "status": "needs_review",
+      "ready": false,
+      "preparable": true,
+      "preparation_required": true,
+      "missing_fields": [
+        "intended_role",
+        "actual_use"
+      ],
+      "warnings": [
+        "Missing intended_role evidence; request targeted research for intended_role.",
+        "Missing actual_use evidence; request targeted research for actual_use."
+      ],
+      "error": null
+    }
+  ],
+  "counts": {
+    "ready": 1,
+    "preparable": 19,
+    "hardblock": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "release": "f84c43d987a5b301a10c70d35bd2d5fdeb187bb1",
+  "deployed_at": "2026-09-17T00:07:59Z",
+  "backend_worker_active": true,
+  "hashes_match": true,
+  "health": "healthy",
+  "drain": "normal",
+  "lock": "clear",
+  "live_free_capture": {
+    "sources": 2,
+    "excerpts": 12,
+    "page77_role_recovered": true,
+    "training_recovered": true
+  },
+  "canary": "Holland-only research in progress"
+}

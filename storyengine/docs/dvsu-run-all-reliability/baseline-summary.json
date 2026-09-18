@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-09-17T19:02:38.923086+00:00",
+  "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+  "status": "ready_for_voice",
+  "script_rows": 0,
+  "preview_count": 2,
+  "source_packages": 20,
+  "hashes": {
+    "baseline-video.json": "0a26225a27214e2a540046054f1fdf33bc5047a00bf86a6984c184731b8fd218",
+    "baseline-assets.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline-scripts.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline-ledger.json": "cbe8be47241e23f6f26e4c8d621ada27cb87c5a0ed2e463191eb85be69d9e2fd",
+    "baseline-claims.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline-jobs.json": "3229232b8f9f7e7d6c5a99ece52acce4cc8a566f26039f97fabb4f036f251163",
+    "baseline-cards.json": "48095a926a5dc1df1162b43c396316975325f8cb19d8b7e12a62034b9be8ae76"
+  }
+}

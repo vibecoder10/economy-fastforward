@@ -1,0 +1,71 @@
+{
+  "reviewer": "Astra primary",
+  "result": "PASS local implementation",
+  "baseline": "582c1b97a56452fe9b748a3dcd6ed4bfc7a8b6f2",
+  "rounds": {
+    "core": "round1 identified final-byte and malformed-ID issues; round2 corrected budget; round3 corrected category priority/dedup and passed9tests",
+    "integration": "round1 inspected; round2 corrected stale-cache reuse and compatibility context; round3 lossless reviewer deduplication and failed-preview priority",
+    "tests": "round1 initial fixtures; round2 corrected runtime-sized reviewer measurement; round3 assessed-cache regressions passed10tests"
+  },
+  "combined_tests": {
+    "passed": 94,
+    "failed": 0,
+    "log": "final-tests.log"
+  },
+  "real_saved_data_replay": {
+    "snapshot": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/script-compiler-2026-09-16/live-input.jsonl",
+    "input_sha256": "a0811d2f0c778d524dd53ade3afc219c0a58e5da65d0852a4c6a3eb42c41a09d",
+    "input_unchanged": true,
+    "cards_found": 20,
+    "compiled_count": 20,
+    "errors": [],
+    "packet_bytes": {
+      "max": 31554,
+      "median": 14707.5
+    },
+    "selected_facts": {
+      "total": 145,
+      "median": 8.0
+    },
+    "excluded_claims": {
+      "total": 59,
+      "median": 3.0
+    },
+    "all_deterministic": true,
+    "all_meaningful_mutations_invalidate": true,
+    "no_other_machine_content": true,
+    "writer_input_token_upper_bound": {
+      "max": 33861,
+      "overflow_count": 0
+    },
+    "review_input_token_upper_bound_from_saved_research_draft": {
+      "max": 39466,
+      "overflow_count": 0
+    }
+  },
+  "code_review": [
+    "Research stage and accepted source archives preserved; no global research review-version bump",
+    "Compiler uses current source-assessed ledger, supported statuses only, stable fact IDs and exact source quotes",
+    "Whole-fact byte selection and conservative UTF8 token upper bound enforced before writer/referee; no source truncation",
+    "Referee resolves lossless evidence registry and tests each sentence against its own selected fact IDs",
+    "Legacy full-roster briefing arguments whitelisted; standard non-assessed research generation retained except request guard",
+    "Matching accepted compiled saved sections reused; passed previews promoted; failed current previews beat stale saved versions; model changes invalidate reuse",
+    "Normal tenant, roster, cancellation, budget, section save and ordered assembly path retained",
+    "Canonical integration source hashes equal tested worktree; unrelated dirty work preserved"
+  ],
+  "parent_final_adjustments": [
+    "Removed silent128-entry compatibility outline slice; compiler fails closed on oversized outline",
+    "Replay uses configured writer model in fingerprint and byte measurements"
+  ],
+  "production_deployed": true,
+  "paid_provider_calls": 0,
+  "human_narration_acceptance": false,
+  "limits": [
+    "Token budget uses conservative UTF8 byte upper bound plus1024 framing allowance, not exact provider tokenizer count",
+    "Reviewer real-data measurement uses normalized saved research paragraphs for size only; does not prove newly generated narration quality",
+    "Deterministic compilation/selection and cache reuse do not guarantee identical fresh model wording",
+    "Deployment verified; representative paid script canary and human narration acceptance still pending."
+  ],
+  "release": "64ddf60de268e016ed0cf3ef75d715e15ff80eed",
+  "deployment_evidence": "deployment.json"
+}

@@ -1,0 +1,9 @@
+{"column_name": "headline", "data_type": "text", "udt_name": "text"}
+{"column_name": "max_spend", "data_type": "numeric", "udt_name": "numeric"}
+{"column_name": "render_mode", "data_type": "text", "udt_name": "text"}
+{"column_name": "research_payload", "data_type": "jsonb", "udt_name": "jsonb"}
+{"column_name": "script", "data_type": "text", "udt_name": "text"}
+{"column_name": "script_validation", "data_type": "text", "udt_name": "text"}
+{"column_name": "status", "data_type": "text", "udt_name": "text"}
+{"column_name": "total_cost", "data_type": "numeric", "udt_name": "numeric"}
+{"column_name": "video_title", "data_type": "text", "udt_name": "text"}

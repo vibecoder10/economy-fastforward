@@ -1,0 +1,12 @@
+{
+  "round": 1,
+  "review": "PASS",
+  "tests": 6,
+  "build": "passed",
+  "actual_preview_replay": "passed",
+  "release": "1857c383e2cfb0ea4c1b55840dc3c91884199dc1",
+  "file_hashes": {
+    "frontend/src/components/production/ScriptVoiceTab.tsx": "8390d4312bd7d1fa6b06c8e0167f84b69efa6ae6d06acfb18d650cef84d43a8b",
+    "frontend/src/components/production/ScriptVoiceTab.factual.test.ts": "e8ad6cd6fe84eeb3aae0fa54a4f05b98412499840764fab4c0f6df279e7e4b83"
+  }
+}

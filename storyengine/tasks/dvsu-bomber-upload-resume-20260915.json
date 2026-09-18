@@ -1,0 +1,9 @@
+{
+  "http": 200,
+  "response": {
+    "video_id": "658e11e0-1f24-457e-95ef-3c8a0bd00f45",
+    "status": "running",
+    "message": "Finishing the video and verifying its unlisted YouTube upload",
+    "error": null
+  }
+}

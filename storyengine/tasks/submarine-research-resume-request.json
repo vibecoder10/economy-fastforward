@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "response": {
+    "video_id": "44dbf2b2-a27a-47ea-a608-4c31c906be9a",
+    "status": "running",
+    "message": "Machine research started",
+    "error": null
+  },
+  "preserved_passed": [
+    "SS-2 USS Plunger",
+    "SS-163 USS Barracuda",
+    "SS-212 USS Gato",
+    "SS-285 USS Balao",
+    "SS-417 USS Tench",
+    "SS-563 USS Tang",
+    "AGSS-569 USS Albacore",
+    "SS-580 USS Barbel"
+  ]
+}

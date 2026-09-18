@@ -1,0 +1,26 @@
+{
+  "release": "c5956e190a0e0e6306f4c9ecf6dac328592483df",
+  "deployed_at": "2026-09-16T23:44:04Z",
+  "worker_backend_parity_verified": true,
+  "health": "healthy",
+  "drain": "normal",
+  "deploy_lock": "clear",
+  "local_remote_hashes_match": true,
+  "live_source": {
+    "source_url": "https://navalunderseamuseum.org/undersea-pioneers2/",
+    "capture_chars": 15478,
+    "excerpt_count": 3,
+    "training_recovered": true,
+    "all_exact_text": true,
+    "excerpt_lengths": [
+      1152,
+      222,
+      435
+    ],
+    "paid_provider_calls": 0,
+    "data_writes": 0
+  },
+  "production_and_research_unchanged": true,
+  "paid_provider_calls": 0,
+  "script_quality_verified": false
+}

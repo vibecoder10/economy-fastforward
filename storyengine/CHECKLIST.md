@@ -93,12 +93,22 @@ already in the tree (see `git status` - large amount of untracked task/docs outp
 sessions' work). Deployment and any paid canary require separate explicit approval, per standing
 project practice.
 
-Always next: in the worktree, implement Call 1 (thesis+acts) + Call 2 (roster+shared-context) as a
-new module, wire it into `run_roster_selection` in place of `research.agent.run_research`; then
-Call 3 (per-machine research packet, 6 targeted searches) as a new module + legacy-shape adapter,
-wired into `_run_unit_research_hold`'s factual_100_v1 branch. Verify locally (dev server against
-prod API per the `/se` skill's ladder) against the live submarine video or a fresh test video
-before calling Phase 1 done. Script-writing (Phase 2) comes after.
+**Phase 1 implemented 2026-09-18 (cloud session, no local Mac worktree in that environment — built
+directly on `main-khm80l`, pushed).** `storyengine/backend/dvsu_roster_v2.py` (Call 1+2, commit
+`a4fd6f5`) and `storyengine/backend/dvsu_research_v2.py` (Call 3 + legacy adapter, commit
+`65545d8`) are wired in, gated behind `is_factual_machine_contract`. Verified at unit/code-trace
+level only (5474 passing, zero regressions vs. baseline; adapter proven against the real legacy
+gate functions across 5 identity formats) — **no live model/search call or browser run has
+happened yet**, this cloud sandbox has no VPS/SSH route. Live verification recipe (roster+research
+run on the real submarine video, browser walk, no-spend-skip proof) is queued at
+`tasks/live-verification-queue.md`, "DVSU research pipeline v2 — Phase 1" section — run that next,
+on a VPS-capable session, before calling Phase 1 done. One known cosmetic wrinkle carried over
+from Phase 1b: `evidence_segments[].source_excerpt` carries a `"Regarding <machine>: "` bookkeeping
+prefix ahead of the real quote (documented in `dvsu_research_v2.py::_candidate_text`) — harmless to
+gate-passing, worth Ryan's eyes if it looks odd in the UI.
+
+Always next: run the live-verification-queue.md recipe above; once Ryan accepts Phase 1's live
+results, start Phase 2 (script-writing, Call 4) per `docs/dvsu-script-pipeline-v2-2026-09-18/DESIGN.md`.
 
 Market: Ryan/editor; hypothesis is completing saved project without developer intervention; distribution is existing private StoryEngine UI; real test counts manual interventions and rejected sections. Build/Market/Operate tracked on SE-0002.
 

@@ -18,6 +18,63 @@
 
 ---
 
+## DVSU research pipeline v2 — Phase 1 (Call 1–3), 2026-09-18
+
+New modules `storyengine/backend/dvsu_roster_v2.py` (Call 1 thesis+acts, Call 2
+roster+shared-context) and `storyengine/backend/dvsu_research_v2.py` (Call 3, six
+targeted searches per machine + legacy-shape adapter), wired into
+`pipeline_executor.py::run_roster_selection` and `_run_unit_research_hold`, gated
+behind `factual_machine_research.is_factual_machine_contract(payload)` so no other
+tenant/channel is affected. Full design: `storyengine/docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md`.
+Wiring facts, decisions and scope: `storyengine/CHECKLIST.md`'s Active section,
+`storyengine/HANDOFF.md`. Commits: `a4fd6f5` (Phase 1a) + `65545d8` (Phase 1b) on
+`main-khm80l`.
+
+Everything is proven at unit/code-trace level in this sandbox — including the two
+hardest correctness claims verified directly against the REAL legacy gate functions
+(not guessed): Phase 1b's adapter was checked to pass `factual_card_contract_warnings`,
+`research_summary_ready`, and `dvsu_research_handoff.package_brief_warnings` (the exact
+three gates the bulk research coordinator uses to decide a machine is "already done")
+across 5 roster identity formats. Full backend suite: 133 failed/5457 passed/9
+skipped/4 errors baseline → 133 failed/5474 passed/9 skipped/4 errors after — FAILED/ERROR
+test-name sets byte-identical, zero regressions. No frontend files were touched by either
+chunk (confirmed via `git diff --stat`), so no `tsc`/build run was needed. This sandbox has
+**no live Anthropic key exercised against production**, **no Kie/Tavily key**, and **no route
+to the VPS** (HTTPS-proxy only, no SSH) — so nothing below ran against a real model response
+or the real app. Deferred to Ryan / a VPS-capable session:
+
+1. **One live Phase-1 roster+research run on a real test video**, budget-capped. Easiest: a
+   fresh test video (or the existing live submarine video `44dbf2b2-a27a-47ea-a608-4c31c906be9a`,
+   "US Submarine Class Evolution" — it's already on the `factual_100_v1` contract per an earlier
+   session's `se db` confirmation) with `render_mode='static_docu'`. Trigger Roster (Call 1+2),
+   confirm via `se db "SELECT research_payload->'thesis', research_payload->'acts',
+   jsonb_array_length(research_payload->'unit_roster'), research_payload->'roster_selection'
+   FROM videos WHERE id='<video-id>'"` that a real thesis/acts/roster/shared_context landed and
+   `roster_selection.status='completed'`. This is the FIRST time DESIGN.md's actual prompts run
+   against a real model+search — the hand-prototype proof was a manual Osiris session, not this
+   code path, so treat this as the real first test of the prompts-as-code, not just a formality.
+2. **One live Research run (Call 3) for a single machine** on that same video, budget-capped
+   (6 search calls × 1 machine). `se db` the resulting `unit_research_cards` entry: confirm
+   `evidence_segments[]` have real (non-fixture) `source_url`/`source_excerpt`, and note that
+   `source_excerpt` will show the `"Regarding <machine>: <quote>"` bookkeeping prefix (a known,
+   deliberate compatibility label documented in `dvsu_research_v2.py::_candidate_text` — cosmetic
+   only, doesn't affect gate-passing or citation fidelity, but flag to Ryan in case he wants it
+   cleaned up before Phase 2 script-writing reads `evidence_segments` directly).
+3. **Browser walk of the Research/Roster tabs** for that video (`scripts/se.sh devtoken` +
+   frontend dev server per `storyengine/CLAUDE.md`'s "Run + verify" ladder, step 1) — confirm the
+   existing `ResearchTab.tsx`/roster UI renders the new data with no console errors, no empty
+   states where data exists, and the "research ready" indicator reflects the mechanical (not
+   LLM-written) summary paragraph correctly. This is the literal "run it like a user" check this
+   project's CLAUDE.md mandates before any visual/UI-adjacent task is called done.
+4. **No-spend skip proof.** Re-run Research on the same already-researched machine from item 2;
+   confirm (`bot_activity`/logs) zero new provider calls and zero new `generation_ledger` rows —
+   this is unit-tested (`test_dvsu_research_v2.py`) but not yet proven against the real DB/app.
+5. Once 1–4 pass, DVSU Phase 1 (CHECKLIST.md's "Active" outcome, roster+research half) is ready
+   to call done. Phase 2 (script-writing, Call 4) is a separate later chunk — do not start it
+   until Ryan reviews Phase 1's live results.
+
+---
+
 ## C63 — Pricing UI (ratified ladder) · Stripe dashboard prices must match
 
 C63 updated the customer-facing copy on `/pricing`, `/billing`, and the landing page (`/`) to

@@ -1,0 +1,1 @@
+{"http_status": 200, "status": "completed", "ready": true, "machine": "SS-1 USS Holland", "scene": 1, "summary": "Machine script preview is ready.", "warnings": [], "next_action": "run_machine_script_preview"}

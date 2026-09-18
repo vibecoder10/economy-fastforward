@@ -1,0 +1,58 @@
+{
+  "gate": "PASS: Astra checked exact inputs, actions, boundaries, outputs, dependencies, acceptance and stop conditions for each step",
+  "round": 1,
+  "steps": [
+    {
+      "dependencies": "Astra plan-completeness PASS; local checkout f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+      "authorityStop": "Read-only source audit; write assigned evidence markdown only. No provider calls, production access, code edits, credentials, spend or publication. Stop and report material planning gaps. Ordinary read/search choices permitted.",
+      "done": true,
+      "evidence": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/review.json; /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/discovery.md",
+      "id": "probability-discovery",
+      "title": "Build: map discovery",
+      "inputSource": "backend/factual_source_search.py; ../skills/video-pipeline/research/agent.py; backend/roster_selection.py; backend/roster_coverage.py",
+      "action": "Trace source discovery, search ordering, caps, retries, roster selection and evidence provenance. Record function/line references and exact heuristics; distinguish observed code from unknown runtime. No solution design.",
+      "writeBoundary": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/discovery.md",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/discovery.md",
+      "acceptanceEvidence": "Code-backed flow with 5+ precise references, actual confidence/gate behavior, tests and limits; Astra verifies main findings."
+    },
+    {
+      "dependencies": "Astra plan-completeness PASS; local checkout f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+      "authorityStop": "Read-only source audit; write assigned evidence markdown only. No provider calls, production access, code edits, credentials, spend or publication. Stop and report material planning gaps. Ordinary read/search choices permitted.",
+      "done": true,
+      "evidence": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/review.json; /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/judgment.md",
+      "id": "probability-judgment",
+      "title": "Build: map judgment",
+      "inputSource": "backend/factual_machine_research.py; backend/factual_machine_summary.py; backend/factual_machine_pipeline.py; referenced validation modules",
+      "action": "Trace claim extraction, confidence, corroboration, contradictions, factual gates and recovery. Record exact calculations/constants and representative test assertions with line references. No solution design.",
+      "writeBoundary": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/judgment.md",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/judgment.md",
+      "acceptanceEvidence": "Code-backed flow with 5+ precise references, actual confidence/gate behavior, tests and limits; Astra verifies main findings."
+    },
+    {
+      "dependencies": "Astra plan-completeness PASS; local checkout f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+      "authorityStop": "Read-only source audit; write assigned evidence markdown only. No provider calls, production access, code edits, credentials, spend or publication. Stop and report material planning gaps. Ordinary read/search choices permitted.",
+      "done": true,
+      "evidence": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/review.json; /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/consumption.md",
+      "id": "probability-consumption",
+      "title": "Build: map consumption",
+      "inputSource": "backend/pipeline_executor.py; backend/routes/pipeline.py; backend/migrations/081_machine_research_cards.sql; frontend research UI and static_docu consumers",
+      "action": "Trace research persistence, state transitions, script handoff, UI uncertainty and tests. Search for calibration, probability, evaluator feedback and record bounded negative search coverage. No solution design.",
+      "writeBoundary": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/consumption.md",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/consumption.md",
+      "acceptanceEvidence": "Code-backed flow with 5+ precise references, actual confidence/gate behavior, tests and limits; Astra verifies main findings."
+    },
+    {
+      "dependencies": "Astra plan-completeness PASS; local checkout f92c863b550dcf5cd3a72e351d045b554ef8fdcf",
+      "authorityStop": "Read-only source audit; write assigned evidence markdown only. No provider calls, production access, code edits, credentials, spend or publication. Stop and report material planning gaps. Ordinary read/search choices permitted.",
+      "done": true,
+      "evidence": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/review.json; /Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/REPORT.md",
+      "id": "probability-synthesis",
+      "title": "Operate: review and recommend",
+      "inputSource": "Three Terra maps; current source; primary methodological papers",
+      "action": "Astra checks core findings, maps gaps to prioritized architecture and a measurable offline experiment.",
+      "writeBoundary": "Audit report; CHECKLIST.md; JOURNAL; existing SE-0002 card",
+      "expectedOutput": "/Users/ryanayler/AgentVault/Projects/story-engine/storyengine/docs/research-probability-audit-2026-09-16/REPORT.md",
+      "acceptanceEvidence": "Each priority ties to verified code and proposed acceptance; uncertainty vs randomness distinguished."
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "video_id": "3f902e62-3ffa-4472-baf4-d0dfe9a20e49",
+  "title": "Every British Aircraft Carrier Class Ever Built (2026)",
+  "job_id": "autobuild:3f902e62-3ffa-4472-baf4-d0dfe9a20e49:15",
+  "queue_id": "acc28406-2899-47c0-a8b0-5d5673bf1e93",
+  "job_status": "completed",
+  "queue_status": "completed",
+  "completed_at": "2026-09-13T02:00:34.483075Z",
+  "current_deployed_commit": "8f8de8ec1",
+  "youtube_url": "https://www.youtube.com/watch?v=jg9dpMrPufw",
+  "youtube_video_id": "jg9dpMrPufw",
+  "channel_id": "UCO4gtSa3rpOutrZ45-OjYyA",
+  "privacy": "unlisted",
+  "processing_status": "succeeded",
+  "duration_seconds": 897.125,
+  "video": "1920x1080 H.264",
+  "audio": "48 kHz stereo AAC; full-track decode exit 0, mean -20.8 dBFS, peak -3.6 dBFS",
+  "machines": 21,
+  "current_reviewed_scripts": 21,
+  "narration_tracks": 21,
+  "verified_archival_references": 21,
+  "approved_production_views": 58,
+  "playback_review": "YouTube owner/privacy/processing readback verified by the application; browser shows the same title, Designed vs Used and Unlisted. Observed playback advance from opening to 1:08 with changing imagery, inspected corrected split-deck Vindictive near 1:47, Invincible near 14:02 and Queen Elizabeth near 14:31, and observed the end at 14:57. Player left paused.",
+  "ui_release": "8f8de8ec1 deployment exit 0; backend/worker parity, API and frontend HTTP200 verified; live reloaded pipeline displays every stage complete and All Done. Active-state regression passed on actual server-rendered controls against the recorded running/autobuild contract; no synthetic production job created for UI testing.",
+  "review_limits": [
+    "Visual playback review was a representative spot check, not every frame or every generated view.",
+    "Audio received full-track decode and level analysis; no full human listening or narration-transcription review was performed.",
+    "Only one real production title was available. Successive-title behavior was proven in isolated actual PostgreSQL tests, not by inventing another paid title."
+  ],
+  "remaining_external_dependency": "Anton must grant fresh production-mode Google consent using the existing exact-channel invitation; consumed_at remains null. Current video's upload is already complete.",
+  "storage": "Final-audio check downloaded only on VPS, then removed its 318279702-byte owned temporary MP4; no local media download or accepted-source deletion."
+}

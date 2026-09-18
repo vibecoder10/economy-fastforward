@@ -1,0 +1,13 @@
+{
+  "roster_unchanged": true,
+  "other_machine_source_packages_unchanged": true,
+  "original_holland_sources_preserved": true,
+  "holland_sources_before": 1,
+  "holland_sources_after": 3,
+  "holland_excerpts_before": 2,
+  "holland_excerpts_after": 8,
+  "status_before": "ready_for_voice",
+  "status_after": "ready_for_voice",
+  "recorded_total_cost_before": "0.053300000000000001131213178684475906266015954315662384033203125",
+  "recorded_total_cost_after": "0.055900000000000001228704638034372464971966110169887542724609375"
+}

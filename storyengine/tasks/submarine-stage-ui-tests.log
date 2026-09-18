@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: contract metadata does not show completed research
+ok 1 - contract metadata does not show completed research
+  ---
+  duration_ms: 0.519083
+  type: 'test'
+  ...
+# Subtest: saved roster requires saved cards before research is complete
+ok 2 - saved roster requires saved cards before research is complete
+  ---
+  duration_ms: 0.077542
+  type: 'test'
+  ...
+# Subtest: accepted runtime roster is done without photos while saved-card research remains separate
+ok 3 - accepted runtime roster is done without photos while saved-card research remains separate
+  ---
+  duration_ms: 0.080959
+  type: 'test'
+  ...
+# Subtest: stale accepted flag and a hidden legacy draft never imply ready research
+ok 4 - stale accepted flag and a hidden legacy draft never imply ready research
+  ---
+  duration_ms: 0.240458
+  type: 'test'
+  ...
+# Subtest: the roster panel exposes a confirmed remove action for every machine card
+ok 5 - the roster panel exposes a confirmed remove action for every machine card
+  ---
+  duration_ms: 0.434625
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 251.012958

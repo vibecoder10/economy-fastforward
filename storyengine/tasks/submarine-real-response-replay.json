@@ -1,0 +1,7 @@
+{
+  "real_capture_replay": "passed",
+  "roster_count": 55,
+  "responses": 2,
+  "new_calls_on_replay": 0,
+  "parsed_data_identical_to_live_canary": true
+}
