@@ -46,6 +46,51 @@ both DESIGN.md files. Then `change_directory` into the worktree above and start 
    writing stage." Script-writing (`_run_static_script_hold`, `pipeline_executor.py:14770`) is
    Phase 2, after Phase 1 is verified.
 
+## Phase 2 prep (script-writing) - traced this session, captured now so it isn't lost
+
+A second trace agent finished after Phase 1 planning was already done. Key facts for whenever
+Phase 2 starts:
+
+- **The real live write path for `factual_100_v1` is `factual_machine_pipeline.run_factual_script_hold`
+  (`factual_machine_pipeline.py:140`), NOT `_run_static_script_hold`** - that function
+  (`pipeline_executor.py:14770`) returns early at line 14792 for factual_100_v1 videos; its big
+  writer-prompt body (neighbor context, `name_opener_slots`, etc.) is dead for DVSU specifically.
+- Today's per-machine flow is **two paid calls**, not one: writer (`_script_writer_prompt`,
+  `factual_machine_summary.py:535-563`) then a separate referee/review call (`_review_prompt`/
+  `review_existing_factual_summary`, same file) - confirms the v2 design's "drop the referee call"
+  is a real, meaningful simplification, not just theoretical.
+- Writer output today: `{paragraph, claim_map:[{sentence, fact_ids}]}` - `fact_ids` point into
+  the brief, later materialized into citations by `materialize_script_draft`
+  (`script_research_packet.py:285`). The v2 design's `{sentence, source_url, quote}` claim_map
+  shape does not exist anywhere yet - it's new. Zero hits anywhere for `opened_with_name`/
+  `bridged_to`/`bridg`/`opening_name` - also wholly new.
+- Persistence is two separate things with **different key shapes**: preview checkpoint
+  (`_checkpoint_machine_script_preview`, keyed by normalized machine code) always written;
+  production save (`_save_machine_script_block`, only on `save_target_script=True` or the bulk
+  run) writes the `scripts` table + `videos.script` + `videos.script_validation.
+  machine_script_blocks` keyed by the **raw** machine name - a real mismatch to account for.
+  `scripts.sources` column is dead/never written anywhere in the backend, not just for DVSU.
+- **Bigger UI tension than research's:** `ScriptVoiceTab.tsx`'s pass/fail gate
+  (`machinePreviewPassesContract`/`machinePreviewPassesEditorialGate`, lines 215-248) hard-checks
+  `compiler_version === 2 && factual_passed === true && editorial_review_version === version &&
+  audit.passed && ...`. A new single-call v2 writer does not produce `compiler_version`/
+  `factual_passed`/`editorial_review` at all - this gate will read every new preview as failed
+  unless it's rewritten. Given CHECKLIST's "no DB, Drive export only" decision, this frontend
+  literally has nothing DB-backed to read for the new design - **this specific tension needs a
+  real decision with Ryan before Phase 2 implementation, more so than research's version of the
+  same tension.**
+- The existing per-machine loop (`factual_machine_pipeline.py:173`, `for scene, machine in
+  selected:`) already runs strictly in roster order, sequentially, one `await` at a time - good
+  skeleton to keep for the v2 design's ordering requirement. But it has **zero** state threading
+  today for prior-sibling-paragraph content or a running opening-name tally - both need to be
+  added as new accumulator params through the loop, not restructured from scratch.
+- `dvsu_script_brief.build_dvsu_brief` and `script_research_packet.compile_script_packet` ARE
+  live/load-bearing today (not dead code) - but their current 4-field brief shape
+  (`intended_role/design/actual_use/outcome`) doesn't match the new 6-slot research packet, so
+  they can't be reused as-is; expect a rewrite, not a patch. (Don't confuse with
+  `dvsu_research_handoff.package_brief` - a different, UI-readiness-only helper, not part of the
+  write path.)
+
 ## Open threads
 - After Phase 1's new call sites are wired, re-grep for importers of the old DVSU-only modules
   (`factual_source_search.py`, `research_claim_assessment.py`, `factual_machine_summary.py`'s
