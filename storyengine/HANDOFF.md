@@ -1,4 +1,37 @@
-# HANDOFF - 2026-09-18 both designs approved, exact wiring traced, Phase 1 (roster+research) ready to implement - handing off to a fresh session for context reasons
+# HANDOFF - 2026-09-18 (update: Phase 1 IMPLEMENTED, live verification pending)
+
+## 2026-09-18 update — Phase 1 built and pushed, not yet live-verified
+
+A cloud session (no local Mac/VPS access, no SSH route) implemented Phase 1 directly on
+`main-khm80l` per this file's "Next action" below, using this repo's orchestrator+Sonnet-worker
+loop (`tasks/orchestrator-and-worker-playbook.md`). Shipped:
+- `storyengine/backend/dvsu_roster_v2.py` (Call 1 thesis+acts, Call 2 roster+shared-context),
+  wired into `run_roster_selection`, commit `a4fd6f5`.
+- `storyengine/backend/dvsu_research_v2.py` (Call 3, six targeted searches per machine, + adapter
+  to the legacy `unit_research_cards`/`ResearchTab.tsx` shape), wired into `_run_unit_research_hold`,
+  commit `65545d8`.
+- Both gated behind `factual_machine_research.is_factual_machine_contract(payload)` — every other
+  `static_docu` video (any tenant) is provably untouched (tests assert the old code path is called
+  and the new modules are never invoked, and vice versa).
+- Drive export (fail-soft) of the DESIGN.md file layout is wired into both new modules.
+- Full backend suite: zero regressions (133 failed/5474 passed/9 skipped/4 errors, FAILED/ERROR set
+  byte-identical to the pre-change baseline). No frontend files touched.
+
+**Not done: any live model call, any live search, any browser run.** This session's sandbox has no
+VPS/SSH route and no way to reach the real Anthropic/search/Drive services the way production does.
+Exact recipe for what's left: `tasks/live-verification-queue.md`, "DVSU research pipeline v2 —
+Phase 1" section — a real roster+research run on the live submarine video, a browser walk of
+Research/Roster tabs, and a no-spend-skip proof. Do that next, then get Ryan's acceptance, before
+starting Phase 2. See `CHECKLIST.md`'s Active section for the same status, condensed.
+
+One known cosmetic wrinkle, not a correctness issue: Call 3's adapter prefixes stored quotes with
+`"Regarding <machine>: "` for legacy-matcher compatibility (see `dvsu_research_v2.py::_candidate_text`'s
+docstring for why) — will show up verbatim in `evidence_segments[].source_excerpt`. Flag to Ryan
+during the live verification pass in case it should be cleaned up before Phase 2 reads it.
+
+---
+
+# Original handoff - 2026-09-18 both designs approved, exact wiring traced, Phase 1 (roster+research) ready to implement - handing off to a fresh session for context reasons
 
 ## State
 - Prod: unchanged, not touched. Last verified: 0229e9fb deployed, healthy.
