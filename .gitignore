@@ -98,3 +98,6 @@ docs/product-brain.md
 
 # Preset visual-style icons are real static assets — override the blanket *.png ignore
 !storyengine/frontend/public/style-icons/*.png
+
+# Agent worktrees for isolated feature work (project convention, see CLAUDE.md)
+.worktrees/
