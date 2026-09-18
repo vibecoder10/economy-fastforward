@@ -1,5 +1,47 @@
 # System State — Economy FastForward
 
+## DVSU research pipeline v2 — Phase 1a: Call 1 (thesis+acts) + Call 2 (roster+shared-context) (2026-09-18)
+
+- New module `storyengine/backend/dvsu_roster_v2.py` implements, verbatim,
+  Call 1 and Call 2 of
+  `storyengine/docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md`: one
+  cheap no-search call producing a thesis + 4-7 acts, then one search-enabled
+  call producing the 20-25-machine roster (assigned to acts, sorted into act
+  order) plus 3-5 cross-cutting shared-context facts. Public entry point:
+  `run_thesis_roster_and_context(anthropic_client, title, checkpoint_scope=None)`.
+  Also does a fail-soft Google Drive export (`00-thesis-and-roster.md`,
+  `01-shared-context.md` under `StoryEngine Research/<Video Title>/`) that
+  never blocks or fails roster generation, including when `GoogleClient()`
+  itself can't construct (missing creds).
+- Wired into `pipeline_executor.py::run_roster_selection`, gated behind
+  `factual_machine_research.is_factual_machine_contract(payload)` (checks
+  `machine_script_contract == "factual_100_v1"`) — the exact same gate
+  `_run_unit_research_hold` already uses. Only videos on that contract use
+  the new path; every other `static_docu` video (any tenant/channel) falls
+  through to the untouched legacy `research.agent.run_research` +
+  `roster_coverage.audit_roster_selection` branch, unchanged.
+- Replaces, for the gated contract only: `research/agent.py`'s roster call
+  AND the old audit/repair loop (`roster_coverage.audit_roster_selection`
+  plus the corrective second `run_research` round-trip). Per DESIGN.md, "no
+  separate roster-validation pass by design" — the new path generates once,
+  then runs only the existing purely-structural
+  `roster_selection.selection_validation` (count/identity check); pass ->
+  `roster_complete`/`roster_ready` immediately, fail -> `needs_review` and
+  stop (no paid retry).
+- `research/agent.py`, `roster_selection.py`, `roster_coverage.py` are
+  unmodified — still used by the legacy branch and other callers
+  (actions.py, production_guide.py, worker.py, the separate Airtable-driven
+  orchestrator pipeline).
+- New tests: `storyengine/backend/tests/test_dvsu_roster_v2.py` (Call 1,
+  Call 2 incl. web-search tool + gateway-mode guard, the combined merge
+  shape, and the `run_roster_selection` contract gate itself — proving a
+  non-`factual_100_v1` video still calls the old path unchanged and never
+  touches the new module, and vice versa).
+- Scope boundary: this is Call 1 + Call 2 only. Call 3 (per-machine 6-search
+  research packet) and script-writing wiring are separate, later chunks —
+  see `storyengine/CHECKLIST.md`'s Active section.
+
+
 ## Source-backed submarine research (2026-09-16)
 
 - `storyengine/backend/research_claim_assessment.py` adds bounded source-linked claim assessments for factual research. Receipts live under existing raw-source-package JSON, preserve exact quotations, distinguish supported/disputed/insufficient/out-of-scope claims, and expose no numerical correctness probability.

@@ -11102,6 +11102,69 @@ class PipelineExecutor:
             if self._db_write_missed(result):
                 raise RuntimeError("Roster save refused because the video is no longer available for this tenant")
 
+        # Preserve unrelated saved data/cards/packages; selected fields are
+        # the only replacement surface for this pre-unit stage. Shared by
+        # both the DVSU v2 path and the legacy research.agent path below -
+        # "acts"/"shared_context" are new DESIGN.md fields the legacy path
+        # never produces, so adding them here does not change its behavior.
+        selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit", "roster_candidate_overflow",
+                          "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook", "acts", "shared_context"}
+
+        from factual_machine_research import is_factual_machine_contract
+        if is_factual_machine_contract(payload):
+            # DVSU research pipeline v2 (docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md):
+            # Call 1 (thesis+acts) + Call 2 (roster+shared-context), generated
+            # once. No separate roster-coverage audit / repair-loop by design -
+            # a machine that can't find real sources at Call 3 is the
+            # validation. Only the existing purely-structural
+            # roster_selection.selection_validation gates this output.
+            try:
+                from dvsu_roster_v2 import run_thesis_roster_and_context
+                from roster_selection import bound_selection_candidates
+                await self._log_activity("Research Agent", video_id, "started",
+                                          f"DVSU v2: generating thesis, acts and roster ({settings['target_count']} target)")
+                draft = await run_thesis_roster_and_context(
+                    self._pipeline.anthropic, title,
+                    checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+                )
+                if not isinstance(draft, dict):
+                    raise ValueError("DVSU roster generation returned no structured payload")
+                draft = bound_selection_candidates(draft, settings["target_count"])
+                merged = dict(payload)
+                merged.update({key: value for key, value in draft.items() if key in selection_keys})
+                if previous_roster is not None and previous_roster != merged.get("unit_roster") and not history:
+                    previous_payload = copy.deepcopy(payload)
+                    previous_payload.pop("roster_selection_history", None)
+                    history.append({"payload": previous_payload, "saved_at": datetime.now(timezone.utc).isoformat()})
+                if history:
+                    merged["roster_selection_history"] = history
+                if await self._pipeline.should_cancel():
+                    return {"status": "cancelled", "video_id": video_id, "message": "Stopped before DVSU roster draft was saved."}
+                # selection_validation reads its target/pacing back out of
+                # payload["roster_selection"]["settings"] - must be set before
+                # the check runs, not only after it passes.
+                merged["roster_selection"] = selection_state("needs_review", selected_count=len(merged.get("unit_roster") or []))
+                check = selection_validation(title, merged)
+                merged["unit_roster_validation"] = check
+                if check.get("passed"):
+                    merged["research_phase"] = "roster_complete"
+                    merged["roster_selection"] = selection_state("completed", selected_count=check["roster_count"])
+                    result = await execute("UPDATE videos SET research_payload=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+                                           json.dumps(merged), video_id, self.tenant_id)
+                    if self._db_write_missed(result):
+                        return {"status": "failed", "video_id": video_id, "error": "Roster save refused",
+                                "roster_selection_failed": True}
+                    await self._log_activity("Research Agent", video_id, "completed",
+                                              f"DVSU v2 roster complete: {check['roster_count']} entries")
+                    return {"status": "roster_ready", "video_id": video_id, "selected_count": check["roster_count"]}
+                reasons = list(check.get("warnings") or [])
+                await save_draft(merged, status="needs_review", reason="; ".join(map(str, reasons))[:1200])
+                return {"status": "failed", "video_id": video_id, "error": "; ".join(map(str, reasons)),
+                        "roster_selection_failed": True}
+            except Exception as exc:
+                await self._log_activity("Research Agent", video_id, "failed", str(exc))
+                return {"status": "failed", "video_id": video_id, "error": str(exc), "roster_selection_failed": True}
+
         try:
             from research.agent import run_research
             from roster_coverage import selection_scope_policy, audit_roster_selection
@@ -11120,10 +11183,8 @@ class PipelineExecutor:
             if not isinstance(draft, dict):
                 raise ValueError("Roster selection returned no structured payload")
             draft = bound_selection_candidates(draft, settings["target_count"])
-            # Preserve unrelated saved data/cards/packages; selected fields are
-            # the only replacement surface for this pre-unit stage.
-            selection_keys = {"unit_roster", "recommended_final_roster", "roster_contract", "roster_audit", "roster_candidate_overflow",
-                              "source_bibliography", "fact_sheet", "headline", "thesis", "executive_hook"}
+            # selection_keys (incl. "acts"/"shared_context", DVSU v2 fields
+            # this legacy draft never produces) is defined once, above.
             merged = dict(payload)
             merged.update({key: value for key, value in draft.items() if key in selection_keys})
             if previous_roster is not None and previous_roster != merged.get("unit_roster") and not history:
