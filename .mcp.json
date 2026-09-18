@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "storyengine": {
+      "type": "http",
+      "url": "https://storyengine.dev/api/mcp"
+    }
+  }
+}
