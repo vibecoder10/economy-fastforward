@@ -42,6 +42,105 @@
   see `storyengine/CHECKLIST.md`'s Active section.
 
 
+## DVSU research pipeline v2 — Phase 1b: Call 3 (per-machine 6-search research packet) (2026-09-18)
+
+- New module `storyengine/backend/dvsu_research_v2.py` implements, verbatim,
+  Call 3 of `storyengine/docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md`:
+  **six separate, narrowly-targeted `client.generate()` calls per machine**
+  (problem / design / trade_off / outcome (2-4 candidates) / surprising_fact
+  / contrast), never one combined broad search — DESIGN.md's first locked
+  rule. Public entry point: `run_machine_research_packet(anthropic_client,
+  machine, act_number, subject_context, shared_context, checkpoint_scope=None)`.
+  Folds Call 2's `shared_context` facts into every slot's prompt as
+  background. Also does a fail-soft Google Drive export
+  (`machines/<machine-slug>.md` under `StoryEngine Research/<Video Title>/`),
+  same fail-soft pattern as Phase 1a.
+- Legacy-shape adapter in the same module,
+  `adapt_packet_to_factual_card(machine, act_number, packet,
+  locked_roster_index, subject_context)`, translates one Call-3 packet into
+  the `machine_raw_source_packages[cache_key]` package shape (sources +
+  candidate_excerpts + a fully-formed, already-`supported` `claim_assessment`
+  receipt — no separate LLM assessment call; Call 3's own search-grounded
+  quote IS the claim assessment, per DESIGN.md's "no separate
+  roster-validation pass" philosophy extended to research) and the
+  `unit_research_cards[]` card shape
+  (`factual_machine_research.build_factual_evidence_card`'s contract plus a
+  `research_summary` and `script_brief_readiness`). Verified directly against
+  the real legacy gate functions (not guessed): the resulting card/package
+  passes `factual_card_contract_warnings`,
+  `machine_research_summary.research_summary_ready`, AND
+  `dvsu_research_handoff.package_brief_warnings` — the exact three gates the
+  bulk research coordinator in `_run_unit_research_hold` already uses to
+  decide a machine is "already done." Candidate excerpt text is built as
+  `"Regarding {machine}: {quote}"` (the exact locked display-name string
+  prepended verbatim ahead of Call 3's cited quote) so
+  `factual_machine_research.candidate_mentions_machine`'s identity matcher
+  passes reliably across every roster identity shape (named-submarine hull,
+  aircraft designation, class label, named ship) without per-format regex
+  coverage — verified with a parametrized test across five identity formats.
+  `research_summary.paragraph` is a MECHANICAL concatenation of the 6 slots'
+  answers (documented in code as a placeholder/display value, explicitly NOT
+  the polished DvsU prose Phase 2's script-writing call will produce) —
+  `research_summary.passed` is true only when problem/design/trade_off/
+  surprising_fact/contrast all have an answer+source and at least one outcome
+  candidate exists.
+- Wired into `pipeline_executor.py::_run_unit_research_hold`'s existing
+  `is_factual_machine_contract(payload)` single-machine sub-path (still
+  inside the same outer gate Phase 1a used — no new nesting). Replaces the
+  old source-capture (`_gather_verified_machine_source_package` /
+  `dvsu_research_handoff.supplement_missing_research`), the Kie/Tavily
+  source-discovery ledger-accounting loop (`factual_source_search.USD_PER_CREDIT`
+  — a deliberate cost-tracking REMOVAL: that spend no longer happens on this
+  path, same as Calls 1-2 add no ledger entries either — Anthropic web-search
+  cost isn't ledgered anywhere in this codebase today),
+  `research_claim_assessment.assess_verified_package`, and
+  `factual_machine_summary.generate_factual_machine_summary` for the gated
+  contract only. Keeps steps 9-10 (merge into `unit_research_cards`,
+  `unit_research_hold_validation`, `_checkpoint_one_machine_research_result`,
+  `_upsert_machine_research_card`) as the exact same shared persistence
+  plumbing, unmodified, fed the new card/package instead of the old one.
+  Keeps the `_handoff_guard`/`_handoff_checkpoint` closures (budget/cancel/
+  roster-drift checks), called before Call 3's provider work starts, so
+  cancellation/budget-exceeded still work correctly mid-machine. Adds a
+  no-spend skip check at the top of the single-machine sub-path (the same
+  three gates above, mirroring the bulk coordinator's own pre-check) so a
+  direct single-machine re-run — not just the bulk coordinator loop — never
+  re-pays for Call 3 when the saved card is already fully current.
+- `card["readiness"]` (the `{passed, warnings}` shape `ResearchTab.tsx`'s
+  `machineResearchReadiness(card)` reads) is deliberately NOT set anywhere in
+  the new card-building code. Traced and confirmed: it is populated later, by
+  a separate read-time enrichment pass over the `machine_research_cards`
+  table's `validation` column (`pipeline_executor.py` ~line 4476-4494),
+  itself written by the unmodified `_upsert_machine_research_card` call in
+  step 10 — nothing in `build_factual_evidence_card` or this new adapter
+  needs to touch it.
+- `factual_source_search.py`, `research_claim_assessment.py`,
+  `factual_machine_summary.py`, `dvsu_research_handoff.py`,
+  `factual_machine_research.py` are unmodified — still read (their pure
+  functions are called directly, e.g. `assessment_fingerprint`,
+  `_validated_claims`, `_eligible_candidates`, `package_brief_warnings`) but
+  not edited; other code paths (the non-factual sibling branch, other
+  contracts) still depend on them unchanged.
+- New tests: `storyengine/backend/tests/test_dvsu_research_v2.py` (17 tests:
+  the six-separate-calls behavioral assertion, gateway-mode guard, missing-
+  slot/missing-candidates failure modes, the adapter's three-gate pass
+  proven against the real legacy functions across 5 roster-identity formats,
+  the mechanical-paragraph design, Drive fail-soft export, and an end-to-end
+  test through `_run_unit_research_hold` proving the legacy provider
+  functions are never called, no ledger entry is recorded, the resulting
+  card passes all three legacy gates, and a second call on an
+  already-complete machine makes zero additional provider calls). Full
+  backend suite (`./venv/bin/python -m pytest tests/ -q`, a fresh venv this
+  session had to create — none existed yet): 133 failed / 5457 passed / 9
+  skipped / 4 errors before this chunk's changes, 133 failed / 5474 passed /
+  9 skipped / 4 errors after — the failed/error test-name sets are
+  byte-identical before and after (diffed directly); the +17 passed are
+  exactly this chunk's new tests. Zero new failures.
+- Scope boundary: this is Call 3 + its legacy-shape adapter only.
+  Script-writing wiring (Phase 2, Call 4) is a separate, later chunk — see
+  `storyengine/CHECKLIST.md`'s Active section.
+
+
 ## Source-backed submarine research (2026-09-16)
 
 - `storyengine/backend/research_claim_assessment.py` adds bounded source-linked claim assessments for factual research. Receipts live under existing raw-source-package JSON, preserve exact quotations, distinguish supported/disputed/insufficient/out-of-scope claims, and expose no numerical correctness probability.
