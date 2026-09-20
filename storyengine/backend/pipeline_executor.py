@@ -8112,6 +8112,15 @@ def _roster_validation(
     """
     from roster_selection import is_runtime_selection, selection_validation
     if is_runtime_selection(payload):
+        from factual_machine_research import is_factual_machine_contract
+        if is_factual_machine_contract(payload):
+            # DVSU pipeline v2: skip the legacy "exactly one named machine per
+            # class" checker entirely - it conflicts with this pipeline's
+            # roster style (class-name entries are expected here). See
+            # dvsu_roster_v2.validate_roster_structure's docstring.
+            from dvsu_roster_v2 import validate_roster_structure
+            settings = (payload.get("roster_selection") or {}).get("settings") or {}
+            return validate_roster_structure(payload, settings.get("target_count"))
         check = selection_validation(title, payload)
         # Reuse the established mixed-member/unfinished-build interpretation.
         if "ever built" in str(title or "").lower():
@@ -11014,7 +11023,7 @@ class PipelineExecutor:
         """
         import copy
         import json
-        from roster_selection import selection_settings, selection_validation
+        from roster_selection import selection_settings
 
         video = video or await self._get_video(video_id)
         if not video:
@@ -11140,11 +11149,13 @@ class PipelineExecutor:
                     merged["roster_selection_history"] = history
                 if await self._pipeline.should_cancel():
                     return {"status": "cancelled", "video_id": video_id, "message": "Stopped before DVSU roster draft was saved."}
-                # selection_validation reads its target/pacing back out of
+                # _roster_validation reads its target back out of
                 # payload["roster_selection"]["settings"] - must be set before
-                # the check runs, not only after it passes.
+                # the check runs, not only after it passes. It routes v2
+                # (factual_100_v1) payloads to the lightweight structural
+                # check, not the legacy per-class checker - see its body.
                 merged["roster_selection"] = selection_state("needs_review", selected_count=len(merged.get("unit_roster") or []))
-                check = selection_validation(title, merged)
+                check = _roster_validation(title, merged)
                 merged["unit_roster_validation"] = check
                 if check.get("passed"):
                     merged["research_phase"] = "roster_complete"

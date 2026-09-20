@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -221,6 +222,54 @@ async def _call_roster_and_shared_context(
     if not roster:
         raise ValueError("Roster/shared-context call returned no machines")
     return {"roster": roster, "shared_context": shared_context}
+
+
+def validate_roster_structure(payload: dict, target_count: int) -> dict:
+    """Purely structural gate for a v2 roster: right count, no duplicates.
+
+    Deliberately does NOT call roster_selection.selection_validation /
+    representative_warnings - that legacy checker enforces the OLD "exactly
+    one named machine per class, recorded separately from class_name" policy,
+    which directly conflicts with this pipeline's design: DESIGN.md's own
+    Call 2 prompt allows and expects a roster entry to BE a class name (its
+    worked example uses "Ajax class"). Confirmed live 2026-09-19: running the
+    real deployed code against a real 20-class submarine roster, the old
+    checker rejected every single entry ("choose one named machine, not a
+    class") purely for containing the word "class" - which would block every
+    "Every X Class Ever Built" video, this channel's flagship title format.
+    Per DESIGN.md: "No separate roster-validation pass by design - a machine
+    that can't find real sources at Stage 3 is the validation."
+    """
+    roster = payload.get("unit_roster") if isinstance(payload.get("unit_roster"), list) else []
+    names: list[str] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for item in roster:
+        if isinstance(item, dict):
+            name = str(item.get("machine") or item.get("name") or item.get("title") or "").strip()
+        else:
+            name = str(item or "").strip()
+        if not name:
+            warnings.append("blank roster entry")
+            continue
+        key = re.sub(r"\s+", " ", name).casefold()
+        if key in seen:
+            warnings.append(f"duplicate roster entry: {name}")
+        seen.add(key)
+        names.append(name)
+    if target_count is not None and len(names) != target_count:
+        warnings.append(f"selected roster has {len(names)} entries; runtime target is exactly {target_count}")
+    return {
+        "passed": not warnings,
+        "warnings": warnings,
+        "hard_warnings": list(warnings),
+        "soft_warnings": [],
+        "needs_review": False,
+        "complete_title": True,
+        "roster_count": len(names),
+        "target_count": target_count,
+        "roster": names,
+    }
 
 
 async def run_thesis_roster_and_context(

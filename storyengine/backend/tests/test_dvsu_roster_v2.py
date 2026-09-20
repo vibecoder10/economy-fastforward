@@ -278,3 +278,59 @@ def test_factual_100_v1_contract_saves_needs_review_on_structural_failure(gate_s
     saved = video["research_payload"]
     assert saved["roster_selection"]["status"] == "needs_review"
     assert saved["unit_roster_validation"]["passed"] is False
+
+
+def test_class_titled_video_roster_of_class_names_passes_structural_check(monkeypatch):
+    """Regression test for the live-verification finding, 2026-09-19: a
+    factual_100_v1 video titled "Every X Class Ever Built" (this channel's
+    flagship format) with a roster of class-name entries (e.g. "Ajax class" -
+    exactly DESIGN.md's own worked example) must NOT be rejected by the
+    legacy roster_selection.selection_validation / representative_warnings
+    checker, which enforces the OLD "exactly one named machine per class"
+    policy and flags every entry containing the word "class" as invalid.
+    Confirmed live against the real deployed code before this fix: a real
+    20-entry submarine-class roster failed with 40 warnings ("choose one
+    named machine, not a class" x20 + "record the selected machine's
+    class_name" x20) despite being a perfectly valid roster.
+    """
+    import pipeline_executor as pe
+
+    video = {
+        "id": "v", "status": "idea_logged", "render_mode": "static_docu",
+        "video_length_minutes": 20,
+        "video_title": "Every US Submarine Class Ever Built (2026)",
+        "research_payload": {"machine_script_contract": "factual_100_v1"},
+    }
+    ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    ex.tenant_id = "t"
+    ex._get_video = AsyncMock(side_effect=lambda _: copy.deepcopy(video))
+    ex._pipeline = SimpleNamespace(anthropic=object(), should_cancel=AsyncMock(return_value=False))
+    ex._log_activity = AsyncMock()
+
+    async def save(query, *args):
+        video["research_payload"] = json.loads(args[0])
+        return "UPDATE 1"
+    monkeypatch.setattr(pe, "execute", save)
+    monkeypatch.setattr(pe, "fetch_one", AsyncMock(return_value={"has_saved_work": False}))
+
+    class_roster = [{"machine": f"{name} class", "act_number": 1} for name in (
+        "Holland", "Adder", "F", "S", "Barracuda", "Porpoise", "Gato", "Balao", "Tench",
+        "Guppy", "Tang", "Barbel", "Skate", "Skipjack", "George Washington", "Lafayette",
+        "Ohio", "Permit", "Sturgeon", "Los Angeles",
+    )]
+    assert len(class_roster) == 20
+    draft = {
+        "thesis": "T", "acts": [{"act_number": 1, "argument": "A"}],
+        "unit_roster": class_roster,
+        "recommended_final_roster": [row["machine"] for row in class_roster],
+        "shared_context": [],
+    }
+    monkeypatch.setattr(v2, "run_thesis_roster_and_context", AsyncMock(return_value=draft))
+
+    result = asyncio.run(ex.run_roster_selection("v"))
+    assert result["status"] == "roster_ready", result
+    assert result["selected_count"] == 20
+    saved = video["research_payload"]
+    assert saved["roster_selection"]["status"] == "completed"
+    assert saved["unit_roster_validation"]["passed"] is True
+    assert saved["unit_roster_validation"]["warnings"] == []
