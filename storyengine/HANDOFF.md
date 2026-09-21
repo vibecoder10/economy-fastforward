@@ -1,61 +1,56 @@
-# HANDOFF - 2026-09-21 DVSU roster gate fixed; Drive folder fix is next
+# HANDOFF - 2026-09-21 DVSU roster gate + Drive folder fix built, pushed, verified; awaiting deploy
 
 ## State
-- `main` == `origin/main`, linear, clean (one commit this session: roster-gate fix + docs). Stale
-  `.worktrees/dvsu-pipeline-v2` worktree and its merged branch were removed.
-- **Prod is NOT redeployed yet** - the roster-gate fix is pushed but undeployed. Deploy needs Ryan's yes
-  (`scripts/se.sh deploy <name>`; lock file was absent at last check).
-- Tests: full suite baseline vs patched = identical failing sets (113 failed + 4 collection errors,
-  all pre-existing), patched has +1 passing (the new regression test). Run with the backend venv.
+- `main` == `origin/main` (`559eebee` + this handoff commit), linear. VPS checkout
+  `~/projects/economy-fastforward` is fast-forwarded to the same commit. **Prod backend is still running
+  the OLD code and env** (no restart yet) - both fixes below go live on the next deploy.
+- VPS `storyengine/.env` now has `DVSU_RESEARCH_DRIVE_FOLDER_ID=1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU`
+  (only read at process start).
+- Full suite (backend venv): no new failures vs a clean baseline; +4 passing tests total this session.
 
-## Done this session
-- Root cause of `production_guide` showing "roster: not_started" for test video
-  `6ac28204-681c-4839-9d11-6c3ba57b7b6e`: NOT `videos.status` (it's `approved`; the guide never reads it
-  for static docs). `_live_roster_gate` (backend/pipeline_executor.py) demanded
-  `independent_selection_audit.passed` for every runtime selection, but the DVSU v2 roster path skips
-  that audit by design. Fix: exempt `factual_100_v1` (`is_factual_machine_contract`) from the audit
-  check. The same gate also blocked run_unit_research and roster-image gathering for v2 videos, so this
-  unblocks Call 3. Test: `test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit`.
-- Diagnosed the Drive mixup (not fixed): `GoogleClient.get_or_create_folder` IS parent-scoped. Root =
-  env `GOOGLE_DRIVE_FOLDER_ID` = folder "Storyengine" (`1NBFKU8h56qlJS8sUbcAFNMp8_STf19Qy`, My Drive,
-  in VPS `storyengine/.env`). "StoryEngine Research" is found/created inside it -> `1H7uG1YDAmZFMcZm_-8ykbXIIN3INycRs`
-  (pipeline-created 2026-09-19). Ryan wants `1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU` (Shared Drive root
-  `0AGEVWQ9GwbVCUk9PVA`, created 2026-09-18). `skills/video-pipeline/shared/clients/google_client.py`
-  has NO `supportsAllDrives`/`includeItemsFromAllDrives` anywhere, so it cannot see or write into a
-  Shared Drive at all.
+## Shipped to main this session
+1. `2f1a3e45` - `_live_roster_gate` no longer requires `independent_selection_audit` for DVSU v2
+   (`factual_100_v1`) rosters (v2 skips that audit by design). Cause of production_guide "roster:
+   not_started" for `6ac28204-681c-4839-9d11-6c3ba57b7b6e`; it also blocked run_unit_research and
+   roster-image gathering. Verified on the VPS against the video's REAL saved payload: gate now
+   returns passed=true, 20 machines, no warnings.
+2. `559eebee` - Drive export targets a Shared Drive folder by ID: `google_client.py` passes
+   supportsAllDrives/includeItemsFromAllDrives on create_folder/search_folder/search_file/upload_file;
+   `dvsu_roster_v2.research_root_folder()` uses `DVSU_RESEARCH_DRIVE_FOLDER_ID` (name lookup when unset),
+   used by both roster and machine-packet exports. Live-verified: real export from the VPS with the
+   backend's credentials landed in folder `1GP07If5NlbeC8smSooXhCJgrL37DUQrq`, whose parent is
+   `1cPXLQN1...` (Ryan's intended Shared Drive folder).
 
-## Next action (start here cold) - Ryan approved the recommended option
-1. `google_client.py`: add `supportsAllDrives=True` (+ `includeItemsFromAllDrives=True` on list) to
-   `create_folder`, `search_folder`, and the upload create/update calls (lines ~196, 242, 404, 468-475).
-   Harmless for My Drive. Leave other call sites alone.
-2. `dvsu_roster_v2.py:349-351` and `dvsu_research_v2.py:554-557`: resolve the root by ID from env
-   `DVSU_RESEARCH_DRIVE_FOLDER_ID` when set (one shared helper), else fall back to the name lookup.
-   Add tests with a fake client.
-3. Set `DVSU_RESEARCH_DRIVE_FOLDER_ID=1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU` in the VPS
-   `~/projects/economy-fastforward/storyengine/.env` (parent .env, not backend/.env).
-4. Live write test from the VPS with the backend's own credentials (scratchpad script + scp, not inline
-   ssh python). Confirm via Drive that the file's parent is `1cPXLQN1...`. Unknown until tested: whether
-   the backend's Google login is a member of that Shared Drive.
-5. Ask Ryan: move the two already-written test files, or leave them in `1H7uG1Yd...`.
-6. Deploy (ask first), then re-check `get_production_guide` for the test video shows roster done.
+## Next action (start here cold)
+1. **Deploy (ask Ryan first - live system):** `scripts/se.sh deploy <session-name>`; lock was absent.
+   Backend-only, no frontend change.
+2. After deploy: `get_production_guide` for `6ac28204-681c-4839-9d11-6c3ba57b7b6e` should show roster
+   done; then confirm `systemctl is-active storyengine-backend.service` via `se health`.
+3. Ask Ryan: the two earlier test files (thesis+roster, shared context) are still in the pipeline's old
+   "StoryEngine Research" folder `1H7uG1YDAmZFMcZm_-8ykbXIIN3INycRs` (under "Storyengine"). A fresh copy is
+   already in the right place, so nothing needs moving; Ryan can trash the old folder or leave it.
+4. Then Phase 1 roster half is done. Next: live-verify Research (Call 3) the same way (mock the LLM call,
+   run the real code, check the DB + Drive). Phase 2 (script) stays untouched until Phase 1 closes.
 
 ## Open threads
-- No Anthropic API key exists for this tenant (bot_activity 401s). Real non-mocked runs keep failing until
-  Ryan fixes that. Test video `6ac28204...` holds a hand-composed submarine roster - keep/regenerate/discard.
-- Research (Call 3) still needs its own live-verification pass. Phase 2 (script) untouched until Phase 1 closes.
-- **SECURITY: the VPS git remote URL embeds a GitHub personal access token in plain text**
-  (`~/projects/economy-fastforward/.git/config`). Recommend rotating it and switching to a credential
-  helper / deploy key. It has also appeared in this session's transcript.
-- VPS repo has a pre-push hook (`.githooks`): pushes of 3+ files are blocked unless `tasks/lessons.md`
-  and `tasks/todo.md` are updated in the commit.
+- No Anthropic API key exists for this tenant (bot_activity 401s); real non-mocked runs fail until fixed.
+- Test video `6ac28204...` holds a hand-composed submarine roster (Claude-written, not web-verified) -
+  keep / regenerate once a key exists / discard.
+- **SECURITY: VPS git remote URL embeds a GitHub personal access token in plain text**
+  (`~/projects/economy-fastforward/.git/config`); it also appeared in session output. Rotate it and switch to
+  a deploy key or credential helper.
+- VPS repo pre-push hook (`.githooks`) blocks pushes of 3+ files unless `tasks/lessons.md` and
+  `tasks/todo.md` are updated in the commit.
+- An untracked `storyengine/jev-key-box.html` appeared locally mid-session (not from this work) - left alone.
 
 ## Gotchas
-- Ryan's rule: keep git clean yourself. Fetch at session start, fast-forward main, commit linearly on
-  main, delete worktrees/branches you create. Never leave him a merge to remember.
+- Ryan's rule: keep git clean yourself - fetch at start, fast-forward main, linear commits on main, remove
+  worktrees/branches you create. Never leave him a merge to remember.
+- Context-ceiling hook now warns at 400k (was 150k): `~/.claude/scripts/context-ceiling-warn.py`.
 - zsh: `echo =====` errors (`=cmd` expansion) - quote it.
 
 ---
 paste this to start the next session:
-Resume StoryEngine. Read HANDOFF.md first. Next action: the DVSU Drive folder fix (Shared Drive by ID,
-per HANDOFF.md "Next action" steps 1-6). The roster-gate fix is already pushed to main; confirm with Ryan
-before deploying.
+Resume StoryEngine. Read HANDOFF.md first. Next action: get Ryan's yes, then deploy main (roster-gate fix +
+Drive Shared-Drive fix) with `scripts/se.sh deploy`, then verify get_production_guide shows roster done for
+video 6ac28204-681c-4839-9d11-6c3ba57b7b6e, then live-verify Research (Call 3).
