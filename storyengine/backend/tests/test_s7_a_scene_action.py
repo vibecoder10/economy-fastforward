@@ -704,7 +704,7 @@ def test_migration_154_scene_action_exists_and_is_idempotent():
     assert "action TEXT DEFAULT" not in sql
 
 
-def test_migration_154_is_next_free_number():
+def test_migration_154_exists_and_numbering_stays_collision_free():
     backend_dir = os.path.join(os.path.dirname(__file__), "..")
     migrations_dir = os.path.join(backend_dir, "migrations")
     numbers = sorted(
@@ -713,4 +713,6 @@ def test_migration_154_is_next_free_number():
         if name[:3].isdigit() and name.endswith(".sql")
     )
     assert 154 in numbers
-    assert max(n for n in numbers if n != 154) == 153, "154 must be the next free number after 153"
+    # Numbers before 153 carry historical duplicates; from 153 on parallel sessions must not collide or skip.
+    recent = [n for n in numbers if n >= 153]
+    assert recent == list(range(153, 153 + len(recent))), f"migrations from 153 must be unique and gapless, got {recent}"

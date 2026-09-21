@@ -240,6 +240,15 @@ def test_drive_export_fail_soft_swallows_google_client_construction_failure():
     assert result is None
 
 
+def test_drive_export_success_returns_ids_and_leaves_a_log_trace(monkeypatch, caplog):
+    exported = {"folder_id": "folder-1", "file_id": "file-1"}
+    monkeypatch.setattr(v2, "_export_machine_packet_to_drive", lambda title, packet: exported)
+    with caplog.at_level("INFO", logger=v2.logger.name):
+        result = asyncio.run(v2.export_machine_packet_to_drive_fail_soft(TITLE, _example_packet()))
+    assert result == exported
+    assert any("exported to Drive" in record.getMessage() and "file-1" in record.getMessage() for record in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # pipeline_executor._run_unit_research_hold single-machine wiring
 # ---------------------------------------------------------------------------

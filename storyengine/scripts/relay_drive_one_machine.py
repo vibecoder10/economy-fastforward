@@ -39,7 +39,16 @@ async def main(tenant_id: str, video_id: str, machine: str) -> int:
 
     print(f"[drive] tenant={tenant_id} video={video_id} machine={machine!r}", flush=True)
     result = await PipelineExecutor(tenant_id).run_one_machine_research(video_id, machine)
-    print("[drive] RESULT " + json.dumps(result, default=str)[:4000], flush=True)
+    card = result.get("research_card") or {}
+    summary = {
+        "status": result.get("status"),
+        "machine": result.get("machine"),
+        "error": result.get("error"),
+        "card_passed": (card.get("research_summary") or {}).get("passed"),
+        "script_brief_passed": (card.get("script_brief_readiness") or {}).get("passed"),
+        "provenance": card.get("provenance_status"),
+    }
+    print("[drive] RESULT " + json.dumps(summary, default=str), flush=True)
     return 0 if result.get("status") in ("completed", "success", "ok") else 1
 
 

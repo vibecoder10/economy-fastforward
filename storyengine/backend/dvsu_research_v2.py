@@ -566,7 +566,12 @@ def _export_machine_packet_to_drive(video_title: str, packet: dict) -> dict:
 async def export_machine_packet_to_drive_fail_soft(video_title: str, packet: dict) -> Optional[dict]:
     """Best-effort Drive export. Never allowed to block or fail research generation."""
     try:
-        return await asyncio.to_thread(_export_machine_packet_to_drive, video_title, packet)
+        exported = await asyncio.to_thread(_export_machine_packet_to_drive, video_title, packet)
+        logger.info(
+            "DVSU machine packet exported to Drive for %r/%r: %s",
+            video_title, packet.get("machine"), exported,
+        )
+        return exported
     except Exception as exc:  # noqa: BLE001 - intentional fail-soft boundary
         logger.warning(
             "DVSU machine packet Drive export failed for %r/%r: %s",
