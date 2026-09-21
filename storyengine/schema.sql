@@ -4391,3 +4391,142 @@ CREATE INDEX IF NOT EXISTS arbiter_findings_video_scene_idx
 ALTER TABLE arbiter_findings ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON arbiter_findings FROM anon, authenticated;
 -- D8_3B_ARBITER_FINDINGS_END
+
+-- YOUTUBE_AUTHORIZATION_INVITES_START
+-- migrations/156_youtube_authorization_invites.sql — one-time invite links that
+-- let a channel owner authorize YouTube delivery for a tenant.
+CREATE TABLE IF NOT EXISTS youtube_authorization_invites (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expected_channel_id TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS youtube_invite_oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    invite_id UUID NOT NULL REFERENCES youtube_authorization_invites(id) ON DELETE CASCADE,
+    browser_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ
+);
+ALTER TABLE youtube_authorization_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE youtube_invite_oauth_states ENABLE ROW LEVEL SECURITY;
+-- YOUTUBE_AUTHORIZATION_INVITES_END
+
+-- PRODUCTION_QUEUE_CONTROLS_START
+-- migrations/159_production_queue_provider_pause.sql — a shared provider
+-- failure parks a tenant's list until an explicit recovery.
+CREATE TABLE IF NOT EXISTS production_queue_controls (
+    tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    paused BOOLEAN NOT NULL DEFAULT FALSE,
+    provider TEXT,
+    reason TEXT,
+    blocking_queue_id UUID REFERENCES production_queue(id) ON DELETE SET NULL,
+    paused_at TIMESTAMPTZ,
+    resumed_at TIMESTAMPTZ,
+    resume_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE production_queue_controls ENABLE ROW LEVEL SECURITY;
+-- PRODUCTION_QUEUE_CONTROLS_END
+
+-- MACHINE_PREVIEW_JOBS_START
+-- migrations/160_machine_preview_jobs.sql
+CREATE TABLE IF NOT EXISTS machine_preview_jobs (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    machine TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'needs_review', 'failed', 'cancelled')),
+    result JSONB,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS machine_preview_jobs_video_created_idx
+    ON machine_preview_jobs (tenant_id, video_id, created_at DESC);
+ALTER TABLE machine_preview_jobs ENABLE ROW LEVEL SECURITY;
+-- MACHINE_PREVIEW_JOBS_END
+
+-- SOURCE_DISCOVERY_OPERATIONS_START
+-- migrations/161_source_discovery_operations.sql — durable provider outcomes
+-- remain separate from immutable historical evidence.
+CREATE TABLE IF NOT EXISTS source_discovery_operations (
+    tenant_id UUID NOT NULL,
+    video_id UUID NOT NULL,
+    operation_id TEXT NOT NULL CHECK (operation_id ~ '^[0-9a-f]{64}$'),
+    machine TEXT NOT NULL,
+    state JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(state)='object'),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id,video_id,operation_id),
+    FOREIGN KEY (tenant_id,video_id) REFERENCES videos(tenant_id,id) ON DELETE CASCADE
+);
+ALTER TABLE source_discovery_operations ENABLE ROW LEVEL SECURITY;
+-- Backend-only table: deliberately no PostgREST authenticated/anon policies.
+-- SOURCE_DISCOVERY_OPERATIONS_END
+
+-- DVSU_SCRIPT_OPERATIONS_START
+-- migrations/162_dvsu_script_operations.sql
+CREATE TABLE IF NOT EXISTS dvsu_script_operations (
+    tenant_id UUID NOT NULL,
+    video_id UUID NOT NULL,
+    operation_id TEXT NOT NULL CHECK (operation_id ~ '^[0-9a-f]{64}$'),
+    machine TEXT NOT NULL,
+    input_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('submitted','received')),
+    request_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    response TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id,video_id,operation_id),
+    FOREIGN KEY (tenant_id,video_id) REFERENCES videos(tenant_id,id) ON DELETE CASCADE,
+    CHECK (status <> 'received' OR response IS NOT NULL)
+);
+ALTER TABLE dvsu_script_operations ENABLE ROW LEVEL SECURITY;
+-- Backend-only receipts; no authenticated/anon PostgREST policies.
+-- DVSU_SCRIPT_OPERATIONS_END
+
+-- AGENT_LLM_REQUESTS_START
+-- migrations/163_agent_llm_requests.sql — Agent LLM relay
+-- (docs/agent-llm-relay-2026-09-21/DESIGN.md). When a workspace is opted in
+-- (tenants.agent_llm_relay), the pipeline's model calls are parked here as
+-- `pending` rows; the connected MCP agent answers them and the waiting stage
+-- resumes. An answered row is also the replay cache: an identical request
+-- (same fingerprint, same tenant + video) is served from `response_text`.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agent_llm_relay BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS agent_llm_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    video_id UUID,
+    -- 'tenant' when the call is not tied to a video; else the video uuid.
+    scope TEXT NOT NULL,
+    fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
+    stage TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','answered')),
+    model TEXT,
+    system_prompt TEXT,
+    prompt TEXT NOT NULL,
+    tools JSONB,
+    max_tokens INTEGER,
+    temperature DOUBLE PRECISION,
+    response_text TEXT,
+    answer_count INTEGER NOT NULL DEFAULT 0,
+    answered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, scope, fingerprint),
+    FOREIGN KEY (tenant_id, video_id) REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+    CHECK (status <> 'answered' OR response_text IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS agent_llm_requests_pending_idx
+    ON agent_llm_requests (tenant_id, created_at) WHERE status = 'pending';
+
+ALTER TABLE agent_llm_requests ENABLE ROW LEVEL SECURITY;
+-- Backend-only; no authenticated/anon PostgREST policies.
+-- AGENT_LLM_REQUESTS_END

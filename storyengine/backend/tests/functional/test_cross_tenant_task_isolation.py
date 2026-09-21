@@ -31,6 +31,7 @@ for stub_mod in ("database", "auth"):
             m.fetch_one = _noop
             m.fetch_all = _noop
             m.execute = _noop
+            m.get_pool = _noop
         if stub_mod == "auth":
             async def _get_tenant_id(*a, **kw):
                 return "stub"
@@ -44,6 +45,7 @@ if "pipeline_executor" not in _sys.modules:
         def __init__(self, *a, **kw): pass
 
     pe.PipelineExecutor = _Stub
+    pe._unit_display_name = lambda item: str(item)
     _sys.modules["pipeline_executor"] = pe
 
 # status_map is a pure module (stdlib only) — import the real one. Stubbing it

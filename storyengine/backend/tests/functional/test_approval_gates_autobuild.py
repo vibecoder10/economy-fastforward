@@ -83,6 +83,7 @@ class _FakeVideoDB:
 
     def __init__(self, **video):
         self.video = {
+            "id": VIDEO,
             "status": "ready_for_scripting",
             "render_mode": None,
             "pipeline_stages": None,
@@ -109,6 +110,8 @@ class _FakeVideoDB:
             }
         if "status, max_spend, total_cost FROM videos" in q:
             return dict(self.video)
+        if "continuous FROM production_queue" in q:
+            return None  # not a queued run — no continuous-autopilot policy check applies
         if "1 AS x FROM scripts" in q:
             return None  # voice already present — irrelevant to target="pictures"
         if "count(*) AS n FROM video_characters" in q:
@@ -116,6 +119,17 @@ class _FakeVideoDB:
         if "count(*) AS n FROM video_environments" in q:
             return {"n": len(self.environments)}
         raise AssertionError(f"unexpected fetch_one: {query!r}")
+
+    async def fetch_all(self, query, *args):
+        if "generation_method='static_docu'" in query and "FROM scripts s LEFT JOIN assets" in query:
+            # actions._static_image_coverage_missing: report every scene as
+            # fully pictured so a static_docu video past the image stage is
+            # not bounced back to redo its pictures.
+            return [
+                {"scene": 1, "image_url": f"http://example/{role}.png", "caption": {"view_role": role}}
+                for role in ("three_quarter", "side_profile")
+            ]
+        raise AssertionError(f"unexpected fetch_all: {query!r}")
 
     async def execute(self, query, *args):
         self.executed.append((query, args))
@@ -254,6 +268,7 @@ def _run_autobuild(db: _FakeVideoDB, *, target: str = "pictures", coverage=None)
         "routes.environments": fake_re,
         "scripts.coverage_to_app": fake_coverage_mod,
     }), patch.object(actions, "fetch_one", db.fetch_one), \
+         patch.object(actions, "fetch_all", db.fetch_all), \
          patch.object(actions, "execute", db.execute), \
          patch("asyncio.sleep", _fast_sleep):
         step = actions.make_autobuild_step(TENANT, VIDEO, target=target)

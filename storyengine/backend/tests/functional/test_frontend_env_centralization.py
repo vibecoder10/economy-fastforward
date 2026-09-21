@@ -95,11 +95,14 @@ def test_no_inline_localhost_fallback_anywhere_else():
 def test_no_direct_next_public_url_reads_outside_env_ts():
     """Stronger guard: no file outside lib/env.ts may read
     process.env.NEXT_PUBLIC_API_URL or _RUBRIC_URL directly. Forces all
-    callers through the centralized, guarded resolver."""
+    callers through the centralized, guarded resolver. Vitest files
+    (*.test.ts[x]) are exempt: they never ship in the bundle, and they
+    ASSIGN the var so env.ts resolves a known URL when the module under
+    test is imported — an assignment is not a read that bypasses the guard."""
     pattern = re.compile(r"process\.env\.NEXT_PUBLIC_(API|RUBRIC)_URL")
     offenders = []
     for p in _all_ts_files():
-        if p == _env_ts():
+        if p == _env_ts() or re.search(r"\.(test|spec)\.tsx?$", p.name):
             continue
         text = p.read_text()
         for m in pattern.finditer(text):

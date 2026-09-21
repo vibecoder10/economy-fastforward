@@ -22,11 +22,23 @@ def test_real_sentence_endings_are_retained(paragraph, expected):
 @pytest.mark.parametrize('mapped', [
     ['The B-2 served the U.S. Air Force.'],
     ['The B-2 served the U.S. Air Force.', 'The B-2 served the U.S. Air Force.', 'It later retired.'],
-    ['The B-2 served the U.S. Air Force. It later retired.'],
 ])
-def test_missing_duplicate_or_combined_sentence_mapping_still_fails(mapped):
+def test_missing_or_duplicate_sentence_mapping_still_fails(mapped):
     _, warnings, _ = _validate_draft('B-2', {
         'paragraph': 'The B-2 served the U.S. Air Force. It later retired.',
         'claim_map': [{'sentence': s, 'citations': []} for s in mapped],
     }, {})
     assert 'claim_map must cover every paragraph sentence exactly once.' in warnings
+
+
+def test_exact_ordered_row_partition_is_the_sentence_boundary_but_still_needs_citations():
+    # 73071d54: rows that concatenate to exactly the paragraph define the sentence
+    # boundaries (stronger than abbreviation heuristics), so a single row spanning
+    # the paragraph is no longer a coverage failure. It still has to carry evidence.
+    paragraph = 'The B-2 served the U.S. Air Force. It later retired.'
+    _, warnings, _ = _validate_draft('B-2', {
+        'paragraph': paragraph,
+        'claim_map': [{'sentence': paragraph, 'citations': []}],
+    }, {})
+    assert 'claim_map must cover every paragraph sentence exactly once.' not in warnings
+    assert 'claim_map row 1 needs at least one citation.' in warnings

@@ -299,6 +299,10 @@ def _replay_failed_assessment(machine: str, package: Any, subject_context: str =
     if saved.get("previous_assessment"):
         replayed["previous_assessment"] = saved["previous_assessment"]
     if saved.get("narrative_contract_version") == NARRATIVE_CONTRACT_VERSION:
+        if not _has_explicit_narrative_roles(replayed):
+            # The failure was "omitted explicit narrative roles": replaying the same
+            # role-less claims must not launder them into a current narrative receipt.
+            return None
         _narrative_receipt(replayed, _object(saved.get("previous_assessment")))
     return _valid_receipt(machine, package, replayed, subject_context)
 
