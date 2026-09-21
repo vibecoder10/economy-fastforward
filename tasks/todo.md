@@ -4,6 +4,13 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## Handoff — 2026-09-21 (night) — Clean slate; MCP tools for by-hand machine research
+
+Full state, how-to and open items: `storyengine/HANDOFF.md` (read it first). Short version: prod `da3db6b0b`, backend suite
+5680 pass / 0 fail, Research tab shows machine cards, and the MCP now has `research_machine` (free, relay) and
+`gather_roster_images` (paid, quoted, $2.00 for 20). Ryan runs the other 19 machines by hand. Open decision: how Gather
+images pays for its photo judge (Kie credits vs routing it through the relay). Security: rotate the GitHub PAT in the VPS remote.
+
 ## Handoff — 2026-09-21 (evening) — Deployed 93a47eb3; NEXT: build the agent LLM relay
 
 DONE: deployed `93a47eb3` (roster-gate fix + Shared Drive fix); verified via MCP `get_production_guide`

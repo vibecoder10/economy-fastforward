@@ -1,81 +1,69 @@
-# HANDOFF - 2026-09-21 Agent LLM relay PROVEN end to end on one machine (USS Holland, Call 3)
+# HANDOFF - 2026-09-21 Clean slate: suite green, machine research visible, MCP tools for the by-hand run
 
-## State
-- Prod: `9930c3da5` deployed, healthy, idle. Migration 163 applied. Nothing deployed this session.
-- Branch: `main`. Not mine, left alone: `tasks/decisions.md` (uncommitted edit from another session) and untracked
-  `storyengine/jev-key-box.html`.
-- Relay is ON for one tenant only: `561b872d-7b73-45e3-9c44-7f30c3566eda` (Designed Vs Used; owns video
-  `6ac28204-681c-4839-9d11-6c3ba57b7b6e`). Stored-but-dead Anthropic key, so the flag (not key presence) decides.
-- **PROVEN live (this session):** all 6 Call 3 requests for "USS Holland (SS-1)" answered through
-  `list_pending_llm_requests` / `answer_llm_request` with real web-searched, sourced content (Naval Submarine League
-  archive, Naval Undersea Museum, NavSource). The parked driver resumed by itself, ~2s after each answer, and returned
-  `status: completed`.
-  - Pipeline's own gates: `unit_research_hold_validation` Holland `passed: true, warnings: []`;
-    card `research_summary.passed: true`, `script_brief_readiness.passed: true`, provenance `captured`.
-    (Cards live in `videos.research_payload->'unit_research_cards'`; there is no `unit_research_cards` table.)
-  - Drive export landed: folder `1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU` ->
-    `“Every US Submarine Class Ever Built (2026)”/machines/uss-holland-ss-1.md` (5548 bytes; all six slots with source +
-    quote). Verify with `rclone lsl --drive-root-folder-id <id> "gdrive:<folder>"` (note the curly quotes in the name).
-    The older sibling folder "Every US Submarine Class Ever Built test" is pre-existing, untouched.
-  - No-spend replay: re-running the driver finished in 3s, 0 "waiting for the agent" lines, `agent_llm_requests` stayed at
-    6 answered rows (same newest timestamp), and Drive was not re-exported.
-- Cards for the other 19 machines are still "Factual research summary pending" - expected, nothing done there.
-- **UI fix, verified LOCALLY, NOT deployed:** the video's Research tab said "Research Not Started" (gate was
-  `!research.headline`; roster-first videos have no headline) and the stage rail said "detailed research has not started".
-  Fixed in `ResearchTab.tsx` (roster mode counts as started; headline falls back to thesis) and `StaticDocuStageRail.tsx`
-  (any passed card = in progress). Walked in the in-app browser as DVSU workspace: tab shows 1/20 VERIFIED, Holland
-  expands to the saved summary + sources + per-claim assessment; rail says "1/20 ... ready". tsc clean, 14 vitest pass.
-  Needs `se deploy <session> --with-frontend` (Ryan's yes, check `~/deploy.lock`) before it shows on prod.
-- `se devtoken` wrote to a dead path (`~/economy-fastforward/...`); fixed to this repo's `frontend/.env.local`.
-  To view the DVSU video locally: devtoken -> dev server -> nav workspace switcher -> "Designed vs Used".
-- Cosmetic, not fixed: the video title itself contains curly quotes, so the UI shows doubled quotes and the Drive folder
-  is named `“Every US Submarine Class Ever Built (2026)”`.
+## Where things stand
+- Prod: `da3db6b0b` deployed and healthy. `main` == `origin/main`. Backend suite **5680 passed, 0 failed** (was 88 red).
+  Frontend: tsc clean, 58 vitest pass, production build passes. Not mine, left alone: `tasks/decisions.md` (uncommitted
+  edit from another session) and untracked `storyengine/jev-key-box.html`.
+- Pipeline being rebuilt step by step (legacy steps deleted on purpose): **Roster -> Gather images -> Research -> Script ->
+  Voice -> Pictures -> Video**, driven through the StoryEngine MCP. **No Anthropic key exists on purpose**; the agent LLM
+  relay answers model calls instead. Test video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, tenant
+  `561b872d-7b73-45e3-9c44-7f30c3566eda` ("Designed vs Used", relay ON).
+- State of that video: Roster 20/20 done. Gather images 0/20. Research **1/20** (USS Holland verified; Drive export
+  `Every US Submarine Class Ever Built (2026)/machines/uss-holland-ss-1.md` under folder `1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU`).
+  The other 19 machines are for Ryan to run by hand to test the whole research phase.
 
-## Next action (start here cold)
-1. **Fix the MCP connection first (Ryan's call, credential):** the `storyengine` MCP fails in this project with 401
-   "Not a valid agent token". Cause: project `.mcp.json` sends `Authorization: Bearer ${STORYENGINE_MCP_TOKEN}` and that
-   env var is not set anywhere (not in the app's environment, not in any shell rc, not in settings.json). The project
-   entry shadows the WORKING user-level entry in `~/.claude.json`. Either set `STORYENGINE_MCP_TOKEN` (same `se_agent_...`
-   token as `~/.claude.json`, e.g. via the `env` block in `~/.claude/settings.json`) and restart the app, or drop the
-   project-level entry. Until then the MCP tools are absent in-session.
-2. **Stand-in that works now:** call the same tools as plain JSON-RPC over HTTP. `POST https://storyengine.dev/api/mcp`,
-   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_pending_llm_requests","arguments":{...}}}`,
-   `Authorization` taken from the user-level `storyengine` entry in `~/.claude.json` (never print it). The endpoint is
-   stateless (no initialize/session needed). A 40-line helper is trivial to rewrite.
-3. **Decide how many more machines** (20 total, 6 requests each = 120). Each machine: run the driver, answer 6 slots with
-   real searches. Driver command (VPS, re-attach-safe; answers already given replay free):
-   `scp storyengine/scripts/relay_drive_one_machine.py storyengine-vps:/tmp/` then
-   `se run 'export SE_ROOT=$HOME/projects/economy-fastforward/storyengine; nohup $SE_ROOT/backend/venv/bin/python3 /tmp/relay_drive_one_machine.py 561b872d-7b73-45e3-9c44-7f30c3566eda 6ac28204-681c-4839-9d11-6c3ba57b7b6e "<machine>" > /tmp/relay_drive.log 2>&1 < /dev/null &'`
-   The driver's wait is 30 min; requests appear one at a time (next ~2s after each answer).
-4. Phase 2 (script, Call 4) stays untouched.
+## How to run one machine by hand (new, live)
+1. `get_production_guide {video_id}` - `next_step.tool` now names the tool for the step.
+2. `research_machine {video_id, machine}` - free, relay-only, returns at once; the run waits in the background.
+   Name is matched to the locked roster (case-insensitive); a wrong name returns the valid list. One machine at a time.
+3. `list_pending_llm_requests {video_id}` -> do that prompt's own web searches (primary/institutional sources; only quote
+   text you actually saw) -> `answer_llm_request` with ONLY the JSON asked. Six requests per machine (problem, design,
+   trade_off, outcome_candidates, surprising_fact, contrast); each next one appears ~2s after an answer.
+4. Done when the guide's research stage advances and the Research tab shows the card VERIFIED (UI shows it now).
+   Re-running a machine replays cached answers for free (proved live on Holland: no new requests).
+- **Gather images is different:** `gather_roster_images {video_id}` is PAID and quote-gated (no `confirm_token` = quote
+  only; live quote for 20 machines = **$2.00**, estimate $0.10/machine). Its photo judge calls the Anthropic Messages API
+  directly with the workspace key, else the Kie.ai Claude endpoint - it does NOT go through the relay. With no Anthropic key
+  it would fall back to Kie credits (a `kie_ai_api_key` is stored). **Decision for Ryan:** pay Kie for the photo check, or
+  make the photo judge go through the relay (needs multimodal relay: the agent would view the candidate photos).
+  `research_machine` does NOT need images gathered.
 
-## Answer-quality notes (from doing it)
-- The stage's prompt demands every fact trace to a search result: many primary sites 403/404 to WebFetch (Smithsonian,
-  usni.org, ussnautilus.org, history.navy.mil paths). What worked: Naval Submarine League archive
-  (`archive.navalsubleague.org`), Naval Undersea Museum, NavSource. Only put in `quote` text you actually saw verbatim.
-- Sources disagree on details (Holland's purchase price $150k vs $165k; end of service 1905 vs 1910). Surface the
-  discrepancy inside the candidate `fact` rather than picking silently.
+## What this session changed
+- MCP: +2 tools (`gather_roster_images`, `research_machine`), 100 -> 102; guide names the tool; shared route guards/jobs in
+  `routes/pipeline.py`; 15 new tests (`tests/functional/test_roster_stage_mcp_tools.py`), mutation-checked.
+- UI: Research tab no longer says "Research Not Started" for roster-first videos (no headline); stage rail counts a passed card.
+- Test suite: 88 red -> 0 by three parallel triage workers, every diff reviewed. Legacy tests for deleted steps were rewritten
+  or deleted, not resurrected. **Two real bugs fixed:** `_machine_documentary_hold_roster_entries` wrongly returned nothing for
+  rosters outside 3-40 machines (Gather images would sit empty), and `research_claim_assessment._replay_failed_assessment`
+  could rebuild a passing receipt from a role-less failed narrative response. `schema.sql` backfilled with 7 missing tables.
+- Config/data: deleted project `.mcp.json` (its unset `${STORYENGINE_MCP_TOKEN}` shadowed the working user-level entry ->
+  401 "Not a valid agent token"; restart the app to get the MCP tools back in-session). Video title cleaned: was
+  `“Every US Submarine Class Ever Built (2026)”` (literal curly quotes), now without; the Drive folder was renamed to match.
+  `se devtoken` now writes to this repo's `frontend/.env.local`.
+- Stand-in when the in-session MCP is down: the endpoint is stateless JSON-RPC, POST `https://storyengine.dev/api/mcp`
+  `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"...","arguments":{...}}}` with the `Authorization` header
+  from the user-level `storyengine` entry in `~/.claude.json` (never print it).
 
-## Open threads
-- One-machine research has no MCP tool: MCP `research` = `run_research` = roster discovery (Calls 1-2, would REGENERATE
-  the roster); `/api/pipeline/machine-research-one` is a synchronous HTTP route. A real MCP tool/background route would
-  remove the driver script - worth building now that Call 3 is proven.
-- The driver truncates its `[drive] RESULT` log line at 4000 chars (not valid JSON afterward); read the card from
-  `videos.research_payload` instead. `se db` output also caps ~32KB - query fields piecemeal (`jsonb_each`).
-- Drive export is fail-soft and its result is discarded, so a failed export leaves no trace except a log warning. Consider
-  recording the export result on the card.
-- Roster images for the test video are 0/20; bulk `run_unit_research` refuses until gathered (one-machine doesn't need it).
-- Call 4 (script) uses `DurableScriptClient`, which won't resubmit an uncertain request - a relay wait that times out
-  or is killed by a deploy there needs a reconcile. Phase 2.
-- Test roster is hand-composed (Claude-written, not web-verified) - keep / regenerate / discard.
-- SECURITY (still open): the VPS git remote URL embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`); rotate it.
-- Stale test, pre-existing: `test_s7_a_scene_action.py::test_migration_154_is_next_free_number`.
+## Open items (nothing else is hidden)
+- **SECURITY (Ryan only):** the VPS git remote URL embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`); rotate it.
+- Decide: the 20-machine test roster was hand-composed (Claude-written, not web-verified) - keep / regenerate / discard.
+- The red "Run All stopped at Gather images ... Authentication failed" banner is a Sept 19 failure from before the relay; it
+  is accurate history, not a live bug, and clears when a new task runs.
+- Possible small product gap: the rebuilt photo selector dropped the old launch/commission-year search hints (same-name ships).
+  Dead code left in place: `static_docu._recover_cached_roster_reference`; `run_research` has an unreachable prefetch dispatch
+  for static_docu. `schema.sql` still lacks the columns migrations 157/158 added to `production_queue` (no test checks it).
+- One-machine research leaves `research_payload.research_phase` at `roster_complete`; the UI and rail handle it, but a real
+  "researching" phase would be cleaner.
+- Call 4 (script) uses `DurableScriptClient`, which will not resubmit an uncertain request - a relay wait killed by a deploy
+  there needs a reconcile. Phase 2, untouched.
+- A deploy restarts the API and kills an in-flight `research_machine` wait; just call the tool again - answered requests replay.
 
 ## Gotchas learned
-- A user-level MCP server's tool list is frozen at session start; `reconnect_session_connector` only re-dials failed
-  claude.ai connectors. A project `.mcp.json` entry with an unset `${VAR}` shadows a working user-level entry of the same name.
-- `se devtoken` binds to Ryan's default tenant (`ee93e6d1...`), not the DVSU tenant.
-- `se run 'cmd &'` hangs the ssh call unless stdin is `< /dev/null`; env prefixes on the same line aren't visible to `$var` there.
-- zsh doesn't word-split unquoted `$var` (use `xargs`) and `grep --include=*.py` needs quotes; `se logs` takes `backend|frontend|worker`.
-- `rclone cat`/`lsl` take ONE `remote:path` arg (join the folder path onto `gdrive:`); `lsl` has no `-R` and is already recursive.
-- Mutation-check new tests: a "replay is instant" test once passed with replay deleted; fixed with a 30s poll + 1s `wait_for`.
+- A project `.mcp.json` entry with an unset `${VAR}` shadows a same-named user-level entry; "Not a valid agent token" is the
+  `se_agent_` prefix check, not a revoked token.
+- A user-level MCP tool list is frozen at session start; new tools need a fresh session (or the HTTP stand-in above).
+- `se db` output caps ~32KB - query fields piecemeal (`jsonb_each`); cards live in `videos.research_payload`, not a table.
+- `rclone cat`/`lsl` take ONE `remote:path` arg; `lsl` has no `-R`. Folder names with curly quotes need exact characters.
+- zsh does not word-split `$var` (use `xargs`); `se run 'cmd &'` needs `< /dev/null`; `git worktree` test runs need the
+  gitignored `remotion-video/public` folder or 28 `test_custom_film_remotion` tests fail (environment, not code).
+- Mutation-check new tests: stash the source change and confirm the test fails without it.

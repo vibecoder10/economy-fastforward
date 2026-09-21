@@ -7,6 +7,8 @@
 - **The MCP endpoint is stateless JSON-RPC** (`initialize`/`tools/list`/`tools/call`, no session id), so any MCP tool can be driven with a plain POST when the in-session connection is broken. Never print the token.
 - **A relay/parked-stage design needs its own visibility path.** The research card was saved and passed its gates, yet the UI said "Research Not Started" because the tab gated on `headline`, which roster-first videos do not have. When a new pipeline path writes results, walk the page that should display them in the browser before calling it done.
 - **A time-bomb test asserts "N is the newest".** `test_migration_154_is_next_free_number` broke the moment migration 155 landed. Guard the invariant (unique, gapless numbering), not the current maximum.
+- **Check WHICH client a step uses before assuming the agent LLM relay covers it.** The relay swaps the Anthropic text client; the Gather images photo judge calls the Messages API directly (base64 images) with the workspace key, then falls back to Kie.ai. "Relay on" did not make that step free. Trace the actual call before promising a step costs nothing, and quote-gate it.
+- **MCP tool handlers get a background-task runner but no `Request`, so route logic that uses arq (`_enqueue_or_fallback`) cannot be called as-is.** Split the route into guards + job factory and give the MCP door an in-process runner over the same pieces, rather than copying the route.
 - `se devtoken` used to write to a hardcoded `~/economy-fastforward` path (the July worktree lesson above); it now resolves the checkout from the script's own location, so worktrees work too.
 
 ## Session 2026-07-26 — Lead with the TLDR, in plain English
