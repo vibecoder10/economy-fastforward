@@ -59,7 +59,10 @@ def test_guide_does_not_confuse_roster_with_detailed_research():
     assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='not_started'
     payload['research_phase']='unit_research'
     assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='in_progress'
+    # A bare passed flag is not enough: the whole locked roster needs a per-machine passing verdict.
     payload['unit_research_hold_validation']={'passed':True}
+    assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='in_progress'
+    payload['unit_research_hold_validation']={'passed':True,'units':[{'machine':'Holland','passed':True}]}
     assert guide._stage_snapshot('research',video={'research_payload':payload},summary={},active_task_types=set(),cast_rows=[],env_rows=[],missing_board_scenes=[],bible_characters=[],bible_locations=[],bible_present=False)[0]=='done'
 
 
@@ -87,4 +90,7 @@ def test_roster_ready_worker_message_does_not_claim_detailed_research(monkeypatc
     monkeypatch.setattr(task_store,'db_persist_task',persist)
     asyncio.run(worker._run_stage({'job_try':1},'research','run_research','v','t',1))
     assert persist.call_args.args[3]=='completed'
-    assert 'detailed research is next' in persist.call_args.kwargs['message']
+    # Roster selection now hands off to image gathering; detailed research comes after that.
+    message=persist.call_args.kwargs['message']
+    assert 'gather images is next' in message
+    assert 'detailed research' not in message

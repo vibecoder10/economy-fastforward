@@ -50,7 +50,11 @@ def test_one_machine_api_wrappers_use_isolated_endpoints():
 
     assert "`/api/pipeline/machine-script-preview-readiness/${videoId}`" in readiness_wrapper
     assert "`/api/pipeline/machine-research-one/${videoId}`" in research_wrapper
-    assert "`/api/pipeline/machine-script-preview/${videoId}`" in preview_wrapper
+    # The preview is a durable, idempotent job (POST to start, GET to poll),
+    # still isolated to the one machine and still gated on a paid-run confirmation.
+    assert "`/api/pipeline/machine-script-preview-jobs/${videoId}`" in preview_wrapper
+    assert "`/api/pipeline/machine-script-preview-jobs/${videoId}/${requestId}`" in preview_wrapper
+    assert "confirmed_paid_run: confirmedPaidRun" in preview_wrapper
     assert "body: JSON.stringify({ machine })" in readiness_wrapper
     assert "confirmedPaidRun: true" in research_wrapper
     assert "confirmed_paid_run: confirmedPaidRun" in research_wrapper
@@ -308,7 +312,9 @@ def test_research_tab_one_machine_buttons_call_only_isolated_routes():
     assert preview_handler.index("checkMachineScriptPreviewReadiness(video.id, machine)") < preview_handler.index("runMachineScriptPreview(video.id, machine, true)")
     assert preview_handler.index("confirmPaidOneMachineAction(") < preview_handler.index("runMachineScriptPreview(video.id, machine, true)")
     assert "Single-machine script preview canceled before any provider call." in preview_handler
-    assert "if (!readiness.ready)" in preview_handler
+    # A machine whose research is merely missing is "preparable": the paid run
+    # prepares it. Only a machine that is neither ready nor preparable is blocked.
+    assert "if (!readiness.ready && !readiness.preparable)" in preview_handler
     assert '"readiness_preflight"' in preview_handler
     assert '"Readiness preflight"' in preview_handler
     assert "setLocalMachinePreview(result.preview)" in preview_handler

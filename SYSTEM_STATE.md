@@ -1,5 +1,13 @@
 # System State — Economy FastForward
 
+## Backend test-gate cleanup, group B: machine research / reference cache / roster shape (2026-09-21)
+
+- Tests only; no production change (the `_machine_documentary_hold_roster_entries` size-bound fix landed with group A).
+- New test helper `storyengine/backend/tests/functional/reference_fixtures.py` (`ready_cache_row`: a cache row with a
+  valid selection receipt). Removed `tests/functional/test_carrier_reference_recovery.py` (the legacy carrier
+  alternate-search inside `_prefetch_one_machine` was replaced by `reference_selection.select_reference` in d0ebcc97).
+  Other group-B tests were rewritten to the current DVSU v2 / reference-selection behavior.
+
 ## Agent LLM relay - DESIGN ONLY (2026-09-21)
 
 - New doc `storyengine/docs/agent-llm-relay-2026-09-21/DESIGN.md`: plan for `AgentRelayClient` (model

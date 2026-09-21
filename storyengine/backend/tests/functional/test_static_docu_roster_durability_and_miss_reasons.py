@@ -21,7 +21,9 @@ WHY into static_reference_misses (scoped per tenant+video+machine, since
 the same machine can miss for one video and succeed for another), cleared
 the instant that machine verifies (prefetch, re-check, or manual seed).
 pipeline_executor.roster_repair_dashboard surfaces reason_code/
-reason_detail/retryable for the frontend.
+reason_detail/retryable for the frontend. (Since d0ebcc97 the per-machine
+lookup is reference_selection.select_reference and its receipt supplies the
+reason code; the tests below fake that seam.)
 
 Run:
     cd storyengine/backend && ./venv/bin/python -m pytest \
@@ -45,131 +47,146 @@ if str(_PIPELINE_ROOT) not in sys.path:
 
 import static_docu  # noqa: E402
 import pipeline_executor  # noqa: E402
+from reference_fixtures import ready_cache_row  # noqa: E402
+
 
 @pytest.fixture(autouse=True)
-def _empty_historical_reference_cache(monkeypatch):
-    # These cases exercise web discovery; cross-key cache recovery has its
-    # own strict-identity and fallback suite.
-    async def empty(*args, **kwargs):
-        return []
-    monkeypatch.setattr(static_docu, "fetch_all", empty)
+def _no_selection_schema_db(monkeypatch):
+    # Since d0ebcc97 the per-machine lookup is reference_selection.select_reference
+    # (source evidence + comparative view review). Its schema bootstrap would
+    # otherwise reach for a real database.
+    import reference_selection
 
+    async def ensure():
+        return None
+    monkeypatch.setattr(reference_selection, "ensure_selection_schema", ensure)
+
+
+def _fake_selector(monkeypatch, receipt=None, *, by_machine=None, calls=None):
+    """Replace the selector seam; `receipt` for every machine, or `by_machine`
+    (a callable machine -> receipt, may raise) for per-machine outcomes."""
+    import reference_selection
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        if calls is not None:
+            calls.append(machine)
+        return by_machine(machine) if by_machine else receipt
+    monkeypatch.setattr(reference_selection, "select_reference", select)
+
+
+def _selected():
+    return {"status": "selected", "selected": {"hosted_url": "https://storage.example/hosted.jpg",
+                                               "image_url": "https://source.example/hosted.jpg"}}
+
+
+def _missed(code, reason, status="needs_review"):
+    return {"status": status, "reason_code": code, "reason": reason}
 
 
 # ---------------------------------------------------------------------------
 # C8: miss-reason classification + clearing
+#
+# The reason vocabulary now comes from the selector's own receipt
+# (reference_selection.select_reference: no_candidates, host_failed,
+# identity_mismatch, ...); _prefetch_one_machine persists it verbatim.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_no_candidates_records_that_exact_reason(monkeypatch):
-    """SEARCH FOUND NOTHING: _gather_reference_candidates returns an empty
-    list -> reason_code must be no_candidates, and no hosting/vision call
-    should even be attempted."""
+    """SEARCH FOUND NOTHING: the selector reports no_candidates -> that exact
+    code and the selector's own explanation are what get persisted."""
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     machine = "Lend-Lease escort carriers Attacker class (US-built)"
     miss_writes = []
 
-    async def fake_gather(machine_arg, aliases, query):
-        return []
-
     async def fake_execute(query, *args):
         if "INSERT INTO static_reference_misses" in query:
             miss_writes.append(args)
         return None
 
-    host_calls = []
-
-    async def fake_host(*a, **k):
-        host_calls.append(a)
-        return "https://storage.example/x.jpg"
-
-    monkeypatch.setattr(static_docu, "_gather_reference_candidates", fake_gather)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
+    _fake_selector(monkeypatch, _missed(
+        "no_candidates", "No source-backed candidate photographs were found."))
 
     result = await static_docu._prefetch_one_machine(tenant_id, video_id, machine, 0)
 
     assert result is False
-    assert not host_calls, "no candidates means hosting must never be attempted"
     assert len(miss_writes) == 1
     tenant_arg, video_arg, mkey_arg, machine_arg, reason_arg, detail_arg = miss_writes[0]
     assert tenant_arg == tenant_id
     assert video_arg == video_id
-    assert reason_arg == static_docu.REASON_NO_CANDIDATES
-    assert "search returned nothing" in detail_arg.lower()
+    assert mkey_arg == static_docu._machine_key(machine)
+    assert reason_arg == static_docu.REASON_NO_CANDIDATES == "no_candidates"
+    assert detail_arg == "No source-backed candidate photographs were found."
 
 
 @pytest.mark.asyncio
-async def test_fetch_failed_when_candidates_exist_but_none_host(monkeypatch):
-    """A candidate URL was found but _host_reference fails for every one of
-    them (dead link, blocked host) -> reason_code must be fetch_failed, NOT
-    vision_rejected, since vision was never even reached."""
+async def test_host_failed_when_selected_photo_cannot_be_saved(monkeypatch):
+    """A photo won the comparison but could not be hosted -> host_failed, NOT
+    an identity verdict (the selector never rejected it)."""
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     machine = "HMS Pretoria Castle (F61) Pretoria Castle class"
     miss_writes = []
-    vision_calls = []
-
-    async def fake_gather(machine_arg, aliases, query):
-        return [("https://example.com/a.jpg", True), ("https://example.com/b.jpg", False)]
-
-    async def fake_host(*a, **k):
-        return None  # every candidate fails to host
-
-    async def fake_vision(*a, **k):
-        vision_calls.append(a)
-        return True
 
     async def fake_execute(query, *args):
         if "INSERT INTO static_reference_misses" in query:
             miss_writes.append(args)
         return None
 
-    monkeypatch.setattr(static_docu, "_gather_reference_candidates", fake_gather)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
-    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
+    _fake_selector(monkeypatch, _missed(
+        "host_failed", "The selected photo could not be saved; the previous reference is preserved.",
+        status="error"))
 
     result = await static_docu._prefetch_one_machine(tenant_id, video_id, machine, 0)
 
     assert result is False
-    assert not vision_calls, "vision must never run for a candidate that never hosted"
     assert len(miss_writes) == 1
-    assert miss_writes[0][4] == static_docu.REASON_FETCH_FAILED
+    assert miss_writes[0][4] == "host_failed"
 
 
 @pytest.mark.asyncio
-async def test_vision_rejected_when_hosted_but_never_confirmed(monkeypatch):
-    """VISION REJECTED IT: candidates are found and hosted, but
-    _vision_confirms refuses every one -> reason_code must be
-    vision_rejected, distinct from the other two misses."""
+async def test_identity_mismatch_when_every_candidate_is_rejected(monkeypatch):
+    """IDENTITY REJECTED IT: candidates were compared and none was confirmed
+    as this machine -> identity_mismatch, distinct from the other misses."""
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     machine = "HMS Pretoria Castle (F61) Pretoria Castle class"
     miss_writes = []
-
-    async def fake_gather(machine_arg, aliases, query):
-        return [("https://example.com/a.jpg", True)]
-
-    async def fake_host(*a, **k):
-        return "https://storage.example/hosted.jpg"
-
-    async def fake_vision(*a, **k):
-        return False  # rejected
 
     async def fake_execute(query, *args):
         if "INSERT INTO static_reference_misses" in query:
             miss_writes.append(args)
         return None
 
-    monkeypatch.setattr(static_docu, "_gather_reference_candidates", fake_gather)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
-    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
+    _fake_selector(monkeypatch, _missed(
+        "identity_mismatch", "The photographed ship is a different class."))
 
     result = await static_docu._prefetch_one_machine(tenant_id, video_id, machine, 0)
 
     assert result is False
     assert len(miss_writes) == 1
-    assert miss_writes[0][4] == static_docu.REASON_VISION_REJECTED
+    assert miss_writes[0][4] == "identity_mismatch"
+    assert miss_writes[0][5] == "The photographed ship is a different class."
+
+
+@pytest.mark.asyncio
+async def test_receipt_without_a_reason_still_records_a_generic_reason(monkeypatch):
+    """No miss is ever silently unexplained, even for a receipt with no code."""
+    video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
+    miss_writes = []
+
+    async def fake_execute(query, *args):
+        if "INSERT INTO static_reference_misses" in query:
+            miss_writes.append(args)
+        return None
+
+    monkeypatch.setattr(static_docu, "execute", fake_execute)
+    _fake_selector(monkeypatch, {"status": "needs_review"})
+
+    assert await static_docu._prefetch_one_machine(tenant_id, video_id, "Boeing XB-15", 0) is False
+    assert miss_writes[0][4] == "selection_review_needed"
+    assert miss_writes[0][5]
 
 
 @pytest.mark.asyncio
@@ -180,33 +197,22 @@ async def test_success_clears_any_prior_miss_row(monkeypatch):
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     machine = "Boeing XB-15"
     delete_calls = []
-    cache_writes = []
-
-    async def fake_gather(machine_arg, aliases, query):
-        return [("https://example.com/a.jpg", True)]
-
-    async def fake_host(*a, **k):
-        return "https://storage.example/hosted.jpg"
-
-    async def fake_vision(*a, **k):
-        return True
+    miss_writes = []
 
     async def fake_execute(query, *args):
         if "DELETE FROM static_reference_misses" in query:
             delete_calls.append(args)
-        if "INSERT INTO static_reference_cache" in query:
-            cache_writes.append(args)
+        if "INSERT INTO static_reference_misses" in query:
+            miss_writes.append(args)
         return None
 
-    monkeypatch.setattr(static_docu, "_gather_reference_candidates", fake_gather)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
-    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
+    _fake_selector(monkeypatch, _selected())
 
     result = await static_docu._prefetch_one_machine(tenant_id, video_id, machine, 0)
 
     assert result is True
-    assert len(cache_writes) == 1
+    assert miss_writes == []
     assert len(delete_calls) == 1
     assert delete_calls[0] == (tenant_id, video_id, static_docu._machine_key(machine))
 
@@ -228,8 +234,6 @@ async def test_exception_mid_sweep_still_records_a_reason(monkeypatch):
     async def fake_fetch_one(query, *args):
         if "FROM videos" in query:
             return dict(video_row)
-        if "FROM static_reference_cache" in query:
-            return None
         return None
 
     async def fake_execute(query, *args):
@@ -237,28 +241,14 @@ async def test_exception_mid_sweep_still_records_a_reason(monkeypatch):
             miss_writes.append(args)
         return None
 
-    async def fake_lead_images(names, limit=3):
-        if names[0] == "Boeing XB-15":
+    def outcome(machine):
+        if machine == "Boeing XB-15":
             raise RuntimeError("simulated blowup")
-        return [{"url": f"https://en.wikipedia.org/thumb/{names[0]}.jpg",
-                 "page": names[0], "trusted": True}]
-
-    async def _empty(*a, **k):
-        return []
-
-    async def fake_host(url, vid, tid, tag):
-        return f"https://storage.example/{tag}.jpg"
-
-    async def fake_vision(*a, **k):
-        return True
+        return _selected()
 
     monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
-    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", fake_lead_images)
-    monkeypatch.setattr(static_docu, "find_article_images", _empty)
-    monkeypatch.setattr(static_docu, "find_commons_photos", _empty)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
-    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision)
+    _fake_selector(monkeypatch, by_machine=outcome)
 
     result = await static_docu.prefetch_roster_references(video_id, tenant_id)
 
@@ -270,9 +260,10 @@ async def test_exception_mid_sweep_still_records_a_reason(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_warm_cache_hit_clears_stale_miss_from_a_prior_sweep(monkeypatch):
-    """A machine already in the tenant-global static_reference_cache (e.g.
-    verified via a DIFFERENT video, or seeded since the last sweep) must
-    have any stale per-video miss row cleared too, not just skip re-fetch."""
+    """A machine already in the tenant-global static_reference_cache with a
+    valid selection receipt (e.g. verified via a DIFFERENT video, or seeded
+    since the last sweep) must have any stale per-video miss row cleared too,
+    not just skip re-fetch."""
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     roster = ["Boeing XB-15", "Northrop XB-35", "Convair YB-60"]
     video_row = {
@@ -281,16 +272,17 @@ async def test_warm_cache_hit_clears_stale_miss_from_a_prior_sweep(monkeypatch):
         "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": roster},
     }
     delete_calls = []
+    selector_calls = []
     xb15_key = static_docu._machine_key("Boeing XB-15")
 
     async def fake_fetch_one(query, *args):
         if "FROM videos" in query:
             return dict(video_row)
         if "FROM static_reference_cache" in query:
-            # Only "Boeing XB-15" is already warm in the tenant-global cache
-            # (e.g. verified via a different video); the other two are not.
+            # Only "Boeing XB-15" is already warm (with a valid receipt) in the
+            # tenant-global cache; the other two are not.
             if args[1] == xb15_key:
-                return {"hosted_url": "https://storage.example/already-cached.jpg"}
+                return ready_cache_row()
             return None
         return None
 
@@ -299,19 +291,15 @@ async def test_warm_cache_hit_clears_stale_miss_from_a_prior_sweep(monkeypatch):
             delete_calls.append(args)
         return None
 
-    async def _empty(*a, **k):
-        return []
-
     monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
-    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", _empty)
-    monkeypatch.setattr(static_docu, "find_article_images", _empty)
-    monkeypatch.setattr(static_docu, "find_commons_photos", _empty)
+    _fake_selector(monkeypatch, _missed("no_candidates", "Nothing found."), calls=selector_calls)
 
     result = await static_docu.prefetch_roster_references(video_id, tenant_id)
 
     assert result["verified"] == 1  # only the already-cached XB-15
-    assert result["missed"] == 2    # the other two found nothing (mocked empty)
+    assert result["missed"] == 2    # the other two found nothing (mocked)
+    assert selector_calls == ["Northrop XB-35", "Convair YB-60"], "a warm machine must never re-run selection"
     assert len(delete_calls) == 1
     assert delete_calls[0] == (tenant_id, video_id, xb15_key)
 
@@ -354,8 +342,8 @@ async def test_roster_dashboard_surfaces_reason_for_missing_machine(monkeypatch)
         if "FROM machine_research_cards" in query:
             return []
         if "FROM static_reference_cache" in query:
-            return [{"machine_key": xb15_key, "hosted_url": "https://storage.example/xb15.jpg",
-                     "source_url": "https://en.wikipedia.org/xb15"}]
+            return [{"machine_key": xb15_key, **ready_cache_row(
+                "https://storage.example/xb15.jpg", "https://en.wikipedia.org/xb15")}]
         if "FROM static_reference_misses" in query:
             return [{"machine_key": cva01_key, "reason_code": "never_built",
                      "reason_detail": "This machine was never actually built."}]
@@ -379,10 +367,11 @@ async def test_roster_dashboard_surfaces_reason_for_missing_machine(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_roster_dashboard_missing_with_no_miss_row_has_no_reason_fields(monkeypatch):
+async def test_roster_dashboard_missing_with_no_miss_row_has_no_miss_reason(monkeypatch):
     """A machine that simply hasn't been swept yet (no static_reference_misses
-    row at all) must degrade to the pre-C8 bare {"status": "missing"} shape —
-    reason fields are additive, never fabricated."""
+    row and no selection review at all) is "missing" with the generic,
+    retryable selection_pending reason — never a fabricated miss reason from
+    the miss vocabulary (no_candidates / never_built / ...)."""
     tenant_id, video_id = str(uuid.uuid4()), str(uuid.uuid4())
     roster = ["Boeing XB-15", "Northrop XB-35", "Convair YB-60"]
     video_row = {
@@ -414,7 +403,12 @@ async def test_roster_dashboard_missing_with_no_miss_row_has_no_reason_fields(mo
 
     result = await executor.roster_repair_dashboard(video_id)
     for unit in result["units"]:
-        assert unit["reference"] == {"status": "missing"}
+        assert unit["reference"] == {
+            "status": "missing", "selection_pending": True, "selection_review": None,
+            "reason_code": "selection_pending",
+            "reason_detail": "Gather source-backed photos to compare image choices.",
+            "retryable": True,
+        }
 
 
 # ---------------------------------------------------------------------------

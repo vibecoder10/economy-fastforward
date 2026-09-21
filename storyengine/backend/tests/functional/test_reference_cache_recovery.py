@@ -27,23 +27,6 @@ async def test_reordered_name_requires_fresh_strict_identity(monkeypatch, machin
     clear.assert_awaited_once_with('tenant-a','video',machine)
 
 @pytest.mark.asyncio
-async def test_duplicate_rejections_fall_through_to_web(monkeypatch):
-    row = dict(machine='HMS Activity (D94)',hosted_url='old',source_url='same')
-    monkeypatch.setattr(sd,'fetch_all',AsyncMock(return_value=[row,row]))
-    vision = AsyncMock(side_effect=[False,True])
-    monkeypatch.setattr(sd,'_vision_confirms',vision)
-    gather = AsyncMock(return_value=[('fresh',False)])
-    monkeypatch.setattr(sd,'_gather_reference_candidates',gather)
-    monkeypatch.setattr(sd,'_host_reference',AsyncMock(return_value='fresh-hosted'))
-    write = AsyncMock()
-    monkeypatch.setattr(sd,'execute',write)
-    monkeypatch.setattr(sd,'_clear_reference_miss',AsyncMock())
-    assert await sd._prefetch_one_machine('tenant','video','D94 HMS Activity',0)
-    assert vision.await_count == 2
-    gather.assert_awaited_once()
-    assert write.await_count == 1 and write.call_args.args[-2:] == ('fresh-hosted','fresh')
-
-@pytest.mark.asyncio
 async def test_generic_names_do_not_search_cache(monkeypatch):
     fetch = AsyncMock()
     monkeypatch.setattr(sd,'fetch_all',fetch)
@@ -71,17 +54,6 @@ async def test_article_search_preserves_year_and_removes_display_pennant(monkeyp
     await sd._gather_reference_candidates('I36 HMS Vindictive (1918)', ['HMS Vindictive'], None)
     assert lead.call_args.args[0] == ['HMS Vindictive (1918)', 'HMS Vindictive']
     assert articles.call_args.args[0][0] == 'HMS Vindictive (1918)'
-
-@pytest.mark.asyncio
-async def test_missing_year_uses_current_roster_dates_only_as_search_hints(monkeypatch):
-    monkeypatch.setattr(sd,'_recover_cached_roster_reference',AsyncMock(return_value=False))
-    gather = AsyncMock(return_value=[])
-    monkeypatch.setattr(sd,'_gather_reference_candidates',gather)
-    monkeypatch.setattr(sd,'find_commons_photos',AsyncMock(return_value=[]))
-    monkeypatch.setattr(sd,'_record_reference_miss',AsyncMock())
-    await sd._prefetch_one_machine('tenant','video','I36 HMS Vindictive',0,['HMS Vindictive'],
-        {'years':'Laid down 1916, commissioned 1918, converted 1925 [Source 2024]'})
-    assert gather.call_args.args[1] == ['HMS Vindictive','HMS Vindictive (1916)','HMS Vindictive (1918)']
 
 @pytest.mark.asyncio
 async def test_missing_vision_credentials_cannot_verify_photo(monkeypatch):

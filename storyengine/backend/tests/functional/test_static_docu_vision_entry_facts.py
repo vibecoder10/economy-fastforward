@@ -121,33 +121,26 @@ async def test_no_facts_no_label_keeps_the_old_question(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_prefetch_one_machine_threads_facts_and_filename(monkeypatch):
-    """The sweep path actually passes the entry facts + candidate filename
-    into the vision call — not just the signature existing."""
+async def test_prefetch_one_machine_threads_facts_and_aliases_to_the_selector(monkeypatch):
+    """The sweep path actually hands the entry facts (role/years/status) and
+    aliases to the reference selector — not just the signature existing.
+
+    Since d0ebcc97 the roster path no longer asks the legacy per-photo vision
+    question (`_vision_confirms` + source_label filename); the selector's
+    comparative judge receives the same facts, and a bare filename is
+    deliberately not identity evidence (see judgment_prompt)."""
+    import reference_selection
     seen = {}
 
-    async def empty_cache(*args):
-        return []
-    monkeypatch.setattr(static_docu, "fetch_all", empty_cache)
+    async def fake_select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        seen.update(machine=machine, roster_index=roster_index, aliases=aliases, facts=facts)
+        return {"status": "needs_review", "reason_code": "identity_mismatch",
+                "reason": "The pictured ship is HMS Glory, a Colossus-class ship."}
 
-    async def fake_gather(machine, aliases, query):
-        return [("https://commons.example/HMS_Glory_SLV_Green_1946.jpg", False)]
+    async def fake_record(tenant_id, video_id, machine, reason_code, detail=None):
+        seen["miss"] = (reason_code, detail)
 
-    async def fake_host(cand, video_id, tenant_id, label):
-        return "https://drive.example/hosted.jpg"
-
-    async def fake_vision(tenant_id, hosted, machine, aliases=None,
-                          trusted_source=False, facts=None, source_label=None):
-        seen["facts"] = facts
-        seen["source_label"] = source_label
-        return False  # rejected — also exercises the miss-recording path
-
-    async def fake_record(*args, **kwargs):
-        seen["recorded_miss"] = True
-
-    monkeypatch.setattr(static_docu, "_gather_reference_candidates", fake_gather)
-    monkeypatch.setattr(static_docu, "_host_reference", fake_host)
-    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision)
+    monkeypatch.setattr(reference_selection, "select_reference", fake_select)
     monkeypatch.setattr(static_docu, "_record_reference_miss", fake_record)
 
     ok = await static_docu._prefetch_one_machine(
@@ -155,9 +148,24 @@ async def test_prefetch_one_machine_threads_facts_and_filename(monkeypatch):
         3, aliases=["Majestic class"], facts={"years": "1945-1961"})
 
     assert ok is False
+    assert seen["machine"] == "Improved Light Fleet Carriers Majestic class"
+    assert seen["roster_index"] == 3
+    assert seen["aliases"] == ["Majestic class"]
     assert seen["facts"] == {"years": "1945-1961"}
-    assert seen["source_label"] == "HMS_Glory_SLV_Green_1946.jpg"
-    assert seen.get("recorded_miss") is True
+    assert seen["miss"] == ("identity_mismatch", "The pictured ship is HMS Glory, a Colossus-class ship.")
+
+
+def test_selector_judge_prompt_carries_roster_facts_and_era_rule():
+    """The selector's judge is asked about THIS machine in THIS role and era,
+    and told a filename alone never establishes identity."""
+    import reference_selection
+    prompt = reference_selection.judgment_prompt(
+        "CAM ships and MAC ships Archer class / Empire Mac-Ship conversions",
+        ["Archer class"], _FACTS)
+    assert "Merchant Aircraft Carriers" in prompt
+    assert "Conversions 1943-1944" in prompt
+    assert "Respect era and conversion configuration" in prompt
+    assert "A filename" in prompt and "insufficient" in prompt
 
 
 def test_roster_entries_carry_facts():
