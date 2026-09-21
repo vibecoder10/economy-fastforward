@@ -446,7 +446,7 @@ async def arq_run_autobuild(
             "error": latest.get("error_message"),
             "target": target,
         }
-    if target not in {"pictures", "finish"} or delivery_mode not in {"render_only", "youtube_unlisted"} or (
+    if target not in {"research", "pictures", "finish"} or delivery_mode not in {"render_only", "youtube_unlisted"} or (
         delivery_mode == "youtube_unlisted" and (target != "finish" or not expected_channel_id)
     ):
         error = f"Invalid autobuild target/delivery contract: {target!r}/{delivery_mode!r}"

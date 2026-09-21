@@ -378,7 +378,7 @@ export function StaticDocuStageRail({
     }
   };
 
-  const handleRunAll = async () => {
+  const handleRunAll = async (target: "research" | "finish" = "finish") => {
     setRunAllError(null);
     // Fresh roster read — the whole point of Run All's pre-flight gate is
     // to never let a stale "looked fine a minute ago" start real spend.
@@ -394,7 +394,10 @@ export function StaticDocuStageRail({
     const rosterPreflight = staticDocuRunAllPreflight(total, verified);
     const buildInfo = costFor("build");
     const costLine = buildInfo?.cost_text ? ` Estimated: ${buildInfo.cost_text}${video.render_mode === "static_docu" ? " (picture cost is approximate for this format)" : ""}.` : "";
-    const ok = await confirmDialog({
+    const ok = await confirmDialog(target === "research" ? {
+      title: "Run to Research",
+      message: `Runs roster → gather images → research for every machine, then stops so you can review the cards before any script is written — stopping the moment anything fails. ${rosterPreflight.note} With an Anthropic key installed this is paid model work; with no key the connected agent answers for free. Continue?`,
+    } : {
       title: "Run All",
       message: `Runs roster → gather images → research, then script, voice, pictures, thumbnail, and render${video.pipeline_stages?.includes("upload") ? ", then verified unlisted YouTube upload" : ""} — stopping the moment anything fails. ${rosterPreflight.note}${costLine} Continue?`,
     });
@@ -402,34 +405,37 @@ export function StaticDocuStageRail({
     setRunAllActive(true);
     setRunningStage(null);
     try {
-      await runBuild(video.id, "finish");
+      await runBuild(video.id, target);
       setTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
-          await runBuild(video.id, "finish");
+          await runBuild(video.id, target);
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          toast.error(`Couldn't start Run All: ${(retryErr as Error).message}`);
+          toast.error(`Couldn't start ${target === "research" ? "Run to Research" : "Run All"}: ${(retryErr as Error).message}`);
         }
       } else {
-        toast.error(`Couldn't start Run All: ${message}`);
+        toast.error(`Couldn't start ${target === "research" ? "Run to Research" : "Run All"}: ${message}`);
       }
       setRunAllActive(false);
     }
   };
 
   const allGreen = STAGE_ORDER.every((k) => stages[k].status === "done");
+  const researchDone = STAGE_ORDER.slice(0, 3).every((k) => stages[k].status === "done");
   const visibleRunAllActive = runAllActive || persistedActivity.runAllActive;
   const busy = taskRunning || runAllActive || persistedActivity.active;
 
   return (
     <div className="space-y-3">
       <GlassCard className="p-4">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+        {/* Stages scroll on their own; the run buttons wrap under them instead of scrolling out of reach. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0 max-w-full">
           {STAGE_ORDER.map((key, idx) => {
             const meta = STAGE_META[key];
             const savedInfo = stages[key];
@@ -482,10 +488,29 @@ export function StaticDocuStageRail({
               </div>
             );
           })}
+          </div>
 
-          <div className="ml-auto pl-3 shrink-0 flex items-center gap-2">
+          <div className="ml-auto shrink-0 flex flex-wrap items-center gap-2">
             <button
-              onClick={handleRunAll}
+              onClick={() => handleRunAll("research")}
+              disabled={busy || draining || researchDone}
+              title={
+                draining
+                  ? "Generation is briefly paused for a safe update"
+                  : researchDone
+                    ? "Roster, reference images and research are already done."
+                    : "Run roster, reference images and research for every machine, then stop before the script."
+              }
+              data-generation-action
+              data-testid="run-to-research"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
+              style={{ background: "transparent", color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}
+            >
+              {visibleRunAllActive ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+              {busy ? "Production running…" : researchDone ? "Research done" : "Run to Research"}
+            </button>
+            <button
+              onClick={() => handleRunAll("finish")}
               disabled={busy || draining || allGreen}
               title={
                 draining

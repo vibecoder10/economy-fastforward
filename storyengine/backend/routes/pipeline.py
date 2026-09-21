@@ -3254,7 +3254,8 @@ async def run_next_step(
 
 
 class BuildRequest(BaseModel):
-    """Auto-build target: 'pictures' stops at the pictures-review checkpoint,
+    """Auto-build target: 'research' (static documentaries) stops when roster, images and machine
+    research are complete, 'pictures' stops at the pictures-review checkpoint,
     'finish' runs the rest (voice, clips, thumbnail, render)."""
     target: str = "pictures"
 
@@ -3271,20 +3272,24 @@ async def run_build(
     "build it" / "finish it" uses (actions.make_autobuild_step), now callable
     from a button. PARITY-PLAN Phase 1."""
     target = (body.target if body else "pictures") or "pictures"
-    if target not in ("pictures", "finish"):
-        raise HTTPException(status_code=400, detail="target must be 'pictures' or 'finish'")
+    if target not in actions.AUTOBUILD_TARGETS:
+        raise HTTPException(status_code=400, detail="target must be 'research', 'pictures' or 'finish'")
 
     video = await fetch_one(
-        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    if target == "research" and (video.get("render_mode") or "") != "static_docu":
+        raise HTTPException(status_code=400, detail="Only static documentaries have a research stage to run to.")
 
     if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    if target == "pictures":
+    if target == "research":
+        msg = "Running the roster, reference images and research for every machine"
+    elif target == "pictures":
         # Static-documentary channels always research first; everyone else's
         # autobuild skips research and writes from the topic (P0.5 — this
         # banner used to claim "research" unconditionally, which was false

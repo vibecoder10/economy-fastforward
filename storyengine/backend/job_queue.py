@@ -92,9 +92,9 @@ async def enqueue_stage(
     if stage == "autobuild":
         target = str(stage_kwargs.get("target") or "")
         claim_owner = str(stage_kwargs.get("claim_owner") or "")
-        if target not in {"pictures", "finish"} or not claim_owner:
+        if target not in {"research", "pictures", "finish"} or not claim_owner:
             raise ValueError(
-                "autobuild requires target='pictures' or 'finish' and its claim owner"
+                "autobuild requires target='research', 'pictures' or 'finish' and its claim owner"
             )
         delivery = stage_kwargs.get("delivery_mode", "render_only")
         if delivery not in {"render_only", "youtube_unlisted"} or (

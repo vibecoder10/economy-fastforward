@@ -213,3 +213,32 @@ def test_factual_script_recheck_uses_saved_contract_before_downstream_resume(mon
         status="ready_for_voice",
         research_payload={"machine_script_contract": "factual_100_v1"},
     )) is True
+
+
+@pytest.mark.asyncio
+async def test_research_target_runs_roster_and_research_then_stops_before_the_script(monkeypatch):
+    state = _state()
+    calls, task_statuses = await _run_replay(monkeypatch, state, target="research")
+
+    assert calls == ["roster", "research", "release"]
+    assert state["status"] == "ready_for_scripting"
+    assert task_statuses[-1] == ("completed", actions.RESEARCH_READY_MSG)
+
+
+@pytest.mark.asyncio
+async def test_research_target_on_a_video_already_past_research_starts_no_provider_work(monkeypatch):
+    state = _state(status="ready_for_voice", research_payload={"already": "saved"})
+    calls, task_statuses = await _run_replay(monkeypatch, state, target="research")
+
+    assert calls == ["release"]
+    assert task_statuses[-1] == ("completed", actions.RESEARCH_READY_MSG)
+
+
+def test_every_layer_accepts_the_same_run_all_targets():
+    import inspect
+    import job_queue
+    import worker
+
+    assert actions.AUTOBUILD_TARGETS == ("research", "pictures", "finish")
+    assert '{"research", "pictures", "finish"}' in inspect.getsource(job_queue)
+    assert '{"research", "pictures", "finish"}' in inspect.getsource(worker)

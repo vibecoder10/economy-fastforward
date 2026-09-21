@@ -71,6 +71,26 @@
   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"...","arguments":{...}}}` with the `Authorization` header
   from the user-level `storyengine` entry in `~/.claude.json` (never print it).
 
+## NEXT SESSION - build the Script stage from the gold-standard scripts (start here)
+**Goal (Ryan, 2026-09-21):** a pipeline that runs unattended roster -> gather images -> research -> **script**, stopping before voice, so it is ready the moment a key goes back in.
+The real roster run happens on a NEW video (the 20-machine roster on `6ac28204` is hand-composed; keep it only as a script-writing fixture).
+- **Built this session (committed, see deploy line in `~/deploys.log`):** Run All target `research` (`actions.AUTOBUILD_TARGETS`, route `POST /api/pipeline/build/{id} {target:"research"}`,
+  static docs only, stops at `ready_for_scripting` with `RESEARCH_READY_MSG`) + a "Run to Research" button on the stage rail (`StaticDocuStageRail.tsx`, testid `run-to-research`). The rail's
+  run buttons used to scroll out of reach on narrow screens; they now wrap under the stages. Tests: `tests/test_dvsu_run_all_replay.py` (3 new, mutation-checked). To add the script target next,
+  copy the same pattern: add `script` to `AUTOBUILD_TARGETS`, `job_queue.py`, `worker.py`, the route, and a stop in the loop before voice.
+- **Step 0 - Ryan names the gold-standard scripts.** Not found in the repo. Candidates: 7 full transcripts already in `channel_videos` for this workspace (tenant `561b872d`, source firecrawl, 13-19k chars each):
+  "Every SAAB Aircraft Ever Built", "Every Failed US Helicopter Ever Built & Why They Failed", "Never-Built US Aircraft Carriers We Nearly Got", "Never-Built US Warships We Nearly Got",
+  "Never-Built US Destroyers We Nearly Got", "Every Asian Aircraft Carrier Ever Built", "Never-Built British Warships We Nearly Got". Confirm which are gold, or point to the real files.
+- **Step 1 - deterministic breakdown, no LLM.** Write an extractor that turns each gold script into a JSON grammar: sections (opening hook, per-machine segments, transitions, close); per segment word count,
+  sentence count and sentence-length series, opener type (dated event / hard number), digit and designation density, where the one-line verdict sits. Aggregate across the gold set into min/median/max ranges.
+  Emit a versioned `script_grammar.json` and a pure checker `check(script_text) -> violations` with the gold scripts as test fixtures. That checker is the gate the pipeline runs after generation.
+- **Step 2 - reconcile with what already exists before writing anything:** `dvsu_script_brief.py` (80/100/110 words per machine, 1 min per machine, brief fields intended_role/design/actual_use/outcome, 6000-byte brief),
+  the editorial audit (`evidence_led`, `coherent`, `spoken_style`), `machine_script_contract = factual_100_v1`, `pipeline_executor.run_script` + `dvsu_script_operations`, `machine_story_plans` /
+  `machine_script_briefs` / `machine_script_previews` payload keys, `DurableScriptClient` (will not resubmit an uncertain relay request; needs a reconcile). Decide keep / replace per piece.
+- **Step 3 - generation:** compile per-machine brief + grammar into the prompt (relay-capable, same prompt text for key and relay, length limits stated in the prompt), deterministic validator after, bounded retry.
+- **Step 4 - acceptance:** on a new video with a key installed, "Run to Script" unattended; script passes the checker; walk it in the browser pane.
+- The channel voice already lives in the workspace `style_summary` (see `get_workspace_info`).
+
 ## Automation with a key (verified 2026-09-21, offline + code trace; NOT run live with a key)
 - **One rule everywhere, deployed (21e698c8):** `agent_relay.relay_active(tenant)` = relay flag on AND no Anthropic key. Key installed -> the pipeline uses it (paid);
   no key -> the MCP agent answers (free). Before this, `tenants.agent_llm_relay` beat an installed key in the executor, so putting the key back would have left Run All

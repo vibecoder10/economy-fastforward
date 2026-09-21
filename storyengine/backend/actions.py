@@ -213,6 +213,11 @@ BUILD_TO_PICTURES = {
     "ready_for_storyboard_images", "ready_for_storyboard_extraction",
 }
 DONE_STATUSES = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
+# Run All targets, cheapest stop first. 'research' is static documentaries only: roster -> gather images ->
+# per-machine research, then STOP at ready_for_scripting (the script stage is built and approved separately).
+AUTOBUILD_TARGETS = ("research", "pictures", "finish")
+RESEARCH_READY_MSG = ("Research is complete for every machine — check the cards, then approve research "
+                      "to move on to the script.")
 # C36 (checklist §3.3 item 1): the audit flagged this exact checkpoint —
 # build-to-pictures deliberately skips voice (the slowest paid step, not
 # needed to review pictures — see the "finish" guard above) and leaves it for
@@ -1411,7 +1416,8 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         expected_channel_id: str | None = None):
     """Chain the pipeline automatically instead of running one step. target='pictures'
     runs research -> script -> (voice) -> storyboards -> pictures and STOPS at the
-    pictures-review checkpoint; target='finish' runs the rest (clips + render) to a
+    pictures-review checkpoint; target='research' (static documentaries) runs roster ->
+    gather images -> per-machine research and STOPS when research is complete; target='finish' runs the rest (clips + render) to a
     finished video, auto-passing the review gates. Static documentaries require
     verified research, saved narration and a thumbnail. The loop is bounded
     and reports failures without discarding completed work."""
@@ -2016,6 +2022,11 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     selection_for_progress.get("status") if isinstance(selection_for_progress, dict) else None,
                     (payload_for_progress.get("roster_images") or {}).get("status") if isinstance(payload_for_progress, dict) else None,
                 )
+                if target == "research":
+                    from status_map import is_at_or_past_stage as _past
+                    if _past(status, "ready_for_scripting"):
+                        _set_task_status(video_id, "completed", RESEARCH_READY_MSG, tenant_id=tenant_id)
+                        return
                 if _factual_script_recheck_needed(video):
                     await _advance("ready_for_scripting")
                     video["status"] = status = "ready_for_scripting"

@@ -1399,7 +1399,7 @@ export interface VideoLedger {
 export const getVideoLedger = (videoId: string) =>
   fetchApi<VideoLedger>(`/api/videos/${videoId}/ledger`);
 
-export const runBuild = (videoId: string, target: "pictures" | "finish") =>
+export const runBuild = (videoId: string, target: "research" | "pictures" | "finish") =>
   fetchApi<PipelineResponse>(`/api/pipeline/build/${videoId}`, {
     method: "POST",
     body: JSON.stringify({ target }),
