@@ -1,22 +1,22 @@
 # HANDOFF - 2026-09-21 Gather images done (20/20), Luna photo judge live, above-water preference in scoring
 
 ## Where things stand
-- Prod: `5d14ea87` deployed and healthy (`main` == `origin/main`). Backend suite **5705 passed**.
+- Prod: see the last deploy line in `~/deploys.log` (`main` == `origin/main`). Backend suite **5715 passed**.
   Not mine, left alone: `tasks/decisions.md` (uncommitted edit from another session) and untracked `storyengine/jev-key-box.html`.
 - Pipeline being rebuilt step by step (legacy steps deleted on purpose): **Roster -> Gather images -> Research -> Script ->
   Voice -> Pictures -> Video**, driven through the StoryEngine MCP. The agent LLM relay answers Research/Script model calls.
   Test video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, tenant `561b872d-7b73-45e3-9c44-7f30c3566eda` ("Designed vs Used", relay ON).
   **That workspace DOES have a stored `anthropic_api_key` (saved Sept 18) and Anthropic rejects it as invalid (401).** The old handoff
-  said none existed. Not touched (credential). The judge now falls back to Kie Luna on a rejected key, but Ryan should fix or delete it.
+  said none existed. Not touched (credential). **Ryan's rule (2026-09-21): key installed -> use it; no key -> use the MCP relay.** So with that invalid key
+  still installed, any NEW Gather run on this workspace 401s until Ryan deletes or fixes the key (the finished 20/20 is unaffected).
 - State of that video: Roster 20/20 done. **Gather images 20/20 done** (guide says done). Research **1/20** (USS Holland verified; Drive
   export `Every US Submarine Class Ever Built (2026)/machines/uss-holland-ss-1.md`). The other 19 machines are for Ryan to run by hand.
 - How Gather got to 20/20 (spend: about $0.02 of Luna; 8 photos judged, then Ryan said no more spending): the Luna sweep judged 8 machines
   (2 kept: Tang, Porpoise); the other 18 photos were **placed by hand** (Osiris viewed candidates, verified identity from the source
   caption/file title, hosted them, wrote receipts with `manual` set and no paid judge). Backup of the replaced rows:
   scratchpad `backup_reference_cache_2026-09-21.jsonl` (not in repo). All 18 are above-water shots (surfaced, dockside, dry dock, launch, on the ways).
-- Why by hand: source discovery is the weak spot. "A-class"/"S-class" returned Mercedes cars, "Barracuda class (V-1 group)" returned German
-  V-1 flying bombs, "F-class" returned British destroyers, "Skate class" returned a deck log. Fix idea: pass the roster entry's `role`/era
-  (US submarine) into the Commons queries so class names stop colliding. Not built.
+- Why by hand: source discovery was the weak spot (now fixed in code, see the subject bullet below). "A-class"/"S-class" returned Mercedes cars, "Barracuda class (V-1 group)" returned German
+  V-1 flying bombs, "F-class" returned British destroyers, "Skate class" returned a deck log.
 
 ## How to run one machine by hand (new, live)
 1. `get_production_guide {video_id}` - `next_step.tool` now names the tool for the step.
@@ -30,12 +30,17 @@
 - **Gather images is different:** `gather_roster_images {video_id}` is PAID and quote-gated (no `confirm_token` = quote only). It does NOT go
   through the relay: its photo judge calls a vision model directly (Anthropic key if the workspace has one, else Kie - see the Luna bullet below).
   `research_machine` does NOT need images gathered.
-- **Gather images photo check = Kie gpt-5-6-luna (live).** Direct Anthropic is used first when a valid key exists; a rejected key (401/403) falls back
-  to Luna. Replay of 3 saved Sonnet judgments: same photo 3/3, identity agreement 28/31, ~$0.0025/machine. Each judgment takes 110-145 s, so
-  Luna gets a 420 s HTTP timeout, and the sweep runs 4 machines at once (`ROSTER_GATHER_CONCURRENCY`). Provider outages and rejected keys are NOT
-  saved as permanent results (a rerun retries); deterministic 4xx, refusals and unreadable output still are. Quote is $0.01/machine.
-  Rollback: `REFERENCE_JUDGE_PROVIDER=kie_claude`. Kie's Gemini and Claude endpoints were down that morning; `codex/v1/responses` stayed up.
-  Not touched: `static_docu._vision_yes_no` / `_vision_confirms` still call Kie Claude directly.
+- **Gather images judge (rule set by Ryan, deployed):** `reference_selection.judge_mode(tenant)` -> installed Anthropic key = use it (a rejected key
+  surfaces "rejected the API key (HTTP 401)", no silent switch); no key = the MCP agent relay (`_judge_via_relay`): one parked request per machine listing the
+  candidates' image URLs, the agent opens and looks at them and answers with the judgment JSON via `list_pending_llm_requests` / `answer_llm_request`
+  (free, replays on re-run, model label `agent-vision`); no key and relay off = clear error. `gather_roster_images` is free with no quote in relay mode, quoted
+  (~$0.10/machine, Sonnet-measured) only when a key is installed. **Kie Luna is opt-in only** (`REFERENCE_JUDGE_PROVIDER=kie_luna`, or `kie_claude`) and needs a Kie key; replay of 3 saved
+  Sonnet judgments gave the same photo 3/3 at ~$0.0025/machine, 110-145 s each (420 s HTTP timeout). Provider outages and rejected keys are not saved as permanent results.
+  **The relay-judge path is unit-tested only, NOT yet run live.** Prove it once on a new roster (free): start `gather_roster_images`, answer the requests.
+- **Discovery always names the subject (deployed, unit-tested, not live-run):** `reference_sources.roster_subject(title, thesis)` reads the machine noun
+  (submarine/aircraft/helicopter/tank/warship/locomotive/rocket/ship) and `_machine_documentary_hold_roster_entries` puts it in every entry's `facts["subject"]`;
+  `_category` and the view criteria use it, so queries read `"S-class" submarine`, not `"S-class"`. Re-running discovery for the 5 machines that returned
+  Mercedes/V-1 bombs/destroyers (A, S, F, Barracuda, Skate) would confirm it; not done (no re-run was asked for).
 - **Seed-photo preference (deployed):** `reference_selection.choose_candidate(candidates, judgments, machine)` now
   nudges scores: +8 when a submarine photo's FILE TITLE says launch/dry dock/on the ways (captions are ignored, they mention launch dates),
   -8 when the judge's own limitations say the subject is small in the frame, -5 for text printed on the photo. Adjustments are recorded on the

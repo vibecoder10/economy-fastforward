@@ -600,13 +600,13 @@ SCRIPT_PRICE_ESTIMATE = 0.02
 
 # Roster photo verification (Gather images): ONE vision request per machine that
 # still lacks a verified photo, covering up to 12 candidate photos
-# (reference_selection.py's candidate cap). Runs on the workspace's own Anthropic key,
-# else Kie's gpt-5-6-luna ($0.056/M in, $0.336/M out). No per-token signal is threaded
-# back, so — same "flat estimate" reasoning as SCRIPT_PRICE_ESTIMATE above — this is a
-# per-machine upper-bound estimate. Measured 2026-09-21 on 3 full 9-12 photo machines:
-# ~27k input + ~2.5-3.2k output tokens = $0.0023-0.0026 each, so $0.01 is ~4x headroom.
-# (The pre-Luna Sonnet-on-Kie path cost ~$0.10 per machine.)
-ROSTER_IMAGE_CHECK_PRICE_ESTIMATE = 0.01
+# (reference_selection.py's candidate cap). Judge = the workspace's installed Anthropic key
+# (its own spend); with no key the MCP agent relay judges for free and no quote is needed.
+# No per-token signal is threaded back, so — same "flat estimate" reasoning as
+# SCRIPT_PRICE_ESTIMATE above — this is a per-machine upper-bound estimate for the
+# Anthropic path (~20-27k input tokens of images + a 2-3k token JSON verdict, measured
+# ~$0.10 on Sonnet). Kie gpt-5-6-luna (opt-in only) measured $0.0023-0.0026.
+ROSTER_IMAGE_CHECK_PRICE_ESTIMATE = 0.10
 
 
 # --- Claude Text Model Tiers ---

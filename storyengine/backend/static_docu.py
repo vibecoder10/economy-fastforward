@@ -4670,7 +4670,7 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
     from pipeline_executor import _machine_documentary_hold_roster_entries
     from reference_selection import select_reference
     video = await fetch_one(
-        "SELECT id, render_mode, research_payload FROM videos "
+        "SELECT id, video_title, render_mode, research_payload FROM videos "
         "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     entry = next((e for e in _machine_documentary_hold_roster_entries(video or {})
                   if _machine_key(e["name"]) == _machine_key(machine)), None)
@@ -4729,7 +4729,7 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
     from pipeline_executor import _machine_documentary_hold_roster_entries
 
     video = await fetch_one(
-        "SELECT id, render_mode, research_payload FROM videos "
+        "SELECT id, video_title, render_mode, research_payload FROM videos "
         "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not video:
         return {"status": "failed", "error": "video not found"}
@@ -4930,7 +4930,7 @@ async def _report_tracked_prefetch_progress(video_id: str, tenant_id: str, task_
         from pipeline_executor import _machine_documentary_hold_roster
 
         video = await fetch_one(
-            "SELECT id, render_mode, research_payload FROM videos "
+            "SELECT id, video_title, render_mode, research_payload FROM videos "
             "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
         roster = _machine_documentary_hold_roster(video) if video else []
         mkeys = [_machine_key(m) for m in (roster or [])]

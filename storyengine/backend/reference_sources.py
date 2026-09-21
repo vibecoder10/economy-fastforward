@@ -184,9 +184,24 @@ def _merge(base: dict, record: dict|None, context: list[dict], code=None, reason
     record=record or {}
     return _candidate(record.get("image_url") or base["image_url"],source_page=record.get("source_page") or base.get("source_page"),title=record.get("title", ""),caption=record.get("caption", ""),width=record.get("width"),height=record.get("height"),evidence=(record.get("evidence") or [])+(page_evidence or [])+context,reason_code=code,reason=reason)
 
+# The nouns a roster can be "about". Longer/rarer words first so "warship" is not read as "ship".
+SUBJECT_WORDS = ('submarine', 'aircraft', 'helicopter', 'tank', 'warship', 'locomotive', 'rocket', 'ship')
+
+
+def roster_subject(*texts) -> str:
+    """The machine noun a documentary is about ("submarine"), read from its title/thesis."""
+    for text in texts:
+        low = str(text or '').lower()
+        for word in SUBJECT_WORDS:
+            if re.search(rf'\b{word}s?\b', low):
+                return word
+    return ''
+
+
 def _category(machine: str, facts: dict | None) -> str:
-    role = (str((facts or {}).get('role') or '') + ' ' + machine).lower()
-    for word in ('submarine', 'aircraft', 'helicopter', 'tank'):
+    # The subject always rides along in searches: "A-class" alone finds Mercedes cars, "A-class submarine" finds boats.
+    role = ' '.join(str((facts or {}).get(k) or '') for k in ('subject', 'role')).lower() + ' ' + machine.lower()
+    for word in SUBJECT_WORDS:
         if word in role: return word
     if re.search(r'\b(?:agss|ssn|ssbn|ssgn|ss)-\d',role): return 'submarine'
     if any(w in role for w in ('bomber','fighter')): return 'aircraft'

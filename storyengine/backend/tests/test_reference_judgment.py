@@ -270,24 +270,34 @@ def _judge_setup(monkeypatch, secrets, env=None):
     import reference_selection as rs
     import vault
     captured = {}
+    # Flags ("_relay") and UPPER_CASE names are environment; everything else is a stored secret.
+    env, secrets = dict(env or {}), dict(secrets)
+    for name in list(secrets):
+        if name.startswith("_") or name.isupper():
+            env[name] = secrets.pop(name)
 
     async def get_secret(name, tenant_id=None, user_id=None): return secrets.get(name)
 
     async def request_judgment(tenant_id, machine, candidates, content, provider, url, headers, model, *, video_id=None):
         captured.update(provider=provider, url=url, headers=headers, model=model, content=content)
         return {"candidates": []}
+    import agent_relay
+
+    async def relay_enabled(tenant_id): return bool((env or {}).get("_relay"))
+    monkeypatch.setattr(agent_relay, "relay_enabled", relay_enabled)
     monkeypatch.setattr(vault, "get_secret", get_secret)
     monkeypatch.setattr(rj, "request_judgment", request_judgment)
     monkeypatch.delenv("REFERENCE_JUDGE_PROVIDER", raising=False)
     for key, value in (env or {}).items():
-        monkeypatch.setenv(key, value)
+        if not key.startswith("_"):
+            monkeypatch.setenv(key, value)
     candidate = dict(_candidate(), _vision=b"\xff\xd8pixels")
     return rs, candidate, captured
 
 
 @pytest.mark.asyncio
-async def test_judge_without_anthropic_key_uses_luna_with_responses_format_parts(monkeypatch):
-    rs, candidate, seen = _judge_setup(monkeypatch, {"kie_ai_api_key": "kie-secret"})
+async def test_judge_uses_luna_only_when_explicitly_opted_in_and_a_kie_key_exists(monkeypatch):
+    rs, candidate, seen = _judge_setup(monkeypatch, {"kie_ai_api_key": "kie-secret", "REFERENCE_JUDGE_PROVIDER": "kie_luna"})
     await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
     assert (seen["provider"], seen["model"], seen["url"]) == ("kie_luna", "gpt-5-6-luna", "https://api.kie.ai/codex/v1/responses")
     assert seen["headers"] == {"Authorization": "Bearer kie-secret", "Content-Type": "application/json"}
@@ -295,6 +305,75 @@ async def test_judge_without_anthropic_key_uses_luna_with_responses_format_parts
     assert set(kinds) == {"input_text", "input_image"} and kinds.count("input_image") == 1
     image = next(part for part in seen["content"] if part["type"] == "input_image")
     assert image["image_url"].startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
+async def test_a_kie_key_alone_never_selects_kie_automatically(monkeypatch):
+    rs, candidate, seen = _judge_setup(monkeypatch, {"kie_ai_api_key": "kie-secret"})
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert caught.value.code == "provider_error" and "relay is off" in caught.value.reason and seen == {}
+
+
+@pytest.mark.asyncio
+async def test_judge_mode_matrix(monkeypatch):
+    for secrets, relay, expected in [
+        ({"anthropic_api_key": "sk"}, True, "anthropic"), ({"anthropic_api_key": "sk"}, False, "anthropic"),
+        ({"anthropic_api_key": "   "}, True, "relay"), ({}, True, "relay"), ({}, False, "none"),
+        ({"kie_ai_api_key": "k"}, False, "none"),
+    ]:
+        rs, _, _ = _judge_setup(monkeypatch, dict(secrets, _relay=relay))
+        assert await rs.judge_mode("tenant-a") == expected
+
+
+class _FakeRelay:
+    answer, error, prompts = "", None, []
+
+    def __init__(self, tenant_id, video_id=None): self.tenant_id, self.video_id = tenant_id, video_id
+
+    async def generate(self, prompt, system_prompt="", model="", max_tokens=0, temperature=1.0, **_):
+        _FakeRelay.prompts.append((prompt, system_prompt, model))
+        if _FakeRelay.error: raise _FakeRelay.error
+        return _FakeRelay.answer
+
+
+class _FakeTimeout(RuntimeError):
+    pass
+
+
+def _relay_setup(monkeypatch, answer="", error=None):
+    import sys
+    import types
+    module = types.ModuleType("agent_relay_client")
+    module.AgentRelayClient, module.AgentRelayTimeout = _FakeRelay, _FakeTimeout
+    monkeypatch.setitem(sys.modules, "agent_relay_client", module)
+    _FakeRelay.answer, _FakeRelay.error, _FakeRelay.prompts = answer, error, []
+    return _judge_setup(monkeypatch, {"_relay": True})
+
+
+@pytest.mark.asyncio
+async def test_no_key_parks_the_judgment_for_the_agent_with_image_urls_and_parses_its_json(monkeypatch):
+    rs, candidate, seen = _relay_setup(monkeypatch, answer="```json\n" + json.dumps(_result()) + "\n```")
+    assert await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a") == _result()
+    prompt, system, model = _FakeRelay.prompts[0]
+    assert candidate["image_url"] in prompt and "open its image_url yourself" in prompt and model == "agent-vision"
+    assert "VERYPRIVATEPIXELS" not in prompt and seen == {}  # no provider request, no pixels in the text
+
+
+@pytest.mark.asyncio
+async def test_agent_answer_that_is_not_json_is_an_invalid_review_not_a_crash(monkeypatch):
+    rs, candidate, _ = _relay_setup(monkeypatch, answer="I looked at them and c1 is best.")
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert caught.value.code == "invalid_review"
+
+
+@pytest.mark.asyncio
+async def test_agent_that_never_answers_is_a_provider_error_the_run_can_resume(monkeypatch):
+    rs, candidate, _ = _relay_setup(monkeypatch, error=_FakeTimeout("The agent did not answer LLM request r1 within 600s."))
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert caught.value.code == "provider_error" and "did not answer" in caught.value.reason
 
 
 @pytest.mark.asyncio
@@ -351,12 +430,13 @@ def _fail_auth(monkeypatch, rs, providers):
 
 
 @pytest.mark.asyncio
-async def test_judge_falls_back_to_luna_when_the_anthropic_key_is_rejected(monkeypatch):
-    rs, candidate, _ = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-bad", "kie_ai_api_key": "kie-secret"})
+async def test_an_installed_key_is_used_even_when_rejected_with_no_silent_switch_to_another_provider(monkeypatch):
+    rs, candidate, _ = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-bad", "kie_ai_api_key": "kie-secret", "_relay": True})
     providers = []
     _fail_auth(monkeypatch, rs, providers)
-    assert await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a") == {"candidates": []}
-    assert providers == ["anthropic", "kie_luna"]
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert caught.value.auth_rejected is True and providers == ["anthropic"]
 
 
 @pytest.mark.asyncio

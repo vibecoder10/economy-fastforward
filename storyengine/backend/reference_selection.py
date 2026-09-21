@@ -195,7 +195,7 @@ async def _fetch_image(url):
 
 
 def view_criteria(machine, facts):
-    context = (machine + " " + str((facts or {}).get("role") or "")).lower()
+    context = (machine + " " + str((facts or {}).get("role") or "") + " " + str((facts or {}).get("subject") or "")).lower()
     if re.search(r"submarine|\b(?:agss|ssn|ssbn|ssg|ssgn|ss)-?\d", context):
         return "Submarine: the best reference is a dry-dock, launch, or slipway photo showing the full hull out of water - hull profile, bow, stern, sail and visible control surfaces all readable. A surfaced-running photo (hull partly submerged, sail and upper hull visible) is an acceptable second choice when no clear dry-dock/launch photo exists. Penalize water hiding the hull in a surfaced photo, and penalize cranes, scaffolding, support cradles or cropping that hide the hull in a dry-dock photo."
     if re.search(r"ship|naval|carrier|cruiser|destroyer|frigate|battleship|\b(?:hms|uss)\b", context):
@@ -346,21 +346,72 @@ def selection_needs_rerank(row):
     return bool(_rerank_saved_review(selection_receipt((row or {}).get("selection_review"))))
 
 
+async def judge_mode(tenant_id):
+    """Who judges the photos: an installed Anthropic key wins; no key means the MCP agent relay.
+
+    "kie" is an explicit opt-in (env REFERENCE_JUDGE_PROVIDER=kie_luna|kie_claude), never chosen automatically.
+    Returns "anthropic" | "kie" | "relay" | "none".
+    """
+    import os
+    import agent_relay
+    from vault import get_secret
+    if str(await get_secret("anthropic_api_key", tenant_id) or "").strip():
+        return "anthropic"
+    if os.getenv("REFERENCE_JUDGE_PROVIDER") in ("kie_luna", "kie_claude") and str(await get_secret("kie_ai_api_key", tenant_id) or "").strip():
+        return "kie"
+    return "relay" if await agent_relay.relay_enabled(tenant_id) else "none"
+
+
 async def _judge(tenant_id, machine, candidates, facts, aliases=None, *, video_id=None):
     from vault import get_secret
-    anthropic_key = await get_secret("anthropic_api_key", tenant_id)
-    kie_key = await get_secret("kie_ai_api_key", tenant_id)
-    if anthropic_key:
-        try:
-            return await _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, "anthropic", anthropic_key)
-        except SelectionFailure as exc:
-            # A rejected Anthropic key must not stall Gather images while a working Kie key exists.
-            if not (exc.auth_rejected and kie_key):
-                raise
-            _logger.warning("Anthropic key rejected for tenant %s; judging %r on Kie instead", tenant_id, machine)
-    if not kie_key:
-        raise SelectionFailure("provider_error", "No vision provider is configured; identity remains unchecked.")
-    return await _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, "kie", kie_key)
+    mode = await judge_mode(tenant_id)
+    if mode == "none":
+        raise SelectionFailure("provider_error", "No Anthropic key is installed and the agent relay is off; identity remains unchecked.")
+    if mode == "relay":
+        return await _judge_via_relay(tenant_id, machine, candidates, facts, aliases, video_id)
+    key = await get_secret("anthropic_api_key" if mode == "anthropic" else "kie_ai_api_key", tenant_id)
+    return await _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, mode, key)
+
+
+_RELAY_SYSTEM = ("You are a careful reviewer of historical reference photographs. You can open image URLs and look at them. "
+                 "Follow the user's instructions exactly and reply with ONLY the requested JSON.")
+
+
+async def _judge_via_relay(tenant_id, machine, candidates, facts, aliases, video_id):
+    """No key: park the judgment for the MCP agent, who opens each candidate's image URL and answers with the JSON.
+
+    Free (the agent's own subscription). The request is fingerprinted, so a re-run replays the answer.
+    """
+    from agent_relay_client import AgentRelayClient, AgentRelayTimeout
+    evidence, seen = [], set()
+    for candidate in candidates:
+        for source in candidate.get("evidence", []):
+            marker = (source.get("url"), source.get("text"), source.get("kind"))
+            if marker not in seen:
+                seen.add(marker)
+                evidence.append(source)
+    lines = [judgment_prompt(machine, aliases, facts),
+             "You cannot see the photos in this message. For EACH candidate below, open its image_url yourself, look at the "
+             "actual pixels, and judge them exactly as the instructions above describe.",
+             "Retrieved source evidence: " + json.dumps(evidence, ensure_ascii=False)]
+    for candidate in candidates:
+        summary = _summary(candidate)
+        summary["source_urls"] = [e.get("url") for e in summary.pop("evidence", [])]
+        lines.append(json.dumps(summary, ensure_ascii=False))
+    client = AgentRelayClient(tenant_id, video_id)
+    try:
+        text = await client.generate("\n".join(lines), system_prompt=_RELAY_SYSTEM, model="agent-vision",
+                                    max_tokens=8000, temperature=0.0)
+    except AgentRelayTimeout as exc:
+        raise SelectionFailure("provider_error", str(exc)) from exc
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
+    try:
+        parsed = json.loads(fenced.group(1) if fenced else text.strip())
+    except ValueError as exc:
+        raise SelectionFailure("invalid_review", "The agent's answer was not the requested JSON; no image was selected.") from exc
+    if not isinstance(parsed, dict):
+        raise SelectionFailure("invalid_review", "The agent's answer was not a JSON object; no image was selected.")
+    return parsed
 
 
 async def _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, family, key):
@@ -370,7 +421,7 @@ async def _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, 
     if family == "anthropic":
         provider, url = "anthropic", "https://api.anthropic.com/v1/messages"
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
-    elif os.getenv("REFERENCE_JUDGE_PROVIDER") == "kie_claude":  # rollback switch to the pre-Luna Kie path
+    elif os.getenv("REFERENCE_JUDGE_PROVIDER") == "kie_claude":  # opt-in: the pre-Luna Kie Claude path
         provider = "kie"
         url = os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/") + "/v1/messages"
         headers = {"Authorization": "Bearer " + key}

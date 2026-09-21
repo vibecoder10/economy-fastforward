@@ -87,6 +87,41 @@ def _patch_gather_video(total: int, verified: int):
 # gather_roster_images
 # ---------------------------------------------------------------------------
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _judge_is_a_paid_key_by_default(monkeypatch):
+    import reference_selection
+    monkeypatch.setattr(reference_selection, "judge_mode", AsyncMock(return_value="anthropic"))
+
+
+@pytest.mark.asyncio
+async def test_gather_with_no_key_uses_the_relay_for_free_with_no_quote_and_starts_at_once(monkeypatch):
+    import reference_selection
+    monkeypatch.setattr(reference_selection, "judge_mode", AsyncMock(return_value="relay"))
+    bg = _Bg()
+    start = AsyncMock(return_value={"status": "started", "video_id": VIDEO, "message": "started"})
+    p_video, p_state = _patch_gather_video(total=20, verified=8)
+    with p_video, p_state, patch.object(pipeline_routes, "start_roster_images_in_process", start):
+        result = _payload(await mcp_mod._call_gather_roster_images(TENANT, {"video_id": VIDEO}, bg, "agent"))
+    assert result["status"] == "started" and "quote" not in json.dumps(result).lower().replace("no quote", "")
+    assert "list_pending_llm_requests" in result["next"] and "Free" in result["next"]
+    start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_gather_with_no_key_and_no_relay_says_nothing_can_judge(monkeypatch):
+    import reference_selection
+    monkeypatch.setattr(reference_selection, "judge_mode", AsyncMock(return_value="none"))
+    start = AsyncMock()
+    p_video, p_state = _patch_gather_video(total=20, verified=8)
+    with p_video, p_state, patch.object(pipeline_routes, "start_roster_images_in_process", start):
+        result = await mcp_mod._call_gather_roster_images(TENANT, {"video_id": VIDEO}, _Bg(), "agent")
+    assert result.get("isError") and "nothing can judge" in result["content"][0]["text"]
+    start.assert_not_awaited()
+
+
 async def test_gather_quotes_only_the_missing_machines_and_starts_nothing_until_confirmed():
     store, bg = _ConfirmStore(), _Bg()
     start = AsyncMock(return_value={"status": "started", "video_id": VIDEO, "message": "started"})

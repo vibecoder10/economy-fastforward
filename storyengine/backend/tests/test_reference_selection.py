@@ -304,3 +304,29 @@ def test_small_subject_and_printed_text_limits_lower_the_score():
     text = _pick("File:a.jpg", "File:b.jpg", limits_a=["A caption is printed on the photo."])
     assert text[2]["id"] == "b"
     assert "score_adjustments" not in _pick("File:a.jpg", "File:b.jpg", limits_a=["Deck fittings are limited by resolution."])[3]
+
+
+def test_roster_subject_reads_the_machine_noun_from_title_then_thesis():
+    from reference_sources import roster_subject
+    assert roster_subject("Every US Submarine Class Ever Built (2026)", "") == "submarine"
+    assert roster_subject("Every Bomber", "The heavy aircraft that ended a war") == "aircraft"
+    assert roster_subject("Battleships of the fleet") == "" and roster_subject("Warships that changed war") == "warship"
+    assert roster_subject(None, None) == ""
+
+
+def test_every_search_names_the_subject_even_when_the_machine_name_does_not():
+    from reference_sources import _entity_queries
+    for name in ("A-class (Adder class)", "S-class", "F-class", "Barracuda class (V-1 group)", "Skate class"):
+        queries = _entity_queries(name, [name], {"subject": "submarine"})
+        assert queries and all("submarine" in q for q in queries), (name, queries)
+    assert "submarine" not in " ".join(_entity_queries("S-class", ["S-class"], {}))  # no subject known: unchanged
+
+
+def test_roster_entries_carry_the_subject_from_a_dict_or_json_payload():
+    import json
+    from pipeline_executor import _machine_documentary_hold_roster_entries as entries
+    payload = {"documentary_style": "designed_vs_used", "thesis": "Boats that hide", "unit_roster": ["S-class", "Skate class"]}
+    for research_payload in (payload, json.dumps(payload)):
+        video = {"id": "v", "video_title": "Every US Submarine Class Ever Built", "render_mode": "static_docu", "research_payload": research_payload}
+        got = entries(video)
+        assert got and all(e["facts"].get("subject") == "submarine" for e in got)

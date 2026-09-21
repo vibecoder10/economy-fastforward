@@ -3160,11 +3160,12 @@ _GATHER_ROSTER_IMAGES_TOOL: dict[str, Any] = {
     "name": "gather_roster_images",
     "description": (
         "Gather images: find and vision-verify one reference photo for every locked roster machine "
-        "that still lacks one (static documentaries). PAID - it runs a vision check on the workspace's "
-        "own Anthropic key, else Kie.ai's gpt-5-6-luna (about a quarter of a cent per machine), one "
-        "request per missing machine. "
-        "Call with no confirm_token first to get a price quote; call again with the returned "
-        "confirm_token to actually run it. Starts in the background and returns immediately - watch "
+        "that still lacks one (static documentaries). Who judges the photos: if the workspace has an "
+        "Anthropic key installed it is used (PAID, its own spend: call with no confirm_token first for a "
+        "price quote, then again with the returned confirm_token); with no key the agent LLM relay judges "
+        "instead - FREE, no quote: it starts at once, then loop list_pending_llm_requests {video_id} -> open "
+        "each candidate's image_url and look at it -> answer_llm_request with ONLY the JSON asked (one "
+        "request per machine). Starts in the background and returns immediately - watch "
         "get_production_guide (stage image_gather). Never touches the roster or research."
     ),
     "inputSchema": {
@@ -3224,21 +3225,31 @@ async def _call_gather_roster_images(tenant_id, arguments: dict[str, Any],
     if missing == 0:
         return _text_result({"status": "already_done", "video_id": video_id,
                              "message": f"All {total} roster images are already verified - nothing to gather."})
-    quote_cost = round(missing * actions.ROSTER_IMAGE_CHECK_COST, 2)
-    ready, result = await _paid_gate(
-        tenant_id, video_id, "gather_roster_images", None,
-        quote_cost, f"~${quote_cost:.2f} ({missing} machine(s) x ${actions.ROSTER_IMAGE_CHECK_COST:.2f} vision check, estimate)",
-        arguments.get("confirm_token"),
-    )
-    if not ready:
-        return result
+    from reference_selection import judge_mode
+    mode = await judge_mode(tenant_id)
+    if mode == "none":
+        return _error_result("No Anthropic key is installed and the agent relay is off for this workspace, so nothing can judge "
+                             "the photos. Install a key, or turn the relay on.")
+    relay_note = None
+    if mode == "relay":
+        relay_note = ("Free: the agent relay judges the photos. Loop list_pending_llm_requests {video_id} -> open each "
+                      "candidate's image_url and look at it -> answer_llm_request with ONLY the JSON asked.")
+    else:
+        quote_cost = round(missing * actions.ROSTER_IMAGE_CHECK_COST, 2)
+        ready, result = await _paid_gate(
+            tenant_id, video_id, "gather_roster_images", None,
+            quote_cost, f"~${quote_cost:.2f} ({missing} machine(s) x ${actions.ROSTER_IMAGE_CHECK_COST:.2f} vision check, estimate)",
+            arguments.get("confirm_token"),
+        )
+        if not ready:
+            return result
     from routes.pipeline import start_roster_images_in_process
     try:
         resp = await start_roster_images_in_process(video_id, str(tenant_id), background_tasks)
     except HTTPException as e:
         return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start image gathering")
     _log_setup_write("gather_roster_images", tenant_id, caller, detail=video_id)
-    return _text_result({**resp, "next": "Watch get_production_guide (stage image_gather) until it reads done."})
+    return _text_result({**resp, "next": relay_note or "Watch get_production_guide (stage image_gather) until it reads done."})
 
 
 async def _call_research_machine(tenant_id, arguments: dict[str, Any],

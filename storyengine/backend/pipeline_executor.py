@@ -8006,6 +8006,15 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
     roster = _static_docu_locked_unit_roster(video)
     if roster is None:
         return []
+    import json as _json
+    from reference_sources import roster_subject
+    payload = video.get("research_payload")
+    if isinstance(payload, str):
+        try:
+            payload = _json.loads(payload)
+        except ValueError:
+            payload = None
+    subject = roster_subject(video.get("video_title"), (payload or {}).get("thesis") if isinstance(payload, dict) else "")
     entries: list[dict] = []
     for item in roster:
         name = _unit_display_name(item)
@@ -8032,6 +8041,8 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
                 value = str(item.get(key) or "").strip()
                 if value:
                     facts[key] = value
+        if subject:
+            facts["subject"] = subject
         entries.append({
             "name": name,
             "aliases": aliases,
