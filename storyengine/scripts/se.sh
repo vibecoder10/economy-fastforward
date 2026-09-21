@@ -118,7 +118,7 @@ case "$cmd" in
   devtoken)
     # Feeds the AuthProvider dev seed: local `npm run dev` auto-logs-in with
     # this token (fresh 30-day session JWT), so authed pages verify locally.
-    ENVF="$HOME/economy-fastforward/storyengine/frontend/.env.local"
+    ENVF="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)/frontend/.env.local"
     TOK="$(ssh "$HOST" "$RPY $RREPO/storyengine/scripts/se_mint_token.py" | tr -d '[:space:]')"
     if [ -z "$TOK" ]; then
       echo "mint failed - check se_mint_token.py output above" >&2

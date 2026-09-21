@@ -129,8 +129,8 @@ export function computeStaticDocuStages(
     const cardsReady = selectedNames.length > 0 && readyCards >= selectedNames.length;
     research = holdPassed || cardsReady
       ? { status: "done", detail: `Research is ready for all ${targetCount || readyCards} saved roster entries.` }
-      : phase === "unit_research"
-        ? { status: "in_progress", detail: `${readyCards}/${targetCount || selectedUnits.length} saved roster research card(s) ready.` }
+      : phase === "unit_research" || readyCards > 0 || holdUnits.some((unit) => unit.passed === true)
+        ? { status: "in_progress", detail: `${Math.max(readyCards, holdUnits.filter((unit) => unit.passed === true).length)}/${targetCount || selectedUnits.length} saved roster research card(s) ready.` }
         : { status: "not_started", detail: "Roster is selected; detailed research has not started." };
   } else if (selectedUnits.length > 0) {
     const readyCards = exactDashboard ? (rosterDashboard?.ready ?? 0) : 0;

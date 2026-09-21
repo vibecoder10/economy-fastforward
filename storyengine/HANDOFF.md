@@ -20,6 +20,16 @@
   - No-spend replay: re-running the driver finished in 3s, 0 "waiting for the agent" lines, `agent_llm_requests` stayed at
     6 answered rows (same newest timestamp), and Drive was not re-exported.
 - Cards for the other 19 machines are still "Factual research summary pending" - expected, nothing done there.
+- **UI fix, verified LOCALLY, NOT deployed:** the video's Research tab said "Research Not Started" (gate was
+  `!research.headline`; roster-first videos have no headline) and the stage rail said "detailed research has not started".
+  Fixed in `ResearchTab.tsx` (roster mode counts as started; headline falls back to thesis) and `StaticDocuStageRail.tsx`
+  (any passed card = in progress). Walked in the in-app browser as DVSU workspace: tab shows 1/20 VERIFIED, Holland
+  expands to the saved summary + sources + per-claim assessment; rail says "1/20 ... ready". tsc clean, 14 vitest pass.
+  Needs `se deploy <session> --with-frontend` (Ryan's yes, check `~/deploy.lock`) before it shows on prod.
+- `se devtoken` wrote to a dead path (`~/economy-fastforward/...`); fixed to this repo's `frontend/.env.local`.
+  To view the DVSU video locally: devtoken -> dev server -> nav workspace switcher -> "Designed vs Used".
+- Cosmetic, not fixed: the video title itself contains curly quotes, so the UI shows doubled quotes and the Drive folder
+  is named `“Every US Submarine Class Ever Built (2026)”`.
 
 ## Next action (start here cold)
 1. **Fix the MCP connection first (Ryan's call, credential):** the `storyengine` MCP fails in this project with 401

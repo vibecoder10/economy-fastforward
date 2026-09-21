@@ -1554,7 +1554,8 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
   );
   const machineResearchIsolatedMode = (research?.unit_roster?.length || 0) > 0;
 
-  if (!research || !research.headline) {
+  // A locked machine roster is research in progress even when no headline was written (roster-first videos).
+  if (!research || (!research.headline && !machineResearchIsolatedMode)) {
     return (
       <GlassCard className="p-12 text-center">
         <Search size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
@@ -1589,7 +1590,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                   {verifiedMachineResearchCount}/{research.unit_roster.length} verified
                 </span>
               </div>
-              <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{research.headline}</p>
+              <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{research.headline || research.thesis}</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Work the roster one card at a time. Use the inspector only when a card needs review.
               </p>
