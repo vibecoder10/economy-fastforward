@@ -754,3 +754,6 @@ The handoff blamed a missing `videos.status` flip for the guide's "roster not_st
 
 ## 2026-09-21 - Keep git clean yourself: local main drifted 9 commits behind and a HANDOFF claimed "main is clean"
 Ryan should never have to remember to merge. At session start `git fetch` and compare to origin; fast-forward main (stash only your own files); work directly on main with linear commits; delete the feature worktree + merged branch once folded in; never leave a worktree/stash/branch this session created. Verify a handoff's "clean/deployed" claim against `git status -sb` and `origin/main` before trusting it.
+
+## 2026-09-21 - Drive API is blind to Shared Drives unless every call says supportsAllDrives
+`GoogleClient` passed no `supportsAllDrives` / `includeItemsFromAllDrives`, so a folder inside a Shared Drive was invisible to `files().list` and 404'd on create/upload - it looked exactly like "the folder doesn't exist", and the pipeline silently wrote to a same-named My Drive folder instead. To target a folder, pin it by ID (env var) rather than by name lookup, and pass the flags on every call in the path (list needs both flags; create/update/get need `supportsAllDrives`).

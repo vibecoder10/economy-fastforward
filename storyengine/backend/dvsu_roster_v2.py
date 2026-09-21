@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -343,11 +344,24 @@ def _shared_context_markdown(title: str, draft: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def research_root_folder(client) -> dict:
+    """Drive root folder for DVSU research exports.
+
+    ``DVSU_RESEARCH_DRIVE_FOLDER_ID`` pins it by ID - required to target a
+    Shared Drive folder, which the name lookup below (scoped to
+    GOOGLE_DRIVE_FOLDER_ID) can never reach. Unset keeps the old behavior.
+    """
+    pinned = os.getenv("DVSU_RESEARCH_DRIVE_FOLDER_ID", "").strip()
+    if pinned:
+        return {"id": pinned}
+    return client.get_or_create_folder("StoryEngine Research")
+
+
 def _export_thesis_roster_to_drive(title: str, draft: dict) -> dict:
     from shared.clients.google_client import GoogleClient
 
     client = GoogleClient(strict_folder=True)
-    root = client.get_or_create_folder("StoryEngine Research")
+    root = research_root_folder(client)
     folder = client.get_or_create_folder(title or "Untitled", parent_id=root["id"])
     thesis_roster_file = client.upload_file(
         _thesis_and_roster_markdown(title, draft).encode("utf-8"),

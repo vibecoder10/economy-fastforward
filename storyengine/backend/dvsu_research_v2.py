@@ -550,9 +550,10 @@ def _machine_packet_markdown(packet: dict) -> str:
 
 def _export_machine_packet_to_drive(video_title: str, packet: dict) -> dict:
     from shared.clients.google_client import GoogleClient
+    from dvsu_roster_v2 import research_root_folder
 
     client = GoogleClient(strict_folder=True)
-    root = client.get_or_create_folder("StoryEngine Research")
+    root = research_root_folder(client)
     folder = client.get_or_create_folder(video_title or "Untitled", parent_id=root["id"])
     machines_folder = client.get_or_create_folder("machines", parent_id=folder["id"])
     machine_file = client.upload_file(

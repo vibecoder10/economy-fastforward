@@ -384,3 +384,84 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
     # a settings change still reopens selection.
     drifted = dict(video, video_length_minutes=30)
     assert pe._live_roster_gate(drifted, payload)["passed"] is False
+
+
+class _FakeDrive:
+    """Records the kwargs of every Drive files().create/list/update call."""
+
+    def __init__(self):
+        self.calls = []
+
+    def files(self):
+        return self
+
+    def _record(self, op, kwargs):
+        self.calls.append((op, kwargs))
+        return SimpleNamespace(execute=lambda: {"id": "new-id", "name": "n", "mimeType": "m", "files": []})
+
+    def create(self, **kw): return self._record("create", kw)
+    def list(self, **kw): return self._record("list", kw)
+    def update(self, **kw): return self._record("update", kw)
+
+
+def test_google_client_folder_and_upload_calls_are_shared_drive_aware():
+    """Regression, 2026-09-21: the client passed no supportsAllDrives /
+    includeItemsFromAllDrives, so a Shared Drive folder was invisible to
+    search and 404'd on create/upload - the DVSU export could only ever land
+    in My Drive."""
+    from shared.clients.google_client import GoogleClient
+
+    client = GoogleClient(client_id="i", client_secret="s", refresh_token="r", parent_folder_id="root")
+    fake = _FakeDrive()
+    client._services.drive = fake
+
+    client.search_folder("StoryEngine Research", parent_id="p")
+    client.search_file("a.md", "p")
+    client.create_folder("t", parent_id="p")
+    client.upload_file(b"x", "a.md", "p", mime_type="text/markdown", check_existing=False)
+
+    ops = [op for op, _ in fake.calls]
+    assert ops == ["list", "list", "create", "create"]
+    for op, kw in fake.calls:
+        assert kw.get("supportsAllDrives") is True, (op, kw)
+        if op == "list":
+            assert kw.get("includeItemsFromAllDrives") is True, kw
+
+
+def test_research_root_folder_pins_by_id_else_falls_back_to_name_lookup(monkeypatch):
+    client = SimpleNamespace(get_or_create_folder=lambda name, parent_id=None: {"id": "by-name", "name": name})
+
+    monkeypatch.delenv("DVSU_RESEARCH_DRIVE_FOLDER_ID", raising=False)
+    assert v2.research_root_folder(client) == {"id": "by-name", "name": "StoryEngine Research"}
+
+    monkeypatch.setenv("DVSU_RESEARCH_DRIVE_FOLDER_ID", "  1cPXLQN1  ")
+    assert v2.research_root_folder(client) == {"id": "1cPXLQN1"}
+
+
+def test_both_drive_exports_write_under_the_pinned_root(monkeypatch):
+    import sys
+    import dvsu_research_v2 as research_v2
+
+    made, uploads = [], []
+
+    class FakeClient:
+        def __init__(self, **kw): pass
+        def get_or_create_folder(self, name, parent_id=None):
+            made.append((name, parent_id))
+            return {"id": f"id:{name}"}
+        def upload_file(self, content, name, folder_id, mime_type=None):
+            uploads.append(folder_id)
+            return {"id": "f"}
+
+    monkeypatch.setitem(sys.modules, "shared.clients.google_client",
+                        SimpleNamespace(GoogleClient=FakeClient))
+    monkeypatch.setenv("DVSU_RESEARCH_DRIVE_FOLDER_ID", "PINNED")
+
+    out = v2._export_thesis_roster_to_drive("Vid", {"thesis": "T", "acts": [], "unit_roster": []})
+    assert ("Vid", "PINNED") in made and ("StoryEngine Research", None) not in made
+    assert out["folder_id"] == "id:Vid"
+
+    made.clear()
+    research_v2._export_machine_packet_to_drive("Vid", {"machine": "Ajax class"})
+    assert made[0] == ("Vid", "PINNED")
+    assert all(name != "StoryEngine Research" for name, _ in made)

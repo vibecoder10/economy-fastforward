@@ -73,6 +73,12 @@ class GoogleClient:
     # client init instead of 404'ing after an hour of render time.
     DEFAULT_PARENT_FOLDER_ID = "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
 
+    # Shared Drive support for the folder/upload path. Harmless for My Drive
+    # items; required to see or write inside a Shared Drive folder (without it
+    # Drive answers 404 / returns nothing, as if the folder did not exist).
+    _ALL_DRIVES = {"supportsAllDrives": True}
+    _ALL_DRIVES_LIST = {"supportsAllDrives": True, "includeItemsFromAllDrives": True}
+
     # Retry settings for transient errors
     MAX_RETRIES = 3
     INITIAL_BACKOFF = 1.0  # seconds
@@ -196,6 +202,7 @@ class GoogleClient:
             return self.drive_service.files().create(
                 body=file_metadata,
                 fields="id, name, mimeType",
+                **self._ALL_DRIVES,
             ).execute()
 
         return self._retry_with_backoff(_create)
@@ -242,6 +249,7 @@ class GoogleClient:
             return self.drive_service.files().list(
                 q=query,
                 fields="files(id, name, mimeType)",
+                **self._ALL_DRIVES_LIST,
             ).execute()
 
         results = self._retry_with_backoff(_search)
@@ -343,6 +351,7 @@ class GoogleClient:
             return self.drive_service.files().list(
                 q=query,
                 fields="files(id, name, mimeType)",
+                **self._ALL_DRIVES_LIST,
             ).execute()
 
         results = self._retry_with_backoff(_search)
@@ -385,6 +394,7 @@ class GoogleClient:
                         fileId=file_id,
                         media_body=media,
                         fields="id, name, mimeType",
+                        **self._ALL_DRIVES,
                     ).execute()
 
                 return self._retry_with_backoff(_update)
@@ -405,6 +415,7 @@ class GoogleClient:
                 body=file_metadata,
                 media_body=media,
                 fields="id, name, mimeType",
+                **self._ALL_DRIVES,
             ).execute()
 
         return self._retry_with_backoff(_upload)

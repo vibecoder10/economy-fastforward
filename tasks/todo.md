@@ -12,14 +12,14 @@ design. Fixes production_guide "roster: not_started" and unblocks run_unit_resea
 images for v2 videos. Regression test: tests/test_dvsu_roster_v2.py
 `test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit`.
 
-OPEN (next): DVSU Drive export lands in the wrong "StoryEngine Research" folder. Pipeline root =
-GOOGLE_DRIVE_FOLDER_ID (folder "Storyengine" 1NBFKU8h...); lookup finds/creates the folder inside
-it (1H7uG1Yd...). Ryan wants 1cPXLQN1... (Shared Drive root 0AGEVWQ9GwbVCUk9PVA). Plan: (1) add
-supportsAllDrives/includeItemsFromAllDrives to the create/list/upload calls in
-skills/video-pipeline/shared/clients/google_client.py; (2) `DVSU_RESEARCH_DRIVE_FOLDER_ID` env
-(VPS storyengine/.env) used by ID in dvsu_roster_v2.py + dvsu_research_v2.py, falling back to the
-name lookup when unset; (3) live write test from the VPS with the backend's credentials; (4) ask
-Ryan whether to move the 2 already-written test files.
+DONE (code, 2026-09-21 later): Drive export can target a Shared Drive folder by ID.
+google_client.py now passes supportsAllDrives / includeItemsFromAllDrives on create_folder,
+search_folder, search_file and upload_file; `dvsu_roster_v2.research_root_folder()` reads
+`DVSU_RESEARCH_DRIVE_FOLDER_ID` (falls back to the "StoryEngine Research" name lookup when unset)
+and both DVSU Drive exports use it. Tests: tests/test_dvsu_roster_v2.py (3 new).
+STILL TO DO: set DVSU_RESEARCH_DRIVE_FOLDER_ID=1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU in the VPS
+storyengine/.env, live-write from the VPS with backend creds, ask Ryan about moving the 2 old
+test files (in 1H7uG1Yd...), deploy (ask first).
 
 ## ✓ DONE — 2026-08-04 — Render verb no longer refuses render-ready static documentaries
 
