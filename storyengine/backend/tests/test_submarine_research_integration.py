@@ -1,86 +1,115 @@
-"""Real research hold; provider and storage boundaries are offline fakes."""
+"""Real research hold; provider and storage boundaries are offline fakes.
+
+DVSU v2 (65545d8e) replaced the factual per-machine source capture, claim
+assessment and provider-written summary with Call 3: six targeted searches
+whose packet is adapted mechanically into the package/card
+(dvsu_research_v2.py). These tests drive the real hold through that path with a
+fake provider client.
+"""
 import asyncio, copy, json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+import pytest
 import pipeline_executor as pe
-import factual_machine_summary as summaries
+import dvsu_research_v2 as v2
 from machine_research_summary import research_summary_ready
 MACHINE='SSN-571 USS Nautilus'
 TITLE='Every US Submarine Class Ever Built (2026)'
-TEXT='USS Nautilus (SSN-571) was commissioned in 1954.'
+KEY='SSN571'
 
-def setup_case(raw=None, checkpoint=None):
-    package={'machine':MACHINE,'candidate_excerpts':[{'excerpt_id':'E1','source_id':'S1','text':TEXT,'source_url':'https://history.test/nautilus','source_title':'Nautilus history','source_capture_method':'fetched_page','locator':'p1'}]}
-    if raw is None:
-        story = MACHINE + ' was designed for extended submerged operation, used nuclear propulsion, served on submerged voyages, and was preserved as a museum.'
-        package['candidate_excerpts'].append(dict(package['candidate_excerpts'][0], excerpt_id='E2', text=story))
-        raw=json.dumps({'claims':[{'claim':'Nautilus was commissioned in 1954.','scope':'SSN-571 commissioning','status':'supported','reason':'Explicit date.','evidence':[{'excerpt_id':'E1','quote':TEXT}],'counterevidence':[]}]})
-    if 'story' in locals():
-        parsed = json.loads(raw)
-        parsed['claims'].append({'claim': story, 'scope': 'synthetic narrative protocol fixture',
-            'narrative_roles': ['intended_role', 'design', 'actual_use', 'outcome'], 'status': 'supported',
-            'reason': 'Exact fixture', 'evidence': [{'excerpt_id':'E2', 'quote':story}], 'counterevidence':[]})
-        raw = json.dumps(parsed)
-    client=SimpleNamespace(generate=AsyncMock(return_value=raw))
-    payload={'machine_script_contract':'factual_100_v1','unit_roster':[MACHINE],'unit_research_cards':[],'machine_raw_source_packages':{'SSN571':package}}
-    ex=pe.PipelineExecutor.__new__(pe.PipelineExecutor);ex.tenant_id='tenant';ex._pipeline=SimpleNamespace(anthropic=client)
+def slot(answer, url, quote):
+    return json.dumps({'answer':answer,'source_url':url,'quote':quote})
+
+def six_slot_responses():
+    return [
+        slot('The Navy needed a boat that could stay submerged.','https://history.test/problem','USS Nautilus (SSN-571) was built to stay submerged.'),
+        slot('Nautilus used nuclear propulsion.','https://history.test/design','USS Nautilus (SSN-571) used a nuclear reactor.'),
+        slot('Reactor shielding added weight and cost.','https://history.test/tradeoff','USS Nautilus (SSN-571) carried heavy shielding.'),
+        json.dumps({'candidates':[
+            {'fact':'Nautilus reached the North Pole in 1958.','source_url':'https://history.test/outcome1','quote':'USS Nautilus (SSN-571) reached the North Pole in 1958.'},
+            {'fact':'Nautilus was preserved as a museum.','source_url':'https://history.test/outcome2','quote':'USS Nautilus (SSN-571) is a museum ship.'}]}),
+        slot('The boat was christened by a First Lady.','https://history.test/surprise','USS Nautilus (SSN-571) was christened in 1954.'),
+        slot('It is now a museum rather than a warship.','https://history.test/contrast','USS Nautilus (SSN-571) was decommissioned in 1980.'),
+    ]
+
+class Client:
+    """Queued provider responses; every generate() call is one paid search."""
+    def __init__(self, *responses):
+        self.responses=list(responses); self.calls=[]
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.responses.pop(0)
+
+def setup_case(checkpoint=None):
+    client=Client(*six_slot_responses())
+    payload={'machine_script_contract':'factual_100_v1','machine_discovery_buckets':{},'unit_roster':[MACHINE],
+             'shared_context':['A shared fact.'],'unit_research_cards':[],'machine_raw_source_packages':{}}
+    video={'id':'video','status':'idea_logged','video_title':TITLE,'render_mode':'static_docu','max_spend':None,'total_cost':0}
+    ex=pe.PipelineExecutor.__new__(pe.PipelineExecutor);ex.tenant_id='tenant'
+    ex._pipeline=SimpleNamespace(anthropic=client,should_cancel=AsyncMock(return_value=False))
+    ex._get_video=AsyncMock(side_effect=lambda _v:dict(video,research_payload=copy.deepcopy(payload)))
     ex._load_machine_research_cards=AsyncMock(side_effect=lambda _v,p,_r,**kw:p)
     ex._checkpoint_machine_raw_source_package=AsyncMock(side_effect=checkpoint,return_value='UPDATE 1')
     ex._checkpoint_one_machine_research_result=AsyncMock(return_value='UPDATE 1')
     ex._upsert_machine_research_card=AsyncMock();ex._log_activity=AsyncMock()
     ex._gather_verified_machine_source_package=AsyncMock(side_effect=AssertionError('unexpected rediscovery'))
-    sentence=MACHINE+' was commissioned in 1954.'
-    writer=AsyncMock(return_value={'paragraph':sentence,'claim_map':[{'sentence':sentence,'citations':[{'excerpt_id':'E1'}]}],'sources':[{'excerpt_id':'E1','source_url':'https://history.test/nautilus','quote':TEXT}],'passed':True,'warnings':[],'review_context_version':summaries.REVIEW_CONTEXT_VERSION})
-    return ex,payload,client,writer
+    return ex,payload,client
 
-def run_case(ex,payload,writer):
-    with patch.object(summaries,'generate_factual_machine_summary',writer):
-        return asyncio.run(ex._run_unit_research_hold('video',TITLE,payload,[MACHINE],target_machine=MACHINE))
+@pytest.fixture(autouse=True)
+def offline_boundaries(monkeypatch):
+    monkeypatch.setattr('cancel_registry.is_cancel_requested',AsyncMock(return_value=False))
+    # Call 3 exports its packet to Google Drive fail-soft; never reach a real account from a test.
+    monkeypatch.setattr(v2,'export_machine_packet_to_drive_fail_soft',AsyncMock(return_value=None))
+
+def run_case(ex,payload):
+    return asyncio.run(ex._run_unit_research_hold('video',TITLE,payload,[MACHINE],target_machine=MACHINE))
 
 def test_actual_hold_persists_assessment_and_current_briefing_then_reuses_without_model():
-    ex,payload,client,writer=setup_case();original=copy.deepcopy(payload['unit_roster'])
-    result=run_case(ex,payload,writer);package=result['machine_raw_source_packages']['SSN571'];card=result['unit_research_cards'][0]
+    ex,payload,client=setup_case();original=copy.deepcopy(payload['unit_roster'])
+    result=run_case(ex,payload);package=result['machine_raw_source_packages'][KEY];card=result['unit_research_cards'][0]
     assert package['claim_assessment']['status']=='assessed'
     assert card['claim_assessment']==package['claim_assessment']
     assert research_summary_ready(MACHINE,package,card['research_summary'],TITLE)
     assert result['unit_roster']==original
-    assert ex._checkpoint_machine_raw_source_package.await_count==2
-    assert client.generate.await_count==1 and writer.await_count==1
+    ex._checkpoint_machine_raw_source_package.assert_awaited_once()
+    assert len(client.calls)==6
     assert result['unit_research_hold_validation']['passed']
-    run_case(ex,result,writer)
-    assert client.generate.await_count==1 and writer.await_count==1
+    run_case(ex,result)
+    assert len(client.calls)==6, 'a current saved briefing must be reused without another provider call'
     ex._gather_verified_machine_source_package.assert_not_awaited()
 
-def test_invalid_assessment_retained_and_cannot_revalidate_as_ready():
-    ex,payload,client,writer=setup_case('not json');result=run_case(ex,payload,writer)
-    package=result['machine_raw_source_packages']['SSN571'];card=result['unit_research_cards'][0]
-    assert package['claim_assessment']['status']=='needs_review'
-    assert not result['unit_research_hold_validation']['passed']
-    assert pe._research_card_contract_warnings(MACHINE,card,package,factual_subject_context=TITLE)
-    assert client.generate.await_count==1
-    writer.assert_not_awaited()
+def test_incomplete_packet_is_retained_for_review_and_cannot_revalidate_as_ready():
+    ex,payload,client=setup_case()
+    async def packet(*args,**kwargs):
+        value=await real_packet(*args,**kwargs)
+        value['trade_off']=None
+        return value
+    real_packet=v2.run_machine_research_packet
+    with patch.object(v2,'run_machine_research_packet',packet):
+        result=run_case(ex,payload)
+    validation=result['unit_research_hold_validation']
+    package=result['machine_raw_source_packages'][KEY];card=result['unit_research_cards'][0]
+    assert not validation['passed']
+    assert 'trade_off' in str(validation)
+    assert card['research_summary']['passed'] is False
+    assert not research_summary_ready(MACHINE,package,card['research_summary'],TITLE)
+    assert len(client.calls)==6
 
-def test_assessment_checkpoint_refusal_stops_before_briefing():
-    ex,payload,client,writer=setup_case(checkpoint=['UPDATE 1','UPDATE 0']);result=run_case(ex,payload,writer)
+def test_package_checkpoint_refusal_stops_before_card_is_saved():
+    ex,payload,client=setup_case(checkpoint=['UPDATE 0']);result=run_case(ex,payload)
     assert not result['unit_research_hold_validation']['passed']
     assert 'checkpoint refused' in str(result['unit_research_hold_validation'])
-    writer.assert_not_awaited();ex._checkpoint_one_machine_research_result.assert_not_awaited()
+    assert result['unit_research_cards']==[]
+    ex._checkpoint_one_machine_research_result.assert_not_awaited();ex._upsert_machine_research_card.assert_not_awaited()
 
-def test_conflict_only_assessment_keeps_both_sources_and_holds_briefing():
-    other=TEXT.replace('1954','1955')
-    raw=json.dumps({'claims':[{'claim':'Commissioning year is disputed.','scope':'SSN-571 commissioning','status':'disputed','reason':'Different dates for same event.','evidence':[{'excerpt_id':'E1','quote':TEXT}],'counterevidence':[{'excerpt_id':'E2','quote':other}]}]})
-    ex,payload,client,writer=setup_case(raw);package=payload['machine_raw_source_packages']['SSN571']
-    package['candidate_excerpts'].append(dict(package['candidate_excerpts'][0],excerpt_id='E2',text=other,source_id='S2',source_url='https://other.test/nautilus'))
-    result=run_case(ex,payload,writer);claim=result['unit_research_cards'][0]['claim_assessment']['claims'][0]
-    assert claim['evidence'][0]['quote']==TEXT and claim['counterevidence'][0]['quote']==other
-    assert not result['unit_research_hold_validation']['passed']
-    assert 'no supported claims' in str(result['unit_research_hold_validation'])
-    writer.assert_not_awaited()
-
+# The old "conflict-only assessment keeps both sources and holds the briefing"
+# test was removed with the claim-assessment step it exercised: v2 Call 3 gets one
+# sourced answer per slot and builds the assessment mechanically (every claim
+# supported), so there is no disputed-claim state left to hold on.
 
 def test_full_roster_completion_clears_last_child_target_marker():
-    ex,payload,client,writer=setup_case()
-    payload=run_case(ex,payload,writer)
+    ex,payload,client=setup_case()
+    payload=run_case(ex,payload)
     assert payload['unit_research_hold_validation']['target_machine']==MACHINE
     ex._ensure_initialized=AsyncMock();ex._install_cancel_support=AsyncMock()
     ex._pipeline.should_cancel=AsyncMock(return_value=False)
@@ -94,4 +123,4 @@ def test_full_roster_completion_clears_last_child_target_marker():
     assert saved['unit_research_hold_validation']['passed']
     assert 'target_machine' not in saved['unit_research_hold_validation']
     assert 'target_machine_passed' not in saved['unit_research_hold_validation']
-    assert client.generate.await_count==1 and writer.await_count==1
+    assert len(client.calls)==6

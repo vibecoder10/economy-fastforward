@@ -127,8 +127,10 @@ async def test_machine_script_preview_accepts_em_dash_display_label_without_prod
     executor = SimpleNamespace(
         tenant_id="tenant-test",
         _ensure_initialized=AsyncMock(),
+        _install_cancel_support=AsyncMock(),
         _get_video=AsyncMock(return_value=video),
         _load_prompt_overrides=AsyncMock(),
+        check_machine_script_preview_readiness=AsyncMock(return_value={"ready": True}),
         _run_static_script_hold=hold,
     )
 
@@ -140,6 +142,7 @@ async def test_machine_script_preview_accepts_em_dash_display_label_without_prod
     executor._ensure_initialized.assert_awaited_once_with()
     executor._get_video.assert_awaited_once_with("video-test")
     executor._load_prompt_overrides.assert_awaited_once_with(video)
+    executor.check_machine_script_preview_readiness.assert_awaited_once_with("video-test", canonical)
     hold.assert_awaited_once_with("video-test", video, [canonical], target_machine=canonical)
     assert hold.await_args.kwargs.get("save_target_script") is None
 
@@ -158,8 +161,10 @@ async def test_machine_script_preview_rejects_wrong_named_submarine_without_hold
     executor = SimpleNamespace(
         tenant_id="tenant-test",
         _ensure_initialized=AsyncMock(),
+        _install_cancel_support=AsyncMock(),
         _get_video=AsyncMock(return_value=video),
         _load_prompt_overrides=AsyncMock(),
+        check_machine_script_preview_readiness=AsyncMock(return_value={"ready": True}),
         _run_static_script_hold=hold,
     )
 
@@ -171,4 +176,5 @@ async def test_machine_script_preview_rejects_wrong_named_submarine_without_hold
         "status": "failed",
         "error": "Machine is not in the locked roster: SS-1 — USS Plunger",
     }
+    executor.check_machine_script_preview_readiness.assert_not_awaited()
     hold.assert_not_awaited()

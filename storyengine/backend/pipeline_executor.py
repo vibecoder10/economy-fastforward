@@ -7978,8 +7978,8 @@ def _roster_entry_not_actually_built(item: Any) -> bool:
 
 
 def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
-    """Same gate as _machine_documentary_hold_roster (same 3-40 bound, same
-    static-docu machine-marker requirement), but returns each roster item as
+    """Same gate as _machine_documentary_hold_roster (same static-docu
+    machine-marker requirement, no roster-size bound), but returns each roster item as
     {"name": <UNCHANGED display name>, "aliases": [...], "never_built": bool}
     instead of throwing the structured entry away.
 
@@ -8038,7 +8038,7 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
             "never_built": _roster_entry_never_built(item),
             "facts": facts,
         })
-    return entries if 3 <= len(entries) <= 40 else []
+    return entries
 
 
 def _anton_inventory_title_mode(title: str) -> bool:

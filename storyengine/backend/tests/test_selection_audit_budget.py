@@ -1,5 +1,11 @@
 import asyncio
 import json
+import sys
+from pathlib import Path
+
+# audit_roster_selection imports shared.* lazily; only pipeline_executor puts
+# skills/video-pipeline on sys.path, so a standalone run needs it explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"))
 
 import roster_selection
 from roster_coverage import audit_roster_selection

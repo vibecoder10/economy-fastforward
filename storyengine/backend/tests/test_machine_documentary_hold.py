@@ -7083,6 +7083,7 @@ def test_machine_preview_route_requires_paid_confirmation(monkeypatch):
 def test_run_machine_script_preview_refuses_non_roster_machine_before_hold(monkeypatch):
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
 
     async def fake_init():
         return None
@@ -7118,6 +7119,7 @@ def test_run_machine_script_preview_refuses_non_roster_machine_before_hold(monke
 def test_run_machine_script_preview_canonicalizes_label_to_locked_roster(monkeypatch):
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": None})()
     calls = []
 
     async def fake_init():
@@ -8625,6 +8627,8 @@ def test_run_research_final_save_is_tenant_scoped(monkeypatch):
     import sys
     import types
 
+    import channel_format
+
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
     executor.__dict__["_pipeline"] = type(
@@ -8642,7 +8646,9 @@ def test_run_research_final_save_is_tenant_scoped(monkeypatch):
             "video_title": "Focused DVsU proof",
             "headline": "Focused DVsU proof",
             "status": "idea_logged",
-            "render_mode": "static_docu",
+            # static_docu now ends run_research at the Roster stage; the final
+            # research save under test belongs to every other render mode.
+            "render_mode": "animated",
         }
 
     async def fake_load_overrides(_video):
@@ -8673,6 +8679,8 @@ def test_run_research_final_save_is_tenant_scoped(monkeypatch):
     monkeypatch.setattr(executor, "_get_video", fake_get_video)
     monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
     monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    # run_research first reads the channel profile for the machine script contract.
+    monkeypatch.setattr(channel_format, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(pe, "execute", fake_execute)
 
     result = asyncio.run(executor.run_research("video-test"))
@@ -8692,6 +8700,8 @@ def test_run_research_refuses_zero_row_final_save(monkeypatch):
     import sys
     import types
 
+    import channel_format
+
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
     executor.__dict__["_pipeline"] = type(
@@ -8708,7 +8718,9 @@ def test_run_research_refuses_zero_row_final_save(monkeypatch):
             "video_title": "Focused DVsU proof",
             "headline": "Focused DVsU proof",
             "status": "idea_logged",
-            "render_mode": "static_docu",
+            # static_docu now ends run_research at the Roster stage; the final
+            # research save under test belongs to every other render mode.
+            "render_mode": "animated",
         }
 
     async def fake_load_overrides(_video):
@@ -8740,6 +8752,8 @@ def test_run_research_refuses_zero_row_final_save(monkeypatch):
     monkeypatch.setattr(executor, "_get_video", fake_get_video)
     monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
     monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    # run_research first reads the channel profile for the machine script contract.
+    monkeypatch.setattr(channel_format, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(pe, "execute", fake_execute)
 
     result = asyncio.run(executor.run_research("video-test"))
@@ -8800,12 +8814,20 @@ def _live_gate_passing_research_payload(roster_names):
     }
 
 
-def test_run_research_preserves_locked_roster_and_continues_machine_cards(monkeypatch):
+def test_run_research_keeps_locked_roster_and_stops_at_roster_ready(monkeypatch):
+    """f561ddf6 split Roster selection from detailed machine research: run_research on a
+    static-docu video ends at the Roster stage. A saved roster that already passes the live
+    gate is kept as-is (no rediscovery, no provider spend) and machine research is a
+    separate, explicit run_unit_research call."""
+    import channel_format
+    import static_docu
+
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     payload = _live_gate_passing_research_payload(roster_names)
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
-    continuation_calls = []
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": object()})()
+    writes = []
 
     async def fake_init():
         return None
@@ -8820,33 +8842,57 @@ def test_run_research_preserves_locked_roster_and_continues_machine_cards(monkey
             "research_payload": copy.deepcopy(payload),
         }
 
-    async def fake_continue(video_id):
-        continuation_calls.append(video_id)
-        return {"status": "ready_for_scripting", "video_id": video_id}
+    async def forbidden_continue(_video_id):
+        raise AssertionError("the Roster stage must not start detailed machine research")
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {"has_saved_work": False}
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
 
     async def fake_log(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
     monkeypatch.setattr(executor, "_get_video", fake_get_video)
-    monkeypatch.setattr(executor, "run_unit_research", fake_continue)
+    monkeypatch.setattr(executor, "run_unit_research", forbidden_continue)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(channel_format, "fetch_one", fake_fetch_one)
+    dispatch_calls = []
+    monkeypatch.setattr(static_docu, "dispatch_roster_prefetch", lambda *args: dispatch_calls.append(args))
 
     result = asyncio.run(executor.run_research("video-test"))
 
-    assert result["status"] == "ready_for_scripting"
-    assert continuation_calls == ["video-test"]
-    assert payload["unit_roster"] == roster_names
+    assert result["status"] == "roster_ready"
+    assert dispatch_calls == [], "the Roster stage must not schedule the reference-photo sweep"
+    assert result["selected_count"] == len(roster_names)
+    saved = [json.loads(args[0]) for query, args in writes if "research_payload=$1" in query]
+    assert saved and saved[-1]["research_phase"] == "roster_complete"
+    assert saved[-1]["unit_roster"] == roster_names
 
 
-def test_run_research_never_replaces_a_locked_roster_when_live_gate_fails(monkeypatch):
-    """A repairable gate error must not fall through to destructive discovery."""
+def test_run_research_never_replaces_a_locked_roster_that_has_detailed_work(monkeypatch):
+    """A roster that fails the live gate but already carries detailed machine research must
+    not fall through to destructive re-selection: the Roster stage refuses and preserves it.
+    (A failing roster with NO detailed work is deliberately re-selected, with the previous
+    payload kept in roster_selection_history - see test_roster_stage_integration.)"""
+    import sys
+    import types
+
+    import channel_format
+
     roster_names = ["CV-1 USS Langley", "CV-2 USS Lexington", "CV-3 USS Saratoga"]
     payload = _live_gate_passing_research_payload(roster_names)
     payload["recommended_final_roster"] = roster_names[:-1]
+    payload["unit_research_cards"] = [{"unit": roster_names[0], "evidence_segments": _evidence_segments()}]
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
-    continuation_calls = []
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": object()})()
+    writes = []
 
     async def fake_init():
         return None
@@ -8861,22 +8907,38 @@ def test_run_research_never_replaces_a_locked_roster_when_live_gate_fails(monkey
             "research_payload": copy.deepcopy(payload),
         }
 
-    async def fake_continue(video_id):
-        continuation_calls.append(video_id)
-        return {"status": "failed", "video_id": video_id, "error": "locked roster needs repair"}
+    async def forbidden_continue(_video_id):
+        raise AssertionError("the Roster stage must not start detailed machine research")
+
+    async def forbidden_discovery(**_kwargs):
+        raise AssertionError("a roster with detailed work must not be rediscovered")
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {"has_saved_work": True}
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
 
     async def fake_log(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
     monkeypatch.setattr(executor, "_get_video", fake_get_video)
-    monkeypatch.setattr(executor, "run_unit_research", fake_continue)
+    monkeypatch.setattr(executor, "run_unit_research", forbidden_continue)
     monkeypatch.setattr(executor, "_log_activity", fake_log)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(channel_format, "fetch_one", fake_fetch_one)
+    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=types.SimpleNamespace(run_research=forbidden_discovery)))
+    monkeypatch.setitem(sys.modules, "research.agent", types.SimpleNamespace(run_research=forbidden_discovery))
 
     result = asyncio.run(executor.run_research("video-test"))
 
-    assert result["error"] == "locked roster needs repair"
-    assert continuation_calls == ["video-test"]
+    assert result["status"] == "failed"
+    assert result["roster_selection_failed"] is True
+    assert "existing detailed work is preserved" in result["error"]
+    assert writes == []
     assert payload["unit_roster"] == roster_names
 
 
@@ -8897,6 +8959,7 @@ def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
 
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": object()})()
     writes = []
     syncs = []
 
@@ -8934,8 +8997,13 @@ def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
     result = asyncio.run(executor.run_unit_research("video-test"))
 
     assert result["status"] == "ready_for_scripting"
-    assert "WHERE id = $3 AND tenant_id = $4" in writes[0][0]
-    assert writes[0][1][2:] == ("video-test", "tenant-test")
+    # Every write is tenant-scoped, including the unit_research phase checkpoint
+    # saved before the hold; the final save is the one that carries the status.
+    assert all("tenant_id" in query for query, _ in writes)
+    final_saves = [(query, args) for query, args in writes if "status = $2" in query]
+    assert len(final_saves) == 1
+    assert "WHERE id = $3 AND tenant_id = $4" in final_saves[0][0]
+    assert final_saves[0][1][2:] == ("video-test", "tenant-test")
     assert syncs == [("video-test", "tenant-test")]
 
 
@@ -8953,6 +9021,7 @@ def test_run_unit_research_refuses_zero_row_final_save(monkeypatch):
 
     executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type("FakePipeline", (), {"anthropic": object()})()
     syncs = []
 
     async def fake_init():
@@ -11088,198 +11157,15 @@ def test_beat_number_directives_name_the_mandatory_numbers():
 
 
 # ---------------------------------------------------------------------------
-# 2026-07-29 fix: roster reference-photo prefetch must fire even when the
-# roster/unit-research gate fails, since the roster is persisted regardless
-# of gate outcome. Real deadlock: video d2e37cd6-521a-43aa-a14d-ce096a783c1e
-# ("Every British Aircraft Carrier Class Ever Built") produced a good
-# 23-ship roster, failed the gate on one soft pacing warning, and sat with
-# ZERO reference photos for two days until a human clicked "Re-check
-# missing" — because dispatch_roster_prefetch used to sit below
-# run_research's early return for a failed gate.
+# 2026-07-29 C3 tests of run_research's own roster-prefetch dispatch (fired on
+# both the gate-success and gate-failure exits) were removed 2026-09: since
+# f561ddf6 a static-docu run_research ends at the Roster stage and never reaches
+# that code, and reference photos are now an explicit, separately-triggered
+# Gather Images step (82201e54, PipelineExecutor.run_roster_image_gather). The
+# free MCP submit_research seam still dispatches (research_ingest, covered in
+# functional/test_static_docu_roster_prefetch.py). The kept-roster test above
+# asserts the Roster stage schedules no prefetch.
 # ---------------------------------------------------------------------------
-
-def test_dispatch_fires_on_roster_gate_failure_when_roster_persisted(monkeypatch):
-    """The prefetch dispatch must fire on the GATE-FAILURE exit path too,
-    using the same `video` dict the success path always used, because the
-    roster it needs is already saved to the videos row by the time the gate
-    check runs."""
-    import sys
-    import types
-
-    import static_docu
-
-    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
-    executor.tenant_id = "tenant-test"
-    executor.__dict__["_pipeline"] = type(
-        "FakePipeline", (),
-        {"anthropic": object(), "airtable": object(), "research_system_prompt": None},
-    )()
-
-    video_row = {
-        "id": "video-test",
-        "video_title": "Every British Aircraft Carrier Class Ever Built",
-        "video_length_minutes": 20,
-        "status": "idea_logged",
-        "render_mode": "static_docu",
-    }
-
-    async def fake_init():
-        return None
-
-    async def fake_get_video(_video_id):
-        return dict(video_row)
-
-    async def fake_load_overrides(_video):
-        return None
-
-    async def fake_fetch_one(*_args, **_kwargs):
-        return {}
-
-    roster_items = [
-        {"name": f"Ship class {i}", "designation": f"Category {i}"} for i in range(23)
-    ]
-
-    async def fake_run_research(**_kwargs):
-        return {
-            "thesis": "Source-grounded thesis",
-            "executive_hook": "Source-grounded hook",
-            "documentary_style": "designed_vs_used",
-            "unit_roster": roster_items,
-        }
-
-    # The real live warning: a genuinely good roster, rejected on a single
-    # soft pacing warning — not a data-quality problem.
-    fake_roster_check = {
-        "passed": False,
-        "complete_title": False,
-        "warnings": ["23 final items vs target around 20 for a 20-minute video"],
-        "gaps": [],
-    }
-
-    writes = []
-
-    async def fake_execute(query, *args):
-        writes.append((query, args))
-        return "UPDATE 1"
-
-    async def fake_sync(_video_id, _tenant_id):
-        return None
-
-    dispatch_calls = []
-
-    def fake_dispatch(video_arg, video_id_arg, tenant_id_arg):
-        dispatch_calls.append((video_arg, video_id_arg, tenant_id_arg))
-        return True
-
-    research_agent = types.SimpleNamespace(run_research=fake_run_research)
-    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
-    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
-    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
-    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
-    monkeypatch.setattr(executor, "_get_video", fake_get_video)
-    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
-    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
-    monkeypatch.setattr(pe, "execute", fake_execute)
-    monkeypatch.setattr(pe, "_roster_validation", lambda *a, **k: fake_roster_check)
-    monkeypatch.setattr(static_docu, "dispatch_roster_prefetch", fake_dispatch)
-
-    result = asyncio.run(executor.run_research("video-test"))
-
-    assert result["status"] == "failed"
-    assert "Roster validation failed" in result["error"]
-
-    # The whole point of this test: dispatch must fire even though the gate
-    # failed, because the roster was already persisted above it.
-    assert len(dispatch_calls) == 1, "prefetch dispatch must fire on the gate-failure path"
-    dispatched_video, dispatched_video_id, dispatched_tenant_id = dispatch_calls[0]
-    assert dispatched_video_id == "video-test"
-    assert dispatched_tenant_id == "tenant-test"
-    assert dispatched_video.get("render_mode") == "static_docu"
-
-    # And the roster really was saved — "persisted regardless of gate
-    # outcome" has to be true, not assumed.
-    research_saves = [
-        (query, args) for query, args in writes
-        if "UPDATE videos SET" in query and "research_payload = $1" in query
-    ]
-    assert research_saves
-    saved_payload = json.loads(research_saves[0][1][0])
-    assert saved_payload["unit_roster"] == roster_items
-
-
-def test_dispatch_still_fires_on_gate_success_path(monkeypatch):
-    """Companion to the failure-path test above: the relocated dispatch call
-    must not have been accidentally dropped from the SUCCESS path either."""
-    import sys
-    import types
-
-    import static_docu
-
-    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
-    executor.tenant_id = "tenant-test"
-    executor.__dict__["_pipeline"] = type(
-        "FakePipeline", (),
-        {"anthropic": object(), "airtable": object(), "research_system_prompt": None},
-    )()
-
-    video_row = {
-        "id": "video-test",
-        "video_title": "Focused DVsU proof",
-        "video_length_minutes": 10,
-        "status": "idea_logged",
-        "render_mode": "static_docu",
-    }
-
-    async def fake_init():
-        return None
-
-    async def fake_get_video(_video_id):
-        return dict(video_row)
-
-    async def fake_load_overrides(_video):
-        return None
-
-    async def fake_fetch_one(*_args, **_kwargs):
-        return {}
-
-    async def fake_run_research(**_kwargs):
-        return {
-            "thesis": "Source-grounded thesis",
-            "executive_hook": "Source-grounded hook",
-        }
-
-    fake_roster_check = {"passed": True, "complete_title": False, "warnings": [], "gaps": []}
-
-    async def fake_execute(query, *args):
-        return "UPDATE 1"
-
-    async def fake_sync(_video_id, _tenant_id):
-        return None
-
-    dispatch_calls = []
-
-    def fake_dispatch(video_arg, video_id_arg, tenant_id_arg):
-        dispatch_calls.append((video_arg, video_id_arg, tenant_id_arg))
-        return True
-
-    research_agent = types.SimpleNamespace(run_research=fake_run_research)
-    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
-    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
-    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
-    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
-    monkeypatch.setattr(executor, "_get_video", fake_get_video)
-    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
-    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
-    monkeypatch.setattr(pe, "execute", fake_execute)
-    monkeypatch.setattr(pe, "_roster_validation", lambda *a, **k: fake_roster_check)
-    monkeypatch.setattr(static_docu, "dispatch_roster_prefetch", fake_dispatch)
-
-    result = asyncio.run(executor.run_research("video-test"))
-
-    assert result["status"] == "ready_for_scripting"
-    assert len(dispatch_calls) == 1
-    assert dispatch_calls[0][1] == "video-test" and dispatch_calls[0][2] == "tenant-test"
-
 
 # ---------------------------------------------------------------------------
 # 2026-07-29 fix: alias derivation for ship-class roster entries so the
@@ -11377,18 +11263,27 @@ def test_machine_documentary_hold_roster_entries_keeps_name_unchanged_and_adds_a
 
 
 def test_machine_documentary_hold_roster_entries_gates_same_as_flat_accessor():
-    """Non-static-docu, missing marker, and out-of-bounds roster sizes must
-    all be rejected identically by both accessors (shared gate helper)."""
+    """Non-static-docu and missing-marker videos must be rejected identically by
+    both accessors, and roster size is not a gate for either (shared gate helper).
+    Runtime selection may choose one or more than forty entries (f561ddf6)."""
     not_static = {"render_mode": "coverage", "research_payload": {"unit_roster": ["A", "B", "C"]}}
     assert pe._machine_documentary_hold_roster(not_static) == []
     assert pe._machine_documentary_hold_roster_entries(not_static) == []
 
-    too_short = {
-        "render_mode": "static_docu",
-        "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": ["A", "B"]},
-    }
-    assert pe._machine_documentary_hold_roster(too_short) == []
-    assert pe._machine_documentary_hold_roster_entries(too_short) == []
+    no_marker = {"render_mode": "static_docu", "research_payload": {"unit_roster": ["A", "B", "C"]}}
+    assert pe._machine_documentary_hold_roster(no_marker) == []
+    assert pe._machine_documentary_hold_roster_entries(no_marker) == []
+
+    for names in (["A", "B"], [f"Machine {i}" for i in range(45)]):
+        video = {
+            "render_mode": "static_docu",
+            "research_payload": {
+                "documentary_style": "designed_vs_used",
+                "unit_roster": [{"name": name} for name in names],
+            },
+        }
+        assert pe._machine_documentary_hold_roster(video) == names
+        assert [e["name"] for e in pe._machine_documentary_hold_roster_entries(video)] == names
 
 
 # ---------------------------------------------------------------------------
