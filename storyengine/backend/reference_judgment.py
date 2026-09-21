@@ -22,6 +22,8 @@ import httpx
 
 _TOOL_NAME = "submit_reference_review"
 KIE_LUNA_MODEL = "gpt-5-6-luna"
+# Seconds. A 9-12 photo Luna judgment measured 110-145 s, so the default 120 s cut the slow ones off.
+_REQUEST_TIMEOUT = {"kie_luna": 420}
 _LUNA_INSTRUCTIONS = ("You are a careful reviewer of historical reference photographs. "
                       "Follow the user's instructions exactly and return only the requested structured result.")
 _CORRECTION = (
@@ -247,7 +249,7 @@ async def request_judgment(tenant_id, machine, candidates, content, provider, ur
         if correction:
             request_content.append({"type": "text", "text": _CORRECTION})
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT.get(provider, 120)) as client:
                 response = await client.post(url, headers=headers, json=_payload(
                     provider, model, request_content, schema, attempt["max_tokens"]))
             http_status = response.status_code
@@ -277,6 +279,9 @@ async def request_judgment(tenant_id, machine, candidates, content, provider, ur
                         _write_checkpoint(path, checkpoint)
                         await asyncio.sleep(1)
                         continue
+                    # Provider trouble is not a verdict on this comparison: forget it so a later run can retry.
+                    path.unlink(missing_ok=True)
+                    raise _failure("provider_error", f"Vision provider HTTP {http_status}; identity remains unchecked.")
                 checkpoint.update(status="terminal", terminal_code="provider_error",
                                   terminal_reason=f"Vision provider HTTP {http_status}; identity remains unchecked.")
                 _write_checkpoint(path, checkpoint)
@@ -311,10 +316,8 @@ async def request_judgment(tenant_id, machine, candidates, content, provider, ur
                 _write_checkpoint(path, checkpoint)
                 await asyncio.sleep(1)
                 continue
-            checkpoint.update(status="terminal", terminal_code="provider_error",
-                              terminal_reason="The vision provider could not be reached; identity remains unchecked.")
-            _write_checkpoint(path, checkpoint)
-            raise _failure(checkpoint["terminal_code"], checkpoint["terminal_reason"]) from exc
+            path.unlink(missing_ok=True)  # unreachable provider is not a verdict; a later run can retry
+            raise _failure("provider_error", "The vision provider could not be reached; identity remains unchecked.") from exc
         except Exception as exc:
             # validate_judgment's typed failures are terminal review failures,
             # not recoverable parsing defects.  In particular, its unsupported

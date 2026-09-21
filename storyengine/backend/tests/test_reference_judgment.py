@@ -381,3 +381,33 @@ async def test_judge_does_not_fall_back_on_a_non_auth_anthropic_failure(monkeypa
     with pytest.raises(Exception):
         await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
     assert providers == ["anthropic"]
+
+
+@pytest.mark.asyncio
+async def test_luna_gets_a_timeout_long_enough_for_a_full_photo_judgment(monkeypatch, review_dir):
+    seen = []
+    responses = [_luna()]
+
+    def make_client(**kwargs):
+        seen.append(kwargs.get("timeout"))
+        return Client(responses, [])
+    monkeypatch.setattr(rj.httpx, "AsyncClient", make_client)
+    await _request(provider="kie_luna")
+    assert seen == [420]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [
+    [Response(503, {"error": "overloaded"}), Response(503, {"error": "overloaded"})],
+    [httpx.ReadTimeout(""), httpx.ReadTimeout("")],
+])
+async def test_provider_outage_is_not_saved_as_a_permanent_result(monkeypatch, review_dir, failure):
+    async def no_sleep(seconds): return None
+    monkeypatch.setattr(rj.asyncio, "sleep", no_sleep)
+    _install(monkeypatch, list(failure))
+    with pytest.raises(Exception) as caught:
+        await _request()
+    assert caught.value.code == "provider_error" and caught.value.auth_rejected is False
+    assert list(review_dir.glob("*.json")) == []
+    calls = _install(monkeypatch, [_complete()])  # provider recovered: the same review runs again
+    assert await _request() == _result() and len(calls) == 1
