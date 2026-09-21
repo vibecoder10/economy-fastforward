@@ -4,6 +4,23 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## Handoff — 2026-09-21 — DVSU v2 roster gate fixed; Drive folder fix still open
+
+DONE: `_live_roster_gate` (storyengine/backend/pipeline_executor.py) no longer demands
+`independent_selection_audit` for factual_100_v1 (DVSU v2) rosters - that step is skipped by
+design. Fixes production_guide "roster: not_started" and unblocks run_unit_research / roster
+images for v2 videos. Regression test: tests/test_dvsu_roster_v2.py
+`test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit`.
+
+OPEN (next): DVSU Drive export lands in the wrong "StoryEngine Research" folder. Pipeline root =
+GOOGLE_DRIVE_FOLDER_ID (folder "Storyengine" 1NBFKU8h...); lookup finds/creates the folder inside
+it (1H7uG1Yd...). Ryan wants 1cPXLQN1... (Shared Drive root 0AGEVWQ9GwbVCUk9PVA). Plan: (1) add
+supportsAllDrives/includeItemsFromAllDrives to the create/list/upload calls in
+skills/video-pipeline/shared/clients/google_client.py; (2) `DVSU_RESEARCH_DRIVE_FOLDER_ID` env
+(VPS storyengine/.env) used by ID in dvsu_roster_v2.py + dvsu_research_v2.py, falling back to the
+name lookup when unset; (3) live write test from the VPS with the backend's credentials; (4) ask
+Ryan whether to move the 2 already-written test files.
+
 ## ✓ DONE — 2026-08-04 — Render verb no longer refuses render-ready static documentaries
 
 Live repro (video d2e37cd6-521a-43aa-a14d-ce096a783c1e, tenant 561b872d,

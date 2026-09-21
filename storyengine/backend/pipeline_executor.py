@@ -8654,8 +8654,14 @@ def _live_roster_gate(video: dict, payload: dict) -> dict:
                 check.setdefault("warnings", []).append(message)
                 check.setdefault("hard_warnings", []).append(message)
             from roster_coverage import selection_audit_is_current
+            from factual_machine_research import is_factual_machine_contract
             audit = payload.get("independent_selection_audit") or {}
-            if not selection_audit_is_current(title, payload) or audit.get("passed") is not True:
+            # DVSU v2 (factual_100_v1) rosters deliberately skip the independent
+            # selection audit - run_roster_selection's v2 branch never writes one -
+            # so requiring it here would reject every completed v2 roster.
+            if not is_factual_machine_contract(payload) and (
+                not selection_audit_is_current(title, payload) or audit.get("passed") is not True
+            ):
                 check["passed"] = False
                 message = "Independent runtime-selection audit is unresolved or stale."
                 check.setdefault("warnings", []).append(message)

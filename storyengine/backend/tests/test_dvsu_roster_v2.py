@@ -334,3 +334,53 @@ def test_class_titled_video_roster_of_class_names_passes_structural_check(monkey
     assert saved["roster_selection"]["status"] == "completed"
     assert saved["unit_roster_validation"]["passed"] is True
     assert saved["unit_roster_validation"]["warnings"] == []
+
+
+def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monkeypatch):
+    """Regression, 2026-09-21: production_guide showed "roster: not_started"
+    (and run_unit_research / roster-images refused to run) for a v2 video whose
+    roster was saved and completed. v2 deliberately skips the independent
+    selection audit (see run_roster_selection's v2 branch), but
+    _live_roster_gate demanded independent_selection_audit.passed for EVERY
+    runtime selection, so a completed v2 roster could never pass the gate.
+    Runs the real run_roster_selection to produce the payload, then feeds it to
+    the gate the way production_guide and the Call 3 stage do."""
+    import pipeline_executor as pe
+
+    video = {
+        "id": "v", "status": "idea_logged", "render_mode": "static_docu",
+        "video_length_minutes": 20,
+        "video_title": "Every US Submarine Class Ever Built (2026)",
+        "research_payload": {"machine_script_contract": "factual_100_v1"},
+    }
+    ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    ex.tenant_id = "t"
+    ex._get_video = AsyncMock(side_effect=lambda _: copy.deepcopy(video))
+    ex._pipeline = SimpleNamespace(anthropic=object(), should_cancel=AsyncMock(return_value=False))
+    ex._log_activity = AsyncMock()
+
+    async def save(query, *args):
+        video["research_payload"] = json.loads(args[0])
+        return "UPDATE 1"
+    monkeypatch.setattr(pe, "execute", save)
+    monkeypatch.setattr(pe, "fetch_one", AsyncMock(return_value={"has_saved_work": False}))
+
+    roster = [{"machine": f"Sub {n} class", "act_number": 1} for n in range(20)]
+    draft = {
+        "thesis": "T", "acts": [{"act_number": 1, "argument": "A"}],
+        "unit_roster": roster,
+        "recommended_final_roster": [row["machine"] for row in roster],
+        "shared_context": [],
+    }
+    monkeypatch.setattr(v2, "run_thesis_roster_and_context", AsyncMock(return_value=draft))
+    assert asyncio.run(ex.run_roster_selection("v"))["status"] == "roster_ready"
+
+    payload = video["research_payload"]
+    assert "independent_selection_audit" not in payload
+    gate = pe._live_roster_gate(video, payload)
+    assert gate["passed"] is True, gate.get("warnings")
+
+    # The v2 exemption must not weaken the legacy path or real drift checks:
+    # a settings change still reopens selection.
+    drifted = dict(video, video_length_minutes=30)
+    assert pe._live_roster_gate(drifted, payload)["passed"] is False
