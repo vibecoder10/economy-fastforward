@@ -267,3 +267,40 @@ def test_equivalent_source_url_encoding_matches_but_different_paths_or_queries_d
                 'https://commons.wikimedia.org/wiki/File:USS_Example_%28SS-163%29.jpg?different=1']:
         ident['evidence'][0]['url']=bad
         assert not rs._valid_citations(c,ident)
+
+
+def _pick(title_a, title_b, machine="Barbel class", *, scores_a=4, scores_b=4, limits_a=(), limits_b=(), caption_a=""):
+    import reference_selection as rs
+    def judged(score, limits):
+        return {"identity": {"status": "confirmed", "reason": "r", "evidence": []}, "usable": True,
+                "scores": {k: score for k in rs.WEIGHTS}, "view": "side", "reason": "r", "limitations": list(limits)}
+    candidates = [{"id": "a", "title": title_a, "caption": caption_a}, {"id": "b", "title": title_b}]
+    judgments = {"a": judged(scores_a, limits_a), "b": judged(scores_b, limits_b)}
+    primary, _ = rs.choose_candidate(candidates, judgments, machine)
+    return primary
+
+
+def test_submarine_launch_photo_beats_an_equally_scored_surfaced_photo_and_records_why():
+    primary = _pick("File:Launch of USS Blueback (SS-581) at Ingalls in 1959.jpg", "File:USS Blueback at Mooring.jpg")
+    assert primary[2]["id"] == "a" and primary[0] == 88.0
+    assert primary[3]["score_adjustments"] == [{"reason": "hull out of the water (launch/dry dock/ways)", "points": 8}]
+
+
+def test_a_much_better_surfaced_photo_still_beats_a_launch_photo():
+    assert _pick("File:USS Blueback in drydock.jpg", "File:USS Blueback underway.jpg", scores_a=3, scores_b=5)[2]["id"] == "b"
+
+
+def test_hull_bonus_ignores_missile_launches_captions_and_non_submarines():
+    assert _pick("File:USS Alabama (SSBN-731) Trident missile launch.jpg", "File:Other.jpg")[2]["id"] == "a"  # tie -> first, no bonus
+    assert "score_adjustments" not in _pick("File:USS Alabama (SSBN-731) Trident missile launch.jpg", "File:Other.jpg")[3]
+    assert "score_adjustments" not in _pick("File:USS Barbel.jpg", "File:Other.jpg", caption_a="Launched in 1958, USS Barbel...")[3]
+    assert _pick("File:Launch of the Essex.jpg", "File:Essex underway.jpg", machine="Essex-class carrier")[0] == 80.0
+
+
+def test_small_subject_and_printed_text_limits_lower_the_score():
+    small = _pick("File:a.jpg", "File:b.jpg", scores_a=4, scores_b=3, limits_a=["Submarine occupies a small part of the frame."])
+    assert small[0] == 72.0 and small[3]["score_adjustments"] == [{"reason": "subject small in the frame", "points": -8}]
+    assert _pick("File:a.jpg", "File:b.jpg", limits_a=["Submarine occupies a small part of the frame."])[2]["id"] == "b"
+    text = _pick("File:a.jpg", "File:b.jpg", limits_a=["A caption is printed on the photo."])
+    assert text[2]["id"] == "b"
+    assert "score_adjustments" not in _pick("File:a.jpg", "File:b.jpg", limits_a=["Deck fittings are limited by resolution."])[3]

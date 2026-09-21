@@ -259,13 +259,49 @@ def validate_judgment(judgment, candidates, *, machine=""):
     return result
 
 
-def choose_candidate(candidates, judgments):
+# Seed photos for image generation are best when the whole hull is visible. The judge's scores never
+# rewarded that (nothing scores how much of the machine is out of the water), so a big sharp surfaced
+# photo always beat a launch or dry-dock shot. These are small, deterministic nudges on top of its scores.
+_HULL_EXPOSED = re.compile(r"\b(?:launch(?:ed|ing)?\s+of|launched|christening|dry[- ]?dock(?:ed)?|graving dock|"
+                           r"floating dock|on the ways|slipway|building ways)\b", re.I)
+_NOT_A_HULL_LAUNCH = re.compile(r"missile|polaris|trident|poseidon|torpedo|rocket|\bugm-|\bssm\b", re.I)
+_SMALL_SUBJECT = re.compile(r"(?:small|tiny|distant|sliver)[^.]{0,40}\b(?:frame|image|photo)\b|"
+                            r"occupies a small|relatively small in the frame|\bsmall part of the frame", re.I)
+_OVERLAY_TEXT = re.compile(r"(?:printed|overlaid|superimposed|handwritten|written)\s+(?:caption|text|label|title|writing)|"
+                           r"\b(?:caption|text|label|watermark|writing)s?\b[^.]{0,30}\b(?:printed|overlay\w*|superimposed|across the (?:image|photo)|on the (?:image|photo))", re.I)
+_SUBMARINE = re.compile(r"submarine|\b(?:agss|ssn|ssbn|ssg|ssgn|ss)-?\d", re.I)
+EXPOSED_BONUS, SMALL_SUBJECT_PENALTY, OVERLAY_TEXT_PENALTY = 8, 8, 5
+
+
+def _preference_adjustments(candidate, judgment, machine):
+    """Return [(reason, points)] nudging seed-photo preference; submarines only for the hull bonus."""
+    adjustments = []
+    # The file title describes the picture ("Launch of USS Blueback"); captions often mention a launch
+    # date historically, so they are not used. A class name like "Barbel class" has no hull number,
+    # so the title also counts toward recognizing a submarine.
+    title = str(candidate.get("title") or "")
+    if (_SUBMARINE.search(machine + " " + title)
+            and _HULL_EXPOSED.search(title) and not _NOT_A_HULL_LAUNCH.search(title)):
+        adjustments.append(("hull out of the water (launch/dry dock/ways)", EXPOSED_BONUS))
+    limits = " ".join(str(x) for x in judgment.get("limitations") or [])
+    if _SMALL_SUBJECT.search(limits):
+        adjustments.append(("subject small in the frame", -SMALL_SUBJECT_PENALTY))
+    if _OVERLAY_TEXT.search(limits):
+        adjustments.append(("text printed on the photo", -OVERLAY_TEXT_PENALTY))
+    return adjustments
+
+
+def choose_candidate(candidates, judgments, machine=""):
     eligible = []
     for index, candidate in enumerate(candidates):
         judgment, scores = judgments[candidate["id"]], judgments[candidate["id"]]["scores"]
         if judgment["identity"]["status"] == "confirmed" and judgment["usable"] and scores["coverage"] >= 2 and scores["features"] >= 2:
-            score = round(sum(WEIGHTS[k] * scores[k] for k in WEIGHTS) / 5, 1)
-            eligible.append((score, index, candidate, judgment))
+            score = sum(WEIGHTS[k] * scores[k] for k in WEIGHTS) / 5
+            adjustments = _preference_adjustments(candidate, judgment, machine)
+            if adjustments:
+                score += sum(points for _, points in adjustments)
+                judgment = dict(judgment, score_adjustments=[{"reason": r, "points": p} for r, p in adjustments])
+            eligible.append((round(score, 1), index, candidate, judgment))
     eligible.sort(key=lambda row: (-row[0], row[1]))
     if not eligible:
         return None, None
@@ -297,7 +333,7 @@ def _rerank_saved_review(receipt):
         fields = ("id", "identity", "usable", "scores", "view", "reason", "limitations")
         judgments = validate_judgment({"candidates": [{k: c[k] for k in fields} for c in candidates]}, candidates,
                                       machine=machine)
-        primary, _ = choose_candidate(candidates, judgments)
+        primary, _ = choose_candidate(candidates, judgments, machine)
     except (SelectionFailure, KeyError, TypeError):
         return None
     old_score = -1 if selected_invalid else (receipt.get("selected") or {}).get("score", 0)
@@ -463,7 +499,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         return await fail(exc.code, exc.reason, "error")
     receipt["compared_count"] = len(usable)
     receipt["candidates"] = [_summary(c) | judgments.get(c["id"], {}) for c in candidates]
-    primary, support = choose_candidate(usable, judgments)
+    primary, support = choose_candidate(usable, judgments, machine)
     if primary is None:
         uncertain = [j for j in judgments.values() if j["identity"]["status"] == "uncertain"]
         rejected = [j for j in judgments.values() if j["identity"]["status"] == "rejected"]

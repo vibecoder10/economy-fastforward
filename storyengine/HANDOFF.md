@@ -1,16 +1,22 @@
-# HANDOFF - 2026-09-21 Clean slate: suite green, machine research visible, MCP tools for the by-hand run
+# HANDOFF - 2026-09-21 Gather images done (20/20), Luna photo judge live, above-water preference in scoring
 
 ## Where things stand
-- Prod: `da3db6b0b` deployed and healthy. `main` == `origin/main`. Backend suite **5680 passed, 0 failed** (was 88 red).
-  Frontend: tsc clean, 58 vitest pass, production build passes. Not mine, left alone: `tasks/decisions.md` (uncommitted
-  edit from another session) and untracked `storyengine/jev-key-box.html`.
+- Prod: `4db5a66b4` deployed and healthy (the scoring change below is committed after it; see Next). Backend suite **5705 passed**.
+  Not mine, left alone: `tasks/decisions.md` (uncommitted edit from another session) and untracked `storyengine/jev-key-box.html`.
 - Pipeline being rebuilt step by step (legacy steps deleted on purpose): **Roster -> Gather images -> Research -> Script ->
-  Voice -> Pictures -> Video**, driven through the StoryEngine MCP. **No Anthropic key exists on purpose**; the agent LLM
-  relay answers model calls instead. Test video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, tenant
-  `561b872d-7b73-45e3-9c44-7f30c3566eda` ("Designed vs Used", relay ON).
-- State of that video: Roster 20/20 done. Gather images 0/20. Research **1/20** (USS Holland verified; Drive export
-  `Every US Submarine Class Ever Built (2026)/machines/uss-holland-ss-1.md` under folder `1cPXLQN1Xs5bWa2lPoQ2KL5ufJrA4ZqRU`).
-  The other 19 machines are for Ryan to run by hand to test the whole research phase.
+  Voice -> Pictures -> Video**, driven through the StoryEngine MCP. The agent LLM relay answers Research/Script model calls.
+  Test video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, tenant `561b872d-7b73-45e3-9c44-7f30c3566eda` ("Designed vs Used", relay ON).
+  **That workspace DOES have a stored `anthropic_api_key` (saved Sept 18) and Anthropic rejects it as invalid (401).** The old handoff
+  said none existed. Not touched (credential). The judge now falls back to Kie Luna on a rejected key, but Ryan should fix or delete it.
+- State of that video: Roster 20/20 done. **Gather images 20/20 done** (guide says done). Research **1/20** (USS Holland verified; Drive
+  export `Every US Submarine Class Ever Built (2026)/machines/uss-holland-ss-1.md`). The other 19 machines are for Ryan to run by hand.
+- How Gather got to 20/20 (spend: about $0.02 of Luna; 8 photos judged, then Ryan said no more spending): the Luna sweep judged 8 machines
+  (2 kept: Tang, Porpoise); the other 18 photos were **placed by hand** (Osiris viewed candidates, verified identity from the source
+  caption/file title, hosted them, wrote receipts with `manual` set and no paid judge). Backup of the replaced rows:
+  scratchpad `backup_reference_cache_2026-09-21.jsonl` (not in repo). All 18 are above-water shots (surfaced, dockside, dry dock, launch, on the ways).
+- Why by hand: source discovery is the weak spot. "A-class"/"S-class" returned Mercedes cars, "Barracuda class (V-1 group)" returned German
+  V-1 flying bombs, "F-class" returned British destroyers, "Skate class" returned a deck log. Fix idea: pass the roster entry's `role`/era
+  (US submarine) into the Commons queries so class names stop colliding. Not built.
 
 ## How to run one machine by hand (new, live)
 1. `get_production_guide {video_id}` - `next_step.tool` now names the tool for the step.
@@ -24,14 +30,18 @@
 - **Gather images is different:** `gather_roster_images {video_id}` is PAID and quote-gated (no `confirm_token` = quote only). It does NOT go
   through the relay: its photo judge calls a vision model directly (Anthropic key if the workspace has one, else Kie - see the Luna bullet below).
   `research_machine` does NOT need images gathered.
-- **Gather images photo check = Kie gpt-5-6-luna (built 2026-09-21, tested, NOT yet deployed).** Ryan picked cheap Kie; Gemini Flash could not be
-  tested (Kie's Gemini and Claude endpoints were down all morning: HTTP 200 `{"code":500}` / 530), and Ryan pointed at Luna ($0.056/M in,
-  $0.336/M out, `POST /codex/v1/responses`, `input_image` data URLs, json_schema `text.format` works). Replay of 3 saved Sonnet judgments
-  (Thresher, Holland, Los Angeles): same selected photo 3/3, identity agreement 28/31 (Luna stricter on wrong-ship photos), $0.0023-0.0026 per
-  machine, 110-145 s per machine at medium reasoning, so Gather images now runs 4 machines at once (`ROSTER_GATHER_CONCURRENCY`, ~10-12 min for 20). Quote now $0.01/machine ($0.20 for 20).
-  Rollback: `REFERENCE_JUDGE_PROVIDER=kie_claude` in the VPS env. Direct Anthropic is still used first when a key exists. Backend suite 5693 passed.
-  Not touched: `static_docu._vision_yes_no` / `_vision_confirms` still call Kie Claude directly (other flows).
-  **Next: commit, `git push origin main` from the Mac, `se deploy`, then `gather_roster_images {video_id}` (quote, then confirm) and walk the Gather tab.**
+- **Gather images photo check = Kie gpt-5-6-luna (live).** Direct Anthropic is used first when a valid key exists; a rejected key (401/403) falls back
+  to Luna. Replay of 3 saved Sonnet judgments: same photo 3/3, identity agreement 28/31, ~$0.0025/machine. Each judgment takes 110-145 s, so
+  Luna gets a 420 s HTTP timeout, and the sweep runs 4 machines at once (`ROSTER_GATHER_CONCURRENCY`). Provider outages and rejected keys are NOT
+  saved as permanent results (a rerun retries); deterministic 4xx, refusals and unreadable output still are. Quote is $0.01/machine.
+  Rollback: `REFERENCE_JUDGE_PROVIDER=kie_claude`. Kie's Gemini and Claude endpoints were down that morning; `codex/v1/responses` stayed up.
+  Not touched: `static_docu._vision_yes_no` / `_vision_confirms` still call Kie Claude directly.
+- **Seed-photo preference (committed after the deploy, not yet on prod):** `reference_selection.choose_candidate(candidates, judgments, machine)` now
+  nudges scores: +8 when a submarine photo's FILE TITLE says launch/dry dock/on the ways (captions are ignored, they mention launch dates),
+  -8 when the judge's own limitations say the subject is small in the frame, -5 for text printed on the photo. Adjustments are recorded on the
+  selection as `score_adjustments`. Checked offline against the 8 saved judgments (free): flips Barbel to the launch shot, Lafayette and Skipjack
+  off the small-subject picks. NOT live-tested with a model. A bigger fix would add explicit `hull_exposure` / `prominence` fields to the judge schema;
+  that needs a paid test (~$0.003/machine). Judge scores also rate "whole boat in frame" too high: it gave a sliver-of-frame Pomodon photo 98.
 
 ## What this session changed
 - MCP: +2 tools (`gather_roster_images`, `research_machine`), 100 -> 102; guide names the tool; shared route guards/jobs in
@@ -50,6 +60,12 @@
   from the user-level `storyengine` entry in `~/.claude.json` (never print it).
 
 ## Open items (nothing else is hidden)
+- **UX found walking the Gather tab (not fixed):** a red "Run All stopped at Research - Something went wrong. Please try again." banner still shows
+  on a video whose Gather is done (stale history, vague wording); the "Retry missing images" button still shows at 20/20 verified;
+  the panel subtitle says "Untitled documentary"; hand-placed photos show a "Single source" badge (judged ones say "Compared N photos").
+- **Ryan's call:** fix or delete the invalid `anthropic_api_key` for "Designed vs Used" (Settings). Until then Anthropic 401s and Luna is the fallback.
+- A session's in-app MCP connection goes stale after a deploy (502 on every call while /api/health is 200). Stand-in: POST the JSON-RPC to
+  `https://storyengine.dev/api/mcp` with the header from the `storyengine` entry in `~/.claude.json`, or restart the app.
 - **SECURITY (Ryan only):** the VPS git remote URL embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`); rotate it.
 - Decide: the 20-machine test roster was hand-composed (Claude-written, not web-verified) - keep / regenerate / discard.
 - The red "Run All stopped at Gather images ... Authentication failed" banner is a Sept 19 failure from before the relay; it
