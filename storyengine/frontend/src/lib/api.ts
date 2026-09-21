@@ -1269,6 +1269,7 @@ export type ReferenceSelectionReceipt = {
   discovered_count?: number; compared_count?: number; selected?: ReferenceSelectionCandidate | null;
   supporting?: ReferenceSelectionCandidate[]; candidates?: ReferenceSelectionCandidate[];
   reason_code?: string; reason?: string;
+  manual?: { by?: string; on?: string; why?: string };
 };
 
 export const getRosterDashboard = (videoId: string) =>

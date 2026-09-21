@@ -159,7 +159,8 @@ function fullMachineResearchGatePassed(validation: any, verifiedCount: number, r
     && rosterCount > 0
     && verifiedCount === rosterCount
     && units.length >= rosterCount
-    && !validation?.target_machine
+    // A one-machine run leaves the last machine it researched in target_machine; that only blocks while that card itself failed.
+    && (!validation?.target_machine || validation?.target_machine_passed === true)
   );
 }
 

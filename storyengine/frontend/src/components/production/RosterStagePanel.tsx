@@ -265,7 +265,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
           No Machine Roster Yet
         </p>
         <p className="text-sm mb-4" style={{ color: "var(--text-tertiary)" }}>
-          {video.headline || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
+          {video.headline || video.video_title || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
         </p>
         <div className="flex items-end justify-center gap-2">
           <label className="text-left text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -324,7 +324,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
               <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> {mode === "image_gather" ? "Gather reference images" : "Machine Roster"}
             </p>
             <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-              {video.headline || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
+              {video.headline || video.video_title || "Untitled documentary"}{duration > 0 ? ` · ${duration} minutes · target ${targetCount || "—"} machines` : ""}
             </p>
             <p className="text-sm mt-1 max-w-xl" style={{ color: "var(--text-tertiary)" }}>
               {selection?.status === "completed" && payload?.unit_roster_validation?.passed === true ? `${units.length}/${selection.target_count || targetCount || units.length} selected and independently accepted.`
@@ -357,14 +357,16 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
               </p>
             )}
           </div>
-          <ActionButton
-            icon={rechecking || showRunning ? Loader2 : RefreshCw}
-            variant="outline"
-            onClick={mode === "image_gather" ? handleGather : handleRecheck}
-            disabled={rechecking || showRunning || taskWatcher.running}
-          >
-            {rechecking || showRunning ? "Gathering…" : mode === "image_gather" ? (legacySelectionPending ? "Review image choices" : "Retry missing images") : "Re-check missing"}
-          </ActionButton>
+          {(!allVerified || rechecking || showRunning || legacySelectionPending) && (
+            <ActionButton
+              icon={rechecking || showRunning ? Loader2 : RefreshCw}
+              variant="outline"
+              onClick={mode === "image_gather" ? handleGather : handleRecheck}
+              disabled={rechecking || showRunning || taskWatcher.running}
+            >
+              {rechecking || showRunning ? "Gathering…" : mode === "image_gather" ? (legacySelectionPending ? "Review image choices" : "Retry missing images") : "Re-check missing"}
+            </ActionButton>
+          )}
         </div>
       </GlassCard>
 
@@ -404,7 +406,7 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                 <p className="text-sm font-semibold break-words" style={{ color: "var(--text-primary)" }} title={u.machine}>
                   {u.machine}
                 </p>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 max-w-full [&>*]:whitespace-nowrap">
                 {verified ? (
                   <span
                     className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
@@ -445,9 +447,9 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                     <ImageIcon size={11} /> photo pending
                   </span>
                 )}
-                {verified && receipt?.compared_count ? (
+                {verified && (receipt?.manual || receipt?.compared_count) ? (
                   <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}>
-                    {receipt.compared_count > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}
+                    {receipt.manual ? "Placed by hand" : (receipt.compared_count ?? 0) > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}
                   </span>
                 ) : null}
                 {mode === "image_gather" && verified && (u.reference?.source_page_url || u.reference?.source_url) && (
@@ -488,7 +490,8 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
                   <summary className="cursor-pointer" style={{ color: "var(--turquoise)" }}>Why this photo</summary>
                   <div className="mt-2 space-y-1">
                     <p>{receipt.selected?.reason || receipt.reason || "Selection review needs attention."}</p>
-                    {receipt.compared_count ? <p>{receipt.compared_count > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}</p> : null}
+                    {receipt.manual ? <p>{receipt.manual.why || "Photo chosen by hand."}{receipt.manual.by ? ` (${receipt.manual.by}${receipt.manual.on ? `, ${receipt.manual.on}` : ""})` : ""}</p>
+                      : receipt.compared_count ? <p>{receipt.compared_count > 1 ? `Compared ${receipt.compared_count} photos` : "Single source"}</p> : null}
                     {receipt.selected?.scores ? <p>Score factors: coverage {receipt.selected.scores.coverage}/5 · features {receipt.selected.scores.features}/5 · sharpness {receipt.selected.scores.sharpness}/5 · unobstructed {receipt.selected.scores.unobstructed}/5 · perspective {receipt.selected.scores.perspective}/5</p> : null}
                     {(receipt.selected?.identity?.evidence || []).map((e, index) => <p key={index}><a className="underline" href={e.url} target="_blank" rel="noreferrer">Evidence</a>: {e.quote}</p>)}
                     {(receipt.selected?.limitations || []).map((item, index) => <p key={index}>Limitation: {item}</p>)}

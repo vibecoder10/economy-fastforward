@@ -30,7 +30,7 @@ function exportedFunction(name: string): string {
 const helperSource = `
   const machineLabelMatches = (left: unknown, right: unknown) => String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
   const machinePreviewPassesAntonGate = (preview: any) => Boolean(preview?.quality_audit?.passed && preview?.claim_bundle?.formula_sentences?.length === 5);
-  const fullMachineResearchGatePassed = (validation: any, verifiedCount: number, rosterCount: number) => Boolean(validation?.passed && verifiedCount === rosterCount && validation?.units?.length >= rosterCount && !validation?.target_machine);
+  const fullMachineResearchGatePassed = (validation: any, verifiedCount: number, rosterCount: number) => Boolean(validation?.passed && verifiedCount === rosterCount && validation?.units?.length >= rosterCount && (!validation?.target_machine || validation?.target_machine_passed === true));
   const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
   const FACTUAL_REVIEW_CONTEXT_VERSION = ${FACTUAL_REVIEW_CONTEXT_VERSION};
   const DVSU_COMPILER_VERSION = ${numericConstant(source, "DVSU_COMPILER_VERSION")};
