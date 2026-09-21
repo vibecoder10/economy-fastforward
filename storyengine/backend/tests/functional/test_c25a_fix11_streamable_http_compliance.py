@@ -290,7 +290,10 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
     # 97 -> 98.
     # Agent LLM relay (2026-09-21): +2 (list_pending_llm_requests,
     # answer_llm_request) — 98 -> 100.
-    assert len(tools) == len(mcp_mod.TOOLS) == 100, (
+    # Static-documentary stage tools (2026-09-21): +2 (gather_roster_images,
+    # research_machine - the Gather images and one-machine research steps that only
+    # had UI buttons) — 100 -> 102.
+    assert len(tools) == len(mcp_mod.TOOLS) == 102, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

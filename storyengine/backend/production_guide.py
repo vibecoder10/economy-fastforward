@@ -353,6 +353,25 @@ def _recommend_next_step(stages: list[dict[str, Any]]) -> dict[str, Any]:
     return {"stage": "done", "action": "celebrate", "reason": "Every stage in this video's plan is done."}
 
 
+# Static-documentary steps that only had UI buttons before the MCP got their own tools.
+_STATIC_STAGE_TOOLS = {
+    "image_gather": ("gather_roster_images",
+                     "call gather_roster_images (it quotes the vision cost first, then runs in the background)"),
+    "research": ("research_machine",
+                 "call research_machine once per locked roster machine that has no verified card yet, then "
+                 "answer its requests with list_pending_llm_requests / answer_llm_request"),
+}
+
+
+def _with_tool_hint(next_step: dict[str, Any], is_static: bool) -> dict[str, Any]:
+    """Name the MCP tool that performs a 'start' step, so an agent can act on the guide alone."""
+    hint = _STATIC_STAGE_TOOLS.get(next_step.get("stage")) if is_static and next_step.get("action") == "start" else None
+    if not hint:
+        return next_step
+    tool, how = hint
+    return {**next_step, "tool": tool, "reason": f"{next_step['reason']} Next: {how}."}
+
+
 async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     """Full ordered stage checklist for ONE video, tenant-scoped. Returns
     None when the video doesn't exist for this tenant (caller turns that
@@ -474,7 +493,7 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
         "plan": enabled,
         "stages": stages,
         "warnings": warnings,
-        "next_step": _recommend_next_step(stages),
+        "next_step": _with_tool_hint(_recommend_next_step(stages), is_static),
     }
     # Agent LLM relay: a stage that is "in progress" may simply be waiting for YOU to
     # answer its model calls. Say so, or a waiting run looks hung.

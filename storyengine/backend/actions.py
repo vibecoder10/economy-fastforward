@@ -73,6 +73,7 @@ from shared.channel_profile import (  # noqa: E402
     VOICE_PRICE_FLAT_ESTIMATE as VOICE_COST_ESTIMATE,
     SOUND_PRICE_ESTIMATE as SOUND_COST_ESTIMATE,
     SCRIPT_PRICE_ESTIMATE as SCRIPT_COST_ESTIMATE,
+    ROSTER_IMAGE_CHECK_PRICE_ESTIMATE as ROSTER_IMAGE_CHECK_COST,
     picture_price_for,
     # Single Claude tier source (checklist §3.4 / C35) — same re-export
     # pattern as the cost constants above; the values live in

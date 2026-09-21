@@ -3149,6 +3149,125 @@ _ENVIRONMENT_PAID_HANDLERS = {
 }
 
 
+# --- Static-documentary Gather images + one-machine research --------------------
+# The two steps between the accepted Roster and a finished Research stage had only
+# UI buttons (POST /roster-images, POST /machine-research-one) and the whole-video
+# `build`. These wrap the SAME route logic (routes.pipeline.start_*_in_process) so an
+# agent can run them one at a time. research_machine is free and relay-only;
+# gather_roster_images spends the workspace's vision key, so it is quote-gated.
+
+_GATHER_ROSTER_IMAGES_TOOL: dict[str, Any] = {
+    "name": "gather_roster_images",
+    "description": (
+        "Gather images: find and vision-verify one reference photo for every locked roster machine "
+        "that still lacks one (static documentaries). PAID - it runs a vision check on the workspace's "
+        "own Anthropic key (or the Kie.ai Claude fallback), roughly one request per missing machine. "
+        "Call with no confirm_token first to get a price quote; call again with the returned "
+        "confirm_token to actually run it. Starts in the background and returns immediately - watch "
+        "get_production_guide (stage image_gather). Never touches the roster or research."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "confirm_token": {"type": "string", "description": "From the quote; single-use, expires in 10 minutes."},
+        },
+        "required": ["video_id"],
+    },
+}
+
+_RESEARCH_MACHINE_TOOL: dict[str, Any] = {
+    "name": "research_machine",
+    "description": (
+        "Research ONE locked roster machine with the real pipeline step, answering its model calls "
+        "yourself through the agent LLM relay - zero StoryEngine spend, no provider key. Only works "
+        "when this workspace has the relay on (get_workspace_info shows agent_llm_relay). Starts in the "
+        "background and returns immediately. Then loop: list_pending_llm_requests {video_id} -> do each "
+        "prompt's own web searches -> answer_llm_request with ONLY the JSON asked; expect six requests "
+        "(problem, design, trade-off, outcome candidates, surprising fact, contrast), each appearing "
+        "about 2 seconds after the previous answer. The card is saved and gated by the pipeline's own "
+        "checks; confirm with get_production_guide (stage research). Refuses a machine that is not on "
+        "the locked roster and lists the valid names. One machine at a time; never regenerates the roster."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "machine": {"type": "string", "description": "Exact machine name from the locked roster, e.g. \"USS Holland (SS-1)\"."},
+        },
+        "required": ["video_id", "machine"],
+    },
+}
+
+_ROSTER_STAGE_TOOLS: list[dict[str, Any]] = [_GATHER_ROSTER_IMAGES_TOOL, _RESEARCH_MACHINE_TOOL]
+
+
+async def _call_gather_roster_images(tenant_id, arguments: dict[str, Any],
+                                      background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("gather_roster_images requires a video_id argument")
+    video_id = str(video_id)
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    from pipeline_executor import PipelineExecutor
+    from roster_images import roster_image_state
+    video = await PipelineExecutor(tenant_id)._get_video(video_id)
+    if not video:
+        return _error_result("Video not found")
+    state = await roster_image_state(video, tenant_id)
+    total = int(state.get("total") or 0)
+    if not total:
+        return _error_result("This video has no saved roster yet - finish the Roster step before gathering images.")
+    missing = max(total - int(state.get("verified") or 0), 0)
+    if missing == 0:
+        return _text_result({"status": "already_done", "video_id": video_id,
+                             "message": f"All {total} roster images are already verified - nothing to gather."})
+    quote_cost = round(missing * actions.ROSTER_IMAGE_CHECK_COST, 2)
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "gather_roster_images", None,
+        quote_cost, f"~${quote_cost:.2f} ({missing} machine(s) x ${actions.ROSTER_IMAGE_CHECK_COST:.2f} vision check, estimate)",
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.pipeline import start_roster_images_in_process
+    try:
+        resp = await start_roster_images_in_process(video_id, str(tenant_id), background_tasks)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start image gathering")
+    _log_setup_write("gather_roster_images", tenant_id, caller, detail=video_id)
+    return _text_result({**resp, "next": "Watch get_production_guide (stage image_gather) until it reads done."})
+
+
+async def _call_research_machine(tenant_id, arguments: dict[str, Any],
+                                  background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    machine = str(arguments.get("machine") or "").strip()
+    if not video_id or not machine:
+        return _error_result("research_machine requires video_id and machine arguments")
+    video_id = str(video_id)
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    from routes.pipeline import start_machine_research_in_process
+    try:
+        resp = await start_machine_research_in_process(video_id, str(tenant_id), machine, background_tasks)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start machine research")
+    _log_setup_write("research_machine", tenant_id, caller, detail=f"{video_id}:{resp.get('machine')}")
+    return _text_result({
+        **resp,
+        "next": ("Call list_pending_llm_requests {video_id}, do each prompt's web searches, and reply with "
+                 "answer_llm_request. Six requests in total; then check get_production_guide (stage research)."),
+    })
+
+
+_ROSTER_STAGE_HANDLERS = {
+    "gather_roster_images": _call_gather_roster_images,
+    "research_machine": _call_research_machine,
+}
+
+
 # --- Voice control ------------------------------------------------------------
 
 _SET_NARRATOR_VOICE_TOOL: dict[str, Any] = {
@@ -3783,6 +3902,7 @@ TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
     + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
     + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS + _MEDIA_TOOLS + _ENVIRONMENT_TOOLS
+    + _ROSTER_STAGE_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -3952,6 +4072,8 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _ENVIRONMENT_FREE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _ENVIRONMENT_PAID_HANDLERS:
             return await _ENVIRONMENT_PAID_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
+        if name in _ROSTER_STAGE_HANDLERS:
+            return await _ROSTER_STAGE_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
         if name in _FEATURE_BOARD_READ_HANDLERS:
             return await _FEATURE_BOARD_READ_HANDLERS[name](tenant_id, arguments)
         if name in _FEATURE_BOARD_WRITE_HANDLERS:

@@ -1114,6 +1114,14 @@ async def run_research(
 async def run_roster_images(video_id: str, request: Request, background_tasks: BackgroundTasks,
                             tenant_id: str = Depends(get_tenant_id)):
     """Gather and vision-verify photo references for the saved static roster."""
+    await _roster_images_preflight(video_id, tenant_id)
+    _set_task_status(video_id, "running", "Gathering reference images for the saved roster", tenant_id=tenant_id, task_type="roster_images")
+    await _enqueue_or_fallback(request, background_tasks, "roster_images", video_id, tenant_id, _roster_images_job(video_id, tenant_id))
+    return PipelineResponse(video_id=video_id, status="running", message="Roster image gathering started")
+
+
+async def _roster_images_preflight(video_id: str, tenant_id: str) -> None:
+    """Guards shared by the REST route and the MCP gather_roster_images tool."""
     await drain_mode.assert_accepting_new_work()
     video = await fetch_one("SELECT id, render_mode FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not video:
@@ -1122,7 +1130,9 @@ async def run_roster_images(video_id: str, request: Request, background_tasks: B
         raise HTTPException(status_code=400, detail="Roster image gathering is only available for static documentaries")
     if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running for this video")
-    _set_task_status(video_id, "running", "Gathering reference images for the saved roster", tenant_id=tenant_id, task_type="roster_images")
+
+
+def _roster_images_job(video_id: str, tenant_id: str):
     async def _run():
         try:
             result = await PipelineExecutor(tenant_id).run_roster_image_gather(video_id)
@@ -1134,8 +1144,69 @@ async def run_roster_images(video_id: str, request: Request, background_tasks: B
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
-    await _enqueue_or_fallback(request, background_tasks, "roster_images", video_id, tenant_id, _run)
-    return PipelineResponse(video_id=video_id, status="running", message="Roster image gathering started")
+    return _run
+
+
+async def start_roster_images_in_process(video_id: str, tenant_id: str, background_tasks: BackgroundTasks) -> dict:
+    """MCP door: the same guards and job as POST /roster-images, run in this process
+    (MCP handlers carry a task runner but no request/arq handle)."""
+    await _roster_images_preflight(video_id, tenant_id)
+    _set_task_status(video_id, "running", "Gathering reference images for the saved roster", tenant_id=tenant_id, task_type="roster_images")
+    background_tasks.add_task(_roster_images_job(video_id, tenant_id))
+    return {"status": "started", "video_id": video_id, "message": "Roster image gathering started"}
+
+
+def _machine_research_job(video_id: str, tenant_id: str, machine: str):
+    async def _run():
+        try:
+            result = await PipelineExecutor(tenant_id).run_one_machine_research(video_id, machine)
+            if result.get("status") == "failed":
+                _set_task_status(video_id, "failed", result.get("error") or f"Research for {machine} failed", tenant_id=tenant_id, task_type="machine_research")
+            else:
+                _set_task_status(video_id, "completed", f"Research card saved for {machine}", tenant_id=tenant_id, task_type="machine_research")
+        except Exception as exc:
+            logger.exception("[machine-research] failed video=%s machine=%s", video_id, machine)
+            _set_task_status(video_id, "failed", humanize_error(exc, context="One-machine research failed"), tenant_id=tenant_id, task_type="machine_research")
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+    return _run
+
+
+async def start_machine_research_in_process(video_id: str, tenant_id: str, machine: str,
+                                            background_tasks: BackgroundTasks) -> dict:
+    """MCP door for researching ONE locked machine in the background.
+
+    Only allowed when the workspace's agent LLM relay is on: the run then answers its
+    model calls through the connected agent (free, no provider key). Without the relay
+    it would spend the workspace's keys, so the paid, confirm-gated app button is the
+    only door for that. The run waits on the agent, so it must not hold a request open.
+    """
+    from agent_relay import relay_enabled
+    from pipeline_executor import _locked_roster_item_for_machine, _machine_documentary_hold_roster
+
+    machine = (machine or "").strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine is required")
+    await drain_mode.assert_accepting_new_work()
+    if not await relay_enabled(tenant_id):
+        raise HTTPException(
+            status_code=400,
+            detail="This workspace's agent LLM relay is off, so machine research would spend the workspace's "
+                   "provider keys. Use the app's 'Research selected' button, which asks you to confirm the cost.",
+        )
+    video = await PipelineExecutor(tenant_id)._get_video(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    roster = _machine_documentary_hold_roster(video)
+    matched = _locked_roster_item_for_machine(roster, machine)
+    if not matched:
+        raise HTTPException(status_code=400, detail=f"Machine is not in the locked roster: {machine}. Roster: " + "; ".join(str(m) for m in roster))
+    if await _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running for this video")
+    _set_task_status(video_id, "running", f"Researching {matched} - waiting on the agent to answer its research questions", tenant_id=tenant_id, task_type="machine_research")
+    background_tasks.add_task(_machine_research_job(video_id, tenant_id, matched))
+    return {"status": "started", "video_id": video_id, "machine": str(matched)}
 
 
 @router.post("/script/{video_id}", response_model=PipelineResponse)

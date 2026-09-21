@@ -598,6 +598,14 @@ SOUND_PRICE_ESTIMATE = 0.05
 # second hardcoded 0.02 drifting out of sync with the quote.
 SCRIPT_PRICE_ESTIMATE = 0.02
 
+# Roster photo verification (Gather images): ONE vision request per machine that
+# still lacks a verified photo, covering up to 12 candidate photos
+# (reference_selection.py's candidate cap), on the workspace's own Anthropic key
+# or the Kie.ai Claude fallback. No per-token signal is threaded back, so — same
+# "flat estimate" reasoning as SCRIPT_PRICE_ESTIMATE above — this is a per-machine
+# upper-bound estimate (~20k input tokens of images + a short JSON verdict).
+ROSTER_IMAGE_CHECK_PRICE_ESTIMATE = 0.10
+
 
 # --- Claude Text Model Tiers ---
 #
