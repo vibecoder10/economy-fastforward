@@ -1,4 +1,4 @@
-# HANDOFF - 2026-09-21 Gather images done (20/20), Luna photo judge live, above-water preference in scoring
+# HANDOFF - 2026-09-21 Research 20/20 verified, relay photo judge proven live, matcher fix deployed
 
 ## Where things stand
 - Prod: see the last deploy line in `~/deploys.log` (`main` == `origin/main`). Backend suite **5715 passed**.
@@ -6,11 +6,15 @@
 - Pipeline being rebuilt step by step (legacy steps deleted on purpose): **Roster -> Gather images -> Research -> Script ->
   Voice -> Pictures -> Video**, driven through the StoryEngine MCP. The agent LLM relay answers Research/Script model calls.
   Test video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, tenant `561b872d-7b73-45e3-9c44-7f30c3566eda` ("Designed vs Used", relay ON).
-  **That workspace DOES have a stored `anthropic_api_key` (saved Sept 18) and Anthropic rejects it as invalid (401).** The old handoff
-  said none existed. Not touched (credential). **Ryan's rule (2026-09-21): key installed -> use it; no key -> use the MCP relay.** So with that invalid key
-  still installed, any NEW Gather run on this workspace 401s until Ryan deletes or fixes the key (the finished 20/20 is unaffected).
-- State of that video: Roster 20/20 done. **Gather images 20/20 done** (guide says done). Research **1/20** (USS Holland verified; Drive
-  export `Every US Submarine Class Ever Built (2026)/machines/uss-holland-ss-1.md`). The other 19 machines are for Ryan to run by hand.
+  **The invalid `anthropic_api_key` for this workspace was DELETED on 2026-09-21 at Ryan's request** (Anthropic rejected it with 401; audit row in
+  `bot_activity`). No key now -> Gather images judges through the MCP relay. **Ryan's rule: key installed -> use it; no key -> use the MCP relay.**
+  Note the `NEXT_PUBLIC_DEV_TOKEN` (`se devtoken`) is Ryan's OTHER tenant (`ee93e6d1`), so Settings-API calls with it do NOT touch "Designed vs Used".
+- State of that video: Roster 20/20 done. **Gather images 20/20 done. Research 20/20 done** (guide: "Detailed machine research is complete";
+  Research tab shows 20/20 VERIFIED; every card's `script_brief_readiness.passed` is true). Next stage: **Script** (`get_production_guide` next_step).
+  Research was done by Sonnet worker agents answering the relay one machine at a time (a run is strictly serial per video: a second start returns 409).
+  Their answers lean on NavSource/Naval Submarine League/Johnston guides; some secondary (Naval-Encyclopedia, Covert Shores, WarHistory, GlobalSecurity) and a
+  few figures conflict across sources (flagged inside the answers). history.navy.mil 404s, USNI/Britannica/si.edu are blocked for the fetch tool. A human spot check of
+  the cards before Script is worthwhile (three answers carry small inferences: GW "Oct-Nov 1957", Ohio surprising-fact last line, Permit contrast wording).
 - How Gather got to 20/20 (spend: about $0.02 of Luna; 8 photos judged, then Ryan said no more spending): the Luna sweep judged 8 machines
   (2 kept: Tang, Porpoise); the other 18 photos were **placed by hand** (Osiris viewed candidates, verified identity from the source
   caption/file title, hosted them, wrote receipts with `manual` set and no paid judge). Backup of the replaced rows:
@@ -36,11 +40,14 @@
   (free, replays on re-run, model label `agent-vision`); no key and relay off = clear error. `gather_roster_images` is free with no quote in relay mode, quoted
   (~$0.10/machine, Sonnet-measured) only when a key is installed. **Kie Luna is opt-in only** (`REFERENCE_JUDGE_PROVIDER=kie_luna`, or `kie_claude`) and needs a Kie key; replay of 3 saved
   Sonnet judgments gave the same photo 3/3 at ~$0.0025/machine, 110-145 s each (420 s HTTP timeout). Provider outages and rejected keys are not saved as permanent results.
-  **The relay-judge path is unit-tested only, NOT yet run live.** Prove it once on a new roster (free): start `gather_roster_images`, answer the requests.
+  **Relay judge PROVEN LIVE 2026-09-21** on proof video `dc217efd-d3a9-43f5-b731-73b634234953` ("US Interwar Submarine Classes (Gather proof)", 4 machines, hand-built
+  roster payload; delete it whenever): 4 parked requests answered by looking at the images -> O-class = USS O-1 in dry dock, L-class = USS L-1 trials, R-class = R-boats at a dock,
+  Narwhal class = no photo (only a nested group shot and an unrelated Sailfish) - correctly left unverified. Free, no spend.
 - **Discovery always names the subject (deployed, unit-tested, not live-run):** `reference_sources.roster_subject(title, thesis)` reads the machine noun
   (submarine/aircraft/helicopter/tank/warship/locomotive/rocket/ship) and `_machine_documentary_hold_roster_entries` puts it in every entry's `facts["subject"]`;
-  `_category` and the view criteria use it, so queries read `"S-class" submarine`, not `"S-class"`. Re-running discovery for the 5 machines that returned
-  Mercedes/V-1 bombs/destroyers (A, S, F, Barracuda, Skate) would confirm it; not done (no re-run was asked for).
+  `_category` and the view criteria use it, so queries read `"S-class" submarine`, not `"S-class"`. **Live-confirmed on the proof roster:** every candidate was a submarine
+  (no cars/bombs). Remaining gap: the query does not name the COUNTRY, so L-class and O-class also pulled British boats and a North Korean Sang-O (the judge rejected them
+  by caption). Adding "US Navy" from the title/thesis to the subject would tighten it (small change in `reference_sources.roster_subject`, not done).
 - **Seed-photo preference (deployed):** `reference_selection.choose_candidate(candidates, judgments, machine)` now
   nudges scores: +8 when a submarine photo's FILE TITLE says launch/dry dock/on the ways (captions are ignored, they mention launch dates),
   -8 when the judge's own limitations say the subject is small in the frame, -5 for text printed on the photo. Adjustments are recorded on the
@@ -64,11 +71,21 @@
   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"...","arguments":{...}}}` with the `Authorization` header
   from the user-level `storyengine` entry in `~/.claude.json` (never print it).
 
+## Research gotchas learned this session (all in code, none in docs)
+- **Brief budget:** after a machine's six relay answers the pipeline builds a compact writer brief from the ANSWER TEXTS and fails the card if it exceeds 6000 bytes
+  (`dvsu_script_brief.MAX_BRIEF_BYTES`), even though every answer was accepted. Keep each single answer <= 450 chars, each candidate fact <= 220, ~2,300-2,700 chars total per machine
+  (>= ~5,100 failed; <= ~4,500 passed). The MCP guide gives no per-machine status, so verify by `se db` on `videos.research_payload->'unit_research_cards'` (`script_brief_readiness.passed`)
+  and by grepping the backend log for "Factual source research stopped at". Replacing an answer = `answer_llm_request` on the SAME request_id, then `research_machine` again (replays free).
+- **Matcher label bug, FIXED and deployed (76f09ca9):** `factual_machine_research.candidate_mentions_machine` could never match labels ending in a parenthetical
+  ("Barracuda class (V-1 group)", "Tang class (SS-563)") or with a parenthesised hull code ("USS Nautilus (SSN-571)"); those cards failed "no traceable exact-machine excerpts"
+  even with perfect answers. Test: `tests/test_research_class_identity.py`. Backend suite now 5716 passed.
+- `list_pending_llm_requests status=answered` returns the oldest 50 and is huge (saved to a file; parse with python3).
+
 ## Open items (nothing else is hidden)
+- **UX (Research tab, not fixed):** with 20/20 VERIFIED the green button in the Research command bar still reads "Research incomplete".
 - **UX found walking the Gather tab (not fixed):** a red "Run All stopped at Research - Something went wrong. Please try again." banner still shows
   on a video whose Gather is done (stale history, vague wording); the "Retry missing images" button still shows at 20/20 verified;
   the panel subtitle says "Untitled documentary"; hand-placed photos show a "Single source" badge (judged ones say "Compared N photos").
-- **Ryan's call:** fix or delete the invalid `anthropic_api_key` for "Designed vs Used" (Settings). Until then Anthropic 401s and Luna is the fallback.
 - A session's in-app MCP connection goes stale after a deploy (502 on every call while /api/health is 200). Stand-in: POST the JSON-RPC to
   `https://storyengine.dev/api/mcp` with the header from the `storyengine` entry in `~/.claude.json`, or restart the app.
 - **SECURITY (Ryan only):** the VPS git remote URL embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`); rotate it.
