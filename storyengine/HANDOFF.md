@@ -71,6 +71,22 @@
   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"...","arguments":{...}}}` with the `Authorization` header
   from the user-level `storyengine` entry in `~/.claude.json` (never print it).
 
+## Automation with a key (verified 2026-09-21, offline + code trace; NOT run live with a key)
+- **One rule everywhere, deployed (21e698c8):** `agent_relay.relay_active(tenant)` = relay flag on AND no Anthropic key. Key installed -> the pipeline uses it (paid);
+  no key -> the MCP agent answers (free). Before this, `tenants.agent_llm_relay` beat an installed key in the executor, so putting the key back would have left Run All
+  parked waiting for an agent. `get_workspace_info` now returns `agent_llm_relay` (effective) and `agent_llm_relay_opted_in` (the flag). The free `research_machine` tool
+  refuses while a key is installed (it would spend it). Gather images already followed this rule.
+- **Run All** (`runBuild(video, "finish")`, `actions.make_autobuild_step`) order is unit-tested with fake providers: roster -> gather images -> research -> script -> voice -> pictures
+  -> thumbnail -> render (`tests/test_dvsu_run_all_replay.py`, `tests/test_image_gather_acceptance.py::test_run_all_orders_roster_gather_then_research`). It does NOT stop at research:
+  it continues into the existing `run_script` and all paid downstream steps. There is no "run to research" target (only `pictures` / `finish`). Until the new script system exists,
+  use the per-stage buttons or add a `research` build target.
+- Key-mode gaps found and fixed: (1) the research slot prompts had no length limit, and unbounded answers failed the 6000-byte writer brief for 5 of 8 cards -> prompts now say
+  answer <= 450 chars, candidate fact <= 220, quote <= 250 (`dvsu_research_v2._SLOT_LENGTH_RULE`; changes request fingerprints, so re-running an already-done machine asks NEW relay
+  requests instead of replaying; finished cards are untouched); (2) the label matcher bug above.
+- Not proven live with a key: roster discovery with web search, the paid Gather judge on Anthropic (Luna/Sonnet replays were measured earlier), and per-machine research through
+  `AnthropicClient`. Every gate downstream of the model text was exercised by the relay run (same code), but real model output length/quotes were not. First keyed run should be one machine.
+- The 20-machine roster is hand-composed (not the product of the real roster step) and its labels are off-format (trailing parentheticals); a real roster step's output was never seen on this video.
+
 ## Research gotchas learned this session (all in code, none in docs)
 - **Brief budget:** after a machine's six relay answers the pipeline builds a compact writer brief from the ANSWER TEXTS and fails the card if it exceeds 6000 bytes
   (`dvsu_script_brief.MAX_BRIEF_BYTES`), even though every answer was accepted. Keep each single answer <= 450 chars, each candidate fact <= 220, ~2,300-2,700 chars total per machine
@@ -82,10 +98,9 @@
 - `list_pending_llm_requests status=answered` returns the oldest 50 and is huge (saved to a file; parse with python3).
 
 ## Open items (nothing else is hidden)
-- **UX (Research tab, not fixed):** with 20/20 VERIFIED the green button in the Research command bar still reads "Research incomplete".
-- **UX found walking the Gather tab (not fixed):** a red "Run All stopped at Research - Something went wrong. Please try again." banner still shows
-  on a video whose Gather is done (stale history, vague wording); the "Retry missing images" button still shows at 20/20 verified;
-  the panel subtitle says "Untitled documentary"; hand-placed photos show a "Single source" badge (judged ones say "Compared N photos").
+- **UX fixed and deployed (bef04251):** Research approve button now reads "Approve Research" at 20/20; Gather panel shows the real title, hides "Retry missing images" when all verified, says "Placed by hand" for hand-placed photos, chips wrap. Prod UI not walked (browser pane is not signed in on storyengine.dev); walked locally against prod data.
+- **UX still open:** a red "Run All stopped at ..." banner can show from the LAST failed background task even after that stage is done (`useTaskWatcher` reads the last task's terminal
+  status); it did not show on the video page this session.
 - A session's in-app MCP connection goes stale after a deploy (502 on every call while /api/health is 200). Stand-in: POST the JSON-RPC to
   `https://storyengine.dev/api/mcp` with the header from the `storyengine` entry in `~/.claude.json`, or restart the app.
 - **SECURITY (Ryan only):** the VPS git remote URL embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`); rotate it.
