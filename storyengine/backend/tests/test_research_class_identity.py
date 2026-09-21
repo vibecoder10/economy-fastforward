@@ -44,3 +44,17 @@ def test_class_and_single_hull_guards_preserve_exact_identity():
     assert not factual.candidate_mentions_machine("USS Barracuda (V-2) (SS-163) consisted of fleet submarines.", barracuda)
     assert factual.candidate_mentions_machine("After Navy trials of Holland, the Navy purchased the submarine in 1900.", holland)
     assert not factual.candidate_mentions_machine("John Holland designed submarines in the 1870s.", holland)
+
+
+def test_labels_with_a_trailing_parenthetical_still_match_their_class_or_named_boat():
+    barracuda = "Barracuda class (V-1 group)"
+    tang = "Tang class (SS-563)"
+    nautilus = "USS Nautilus (SSN-571)"
+
+    assert factual.candidate_mentions_machine("Regarding Barracuda class (V-1 group): The boats ran trials.", barracuda)
+    assert factual.candidate_mentions_machine("The Barracuda-class boats were fleet submarines.", barracuda)
+    assert not factual.candidate_mentions_machine("The Bass-class boats were fleet submarines.", barracuda)
+    assert factual.candidate_mentions_machine("Regarding Tang class (SS-563): The boats ran trials.", tang)
+    assert not factual.candidate_mentions_machine("The Balao-class boats ran trials.", tang)
+    assert factual.candidate_mentions_machine("USS Nautilus (SSN-571) was the first nuclear submarine.", nautilus)
+    assert not factual.candidate_mentions_machine("USS Seawolf was the second nuclear submarine.", nautilus)

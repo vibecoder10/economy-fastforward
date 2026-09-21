@@ -85,6 +85,9 @@ def _named_submarine_excerpt_matches(text: Any, target: dict[str, str]) -> bool:
     return bool(re.search(hull_pattern, source, re.IGNORECASE))
 
 
+_TRAILING_PARENTHETICAL_RE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
 _NAVAL_HULL_PREFIX_RE = re.compile(
     r"^(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)(?:\s*(?:,|through|to|range)\s*(?:(?:AGSS|SSBN|SSGN|SSN|SS)-?\d+\+?)?)*\s+",
     re.IGNORECASE,
@@ -194,7 +197,12 @@ def candidate_mentions_machine(text: Any, machine: Any) -> bool:
     # Do this before the legacy named-vessel guard, whose ordered-token fallback would otherwise
     # require source prose to repeat words such as "through".
     if re.search(r"\bclass\b", subject, re.I):
+        # "Barracuda class (V-1 group)" / "Tang class (SS-563)": the trailing
+        # parenthetical is roster bookkeeping, so the class phrase must still
+        # match without it (the phrase check needs the last word to be "class").
+        class_phrase = _TRAILING_PARENTHETICAL_RE.sub("", subject).strip() or subject
         return (_matches_class_subject(source_text, subject)
+                or _matches_class_subject(source_text, class_phrase)
                 or _matches_class_lead_with_designation(source_text, raw_machine, subject)
                 or _matches_single_hull_lead(source_text, raw_machine, subject))
     # Match aircraft designations before nickname tokenization. Dropping the
@@ -230,7 +238,8 @@ def candidate_mentions_machine(text: Any, machine: Any) -> bool:
     # become evidence for HMS Eagle merely because the label carries 1918.
     tokens = [token for token in tokens if not re.fullmatch(r"[a-z]{1,3}\d{1,4}", token)]
     if tokens:
-        phrase = r"(?<![a-z0-9])" + r"[\s.\-']+".join(re.escape(token) for token in tokens) + r"(?![a-z0-9])"
+        # "()" may sit between name and hull code: "USS Nautilus (SSN-571)".
+        phrase = r"(?<![a-z0-9])" + r"[\s.\-'()]+".join(re.escape(token) for token in tokens) + r"(?![a-z0-9])"
         return bool(re.search(phrase, str(text or ""), flags=re.IGNORECASE))
     # Aircraft/program labels may consist solely of an alphanumeric
     # designation after the manufacturer is removed.
