@@ -27,6 +27,16 @@
   it would fall back to Kie credits (a `kie_ai_api_key` is stored). **Decision for Ryan:** pay Kie for the photo check, or
   make the photo judge go through the relay (needs multimodal relay: the agent would view the candidate photos).
   `research_machine` does NOT need images gathered.
+- **Vision model options (asked 2026-09-21, not built):** the judge today is `claude-sonnet-4-5` on Kie (`CLAUDE_MODELS["kie"]["smart"]`
+  in `skills/video-pipeline/shared/channel_profile.py`; one request per machine, up to 12 base64 photos, `reference_selection._judge` ->
+  `reference_judgment.request_judgment`, Anthropic Messages format). The repo already uses **Kie Gemini 2.5 Flash** for vision QA via
+  `vision_client` (`docs/cost-awareness.md`: ~$0.0005/call). Kie's live price pages do not render to a fetch, so current prices are
+  UNVERIFIED (check kie.ai/market + kie.ai/pricing in a browser). Rough, unmeasured estimate: Flash ~ $0.002-0.005 per machine vs the
+  $0.10 quote now. Switching needs an adapter (Gemini is OpenAI-style chat; the judge expects Anthropic-style) and a quality test:
+  run 3 known machines on Flash vs Sonnet and compare identity calls before trusting Flash. **Jev is text-only** (typed questions over
+  text, cannot see images); it could cheaply pre-filter candidates from caption/title text before any image is sent. Free path:
+  a relay-based judge where the agent views the candidate photos itself (needs a multimodal relay request carrying image URLs).
+  Ryan to pick: (a) Kie Gemini Flash (recommended, cheapest), (b) keep Sonnet on Kie, (c) relay/agent-viewed (free, manual).
 
 ## What this session changed
 - MCP: +2 tools (`gather_roster_images`, `research_machine`), 100 -> 102; guide names the tool; shared route guards/jobs in
