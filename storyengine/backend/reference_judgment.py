@@ -30,11 +30,11 @@ _CORRECTION = (
 )
 
 
-def _failure(code: str, reason: str):
+def _failure(code: str, reason: str, **flags):
     # The selection module remains the public owner of this typed error.  Lazy
     # importing avoids its database imports when this helper is merely loaded.
     from reference_selection import SelectionFailure
-    return SelectionFailure(code, reason)
+    return SelectionFailure(code, reason, **flags)
 
 
 def judgment_schema(candidate_ids: list[str]) -> dict[str, Any]:
@@ -262,6 +262,13 @@ async def request_judgment(tenant_id, machine, candidates, content, provider, ur
             attempt["http_status"] = http_status
             stop_reason = _stop_reason(provider, body)
             attempt["stop_reason"] = stop_reason
+            if http_status in (401, 403):
+                # A rejected key is fixable configuration, not a verdict on this comparison:
+                # forget the checkpoint so the same review can run once the key is right.
+                path.unlink(missing_ok=True)
+                raise _failure("provider_error",
+                               f"Vision provider rejected the API key (HTTP {http_status}); identity remains unchecked.",
+                               auth_rejected=True)
             if http_status != 200:
                 attempt["status"] = "http_error"
                 if http_status == 429 or http_status >= 500:

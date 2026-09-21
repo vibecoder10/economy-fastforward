@@ -143,7 +143,7 @@ async def test_two_persisted_attempts_bound_a_restart(monkeypatch, review_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response", [Response(200, {"stop_reason": "refusal", "content": []}), Response(401, {"error": "bad key"})])
+@pytest.mark.parametrize("response", [Response(200, {"stop_reason": "refusal", "content": []}), Response(400, {"error": "bad request"})])
 async def test_refusal_and_401_stop_after_one_call(monkeypatch, review_dir, response):
     calls = _install(monkeypatch, [response])
     with pytest.raises(Exception): await _request()
@@ -176,7 +176,7 @@ def test_default_review_root_is_stable_app_data(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response", [Response(200, {"stop_reason": "refusal", "content": []}), Response(401, {"error": "bad key"})])
+@pytest.mark.parametrize("response", [Response(200, {"stop_reason": "refusal", "content": []}), Response(400, {"error": "bad request"})])
 async def test_terminal_checkpoint_replay_never_calls_provider(monkeypatch, review_dir, response):
     calls = _install(monkeypatch, [response])
     with pytest.raises(Exception):
@@ -320,3 +320,64 @@ async def test_judge_with_no_keys_fails_closed(monkeypatch):
     with pytest.raises(Exception) as caught:
         await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
     assert getattr(caught.value, "code", None) == "provider_error"
+
+
+@pytest.mark.asyncio
+async def test_rejected_key_is_not_saved_as_a_terminal_result_and_marks_auth_rejected(monkeypatch, review_dir):
+    _install(monkeypatch, [Response(401, {"type": "error", "error": {"message": "invalid x-api-key"}})])
+    with pytest.raises(Exception) as caught:
+        await _request()
+    assert caught.value.code == "provider_error" and caught.value.auth_rejected is True and "401" in caught.value.reason
+    assert list(review_dir.glob("*.json")) == []  # nothing saved, so a fixed key can rerun this review
+    calls = _install(monkeypatch, [_complete()])
+    assert await _request() == _result() and len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_other_provider_failures_are_not_auth_rejections(monkeypatch, review_dir):
+    _install(monkeypatch, [Response(400, {"error": "bad request"})])
+    with pytest.raises(Exception) as caught:
+        await _request()
+    assert caught.value.auth_rejected is False
+
+
+def _fail_auth(monkeypatch, rs, providers):
+    async def request_judgment(tenant_id, machine, candidates, content, provider, url, headers, model, *, video_id=None):
+        providers.append(provider)
+        if provider == "anthropic":
+            raise rs.SelectionFailure("provider_error", "Vision provider rejected the API key (HTTP 401).", auth_rejected=True)
+        return {"candidates": []}
+    monkeypatch.setattr(rj, "request_judgment", request_judgment)
+
+
+@pytest.mark.asyncio
+async def test_judge_falls_back_to_luna_when_the_anthropic_key_is_rejected(monkeypatch):
+    rs, candidate, _ = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-bad", "kie_ai_api_key": "kie-secret"})
+    providers = []
+    _fail_auth(monkeypatch, rs, providers)
+    assert await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a") == {"candidates": []}
+    assert providers == ["anthropic", "kie_luna"]
+
+
+@pytest.mark.asyncio
+async def test_judge_reports_a_rejected_anthropic_key_when_there_is_no_kie_key(monkeypatch):
+    rs, candidate, _ = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-bad"})
+    providers = []
+    _fail_auth(monkeypatch, rs, providers)
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert caught.value.auth_rejected is True and providers == ["anthropic"]
+
+
+@pytest.mark.asyncio
+async def test_judge_does_not_fall_back_on_a_non_auth_anthropic_failure(monkeypatch):
+    rs, candidate, _ = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-ok", "kie_ai_api_key": "kie-secret"})
+    providers = []
+
+    async def request_judgment(tenant_id, machine, candidates, content, provider, url, headers, model, *, video_id=None):
+        providers.append(provider)
+        raise rs.SelectionFailure("provider_error", "Vision provider HTTP 500; identity remains unchecked.")
+    monkeypatch.setattr(rj, "request_judgment", request_judgment)
+    with pytest.raises(Exception):
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert providers == ["anthropic"]

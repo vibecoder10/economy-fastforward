@@ -5,6 +5,7 @@ import base64
 import hashlib
 import io
 import json
+import logging
 import math
 import re
 from datetime import datetime, timezone
@@ -20,9 +21,12 @@ VIEWS = {"side", "three_quarter", "front", "rear", "top", "other"}
 _schema_ready = False
 
 
+_logger = logging.getLogger(__name__)
+
+
 class SelectionFailure(Exception):
-    def __init__(self, code, reason):
-        self.code, self.reason = code, reason
+    def __init__(self, code, reason, *, auth_rejected=False):
+        self.code, self.reason, self.auth_rejected = code, reason, auth_rejected
         super().__init__(reason)
 
 
@@ -307,25 +311,37 @@ def selection_needs_rerank(row):
 
 
 async def _judge(tenant_id, machine, candidates, facts, aliases=None, *, video_id=None):
+    from vault import get_secret
+    anthropic_key = await get_secret("anthropic_api_key", tenant_id)
+    kie_key = await get_secret("kie_ai_api_key", tenant_id)
+    if anthropic_key:
+        try:
+            return await _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, "anthropic", anthropic_key)
+        except SelectionFailure as exc:
+            # A rejected Anthropic key must not stall Gather images while a working Kie key exists.
+            if not (exc.auth_rejected and kie_key):
+                raise
+            _logger.warning("Anthropic key rejected for tenant %s; judging %r on Kie instead", tenant_id, machine)
+    if not kie_key:
+        raise SelectionFailure("provider_error", "No vision provider is configured; identity remains unchecked.")
+    return await _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, "kie", kie_key)
+
+
+async def _judge_with(tenant_id, machine, candidates, facts, aliases, video_id, family, key):
     import os
     from reference_judgment import KIE_LUNA_MODEL
     from static_docu import CLAUDE_MODELS
-    from vault import get_secret
-    key = await get_secret("anthropic_api_key", tenant_id)
-    provider, url = "anthropic", "https://api.anthropic.com/v1/messages"
-    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
-    if not key:
-        key = await get_secret("kie_ai_api_key", tenant_id)
-        if not key:
-            raise SelectionFailure("provider_error", "No vision provider is configured; identity remains unchecked.")
+    if family == "anthropic":
+        provider, url = "anthropic", "https://api.anthropic.com/v1/messages"
+        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+    elif os.getenv("REFERENCE_JUDGE_PROVIDER") == "kie_claude":  # rollback switch to the pre-Luna Kie path
+        provider = "kie"
+        url = os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/") + "/v1/messages"
         headers = {"Authorization": "Bearer " + key}
-        if os.getenv("REFERENCE_JUDGE_PROVIDER") == "kie_claude":  # rollback switch to the pre-Luna Kie path
-            provider = "kie"
-            url = os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/") + "/v1/messages"
-        else:
-            provider = "kie_luna"
-            url = os.getenv("KIE_CODEX_URL", "https://api.kie.ai/codex/v1/responses")
-            headers["Content-Type"] = "application/json"
+    else:
+        provider = "kie_luna"
+        url = os.getenv("KIE_CODEX_URL", "https://api.kie.ai/codex/v1/responses")
+        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     luna = provider == "kie_luna"
     text = lambda value: {"type": "input_text" if luna else "text", "text": value}
 
