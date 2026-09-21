@@ -14,6 +14,7 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
   * render via render_static.render_static_video (Remotion Ken Burns).
 """
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -4700,10 +4701,12 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
     derived aliases alongside its UNCHANGED display name (see
     pipeline_executor._unit_roster_aliases) — and, for every machine not
     already in static_reference_cache, runs the full lookup+verify+host+
-    cache chain WITH those aliases. Serial per machine, on purpose: _wm_get's
-    politeness throttle is a single process-global gate regardless of how
-    many machines call it concurrently, so parallelizing here would only
-    interleave log lines, not buy real concurrency. One machine's exception
+    cache chain WITH those aliases. Machines run concurrently (bounded by
+    ROSTER_GATHER_CONCURRENCY, default 4): _wm_get's politeness throttle is a
+    single process-global gate, so the Wikimedia candidate lookups still
+    queue behind it one at a time, but the vision judgment — the ~2 minute
+    part — overlaps. A cancel request or a failed progress save stops any
+    machine that has not started. One machine's exception
     is caught and logged here — it can never abort the sweep for the rest
     of the roster. Never raises; every outcome is reported in the return
     dict for the caller (or a future roster-dashboard reference-status read)
@@ -4739,71 +4742,98 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
     from reference_selection import ensure_selection_schema, selection_ready, selection_needs_rerank
     await ensure_selection_schema()
     verified, missed, never_built, processed = 0, 0, 0, 0
-    for i, entry in enumerate(entries):
+    halted = False  # set by a cancel request or a failed progress save; queued machines then skip
+    progress_lock = asyncio.Lock()
+    gate = asyncio.Semaphore(max(1, int(os.getenv("ROSTER_GATHER_CONCURRENCY") or 4)))
+
+    async def sweep_one(i, entry):
+        nonlocal verified, missed, never_built, processed, halted
         machine = entry["name"]
         aliases = entry.get("aliases") or []
         mkey = _machine_key(machine)
-        if should_cancel and await should_cancel():
-            return {"status": "cancelled", "roster_count": len(entries), "verified": verified,
-                    "missed": missed, "never_built": never_built, "processed": processed}
-        outcome = "missing"
-        try:
-            cached = await fetch_one(
-                "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
-                "WHERE tenant_id=$1 AND machine_key=$2 "
-                "AND reference_kind='photo'", tenant_id, mkey)
-            if selection_ready(cached) and not selection_needs_rerank(cached):
-                verified += 1
-                # C8: this machine already carries a tenant-global verified
-                # reference (perhaps seeded/prefetched via a different
-                # video) — any stale miss reason recorded against THIS
-                # video no longer applies.
-                await _clear_reference_miss(tenant_id, video_id, machine)
-                outcome = "cached"
-            elif entry.get("never_built"):
-                # C5: structurally can never have a photograph — skip the
-                # ENTIRE candidate-gather + host + vision chain (real
-                # Wikimedia lookups and a paid vision call per candidate)
-                # rather than let it run and fail. Checked AFTER the cache
-                # lookup above so a manually-seeded/prefetched-elsewhere
-                # photo (proof the classification was wrong for this
-                # tenant) always wins over the classifier.
-                never_built += 1
-                await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
-                _logger.info(
-                    "[prefetch-roster-ref] video=%s machine=%r classified "
-                    "never-built (cancelled, no unit ever completed) — "
-                    "skipping lookup entirely, no spend incurred",
-                    video_id, machine)
-                outcome = "missing"
-            else:
-                if await _prefetch_one_machine(tenant_id, video_id, machine, i,
-                                               aliases=aliases,
-                                               facts=entry.get("facts") or None):
+        async with gate:
+            if halted:
+                return
+            if should_cancel and await should_cancel():
+                halted = True
+                return
+            outcome = "missing"
+            try:
+                cached = await fetch_one(
+                    "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
+                    "WHERE tenant_id=$1 AND machine_key=$2 "
+                    "AND reference_kind='photo'", tenant_id, mkey)
+                if selection_ready(cached) and not selection_needs_rerank(cached):
                     verified += 1
-                    outcome = "verified"
-                else:
-                    missed += 1
-                    outcome = "missing"
+                    # C8: this machine already carries a tenant-global verified
+                    # reference (perhaps seeded/prefetched via a different
+                    # video) — any stale miss reason recorded against THIS
+                    # video no longer applies.
+                    await _clear_reference_miss(tenant_id, video_id, machine)
+                    outcome = "cached"
+                elif entry.get("never_built"):
+                    # C5: structurally can never have a photograph — skip the
+                    # ENTIRE candidate-gather + host + vision chain (real
+                    # Wikimedia lookups and a paid vision call per candidate)
+                    # rather than let it run and fail. Checked AFTER the cache
+                    # lookup above so a manually-seeded/prefetched-elsewhere
+                    # photo (proof the classification was wrong for this
+                    # tenant) always wins over the classifier.
+                    never_built += 1
+                    await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
                     _logger.info(
-                        "[prefetch-roster-ref] video=%s machine=%r no verified "
-                        "reference found (will fail-closed at generation time "
-                        "unless seeded manually)", video_id, machine)
-        except Exception:  # noqa: BLE001 — one machine's failure must never kill the sweep
-            missed += 1
-            _logger.warning(
-                "[prefetch-roster-ref] video=%s machine=%r prefetch failed",
-                video_id, machine, exc_info=True)
-            # C8: _prefetch_one_machine records its OWN reason for a clean
-            # miss, but an exception can escape it (or the cache-lookup
-            # above) before that ever happens — record one here too so no
-            # miss is ever silently unexplained.
-            await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
-        processed += 1
-        if on_progress:
-            # Deliberately outside the image-error boundary: a durable progress
-            # failure must stop the sweep before any further finder/provider call.
-            await on_progress(processed, len(entries), machine, outcome)
+                        "[prefetch-roster-ref] video=%s machine=%r classified "
+                        "never-built (cancelled, no unit ever completed) — "
+                        "skipping lookup entirely, no spend incurred",
+                        video_id, machine)
+                    outcome = "missing"
+                else:
+                    if await _prefetch_one_machine(tenant_id, video_id, machine, i,
+                                                   aliases=aliases,
+                                                   facts=entry.get("facts") or None):
+                        verified += 1
+                        outcome = "verified"
+                    else:
+                        missed += 1
+                        outcome = "missing"
+                        _logger.info(
+                            "[prefetch-roster-ref] video=%s machine=%r no verified "
+                            "reference found (will fail-closed at generation time "
+                            "unless seeded manually)", video_id, machine)
+            except Exception:  # noqa: BLE001 — one machine's failure must never kill the sweep
+                missed += 1
+                _logger.warning(
+                    "[prefetch-roster-ref] video=%s machine=%r prefetch failed",
+                    video_id, machine, exc_info=True)
+                # C8: _prefetch_one_machine records its OWN reason for a clean
+                # miss, but an exception can escape it (or the cache-lookup
+                # above) before that ever happens — record one here too so no
+                # miss is ever silently unexplained.
+                await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
+            async with progress_lock:  # keeps the saved processed count monotonic
+                processed += 1
+                if on_progress:
+                    # Deliberately outside the image-error boundary: a durable progress
+                    # failure must stop the sweep before any further finder/provider call
+                    # (halted keeps queued machines out before this slot frees; the caller
+                    # below cancels every machine still in flight).
+                    try:
+                        await on_progress(processed, len(entries), machine, outcome)
+                    except BaseException:
+                        halted = True
+                        raise
+
+    tasks = [asyncio.create_task(sweep_one(i, entry)) for i, entry in enumerate(entries)]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    if halted:
+        return {"status": "cancelled", "roster_count": len(entries), "verified": verified,
+                "missed": missed, "never_built": never_built, "processed": processed}
 
     _logger.info(
         "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d never_built=%d",

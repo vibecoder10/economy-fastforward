@@ -21,6 +21,9 @@ import httpx
 
 
 _TOOL_NAME = "submit_reference_review"
+KIE_LUNA_MODEL = "gpt-5-6-luna"
+_LUNA_INSTRUCTIONS = ("You are a careful reviewer of historical reference photographs. "
+                      "Follow the user's instructions exactly and return only the requested structured result.")
 _CORRECTION = (
     "Your previous response could not be accepted. Return the complete review "
     "using the required schema exactly. Do not omit candidates or scores."
@@ -141,6 +144,13 @@ def _now() -> str:
 
 
 def _payload(provider: str, model: str, content: list[dict[str, Any]], schema: dict[str, Any], max_tokens: int) -> dict[str, Any]:
+    if provider == "kie_luna":
+        # Kie's Responses-style route: schema-bound output comes from text.format, not a forced tool.
+        # `instructions` replaces the route's default "Codex coding agent" system prompt.
+        return {"model": model, "stream": False, "max_output_tokens": max_tokens,
+                "instructions": _LUNA_INSTRUCTIONS, "reasoning": {"effort": "medium"},
+                "text": {"format": {"type": "json_schema", "name": _TOOL_NAME, "strict": True, "schema": schema}},
+                "input": [{"role": "user", "content": content}]}
     payload = {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}]}
     if provider == "anthropic":
         payload["output_config"] = {"format": {"type": "json_schema", "schema": schema}}
@@ -152,18 +162,39 @@ def _payload(provider: str, model: str, content: list[dict[str, Any]], schema: d
     return payload
 
 
+def _luna_parts(body: Any) -> list[dict[str, Any]]:
+    items = body.get("output") if isinstance(body, dict) else None
+    return [part for item in (items if isinstance(items, list) else []) if isinstance(item, dict)
+            for part in (item.get("content") if isinstance(item.get("content"), list) else [])
+            if isinstance(part, dict)]
+
+
+def _stop_reason(provider: str, body: Any) -> Any:
+    """Normalize each provider's completion signal to the Messages-API vocabulary."""
+    if not isinstance(body, dict):
+        return None
+    if provider != "kie_luna":
+        return body.get("stop_reason")
+    if any(part.get("type") == "refusal" for part in _luna_parts(body)):
+        return "refusal"
+    return "end_turn" if body.get("status") == "completed" else (body.get("status") or "missing")
+
+
 def _parse(provider: str, body: dict[str, Any]) -> dict[str, Any]:
-    blocks = body.get("content") if isinstance(body, dict) else None
-    if not isinstance(blocks, list):
-        raise ValueError("missing content")
-    if provider == "kie":
-        match = next((block for block in blocks if isinstance(block, dict)
-                      and block.get("type") == "tool_use" and block.get("name") == _TOOL_NAME), None)
-        if not isinstance(match, dict) or not isinstance(match.get("input"), dict):
-            raise ValueError("missing forced tool result")
-        return match["input"]
-    text = "".join(block.get("text", "") for block in blocks
-                   if isinstance(block, dict) and block.get("type") == "text")
+    if provider == "kie_luna":
+        text = "".join(part.get("text", "") for part in _luna_parts(body) if part.get("type") == "output_text")
+    else:
+        blocks = body.get("content") if isinstance(body, dict) else None
+        if not isinstance(blocks, list):
+            raise ValueError("missing content")
+        if provider == "kie":
+            match = next((block for block in blocks if isinstance(block, dict)
+                          and block.get("type") == "tool_use" and block.get("name") == _TOOL_NAME), None)
+            if not isinstance(match, dict) or not isinstance(match.get("input"), dict):
+                raise ValueError("missing forced tool result")
+            return match["input"]
+        text = "".join(block.get("text", "") for block in blocks
+                       if isinstance(block, dict) and block.get("type") == "text")
     # json.loads accepts only a JSON document, never a JSON fragment in prose.
     parsed = json.loads(text)
     if not isinstance(parsed, dict):
@@ -219,24 +250,28 @@ async def request_judgment(tenant_id, machine, candidates, content, provider, ur
             async with httpx.AsyncClient(timeout=120) as client:
                 response = await client.post(url, headers=headers, json=_payload(
                     provider, model, request_content, schema, attempt["max_tokens"]))
-            attempt["http_status"] = response.status_code
+            http_status = response.status_code
             attempt["provider_response_body"] = response.text
             try:
                 body = response.json()
             except (TypeError, ValueError):
                 body = None
-            stop_reason = body.get("stop_reason") if isinstance(body, dict) else None
+            if (http_status == 200 and provider in ("kie", "kie_luna") and isinstance(body, dict)
+                    and type(body.get("code")) is int and body["code"] != 200):
+                http_status = body["code"]  # Kie reports gateway failures as HTTP 200 {"code": 500, "msg": ...}
+            attempt["http_status"] = http_status
+            stop_reason = _stop_reason(provider, body)
             attempt["stop_reason"] = stop_reason
-            if response.status_code != 200:
+            if http_status != 200:
                 attempt["status"] = "http_error"
-                if response.status_code == 429 or response.status_code >= 500:
+                if http_status == 429 or http_status >= 500:
                     correction = False
                     if len(attempts) < 2:
                         _write_checkpoint(path, checkpoint)
                         await asyncio.sleep(1)
                         continue
                 checkpoint.update(status="terminal", terminal_code="provider_error",
-                                  terminal_reason=f"Vision provider HTTP {response.status_code}; identity remains unchecked.")
+                                  terminal_reason=f"Vision provider HTTP {http_status}; identity remains unchecked.")
                 _write_checkpoint(path, checkpoint)
                 raise _failure(checkpoint["terminal_code"], checkpoint["terminal_reason"])
             if stop_reason == "refusal":

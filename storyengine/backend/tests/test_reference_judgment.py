@@ -205,3 +205,118 @@ async def test_resumed_invalid_response_adds_correction(monkeypatch, review_dir)
     assert await _request(content=content) == _result()
     assert calls[0]["json"]["max_tokens"] == 16000
     assert calls[0]["json"]["messages"][0]["content"][-1]["text"] == rj._CORRECTION
+
+
+def _luna(result=None, *, status="completed", parts=None):
+    return Response(200, {"status": status, "output": [
+        {"type": "reasoning", "summary": []},
+        {"type": "message", "content": parts if parts is not None else
+         [{"type": "output_text", "text": json.dumps(result or _result())}]}]})
+
+
+@pytest.mark.asyncio
+async def test_luna_uses_schema_bound_text_format_and_parses_output_text(monkeypatch, review_dir):
+    calls = _install(monkeypatch, [_luna()])
+    assert await _request(provider="kie_luna", model=rj.KIE_LUNA_MODEL) == _result()
+    payload = calls[0]["json"]
+    fmt = payload["text"]["format"]
+    assert (payload["model"], payload["max_output_tokens"], payload["stream"]) == ("gpt-5-6-luna", 8000, False)
+    assert fmt["type"] == "json_schema" and fmt["strict"] is True and fmt["schema"]["additionalProperties"] is False
+    assert fmt["schema"]["properties"]["candidates"]["items"]["properties"]["id"]["enum"] == ["c1"]
+    assert "Codex" not in payload["instructions"] and "tools" not in payload and "messages" not in payload
+    assert payload["input"][0]["content"][0]["type"] == "text"  # caller-built parts pass through untouched
+
+
+@pytest.mark.asyncio
+async def test_luna_gateway_failure_in_a_200_body_is_retried_as_a_server_error(monkeypatch, review_dir):
+    calls = _install(monkeypatch, [Response(200, {"code": 500, "msg": "Network error, please try again later."}), _luna()])
+    sleeps = []
+
+    async def no_sleep(seconds): sleeps.append(seconds)
+    monkeypatch.setattr(rj.asyncio, "sleep", no_sleep)
+    assert await _request(provider="kie_luna") == _result()
+    assert len(calls) == 2 and sleeps == [1]
+    assert "correction" not in json.dumps(calls[1]["json"]).lower() and rj._CORRECTION not in json.dumps(calls[1]["json"])
+
+
+@pytest.mark.asyncio
+async def test_luna_gateway_failure_twice_is_a_terminal_provider_error(monkeypatch, review_dir):
+    _install(monkeypatch, [Response(200, {"code": 500, "msg": "down"}), Response(200, {"code": 500, "msg": "down"})])
+
+    async def no_sleep(seconds): return None
+    monkeypatch.setattr(rj.asyncio, "sleep", no_sleep)
+    with pytest.raises(Exception) as caught:
+        await _request(provider="kie_luna")
+    assert getattr(caught.value, "code", None) == "provider_error" and "HTTP 500" in caught.value.reason
+
+
+@pytest.mark.asyncio
+async def test_luna_incomplete_output_recovers_with_larger_budget_and_correction(monkeypatch, review_dir):
+    calls = _install(monkeypatch, [_luna(status="incomplete", parts=[]), _luna()])
+    assert await _request(provider="kie_luna") == _result()
+    assert [call["json"]["max_output_tokens"] for call in calls] == [8000, 16000]
+    assert calls[1]["json"]["input"][0]["content"][-1]["text"] == rj._CORRECTION
+
+
+@pytest.mark.asyncio
+async def test_luna_refusal_is_terminal_and_never_retried(monkeypatch, review_dir):
+    calls = _install(monkeypatch, [_luna(parts=[{"type": "refusal", "refusal": "no"}])])
+    with pytest.raises(Exception) as caught:
+        await _request(provider="kie_luna")
+    assert getattr(caught.value, "code", None) == "invalid_review" and len(calls) == 1
+
+
+def _judge_setup(monkeypatch, secrets, env=None):
+    import reference_selection as rs
+    import vault
+    captured = {}
+
+    async def get_secret(name, tenant_id=None, user_id=None): return secrets.get(name)
+
+    async def request_judgment(tenant_id, machine, candidates, content, provider, url, headers, model, *, video_id=None):
+        captured.update(provider=provider, url=url, headers=headers, model=model, content=content)
+        return {"candidates": []}
+    monkeypatch.setattr(vault, "get_secret", get_secret)
+    monkeypatch.setattr(rj, "request_judgment", request_judgment)
+    monkeypatch.delenv("REFERENCE_JUDGE_PROVIDER", raising=False)
+    for key, value in (env or {}).items():
+        monkeypatch.setenv(key, value)
+    candidate = dict(_candidate(), _vision=b"\xff\xd8pixels")
+    return rs, candidate, captured
+
+
+@pytest.mark.asyncio
+async def test_judge_without_anthropic_key_uses_luna_with_responses_format_parts(monkeypatch):
+    rs, candidate, seen = _judge_setup(monkeypatch, {"kie_ai_api_key": "kie-secret"})
+    await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert (seen["provider"], seen["model"], seen["url"]) == ("kie_luna", "gpt-5-6-luna", "https://api.kie.ai/codex/v1/responses")
+    assert seen["headers"] == {"Authorization": "Bearer kie-secret", "Content-Type": "application/json"}
+    kinds = [part["type"] for part in seen["content"]]
+    assert set(kinds) == {"input_text", "input_image"} and kinds.count("input_image") == 1
+    image = next(part for part in seen["content"] if part["type"] == "input_image")
+    assert image["image_url"].startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
+async def test_judge_keeps_direct_anthropic_when_the_workspace_has_a_key(monkeypatch):
+    rs, candidate, seen = _judge_setup(monkeypatch, {"anthropic_api_key": "sk-ant", "kie_ai_api_key": "kie-secret"})
+    await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert seen["provider"] == "anthropic" and seen["headers"]["x-api-key"] == "sk-ant"
+    assert {part["type"] for part in seen["content"]} == {"text", "image"}
+
+
+@pytest.mark.asyncio
+async def test_judge_env_switch_returns_to_kie_claude(monkeypatch):
+    rs, candidate, seen = _judge_setup(monkeypatch, {"kie_ai_api_key": "kie-secret"},
+                                       {"REFERENCE_JUDGE_PROVIDER": "kie_claude"})
+    await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert seen["provider"] == "kie" and seen["url"].endswith("/claude/v1/messages")
+    assert {part["type"] for part in seen["content"]} == {"text", "image"}
+
+
+@pytest.mark.asyncio
+async def test_judge_with_no_keys_fails_closed(monkeypatch):
+    rs, candidate, _ = _judge_setup(monkeypatch, {})
+    with pytest.raises(Exception) as caught:
+        await rs._judge("tenant-a", "USS Example", [candidate], {}, video_id="video-a")
+    assert getattr(caught.value, "code", None) == "provider_error"

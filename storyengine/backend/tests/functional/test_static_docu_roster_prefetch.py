@@ -802,3 +802,106 @@ async def test_archive_thumbnail_lookup_strips_tracking_from_file_title():
     assert all(call['titles'] == 'File:C.jpg' for call in c.calls)
     assert static_docu._url_file_title(raw) == 'C.jpg'
     assert static_docu._url_file_title('https://upload.wikimedia.org/a/Ship%3F.jpg?tracking=1') == 'Ship?.jpg'
+
+
+# ---------------------------------------------------------------------------
+# Gather images runs machines concurrently (vision judgment is the slow part).
+# ---------------------------------------------------------------------------
+
+def _sweep_seams(monkeypatch, roster, select):
+    import reference_selection
+    video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
+
+    async def fake_fetch_one(query, *args):
+        return dict(_static_docu_video_row(video_id, roster)) if "FROM videos" in query else None
+
+    async def fake_execute(query, *args):
+        return None
+
+    monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(static_docu, "execute", fake_execute)
+    monkeypatch.setattr(reference_selection, "select_reference", select)
+    return video_id, tenant_id
+
+
+@pytest.mark.asyncio
+async def test_prefetch_overlaps_machines_up_to_the_concurrency_limit(monkeypatch):
+    monkeypatch.setenv("ROSTER_GATHER_CONCURRENCY", "3")
+    running = peak = 0
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.02)
+        running -= 1
+        return {"status": "selected", "selected": {"hosted_url": "https://s.example/x.jpg", "image_url": "https://o.example/x.jpg"}}
+
+    roster = [f"Machine {n}" for n in range(7)]
+    video_id, tenant_id = _sweep_seams(monkeypatch, roster, select)
+    progress = []
+
+    async def on_progress(done, total, machine, outcome):
+        progress.append((done, total, outcome))
+
+    result = await static_docu.prefetch_roster_references(video_id, tenant_id, on_progress=on_progress)
+    assert peak == 3
+    assert result["status"] == "completed" and result["verified"] == 7 and result["processed"] == 7
+    assert [done for done, _, _ in progress] == list(range(1, 8)) and {t for _, t, _ in progress} == {7}
+
+
+@pytest.mark.asyncio
+async def test_prefetch_concurrency_of_one_is_the_old_serial_order(monkeypatch):
+    monkeypatch.setenv("ROSTER_GATHER_CONCURRENCY", "1")
+    order = []
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        order.append(machine)
+        await asyncio.sleep(0)
+        return {"status": "selected", "selected": {"hosted_url": "u", "image_url": "i"}}
+
+    roster = ["A", "B", "C", "D"]
+    video_id, tenant_id = _sweep_seams(monkeypatch, roster, select)
+    await static_docu.prefetch_roster_references(video_id, tenant_id)
+    assert order == roster
+
+
+@pytest.mark.asyncio
+async def test_prefetch_failed_progress_save_stops_machines_that_have_not_started(monkeypatch):
+    monkeypatch.setenv("ROSTER_GATHER_CONCURRENCY", "2")
+    started = []
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        started.append(machine)
+        await asyncio.sleep(0.01)
+        return {"status": "selected", "selected": {"hosted_url": "u", "image_url": "i"}}
+
+    roster = [f"Machine {n}" for n in range(8)]
+    video_id, tenant_id = _sweep_seams(monkeypatch, roster, select)
+
+    async def on_progress(*args):
+        raise RuntimeError("Image gather progress save refused")
+
+    with pytest.raises(RuntimeError, match="progress save refused"):
+        await static_docu.prefetch_roster_references(video_id, tenant_id, on_progress=on_progress)
+    await asyncio.sleep(0.05)  # anything still alive would keep starting machines
+    assert len(started) <= 3
+
+
+@pytest.mark.asyncio
+async def test_prefetch_cancel_request_returns_cancelled_and_starts_nothing_more(monkeypatch):
+    monkeypatch.setenv("ROSTER_GATHER_CONCURRENCY", "1")
+    started = []
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        started.append(machine)
+        return {"status": "selected", "selected": {"hosted_url": "u", "image_url": "i"}}
+
+    roster = ["A", "B", "C", "D"]
+    video_id, tenant_id = _sweep_seams(monkeypatch, roster, select)
+
+    async def should_cancel():
+        return len(started) >= 2
+
+    result = await static_docu.prefetch_roster_references(video_id, tenant_id, should_cancel=should_cancel)
+    assert result["status"] == "cancelled" and started == ["A", "B"] and result["processed"] == 2

@@ -21,22 +21,17 @@
    trade_off, outcome_candidates, surprising_fact, contrast); each next one appears ~2s after an answer.
 4. Done when the guide's research stage advances and the Research tab shows the card VERIFIED (UI shows it now).
    Re-running a machine replays cached answers for free (proved live on Holland: no new requests).
-- **Gather images is different:** `gather_roster_images {video_id}` is PAID and quote-gated (no `confirm_token` = quote
-  only; live quote for 20 machines = **$2.00**, estimate $0.10/machine). Its photo judge calls the Anthropic Messages API
-  directly with the workspace key, else the Kie.ai Claude endpoint - it does NOT go through the relay. With no Anthropic key
-  it would fall back to Kie credits (a `kie_ai_api_key` is stored). **Decision for Ryan:** pay Kie for the photo check, or
-  make the photo judge go through the relay (needs multimodal relay: the agent would view the candidate photos).
+- **Gather images is different:** `gather_roster_images {video_id}` is PAID and quote-gated (no `confirm_token` = quote only). It does NOT go
+  through the relay: its photo judge calls a vision model directly (Anthropic key if the workspace has one, else Kie - see the Luna bullet below).
   `research_machine` does NOT need images gathered.
-- **Vision model options (asked 2026-09-21, not built):** the judge today is `claude-sonnet-4-5` on Kie (`CLAUDE_MODELS["kie"]["smart"]`
-  in `skills/video-pipeline/shared/channel_profile.py`; one request per machine, up to 12 base64 photos, `reference_selection._judge` ->
-  `reference_judgment.request_judgment`, Anthropic Messages format). The repo already uses **Kie Gemini 2.5 Flash** for vision QA via
-  `vision_client` (`docs/cost-awareness.md`: ~$0.0005/call). Kie's live price pages do not render to a fetch, so current prices are
-  UNVERIFIED (check kie.ai/market + kie.ai/pricing in a browser). Rough, unmeasured estimate: Flash ~ $0.002-0.005 per machine vs the
-  $0.10 quote now. Switching needs an adapter (Gemini is OpenAI-style chat; the judge expects Anthropic-style) and a quality test:
-  run 3 known machines on Flash vs Sonnet and compare identity calls before trusting Flash. **Jev is text-only** (typed questions over
-  text, cannot see images); it could cheaply pre-filter candidates from caption/title text before any image is sent. Free path:
-  a relay-based judge where the agent views the candidate photos itself (needs a multimodal relay request carrying image URLs).
-  Ryan to pick: (a) Kie Gemini Flash (recommended, cheapest), (b) keep Sonnet on Kie, (c) relay/agent-viewed (free, manual).
+- **Gather images photo check = Kie gpt-5-6-luna (built 2026-09-21, tested, NOT yet deployed).** Ryan picked cheap Kie; Gemini Flash could not be
+  tested (Kie's Gemini and Claude endpoints were down all morning: HTTP 200 `{"code":500}` / 530), and Ryan pointed at Luna ($0.056/M in,
+  $0.336/M out, `POST /codex/v1/responses`, `input_image` data URLs, json_schema `text.format` works). Replay of 3 saved Sonnet judgments
+  (Thresher, Holland, Los Angeles): same selected photo 3/3, identity agreement 28/31 (Luna stricter on wrong-ship photos), $0.0023-0.0026 per
+  machine, 110-145 s per machine at medium reasoning, so Gather images now runs 4 machines at once (`ROSTER_GATHER_CONCURRENCY`, ~10-12 min for 20). Quote now $0.01/machine ($0.20 for 20).
+  Rollback: `REFERENCE_JUDGE_PROVIDER=kie_claude` in the VPS env. Direct Anthropic is still used first when a key exists. Backend suite 5693 passed.
+  Not touched: `static_docu._vision_yes_no` / `_vision_confirms` still call Kie Claude directly (other flows).
+  **Next: commit, `git push origin main` from the Mac, `se deploy`, then `gather_roster_images {video_id}` (quote, then confirm) and walk the Gather tab.**
 
 ## What this session changed
 - MCP: +2 tools (`gather_roster_images`, `research_machine`), 100 -> 102; guide names the tool; shared route guards/jobs in

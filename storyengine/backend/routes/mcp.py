@@ -3161,7 +3161,8 @@ _GATHER_ROSTER_IMAGES_TOOL: dict[str, Any] = {
     "description": (
         "Gather images: find and vision-verify one reference photo for every locked roster machine "
         "that still lacks one (static documentaries). PAID - it runs a vision check on the workspace's "
-        "own Anthropic key (or the Kie.ai Claude fallback), roughly one request per missing machine. "
+        "own Anthropic key, else Kie.ai's gpt-5-6-luna (about a quarter of a cent per machine), one "
+        "request per missing machine. "
         "Call with no confirm_token first to get a price quote; call again with the returned "
         "confirm_token to actually run it. Starts in the background and returns immediately - watch "
         "get_production_guide (stage image_gather). Never touches the roster or research."

@@ -307,40 +307,51 @@ def selection_needs_rerank(row):
 
 
 async def _judge(tenant_id, machine, candidates, facts, aliases=None, *, video_id=None):
+    import os
+    from reference_judgment import KIE_LUNA_MODEL
     from static_docu import CLAUDE_MODELS
     from vault import get_secret
     key = await get_secret("anthropic_api_key", tenant_id)
     provider, url = "anthropic", "https://api.anthropic.com/v1/messages"
     headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     if not key:
-        import os
         key = await get_secret("kie_ai_api_key", tenant_id)
         if not key:
             raise SelectionFailure("provider_error", "No vision provider is configured; identity remains unchecked.")
-        provider = "kie"
-        url = os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/") + "/v1/messages"
         headers = {"Authorization": "Bearer " + key}
-    content = [{"type": "text", "text": judgment_prompt(machine, aliases, facts)}]
+        if os.getenv("REFERENCE_JUDGE_PROVIDER") == "kie_claude":  # rollback switch to the pre-Luna Kie path
+            provider = "kie"
+            url = os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/") + "/v1/messages"
+        else:
+            provider = "kie_luna"
+            url = os.getenv("KIE_CODEX_URL", "https://api.kie.ai/codex/v1/responses")
+            headers["Content-Type"] = "application/json"
+    luna = provider == "kie_luna"
+    text = lambda value: {"type": "input_text" if luna else "text", "text": value}
+
+    def image(data):
+        encoded = base64.b64encode(data).decode("ascii")
+        if luna:
+            return {"type": "input_image", "image_url": "data:image/jpeg;base64," + encoded}
+        return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": encoded}}
+
+    content = [text(judgment_prompt(machine, aliases, facts))]
     # Shared class articles appear once, not once per candidate image.
     evidence, seen = [], set()
     for candidate in candidates:
         for source in candidate.get("evidence", []):
-            key = (source.get("url"), source.get("text"), source.get("kind"))
-            if key not in seen:
-                seen.add(key)
+            marker = (source.get("url"), source.get("text"), source.get("kind"))
+            if marker not in seen:
+                seen.add(marker)
                 evidence.append(source)
-    content.append({"type": "text", "text": "Retrieved source evidence: " + json.dumps(evidence, ensure_ascii=False)})
+    content.append(text("Retrieved source evidence: " + json.dumps(evidence, ensure_ascii=False)))
     for candidate in candidates:
         summary = _summary(candidate)
         summary["source_urls"] = [e.get("url") for e in summary.pop("evidence", [])]
-        content.extend([
-            {"type": "text", "text": json.dumps(summary, ensure_ascii=False)},
-            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                "data": base64.b64encode(candidate["_vision"]).decode("ascii")}},
-        ])
+        content.extend([text(json.dumps(summary, ensure_ascii=False)), image(candidate["_vision"])])
     from reference_judgment import request_judgment
     return await request_judgment(tenant_id, machine, candidates, content, provider,
-        url, headers, CLAUDE_MODELS[provider]["smart"], video_id=video_id)
+        url, headers, KIE_LUNA_MODEL if luna else CLAUDE_MODELS[provider]["smart"], video_id=video_id)
 
 
 async def _save_review(tenant_id, video_id, machine, receipt):

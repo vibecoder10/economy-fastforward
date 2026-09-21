@@ -20,6 +20,9 @@ See `.env.example` for all required variables. Critical ones:
 | `PER_USER_KEYS_ENABLED` | StoryEngine vault | Feature flag. Default `false`. When `true`, `vault.get_secret()` resolves user-scoped key first (`tenant:user:name`), then falls back to tenant-shared key (`tenant:name`). Raises `KeyError` if neither exists. Enable for PRD slice 4+ (per-user API key UI). |
 | `YTDLP_COOKIES_FILE` | yt-dlp (StoryEngine backend) | Path to Netscape-format `cookies.txt` exported from a browser logged into YouTube. Fixes the "Sign in to confirm you're not a bot" block on the VPS IP that kills transcripts/metadata in `routes/niche.py` (Model A Video, competitor scraping, voice-learn). Optional — when unset, `~/.config/storyengine/youtube_cookies.txt` is used automatically if it exists (zero-config: drop the file, no restart needed). |
 | `YTDLP_PROXY` | yt-dlp (StoryEngine backend) | Proxy URL (`http://` or `socks5://`) with an unflagged egress IP. Alternative to `YTDLP_COOKIES_FILE` for the same bot-check block. |
+| `ROSTER_GATHER_CONCURRENCY` | StoryEngine backend | Gather images: how many roster machines are checked at once (default 4; 1 = serial). Optional. |
+| `REFERENCE_JUDGE_PROVIDER` | StoryEngine backend | Gather images photo judge when the workspace has no Anthropic key: unset = Kie `gpt-5-6-luna` (default); `kie_claude` = the older Kie Claude path (rollback). Optional. |
+| `KIE_CODEX_URL` | StoryEngine backend | Override for Kie's Responses endpoint used by the Luna photo judge (default `https://api.kie.ai/codex/v1/responses`). Optional. |
 
 ## Rules
 
