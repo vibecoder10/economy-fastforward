@@ -207,7 +207,7 @@ def _patch_research_env(*, relay: bool = True, active: bool = False, roster=None
     import pipeline_executor
     return [
         patch.object(pipeline_routes.drain_mode, "assert_accepting_new_work", AsyncMock()),
-        patch.object(agent_relay, "relay_enabled", AsyncMock(return_value=relay)),
+        patch.object(agent_relay, "relay_active", AsyncMock(return_value=relay)),
         patch.object(pipeline_executor.PipelineExecutor, "_get_video", AsyncMock(return_value={"id": VIDEO})),
         patch.object(pipeline_executor, "_machine_documentary_hold_roster", lambda video: list(ROSTER if roster is None else roster)),
         patch.object(pipeline_routes, "_is_task_active", AsyncMock(return_value=active)),
@@ -222,13 +222,13 @@ def _enter(patches):
     return stack
 
 
-async def test_research_machine_is_refused_when_the_relay_is_off_because_it_would_spend_keys():
+async def test_research_machine_is_refused_when_the_relay_is_off_or_a_key_is_installed_because_it_would_spend_keys():
     bg = _Bg()
     with _enter(_patch_research_env(relay=False)), \
          patch.object(pipeline_routes, "_set_task_status", MagicMock()) as set_status:
         result = await mcp_mod._call_research_machine(TENANT, {"video_id": VIDEO, "machine": ROSTER[0]}, bg, "agent")
     assert result["isError"] is True
-    assert "relay is off" in result["content"][0]["text"]
+    assert "relay is off or an Anthropic key is installed" in result["content"][0]["text"]
     assert bg.calls == []
     set_status.assert_not_called()
 

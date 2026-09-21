@@ -618,7 +618,8 @@ async def _call_get_workspace_info(tenant_id, arguments: dict[str, Any]) -> dict
 
     import agent_relay
     return _text_result({
-        "agent_llm_relay": await agent_relay.relay_enabled(tenant_id),
+        "agent_llm_relay": await agent_relay.relay_active(tenant_id),
+        "agent_llm_relay_opted_in": await agent_relay.relay_enabled(tenant_id),
         "workspace_name": row.get("channel_name") or row.get("tenant_name") or "Workspace",
         "niche": row.get("niche") or None,
         "style_summary": row.get("style_description") or None,

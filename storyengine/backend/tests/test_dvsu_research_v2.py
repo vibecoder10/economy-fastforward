@@ -355,3 +355,14 @@ def test_hold_skips_call3_without_spend_when_already_complete(hold_case, monkeyp
     second = asyncio.run(ex._run_unit_research_hold("v", TITLE, first, [MACHINE], target_machine=MACHINE))
     assert len(client.calls) == 6  # unchanged - no new generate() calls
     assert second["unit_research_hold_validation"]["passed"] is True
+
+
+def test_every_slot_prompt_states_the_length_limits_that_keep_the_brief_under_budget():
+    import dvsu_research_v2 as v2
+
+    for slot, build in v2._SLOT_PROMPT_BUILDERS.items():
+        prompt = build("Gato class", 3, ["context"])
+        assert "Be brief:" in prompt, slot
+        assert "250 characters" in prompt, slot
+    assert "450 characters" in v2._call3_problem_prompt("Gato class", 3, [])
+    assert "220 characters" in v2._call3_outcome_prompt("Gato class", 3, [])

@@ -166,6 +166,27 @@ async def test_relay_enabled_reads_tenant_flag_and_fails_closed(db, monkeypatch)
     assert await relay.relay_enabled(TENANT) is False
 
 
+@pytest.mark.asyncio
+async def test_relay_active_needs_the_flag_and_no_installed_anthropic_key(db, monkeypatch):
+    import vault
+    keys = {}
+
+    async def get_secret(name, tenant_id=None, user_id=None):
+        return keys.get((tenant_id, name))
+    monkeypatch.setattr(vault, "get_secret", get_secret)
+
+    assert await relay.relay_active(TENANT) is False            # flag off, no key
+    db.relay_flags[TENANT] = True
+    assert await relay.relay_active(TENANT) is True             # flag on, no key -> the agent answers
+    keys[(TENANT, "anthropic_api_key")] = "   "
+    assert await relay.relay_active(TENANT) is True             # a blank key is no key
+    keys[(TENANT, "anthropic_api_key")] = "sk-ant-test"
+    assert await relay.relay_active(TENANT) is False            # key installed -> the key is used, flag or not
+    assert await relay.relay_enabled(TENANT) is True            # the opt-in itself is untouched
+    del keys[(TENANT, "anthropic_api_key")]
+    assert await relay.relay_active(TENANT) is True             # delete the key -> back to the agent
+
+
 # ---- client ------------------------------------------------------------------------------
 
 @pytest.mark.asyncio

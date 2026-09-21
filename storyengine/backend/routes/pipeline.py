@@ -1182,18 +1182,19 @@ async def start_machine_research_in_process(video_id: str, tenant_id: str, machi
     it would spend the workspace's keys, so the paid, confirm-gated app button is the
     only door for that. The run waits on the agent, so it must not hold a request open.
     """
-    from agent_relay import relay_enabled
+    from agent_relay import relay_active
     from pipeline_executor import _locked_roster_item_for_machine, _machine_documentary_hold_roster
 
     machine = (machine or "").strip()
     if not machine:
         raise HTTPException(status_code=400, detail="machine is required")
     await drain_mode.assert_accepting_new_work()
-    if not await relay_enabled(tenant_id):
+    if not await relay_active(tenant_id):
         raise HTTPException(
             status_code=400,
-            detail="This workspace's agent LLM relay is off, so machine research would spend the workspace's "
-                   "provider keys. Use the app's 'Research selected' button, which asks you to confirm the cost.",
+            detail="This workspace's agent LLM relay is off or an Anthropic key is installed, so machine research would "
+                   "spend the workspace's provider keys. Use the app's 'Research selected' button, which asks you to "
+                   "confirm the cost.",
         )
     video = await PipelineExecutor(tenant_id)._get_video(video_id)
     if not video:

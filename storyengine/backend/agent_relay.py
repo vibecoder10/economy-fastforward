@@ -57,6 +57,17 @@ async def relay_enabled(tenant_id) -> bool:
     return bool(row and row.get("agent_llm_relay"))
 
 
+async def relay_active(tenant_id) -> bool:
+    """Who answers the model calls right now: the relay only when the workspace opted in AND has no
+    Anthropic key installed. One rule everywhere (Ryan, 2026-09-21): key installed -> use it (paid, quoted),
+    no key -> the MCP agent (free). Putting a key back therefore switches the whole pipeline to automatic
+    without touching the flag; deleting it hands the work back to the agent."""
+    if not await relay_enabled(tenant_id):
+        return False
+    from vault import get_secret
+    return not str(await get_secret("anthropic_api_key", tenant_id) or "").strip()
+
+
 def _clean(row: Optional[dict]) -> Optional[dict]:
     if row is None:
         return None

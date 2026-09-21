@@ -9322,11 +9322,12 @@ class PipelineExecutor:
         #
         # Agent LLM relay (docs/agent-llm-relay-2026-09-21): a workspace an operator opted
         # in (tenants.agent_llm_relay, default off) has the connected MCP agent answer the
-        # model calls instead of a provider. The flag is authoritative - a stored key can be
-        # present but dead (out of credits / 401), so "has a key" can't decide this. It also
-        # beats the Kie fallback below (the gateway can't run web search, which DVSU needs).
+        # model calls instead of a provider - but only while no Anthropic key is installed
+        # (agent_relay.relay_active: key installed -> use it, no key -> relay). A dead key is
+        # fixed by deleting it. The relay also beats the Kie fallback below (the gateway can't
+        # run web search, which DVSU needs).
         import agent_relay
-        use_agent_relay = await agent_relay.relay_enabled(self.tenant_id)
+        use_agent_relay = await agent_relay.relay_active(self.tenant_id)
         if not use_agent_relay and not os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("KIE_AI_API_KEY"):
             os.environ["ANTHROPIC_API_KEY"] = os.environ["KIE_AI_API_KEY"]
             os.environ["ANTHROPIC_BASE_URL"] = os.getenv(

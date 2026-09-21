@@ -64,6 +64,19 @@ CALL3_SEARCH_BUDGET_PER_SLOT = 3
 
 _SLOT_ANSWER_SHAPE = '{"answer":"...","source_url":"...","quote":"..."}'
 
+# The six answers become the machine's compact writer brief, which is rejected above 6000 bytes
+# (dvsu_script_brief.MAX_BRIEF_BYTES) even when every answer is valid. Unbounded answers failed 5 of 8
+# cards; ~2,300-2,700 characters per machine passed. Say the limit in the prompt itself so a paid model
+# and the relay agent both stay under it.
+_SLOT_LENGTH_RULE = (
+    "Be brief: `answer` at most 450 characters (two or three tight sentences, one or two hard facts, no "
+    "hedging paragraphs); `quote` one exact sentence of at most 250 characters copied from the page."
+)
+_OUTCOME_LENGTH_RULE = (
+    "Be brief: each `fact` at most 220 characters; each `quote` one exact sentence of at most 250 characters "
+    "copied from the page."
+)
+
 
 def _shared_context_block(shared_context: list[str]) -> str:
     if not shared_context:
@@ -90,7 +103,7 @@ def _call3_problem_prompt(machine: str, act_number: int, shared_context: list[st
         "required this machine. Prefer primary/institutional sources (official history offices, museums, "
         "established history publications) over Wikipedia; use Wikipedia only as a last resort, and "
         "replace it with a follow-up search if it is your only result.\n"
-        f"Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -101,7 +114,7 @@ def _call3_design_prompt(machine: str, act_number: int, shared_context: list[str
         f'response to that need - a query like "{machine} design decision/innovation [specific feature]". '
         "Find the specific engineering decision. Prefer primary/institutional sources over Wikipedia; use "
         "Wikipedia only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -112,7 +125,7 @@ def _call3_trade_off_prompt(machine: str, act_number: int, shared_context: list[
         f'query like "{machine} limitation/trade-off [specific consequence]". Find what was sacrificed to '
         "get that design. Prefer primary/institutional sources over Wikipedia; use Wikipedia only as a "
         "last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -125,6 +138,7 @@ def _call3_outcome_prompt(machine: str, act_number: int, shared_context: list[st
         "search itself - surface several, let the writer choose later. Prefer primary/institutional "
         "sources over Wikipedia; use Wikipedia only as a last resort, and replace it with a follow-up "
         "search if it is your only result.\n"
+        f"{_OUTCOME_LENGTH_RULE} "
         'Return only JSON: {"candidates":[{"fact":"...","source_url":"...","quote":"..."}, ...]} '
         "with 2-4 entries."
     )
@@ -138,7 +152,7 @@ def _call3_surprising_fact_prompt(machine: str, act_number: int, shared_context:
         "something promising turns up (e.g. a named person or incident mentioned in passing). Find one "
         "fact most viewers wouldn't already know. Prefer primary/institutional sources over Wikipedia; use "
         "Wikipedia only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -149,7 +163,7 @@ def _call3_contrast_prompt(machine: str, act_number: int, shared_context: list[s
         f'and what actually happened, or how it is remembered now - a query like "{machine} intended vs '
         'actual / obsoleted / legacy". Prefer primary/institutional sources over Wikipedia; use Wikipedia '
         "only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
