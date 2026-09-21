@@ -125,19 +125,26 @@ def _readiness_executor(monkeypatch, base_warnings, assessment):
     return ex
 
 
-def test_readiness_allows_only_current_assessed_summary_gap_to_prepare(monkeypatch):
+def test_readiness_ignores_summary_gap_and_never_schedules_preparation(monkeypatch):
+    # fce298f8: factual scripts are evidence-led from the assessed claims, so a
+    # missing/stale research summary no longer blocks a preview, and the script
+    # path never schedules source discovery or summary generation ("preparable").
     ex = _readiness_executor(monkeypatch, [SUMMARY_GAP], {"status": "assessed"})
     result = asyncio.run(ex.check_machine_script_preview_readiness("video", MACHINE))
-    assert result["ready"] is False
-    assert result["preparable"] is True
-    assert result["preparation_required"] is True
+    assert result["ready"] is True
+    assert result["preparable"] is False
+    assert result["preparation_required"] is False
+    assert SUMMARY_GAP not in result["warnings"]
 
 
-def test_readiness_keeps_other_failure_or_invalid_assessment_blocked(monkeypatch):
+def test_readiness_keeps_other_failure_blocked_and_never_prepares(monkeypatch):
     ex = _readiness_executor(monkeypatch, [SUMMARY_GAP, "identity package mismatch"], {"status": "assessed"})
     blocked = asyncio.run(ex.check_machine_script_preview_readiness("video", MACHINE))
+    assert blocked["ready"] is False
     assert blocked["preparable"] is False
+    assert blocked["preparation_required"] is False
 
-    ex = _readiness_executor(monkeypatch, [SUMMARY_GAP], None)
+    ex = _readiness_executor(monkeypatch, [SUMMARY_GAP, "identity package mismatch"], None)
     invalid = asyncio.run(ex.check_machine_script_preview_readiness("video", MACHINE))
+    assert invalid["ready"] is False
     assert invalid["preparable"] is False

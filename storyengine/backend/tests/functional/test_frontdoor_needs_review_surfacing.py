@@ -73,7 +73,7 @@ async def _noop(*a, **k):
     return None
 
 
-_stub("database", fetch_one=_noop, fetch_all=_noop, execute=_noop)
+_stub("database", fetch_one=_noop, fetch_all=_noop, execute=_noop, get_pool=_noop)
 
 
 async def _fake_get_tenant_id(*a, **k):

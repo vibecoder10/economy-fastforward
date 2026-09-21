@@ -230,6 +230,7 @@ def test_set_task_status_humanizes_failure_errors():
         dbmod.fetch_one = _noop
         dbmod.fetch_all = _noop
         dbmod.execute = _noop
+        dbmod.get_pool = _noop
         _sys.modules["database"] = dbmod
     if "pipeline_executor" not in _sys.modules:
         pe = types.ModuleType("pipeline_executor")

@@ -68,6 +68,7 @@ if "pipeline_executor" not in sys.modules:
             pass
 
     pe.PipelineExecutor = _Stub
+    pe._unit_display_name = lambda item: str(item)
     sys.modules["pipeline_executor"] = pe
 
 import generation_claims  # noqa: E402

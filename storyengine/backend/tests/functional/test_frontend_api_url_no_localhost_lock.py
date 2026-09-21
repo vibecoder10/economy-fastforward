@@ -81,13 +81,12 @@ def test_no_other_file_reads_next_public_api_url():
     env.ts and can re-introduce the silent-localhost-in-prod bug."""
     offenders: list[str] = []
     src = _frontend_src()
-    for p in src.rglob("*.ts"):
-        if p.resolve() == _env_ts().resolve():
+    # Vitest files (*.test.ts[x]) are exempt: they never ship in the bundle
+    # and they ASSIGN the var so env.ts resolves a known URL when the module
+    # under test is imported — an assignment does not bypass the prod guard.
+    for p in list(src.rglob("*.ts")) + list(src.rglob("*.tsx")):
+        if p.resolve() == _env_ts().resolve() or re.search(r"\.(test|spec)\.tsx?$", p.name):
             continue
-        text = p.read_text()
-        if "process.env.NEXT_PUBLIC_API_URL" in text:
-            offenders.append(f"  - {p.relative_to(src.parent)}")
-    for p in src.rglob("*.tsx"):
         text = p.read_text()
         if "process.env.NEXT_PUBLIC_API_URL" in text:
             offenders.append(f"  - {p.relative_to(src.parent)}")

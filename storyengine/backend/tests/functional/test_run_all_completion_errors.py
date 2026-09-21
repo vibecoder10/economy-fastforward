@@ -11,7 +11,7 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
            initial_status="ready_for_thumbnail", voice_result=None, voice_saved=True,
            preloop_missing=False, delivery_mode="render_only", delivered_result=None,
            continuous=False, kill_switch=False, script_result=None, factual_script_current=None, research_result=None):
-    video = {"status": initial_status, "render_mode": "static_docu", "thumbnail_url": None}
+    video = {"id": "video", "status": initial_status, "render_mode": "static_docu", "thumbnail_url": None}
     if factual_script_current is not None:
         video["research_payload"] = {"machine_script_contract": "factual_100_v1"}
         video["video_title"] = "Every British Aircraft Carrier Class Ever Built"
@@ -60,6 +60,12 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
             return None
         return {**video, "pipeline_stages": None}
 
+    async def fetch_all(query, *_args):
+        # actions._static_image_coverage_missing: every scene fully pictured,
+        # so these tests exercise the thumbnail/render gates, not image redo.
+        return [{"scene": 1, "image_url": f"https://example.test/{role}.png", "caption": {"view_role": role}}
+                for role in ("three_quarter", "side_profile")]
+
     async def execute(query, *args):
         if "UPDATE videos SET status=" in query:
             advances.append(args[0])
@@ -82,7 +88,8 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     dial.get_autopilot_dial = AsyncMock(return_value=types.SimpleNamespace(kill_switch_tripped_at="now" if kill_switch else None))
     dial.check_weekly_budget = AsyncMock(return_value=(True, 0, None))
     with patch.dict(sys.modules, {"pipeline_executor": pe, "routes.pipeline": route, "generation_claims": claims, "queue_delivery": delivery, "autopilot_dial": dial, "factual_machine_pipeline": factual}), \
-         patch.object(actions, "fetch_one", fetch), patch.object(actions, "execute", execute), \
+         patch.object(actions, "fetch_one", fetch), patch.object(actions, "fetch_all", fetch_all), \
+         patch.object(actions, "execute", execute), \
          patch("asyncio.sleep", AsyncMock()):
         asyncio.run(actions.make_autobuild_step("tenant", "video", target="finish",
                     delivery_mode=delivery_mode, expected_channel_id="channel" if delivery_mode == "youtube_unlisted" else None)())

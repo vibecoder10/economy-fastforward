@@ -248,6 +248,7 @@ async def test_retry_reuses_reserved_video_and_stops_after_three_attempts(monkey
     monkeypatch.setattr("routes.billing.increment_usage", increment)
     monkeypatch.setattr("routes.script_templates.apply_default_template", AsyncMock())
     monkeypatch.setattr("channel_format.apply_format_defaults", AsyncMock())
+    monkeypatch.setattr("channel_format.apply_machine_script_contract", AsyncMock())
     monkeypatch.setattr("routes.characters.apply_locked_cast", AsyncMock())
     dispatch = AsyncMock()
     monkeypatch.setattr(queue, "_dispatch_durable_autobuild", dispatch)
