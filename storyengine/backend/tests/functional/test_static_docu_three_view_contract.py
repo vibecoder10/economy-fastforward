@@ -45,12 +45,12 @@ async def test_three_view_plan_is_ready_when_two_verified_views_survive(monkeypa
 
     prompts = "\n".join(env["gen_prompts"]).lower()
     # 2026-08-03 fix: genuinely ROTATED camera geometry per view, not three
-    # near-identical three-quarter crops (the live HMS Argus defect).
-    assert "front three-quarter" in prompts
-    assert "true side-on profile" in prompts
-    assert "this view is meant to be a pure side-on profile" in prompts
-    assert "top-down planform" in prompts
-    assert "high above the machine" in prompts
+    # near-identical three-quarter crops (the live HMS Argus defect). Aircraft
+    # prompts were simplified in 06880112 (short direct camera line + the
+    # historical reference); each view still gets its own distinct camera.
+    assert "front three-quarter view, slightly above the aircraft" in prompts
+    assert "side view, camera approximately level with the fuselage" in prompts
+    assert "directly overhead, looking vertically down at the aircraft" in prompts
 
     rows = sorted(env["assets"].values(), key=lambda row: row["image_index"])
     assert [row["image_index"] for row in rows] == [1, 2]

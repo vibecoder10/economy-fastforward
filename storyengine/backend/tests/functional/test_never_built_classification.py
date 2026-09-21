@@ -65,6 +65,29 @@ if str(_PIPELINE_ROOT) not in sys.path:
 
 import pipeline_executor as pe  # noqa: E402
 import static_docu as sd  # noqa: E402
+from reference_fixtures import ready_cache_row  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_selection_schema_db(monkeypatch):
+    # The per-machine lookup is reference_selection.select_reference (d0ebcc97);
+    # its schema bootstrap must never reach for a real database.
+    import reference_selection
+
+    async def ensure():
+        return None
+    monkeypatch.setattr(reference_selection, "ensure_selection_schema", ensure)
+
+
+def _fake_selector(monkeypatch, calls):
+    """Record every machine the selector (the whole lookup + comparison chain
+    that costs real Wikimedia and vision spend) is asked about; find nothing."""
+    import reference_selection
+
+    async def select(tenant_id, video_id, machine, roster_index, aliases=None, facts=None, **kwargs):
+        calls.append(machine)
+        return {"status": "needs_review", "reason_code": "no_candidates", "reason": "Nothing found."}
+    monkeypatch.setattr(reference_selection, "select_reference", select)
 
 
 # ---------------------------------------------------------------------------
@@ -444,13 +467,10 @@ async def test_never_built_machine_skips_the_entire_lookup_chain(monkeypatch):
             miss_writes.append(args)
         return None
 
-    async def fake_gather(machine_arg, aliases, query):
-        gather_calls.append(machine_arg)
-        return []  # the other two miss too, for symmetry — irrelevant to the assertion
-
     monkeypatch.setattr(sd, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(sd, "execute", fake_execute)
-    monkeypatch.setattr(sd, "_gather_reference_candidates", fake_gather)
+    # The other two miss too, for symmetry — irrelevant to the assertion.
+    _fake_selector(monkeypatch, gather_calls)
 
     result = await sd.prefetch_roster_references(video_id, tenant_id)
 
@@ -460,11 +480,12 @@ async def test_never_built_machine_skips_the_entire_lookup_chain(monkeypatch):
     assert result["missed"] == 2  # the other two ran a real (if empty) search attempt
     assert result["verified"] == 0
 
-    # THE MONEY ASSERTION: _gather_reference_candidates (and therefore the
-    # whole hosting/vision chain downstream of it) must NEVER be called for
-    # CVA-01 — this is the "saves money" half of the design.
+    # THE MONEY ASSERTION: select_reference (and therefore the whole
+    # candidate-gather + hosting + paid vision-comparison chain behind it)
+    # must NEVER be called for CVA-01 — this is the "saves money" half of
+    # the design.
     assert gather_calls == ["Boeing XB-15", "Northrop XB-35"], (
-        "CVA-01 must never reach the candidate-gather step once classified "
+        "CVA-01 must never reach the reference selector once classified "
         f"never-built; calls were: {gather_calls}"
     )
 
@@ -480,7 +501,7 @@ async def test_never_built_machine_skips_the_entire_lookup_chain(monkeypatch):
 @pytest.mark.asyncio
 async def test_audacious_malta_trap_is_not_skipped_by_prefetch(monkeypatch):
     """The trap entry must still go through the real lookup chain — it is
-    NOT classified never-built, so it must reach _gather_reference_candidates
+    NOT classified never-built, so it must reach the reference selector
     exactly like any other machine with a findable photo."""
     video_id, tenant_id = str(uuid.uuid4()), str(uuid.uuid4())
     roster = [
@@ -502,19 +523,15 @@ async def test_audacious_malta_trap_is_not_skipped_by_prefetch(monkeypatch):
     async def fake_execute(query, *args):
         return None
 
-    async def fake_gather(machine_arg, aliases, query):
-        gather_calls.append(machine_arg)
-        return []
-
     monkeypatch.setattr(sd, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(sd, "execute", fake_execute)
-    monkeypatch.setattr(sd, "_gather_reference_candidates", fake_gather)
+    _fake_selector(monkeypatch, gather_calls)
 
     result = await sd.prefetch_roster_references(video_id, tenant_id)
 
     assert result["never_built"] == 1  # CVA-01 only
     assert any("Audacious" in name for name in gather_calls), (
-        "Audacious/Malta must reach the real candidate-gather step — it is "
+        "Audacious/Malta must reach the real reference selector — it is "
         "NOT never-built despite sharing CVA-01's status"
     )
     # Note: Audacious/Malta's OWN designation is "CVA-01 predecessors", so
@@ -550,8 +567,9 @@ async def test_cached_photo_wins_over_never_built_classification(monkeypatch):
         if "FROM static_reference_cache" in query:
             assert "reference_kind='photo'" in query
             if args and args[-1] == cva01_key:
-                return {"hosted_url": "https://storage.example/manually-seeded-cva01.jpg",
-                        "reference_kind": "photo"}
+                # A manually-seeded photo: a cache row with a valid selection receipt.
+                return ready_cache_row("https://storage.example/manually-seeded-cva01.jpg",
+                                       "https://source.example/cva01.jpg")
             return None  # the other two are unrelated to this assertion
         return None
 
@@ -562,13 +580,9 @@ async def test_cached_photo_wins_over_never_built_classification(monkeypatch):
             miss_writes.append(("insert", args))
         return None
 
-    async def fake_gather(machine_arg, aliases, query):
-        gather_calls.append(machine_arg)
-        return []
-
     monkeypatch.setattr(sd, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(sd, "execute", fake_execute)
-    monkeypatch.setattr(sd, "_gather_reference_candidates", fake_gather)
+    _fake_selector(monkeypatch, gather_calls)
 
     result = await sd.prefetch_roster_references(video_id, tenant_id)
 
@@ -577,7 +591,7 @@ async def test_cached_photo_wins_over_never_built_classification(monkeypatch):
         "the cache hit must short-circuit BEFORE the never_built check, so a "
         "cached machine is never counted as a never_built skip"
     )
-    assert cva01_name not in gather_calls, "cached machine must never reach the candidate-gather step"
+    assert cva01_name not in gather_calls, "cached machine must never reach the reference selector"
     assert ("delete", (tenant_id, video_id, cva01_key)) in miss_writes
 
 
@@ -674,5 +688,13 @@ async def test_dashboard_reports_verified_design_kind(monkeypatch):
 
     result = await executor.roster_repair_dashboard(video_id)
     unit = next(item for item in result["units"] if item["machine"] == machine)
-    assert unit["reference"]["status"] == "verified"
-    assert unit["reference"]["kind"] == "design"
+    # Since 82201e54 the Roster/Gather-images gate counts only reviewed photos
+    # ("never-built entries remain missing images"): a render-time design
+    # study is NOT a verified roster photo, but its saved preview stays visible
+    # and the machine stays retryable rather than being reported as never built.
+    assert unit["reference"]["status"] == "missing"
+    assert "kind" not in unit["reference"]
+    assert unit["reference"]["hosted_url"] == "https://storage.example/cva01-design.png"
+    assert unit["reference"]["source_url"] == "https://source.example/cva01-three-view.png"
+    assert unit["reference"]["selection_pending"] is True
+    assert unit["reference"]["retryable"] is True
