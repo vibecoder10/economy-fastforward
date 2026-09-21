@@ -1,7 +1,7 @@
 # HANDOFF - 2026-09-21 Gather images done (20/20), Luna photo judge live, above-water preference in scoring
 
 ## Where things stand
-- Prod: `4db5a66b4` deployed and healthy (the scoring change below is committed after it; see Next). Backend suite **5705 passed**.
+- Prod: `5d14ea87` deployed and healthy (`main` == `origin/main`). Backend suite **5705 passed**.
   Not mine, left alone: `tasks/decisions.md` (uncommitted edit from another session) and untracked `storyengine/jev-key-box.html`.
 - Pipeline being rebuilt step by step (legacy steps deleted on purpose): **Roster -> Gather images -> Research -> Script ->
   Voice -> Pictures -> Video**, driven through the StoryEngine MCP. The agent LLM relay answers Research/Script model calls.
@@ -36,7 +36,7 @@
   saved as permanent results (a rerun retries); deterministic 4xx, refusals and unreadable output still are. Quote is $0.01/machine.
   Rollback: `REFERENCE_JUDGE_PROVIDER=kie_claude`. Kie's Gemini and Claude endpoints were down that morning; `codex/v1/responses` stayed up.
   Not touched: `static_docu._vision_yes_no` / `_vision_confirms` still call Kie Claude directly.
-- **Seed-photo preference (committed after the deploy, not yet on prod):** `reference_selection.choose_candidate(candidates, judgments, machine)` now
+- **Seed-photo preference (deployed):** `reference_selection.choose_candidate(candidates, judgments, machine)` now
   nudges scores: +8 when a submarine photo's FILE TITLE says launch/dry dock/on the ways (captions are ignored, they mention launch dates),
   -8 when the judge's own limitations say the subject is small in the frame, -5 for text printed on the photo. Adjustments are recorded on the
   selection as `score_adjustments`. Checked offline against the 8 saved judgments (free): flips Barbel to the launch shot, Lafayette and Skipjack
