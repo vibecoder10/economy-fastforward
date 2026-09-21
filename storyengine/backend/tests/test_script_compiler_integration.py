@@ -123,6 +123,8 @@ def assessed_pipeline_state(monkeypatch):
     ex._skip_disabled_next = lambda _video, status: status
     ex._db_write_missed = pe.PipelineExecutor._db_write_missed
     ex._run_unit_research_hold = None
+    # Assessed packages are gated on the no-spend readiness check before any writer call.
+    ex.check_machine_script_preview_readiness = AsyncMock(return_value={"ready": True})
 
     async def checkpoint(_video_id, key, block, _snapshot):
         video["research_payload"].setdefault("machine_script_previews", {})[key] = copy.deepcopy(block)

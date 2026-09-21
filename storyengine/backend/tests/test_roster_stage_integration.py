@@ -35,7 +35,8 @@ def stage(monkeypatch):
         return 'UPDATE 1'
     monkeypatch.setattr(pe,'execute',save)
     monkeypatch.setattr(pe,'fetch_one',AsyncMock(return_value={'has_saved_work':False}))
-    selected={'unit_roster':[{'name':f'Candidate {i}','status':'production','built_count':'1 submarine completed'} for i in range(20)],
+    # One named machine per class (9a29062a): every selected entry records its class_name.
+    selected={'unit_roster':[{'name':f'Candidate {i}','class_name':f'Group {i}','status':'production','built_count':'1 submarine completed'} for i in range(20)],
               'recommended_final_roster':[f'Candidate {i}' for i in range(20)],'roster_contract':'CONFIRMED',
               'fact_sheet':'compact selected facts','machine_script_contract':'malicious replacement',
               'unit_research_cards':[{'machine':'invented'}]}
@@ -128,6 +129,8 @@ def test_fresh_selection_is_visible_and_detail_starts_only_on_separate_call(stag
         return payload
     ex._run_unit_research_hold=AsyncMock(side_effect=detail)
     monkeypatch.setattr('drive_workspace.sync_video_workspace_fail_soft',AsyncMock())
+    # Runtime rosters need verified reference images before detail (cache-truth gate, DB-backed).
+    monkeypatch.setattr('roster_images.roster_image_state',AsyncMock(return_value={'status':'completed'}))
     result=asyncio.run(ex.run_unit_research('v'))
     assert result['status']=='ready_for_scripting',result
     assert discover.await_count==1
@@ -182,7 +185,7 @@ def test_saved_surplus_candidates_are_bounded_then_audited_without_rediscovery(s
     ex,video,events,writes,discover,selected=stage
     saved=copy.deepcopy(selected)
     saved.pop('unit_research_cards')
-    saved['unit_roster'].append({'name':'Surplus class','status':'production','built_count':'1 completed'})
+    saved['unit_roster'].append({'name':'Surplus class','class_name':'Group 20','status':'production','built_count':'1 completed'})
     saved['recommended_final_roster'].append('Surplus class')
     saved['roster_selection']={'version':1,'settings':selection_settings(20,1),'status':'needs_review'}
     video['research_payload']=saved

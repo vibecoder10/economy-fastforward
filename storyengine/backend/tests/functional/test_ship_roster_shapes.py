@@ -714,10 +714,16 @@ def test_machine_documentary_hold_roster_gates_on_missing_dvsu_marker():
     assert pe._machine_documentary_hold_roster(no_marker) == []
 
 
-def test_machine_documentary_hold_roster_gates_on_roster_size_bounds():
-    # Same function enforces a 3-40 item bound regardless of machine shape.
+def test_machine_documentary_hold_roster_does_not_bound_roster_size():
+    # f561ddf6: runtime selection may choose one or more than forty entries, so the
+    # old 3-40 UI-era bound no longer erases a saved roster; the render_mode and
+    # marker gates above are the only guards.
     too_few = _ship_video(roster=SHIP_ROSTER_ENTRIES[:2])
-    assert pe._machine_documentary_hold_roster(too_few) == []
+    assert pe._machine_documentary_hold_roster(too_few) == [
+        pe._unit_display_name(e) for e in SHIP_ROSTER_ENTRIES[:2]
+    ]
+    too_many = _ship_video(roster=[{"name": f"Ship {i}"} for i in range(45)])
+    assert len(pe._machine_documentary_hold_roster(too_many)) == 45
 
 
 # --- 2026-07-30: Anton slot hints must speak ship (found by the research
