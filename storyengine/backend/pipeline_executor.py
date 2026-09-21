@@ -10821,11 +10821,16 @@ class PipelineExecutor:
 
         self._pipeline.should_cancel = _should_cancel
 
-        # Agent LLM relay: scope model calls to this video so identical requests replay
-        # per video, and let a Stop cancel a run that is waiting on the agent.
-        relay_client = getattr(self._pipeline, "anthropic", None)
+        # Agent LLM relay: let a Stop cancel a run that is waiting on the agent.
+        self._bind_agent_relay(video_id, _should_cancel)
+
+    def _bind_agent_relay(self, video_id: str, should_cancel=None) -> None:
+        """Scope an AgentRelayClient's model calls to this video (identical requests replay
+        per video; pending requests show up under it). A no-op for a normal keyed client.
+        Entry points that call the model without arming cancel support call this directly."""
+        relay_client = getattr(getattr(self, "_pipeline", None), "anthropic", None)
         if hasattr(relay_client, "bind"):
-            relay_client.bind(video_id, _should_cancel)
+            relay_client.bind(video_id, should_cancel)
 
     async def _load_character_refs(self, video_id: str, video: dict):
         """Load the approved cast onto the pipeline for reference-locked
@@ -11050,6 +11055,7 @@ class PipelineExecutor:
         import json
         from roster_selection import selection_settings
 
+        self._bind_agent_relay(video_id)
         video = video or await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
@@ -11629,6 +11635,7 @@ class PipelineExecutor:
     async def run_one_machine_research(self, video_id: str, machine: str, source_urls: Optional[list[str]] = None) -> dict:
         """Refresh one locked machine card without paying for or replacing the rest of the roster."""
         await self._ensure_initialized()
+        self._bind_agent_relay(video_id)
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
@@ -19797,6 +19804,7 @@ scenes."""
         import story_bible_native
 
         await self._ensure_initialized()
+        self._bind_agent_relay(video_id)
         bot_name = "Story Bible Bot"
 
         try:

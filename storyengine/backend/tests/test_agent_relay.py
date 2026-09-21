@@ -346,3 +346,30 @@ async def test_bad_arguments_are_clean_errors(db):
     assert (await _call("answer_llm_request", {"answers": []}))["isError"] is True
     assert (await _call("list_pending_llm_requests", {"video_id": "nope"}))["isError"] is True
     assert (await _call("list_pending_llm_requests", {"status": "weird"}))["isError"] is True
+
+
+# ---- executor binding ---------------------------------------------------------------------
+
+def test_executor_binds_relay_to_video_and_ignores_keyed_clients():
+    from types import SimpleNamespace
+    import pipeline_executor as pe
+
+    ex = pe.PipelineExecutor(TENANT)
+    ex._bind_agent_relay(VIDEO)  # not initialised yet: must not raise
+
+    relay = relay_client.AgentRelayClient(TENANT)
+    ex._pipeline = SimpleNamespace(anthropic=relay)
+    ex._bind_agent_relay(VIDEO)
+    assert relay.video_id == VIDEO and relay.should_cancel is None
+
+    async def cancelled():
+        return True
+    ex._bind_agent_relay(OTHER_VIDEO, cancelled)
+    assert relay.video_id == OTHER_VIDEO and relay.should_cancel is cancelled
+    ex._bind_agent_relay(VIDEO)  # a later bind without a cancel hook keeps the armed one
+    assert relay.should_cancel is cancelled
+
+    ex._pipeline = SimpleNamespace(anthropic=SimpleNamespace(generate=None))  # a normal keyed client
+    ex._bind_agent_relay(VIDEO)
+    ex._pipeline = SimpleNamespace(anthropic=None)
+    ex._bind_agent_relay(VIDEO)
