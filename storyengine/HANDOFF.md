@@ -22,15 +22,18 @@
    `1cPXLQN1...` (Ryan's intended Shared Drive folder).
 
 ## Next action (start here cold)
-1. **Deploy (ask Ryan first - live system):** `scripts/se.sh deploy <session-name>`; lock was absent.
-   Backend-only, no frontend change.
-2. After deploy: `get_production_guide` for `6ac28204-681c-4839-9d11-6c3ba57b7b6e` should show roster
-   done; then confirm `systemctl is-active storyengine-backend.service` via `se health`.
-3. Ask Ryan: the two earlier test files (thesis+roster, shared context) are still in the pipeline's old
-   "StoryEngine Research" folder `1H7uG1YDAmZFMcZm_-8ykbXIIN3INycRs` (under "Storyengine"). A fresh copy is
-   already in the right place, so nothing needs moving; Ryan can trash the old folder or leave it.
-4. Then Phase 1 roster half is done. Next: live-verify Research (Call 3) the same way (mock the LLM call,
-   run the real code, check the DB + Drive). Phase 2 (script) stays untouched until Phase 1 closes.
+0. DONE this evening: deployed `93a47eb3`; MCP `get_production_guide` for `6ac28204...` shows Roster = done,
+   next_step = image_gather. Drive fix is live (env var set before the restart); the two old test files remain in
+   the old folder `1H7uG1Yd...` (a fresh copy is in the right place) - trash or leave, Ryan's call.
+1. **Build the agent LLM relay** so the MCP runs the real pipeline with Claude answering model calls (Ryan:
+   "the whole point of the mcp is to run the pipelines exactly as if it had an api key"). Full design:
+   `storyengine/docs/agent-llm-relay-2026-09-21/DESIGN.md` (block-and-wait `AgentRelayClient` subclass of
+   AnthropicClient overriding `generate()`, `agent_llm_requests` table with fingerprint replay, MCP tools
+   `list_pending_llm_requests` + `answer_llm_request`, enabled per tenant only when no API key). Follow
+   structured-workflow (trace -> build bottom-up -> verify); it touches >3 files.
+2. Then drive Call 3 for ONE machine through the MCP on video `6ac28204...` (real web research by Claude,
+   answers via the relay), confirm the Drive export lands in `1cPXLQN1...`, and the no-spend replay proof.
+3. Only after that: more machines / script stage. Phase 2 stays untouched until Phase 1 closes.
 
 ## Open threads
 - No Anthropic API key exists for this tenant (bot_activity 401s); real non-mocked runs fail until fixed.
@@ -51,6 +54,6 @@
 
 ---
 paste this to start the next session:
-Resume StoryEngine. Read HANDOFF.md first. Next action: get Ryan's yes, then deploy main (roster-gate fix +
-Drive Shared-Drive fix) with `scripts/se.sh deploy`, then verify get_production_guide shows roster done for
-video 6ac28204-681c-4839-9d11-6c3ba57b7b6e, then live-verify Research (Call 3).
+Resume StoryEngine. Read HANDOFF.md, then storyengine/docs/agent-llm-relay-2026-09-21/DESIGN.md. Next action:
+build the agent LLM relay (MCP-driven pipeline on Claude's usage) per the design, bottom-up with tests, then
+drive DVSU Call 3 for one machine on video 6ac28204-681c-4839-9d11-6c3ba57b7b6e through the MCP.

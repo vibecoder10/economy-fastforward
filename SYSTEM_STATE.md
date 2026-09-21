@@ -1,5 +1,11 @@
 # System State — Economy FastForward
 
+## Agent LLM relay - DESIGN ONLY (2026-09-21)
+
+- New doc `storyengine/docs/agent-llm-relay-2026-09-21/DESIGN.md`: plan for `AgentRelayClient` (model
+  responses supplied by the MCP agent, pipeline logic unchanged), `agent_llm_requests` table, and MCP tools
+  `list_pending_llm_requests` / `answer_llm_request`. Nothing is built yet - no code, table or tool exists.
+
 ## DVSU research pipeline v2 — Phase 1a: Call 1 (thesis+acts) + Call 2 (roster+shared-context) (2026-09-18)
 
 - New module `storyengine/backend/dvsu_roster_v2.py` implements, verbatim,

@@ -757,3 +757,7 @@ Ryan should never have to remember to merge. At session start `git fetch` and co
 
 ## 2026-09-21 - Drive API is blind to Shared Drives unless every call says supportsAllDrives
 `GoogleClient` passed no `supportsAllDrives` / `includeItemsFromAllDrives`, so a folder inside a Shared Drive was invisible to `files().list` and 404'd on create/upload - it looked exactly like "the folder doesn't exist", and the pipeline silently wrote to a same-named My Drive folder instead. To target a folder, pin it by ID (env var) rather than by name lookup, and pass the flags on every call in the path (list needs both flags; create/update/get need `supportsAllDrives`).
+
+## 2026-09-21 - The StoryEngine MCP is for RUNNING the pipeline on Claude's usage, not just handing back results
+I proposed verifying Call 3 with a mocked-network script and offered `submit_research` as the "free path". Ryan corrected: the point of the MCP is to run StoryEngine's real pipelines exactly as if the tenant had an API key, with Claude supplying the model responses - and if a tool for that doesn't exist, build it. `submit_*` tools skip the real stage code (and `submit_research` overwrites the whole payload), so they verify ingest, not the pipeline.
+**How to apply:** when asked to "verify via the MCP", first check whether the MCP can run the real stage; if it can't because of a missing key, the fix is to build the missing capability (see docs/agent-llm-relay-2026-09-21/DESIGN.md), not to route around it with a script.
