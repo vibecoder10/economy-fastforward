@@ -120,10 +120,13 @@ through the MCP on video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, the packet pass
 gates, the Drive export landed in folder `1cPXLQN1...`, and a re-run replayed with zero new requests.
 - [x] Built bottom-up + unit-tested locally (migration 163, `agent_relay.py`, `agent_relay_client.py`,
   executor wiring, MCP tools, production_guide hint) - `backend/tests/test_agent_relay.py`, 17 tests.
-- [ ] Ryan's yes to deploy -> apply migration, `se deploy`, set `tenants.agent_llm_relay = true` for the
-  storyengine tenant.
-- [ ] Drive Call 3 for one machine through the MCP; confirm export + no-spend replay.
-Status: built and tested, NOT deployed. Next action: deploy gate. Blocker: Ryan's deploy approval.
+- [x] Deployed 2026-09-21 (`9930c3da`, migration 163 applied), `tenants.agent_llm_relay = true` for the DVSU tenant
+  `561b872d...` only. Live-verified: executor picks the relay, request parks scoped to the video with web_search,
+  guide shows `pending_requests`.
+- [ ] Answer the parked Call 3 requests for "USS Holland (SS-1)" via `answer_llm_request` (needs a fresh MCP
+  connection: the deploying session held the pre-deploy 98-tool list); confirm export + no-spend replay.
+Status: deployed; one live run parked (driver pid 1977744 on the VPS, expires ~15:44 UTC, re-runnable).
+Next action: fresh session answers the pending requests. Blocker: none (needs the new MCP tools in-session).
 
 ## Historical evidence (superseded active status)
 

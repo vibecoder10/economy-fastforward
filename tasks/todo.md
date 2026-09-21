@@ -2847,3 +2847,6 @@ re-balances durations to the real audio. No prod scripts row carries a leading h
 
 ## Handoff 2026-09-21 - agent LLM relay v1 built (local, tested), awaiting deploy
 Built: migration 163 (`agent_llm_requests`, `tenants.agent_llm_relay`), `backend/agent_relay.py` (store), `backend/agent_relay_client.py` (`AgentRelayClient`), executor wiring (`PipelineExecutor._ensure_initialized` + `_install_cancel_support`), MCP tools `list_pending_llm_requests` / `answer_llm_request`, production_guide hint. 17 new tests in `backend/tests/test_agent_relay.py`; full suite = zero new failures vs a clean baseline (the 85 remaining are pre-existing). NOT deployed. Next: deploy (migration auto-applies), `UPDATE tenants SET agent_llm_relay = true` for Ryan's tenant, then drive Call 3 for one machine on video 6ac28204-681c-4839-9d11-6c3ba57b7b6e through the MCP. See docs/agent-llm-relay-2026-09-21/DESIGN.md (deviations noted at top).
+
+## Handoff 2026-09-21 (later) - relay deployed, Call 3 for Holland parked
+Deployed 9930c3da; relay flag on for DVSU tenant 561b872d only. VPS driver (pid 1977744, log /tmp/relay_drive.log) waits on request 83faa295 until ~15:44 UTC; re-run per storyengine/HANDOFF.md. Next: fresh session answers pending requests via answer_llm_request, then Drive export + no-spend replay proof.
