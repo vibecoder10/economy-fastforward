@@ -1,6 +1,23 @@
 # Agent LLM relay - run StoryEngine's real pipeline with Claude (via MCP) answering where the API key would
 
-Status: DESIGN, not built. Author: Osiris session 2026-09-21. Goal (Ryan): "the whole point of the MCP is to
+Status: v1 BUILT 2026-09-21 (unit-tested; not yet deployed / live-verified). Author: Osiris session 2026-09-21.
+
+Build deviations from the design below (found while tracing the code):
+- Injection is the pipeline executor only. Request-scoped sites (`_resolve_tenant_anthropic_client`,
+  `rewrite_scene_text`) are NOT relayed: block-and-wait would hang the very MCP call the agent must
+  answer from. Those tools already have free "do it yourself" twins (`edit_scene_text`, ...).
+- The relay client is scoped to a video by `PipelineExecutor._install_cancel_support(video_id)` calling
+  `client.bind(video_id, should_cancel)` - `generate()` itself has no video argument.
+- Enablement flag is a `tenants.agent_llm_relay` boolean (default false), set by an operator with SQL, and it is
+  AUTHORITATIVE - flag on = relay, regardless of stored keys. The design said "only when the tenant has NO key",
+  but the DVSU tenant has a stored-but-dead key (out of credits / 401), so "has a key" can't decide it.
+- `answer_llm_request` on an already-answered request REPLACES the answer (needed to correct one the stage's
+  parser rejected: the identical request would otherwise replay the bad answer forever).
+- Known limit: Call 4 (script paragraph) goes through `DurableScriptClient`, which refuses to resubmit an
+  uncertain request. A relay wait that times out or is killed by a deploy leaves that operation
+  `submitted` -> needs reconcile. Phase 2; Call 1-3 are unaffected (their checkpoint is the request row).
+
+Goal (Ryan): "the whole point of the MCP is to
 run the pipelines of StoryEngine exactly as if it had an API key" - the website/pipeline logic runs unchanged;
 the connected MCP agent (Claude, on the user's subscription) supplies the model responses.
 

@@ -466,7 +466,7 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
                 warnings.extend(gaps)
         stages.append(entry)
 
-    return {
+    guide: dict[str, Any] = {
         "video_id": str(video_id),
         "title": video.get("video_title"),
         "status": video.get("status"),
@@ -476,3 +476,24 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
         "warnings": warnings,
         "next_step": _recommend_next_step(stages),
     }
+    # Agent LLM relay: a stage that is "in progress" may simply be waiting for YOU to
+    # answer its model calls. Say so, or a waiting run looks hung.
+    relay_pending = await _agent_relay_pending(tenant_id, video_id)
+    if relay_pending:
+        guide["agent_llm_relay"] = {
+            "pending_requests": relay_pending,
+            "action": (
+                f"{relay_pending} model call(s) are waiting for your answer: call "
+                "list_pending_llm_requests, then answer_llm_request. The stage resumes as you answer."
+            ),
+        }
+    return guide
+
+
+async def _agent_relay_pending(tenant_id, video_id: str) -> int:
+    """Pending relay requests for this video; 0 on any problem (never break the guide)."""
+    try:
+        import agent_relay
+        return await agent_relay.pending_count(tenant_id, video_id)
+    except Exception:  # noqa: BLE001
+        return 0

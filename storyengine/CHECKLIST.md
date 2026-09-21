@@ -112,6 +112,19 @@ results, start Phase 2 (script-writing, Call 4) per `docs/dvsu-script-pipeline-v
 
 Market: Ryan/editor; hypothesis is completing saved project without developer intervention; distribution is existing private StoryEngine UI; real test counts manual interventions and rejected sections. Build/Market/Operate tracked on SE-0002.
 
+### Sub-outcome (2026-09-21): agent LLM relay - drive Phase 1 live with NO Anthropic key
+Why: this tenant has no Anthropic key, so the live-verification recipe above can't run the real
+stage code. The relay lets the MCP agent (Claude, on Ryan's subscription) answer each model call.
+Design: `docs/agent-llm-relay-2026-09-21/DESIGN.md`. Done when: ONE machine's Call 3 (6 searches) ran
+through the MCP on video `6ac28204-681c-4839-9d11-6c3ba57b7b6e`, the packet passed the pipeline's own
+gates, the Drive export landed in folder `1cPXLQN1...`, and a re-run replayed with zero new requests.
+- [x] Built bottom-up + unit-tested locally (migration 163, `agent_relay.py`, `agent_relay_client.py`,
+  executor wiring, MCP tools, production_guide hint) - `backend/tests/test_agent_relay.py`, 17 tests.
+- [ ] Ryan's yes to deploy -> apply migration, `se deploy`, set `tenants.agent_llm_relay = true` for the
+  storyengine tenant.
+- [ ] Drive Call 3 for one machine through the MCP; confirm export + no-spend replay.
+Status: built and tested, NOT deployed. Next action: deploy gate. Blocker: Ryan's deploy approval.
+
 ## Historical evidence (superseded active status)
 
 ### Superseded 2026-09-18 — DVSU Run All reliability, evidence-led writing

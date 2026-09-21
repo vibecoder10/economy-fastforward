@@ -9308,7 +9308,15 @@ class PipelineExecutor:
         # tenant has no Anthropic key (the Kie gateway 500s/hangs and drops image
         # blocks). Images/video always use Kie. On fallback, AnthropicClient reads
         # ANTHROPIC_BASE_URL and switches to Bearer auth + undated model aliases.
-        if not os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("KIE_AI_API_KEY"):
+        #
+        # Agent LLM relay (docs/agent-llm-relay-2026-09-21): a workspace an operator opted
+        # in (tenants.agent_llm_relay, default off) has the connected MCP agent answer the
+        # model calls instead of a provider. The flag is authoritative - a stored key can be
+        # present but dead (out of credits / 401), so "has a key" can't decide this. It also
+        # beats the Kie fallback below (the gateway can't run web search, which DVSU needs).
+        import agent_relay
+        use_agent_relay = await agent_relay.relay_enabled(self.tenant_id)
+        if not use_agent_relay and not os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("KIE_AI_API_KEY"):
             os.environ["ANTHROPIC_API_KEY"] = os.environ["KIE_AI_API_KEY"]
             os.environ["ANTHROPIC_BASE_URL"] = os.getenv(
                 "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
@@ -9364,9 +9372,14 @@ class PipelineExecutor:
 
         # Anthropic client — required for research, script, prompts
         try:
-            from shared.clients.anthropic_client import AnthropicClient
-            self._pipeline.anthropic = AnthropicClient()
-            print("[INIT] AnthropicClient OK", flush=True)
+            if use_agent_relay:
+                from agent_relay_client import AgentRelayClient
+                self._pipeline.anthropic = AgentRelayClient(self.tenant_id)
+                print("[INIT] AgentRelayClient OK (model calls are answered by the MCP agent)", flush=True)
+            else:
+                from shared.clients.anthropic_client import AnthropicClient
+                self._pipeline.anthropic = AnthropicClient()
+                print("[INIT] AnthropicClient OK", flush=True)
         except Exception as e:
             print(f"[INIT] AnthropicClient skipped: {e}", flush=True)
             self._pipeline.anthropic = None
@@ -10807,6 +10820,12 @@ class PipelineExecutor:
                 return False
 
         self._pipeline.should_cancel = _should_cancel
+
+        # Agent LLM relay: scope model calls to this video so identical requests replay
+        # per video, and let a Stop cancel a run that is waiting on the agent.
+        relay_client = getattr(self._pipeline, "anthropic", None)
+        if hasattr(relay_client, "bind"):
+            relay_client.bind(video_id, _should_cancel)
 
     async def _load_character_refs(self, video_id: str, video: dict):
         """Load the approved cast onto the pipeline for reference-locked

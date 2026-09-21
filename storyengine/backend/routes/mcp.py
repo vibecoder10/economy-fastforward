@@ -237,7 +237,15 @@ SERVER_INSTRUCTIONS = (
     "fallback for when you'd rather StoryEngine's own model do it, not the "
     "default. Tools that produce an actual media asset (pictures, clips, "
     "voice, thumbnails, render) are real provider spend either way and have "
-    "no free substitute — call those directly, no special handling needed."
+    "no free substitute — call those directly, no special handling needed.\n\n"
+    "Agent LLM relay: if get_workspace_info says agent_llm_relay is enabled, "
+    "the REAL pipeline stages "
+    "(research, per-machine research, ...) run with YOU answering their "
+    "model calls. Start the stage with its normal tool, then loop: "
+    "list_pending_llm_requests -> do what each prompt asks (use your own web "
+    "search when the request says web_search) -> answer_llm_request with "
+    "exactly what the model would return. The stage resumes as you answer; "
+    "get_production_guide shows how many requests are waiting."
 )
 
 
@@ -608,7 +616,9 @@ async def _call_get_workspace_info(tenant_id, arguments: dict[str, Any]) -> dict
     dial = await get_autopilot_dial(tenant_id)
     plan = await _get_tenant_plan(tenant_id)
 
+    import agent_relay
     return _text_result({
+        "agent_llm_relay": await agent_relay.relay_enabled(tenant_id),
         "workspace_name": row.get("channel_name") or row.get("tenant_name") or "Workspace",
         "niche": row.get("niche") or None,
         "style_summary": row.get("style_description") or None,
@@ -1861,7 +1871,73 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
     },
 }
 
-_INGEST_TOOLS: list[dict[str, Any]] = [_SUBMIT_RESEARCH_TOOL, _SUBMIT_SCRIPT_TOOL]
+# ---- Agent LLM relay (docs/agent-llm-relay-2026-09-21/DESIGN.md) ------------------------
+# The complement to submit_*: instead of handing over a FINISHED result, you answer the
+# individual model calls the real pipeline stage makes, so the stage's own code (prompts,
+# parsers, gates) runs unchanged on your Claude subscription.
+
+_LIST_PENDING_LLM_REQUESTS_TOOL: dict[str, Any] = {
+    "name": "list_pending_llm_requests",
+    "description": (
+        "Agent LLM relay. When this workspace has the relay enabled, a "
+        "pipeline stage (research roster, per-machine research, script...) does NOT call a "
+        "model - it parks each model call here and WAITS for you. This lists those waiting "
+        "requests (the exact prompt/system prompt the stage built, plus which model, token "
+        "budget and tools it would have used). For each one: do what the prompt asks yourself "
+        "- if `web_search` is true, run your own web searches first - then reply with "
+        "answer_llm_request using EXACTLY what the model would have returned (usually the "
+        "single JSON object the prompt specifies, no commentary). The stage's own parsers and "
+        "quality gates judge your answer the same as a real model's. Free: zero StoryEngine "
+        "spend. Pass `request_id` to fetch one request in full (including an already-given "
+        "answer, e.g. to fix one the stage rejected) or `status: \"answered\"`/`\"all\"`."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Only requests for this video."},
+            "request_id": {"type": "string", "description": "Fetch this one request (any status)."},
+            "status": {"type": "string", "enum": ["pending", "answered", "all"],
+                       "description": "Default pending."},
+            "limit": {"type": "integer", "description": "Max requests returned (default 10, max 50)."},
+        },
+    },
+}
+
+_ANSWER_LLM_REQUEST_TOOL: dict[str, Any] = {
+    "name": "answer_llm_request",
+    "description": (
+        "Agent LLM relay. Give the model's answer to a request from list_pending_llm_requests; "
+        "the waiting stage resumes within a couple of seconds and moves on to its next call "
+        "(call list_pending_llm_requests again to see it). `response` is stored verbatim and "
+        "must be exactly what the model would have returned - for the research/script "
+        "prompts that is the JSON object the prompt asks for, with no surrounding prose. "
+        "Answers are cached by request, so re-running a stage replays them for free instead of "
+        "asking again; answering an already-answered request REPLACES it (use that to correct "
+        "an answer the stage's parser rejected, then re-run the stage). Give one "
+        "`request_id` + `response`, or several at once via `answers`."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "request_id": {"type": "string"},
+            "response": {"type": "string", "description": "The model's answer text, verbatim."},
+            "answers": {
+                "type": "array",
+                "description": "Batch form: [{\"request_id\": \"...\", \"response\": \"...\"}, ...]",
+                "items": {
+                    "type": "object",
+                    "properties": {"request_id": {"type": "string"}, "response": {"type": "string"}},
+                    "required": ["request_id", "response"],
+                },
+            },
+        },
+    },
+}
+
+_INGEST_TOOLS: list[dict[str, Any]] = [
+    _SUBMIT_RESEARCH_TOOL, _SUBMIT_SCRIPT_TOOL,
+    _LIST_PENDING_LLM_REQUESTS_TOOL, _ANSWER_LLM_REQUEST_TOOL,
+]
 
 
 async def _call_submit_research(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
@@ -1894,9 +1970,78 @@ async def _call_submit_script(tenant_id, arguments: dict[str, Any], caller: str)
     return _text_result(result)
 
 
+def _relay_request_view(row: dict[str, Any], *, include_response: bool) -> dict[str, Any]:
+    tools = row.get("tools") or []
+    view = {
+        "request_id": row["id"], "video_id": row.get("video_id"), "stage": row.get("stage"),
+        "status": row["status"], "model": row.get("model"), "max_tokens": row.get("max_tokens"),
+        "temperature": row.get("temperature"),
+        "web_search": any(str(t.get("type", "")).startswith("web_search") for t in tools if isinstance(t, dict)),
+        "tools": tools or None, "answer_count": row.get("answer_count") or 0,
+        "age_seconds": int(row["age_seconds"]) if row.get("age_seconds") is not None else None,
+        "system_prompt": row.get("system_prompt") or "", "prompt": row["prompt"],
+    }
+    if include_response:
+        view["response"] = row.get("response_text")
+    return view
+
+
+async def _call_list_pending_llm_requests(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import uuid as _uuid
+    import agent_relay
+    video_id = arguments.get("video_id")
+    for label in ("video_id", "request_id"):
+        if arguments.get(label):
+            try:
+                _uuid.UUID(str(arguments[label]))
+            except ValueError:
+                return _error_result(f"{label} must be a UUID")
+    if arguments.get("request_id"):
+        row = await agent_relay.get_request(tenant_id, str(arguments["request_id"]))
+        if row is None:
+            return _error_result(f"No LLM request {arguments['request_id']} found for this workspace")
+        return _text_result({"requests": [_relay_request_view(row, include_response=True)]})
+    status = arguments.get("status") or "pending"
+    if status not in ("pending", "answered", "all"):
+        return _error_result("status must be pending, answered or all")
+    rows = await agent_relay.list_requests(
+        tenant_id, video_id=str(video_id) if video_id else None, status=status,
+        limit=arguments.get("limit") or 10,
+    )
+    return _text_result({
+        "pending_total": await agent_relay.pending_count(tenant_id, str(video_id) if video_id else None),
+        "requests": [_relay_request_view(r, include_response=(r["status"] == "answered")) for r in rows],
+    })
+
+
+async def _call_answer_llm_request(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import agent_relay
+    answers = arguments.get("answers")
+    if answers is None:
+        answers = [{"request_id": arguments.get("request_id"), "response": arguments.get("response")}]
+    if not isinstance(answers, list) or not answers:
+        return _error_result("answer_llm_request needs request_id + response, or a non-empty answers array")
+    if len(answers) > 50:
+        return _error_result("At most 50 answers per call")
+    results = []
+    for item in answers:
+        item = item if isinstance(item, dict) else {}
+        try:
+            saved = await agent_relay.answer_request(tenant_id, item.get("request_id"), item.get("response"))
+            results.append({"ok": True, **saved})
+        except agent_relay.AnswerError as e:
+            results.append({"ok": False, "request_id": item.get("request_id"), "error": str(e)})
+    if not any(r["ok"] for r in results):
+        return _error_result("; ".join(r["error"] for r in results))
+    _log_setup_write("answer_llm_request", tenant_id, caller, detail=f"{sum(r['ok'] for r in results)} answered")
+    return _text_result({"answered": sum(r["ok"] for r in results), "results": results})
+
+
 _INGEST_HANDLERS = {
     "submit_research": _call_submit_research,
     "submit_script": _call_submit_script,
+    "list_pending_llm_requests": _call_list_pending_llm_requests,
+    "answer_llm_request": _call_answer_llm_request,
 }
 
 

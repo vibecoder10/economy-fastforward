@@ -288,7 +288,9 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
     # ENV-1 (2026-08-05, missed-location recovery): +1 (add_environment —
     # create one draft environment by hand without a full paid re-design) —
     # 97 -> 98.
-    assert len(tools) == len(mcp_mod.TOOLS) == 98, (
+    # Agent LLM relay (2026-09-21): +2 (list_pending_llm_requests,
+    # answer_llm_request) — 98 -> 100.
+    assert len(tools) == len(mcp_mod.TOOLS) == 100, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

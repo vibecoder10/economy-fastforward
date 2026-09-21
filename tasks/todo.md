@@ -2844,3 +2844,6 @@ venv): raw header text would have minted a caption row literally reading "LOCATI
 garage ACTION: ..." with a 2.1s timing skew on BOTH segments; deployed code strips it and
 re-balances durations to the real audio. No prod scripts row carries a leading header yet
 (authoring channel shipped the same day), so no existing video was ever desynced.
+
+## Handoff 2026-09-21 - agent LLM relay v1 built (local, tested), awaiting deploy
+Built: migration 163 (`agent_llm_requests`, `tenants.agent_llm_relay`), `backend/agent_relay.py` (store), `backend/agent_relay_client.py` (`AgentRelayClient`), executor wiring (`PipelineExecutor._ensure_initialized` + `_install_cancel_support`), MCP tools `list_pending_llm_requests` / `answer_llm_request`, production_guide hint. 17 new tests in `backend/tests/test_agent_relay.py`; full suite = zero new failures vs a clean baseline (the 85 remaining are pre-existing). NOT deployed. Next: deploy (migration auto-applies), `UPDATE tenants SET agent_llm_relay = true` for Ryan's tenant, then drive Call 3 for one machine on video 6ac28204-681c-4839-9d11-6c3ba57b7b6e through the MCP. See docs/agent-llm-relay-2026-09-21/DESIGN.md (deviations noted at top).
