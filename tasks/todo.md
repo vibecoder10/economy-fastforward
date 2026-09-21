@@ -4,6 +4,17 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## Handoff — 2026-09-21 (evening) — Deployed 93a47eb3; NEXT: build the agent LLM relay
+
+DONE: deployed `93a47eb3` (roster-gate fix + Shared Drive fix); verified via MCP `get_production_guide`
+for test video 6ac28204: Roster = done, next_step = image_gather. The "OPEN (next)" Drive item in the entry
+below is now done and live.
+NEXT (Ryan's direction): make the StoryEngine MCP able to run the REAL pipeline stages with Claude answering
+the model calls (no API key) - full design in `storyengine/docs/agent-llm-relay-2026-09-21/DESIGN.md`.
+Existing `submit_research`/`submit_script` are result hand-offs (whole-payload overwrite, legacy shape) and
+cannot drive DVSU v2. Build order: migration -> AgentRelayClient (block-and-wait, fingerprint replay) ->
+client wiring (executor ~9368 + BYOK resolvers) -> 2 MCP tools -> guide hint -> tests -> drive it live via MCP.
+
 ## Handoff — 2026-09-21 — DVSU v2 roster gate fixed; Drive folder fix still open
 
 DONE: `_live_roster_gate` (storyengine/backend/pipeline_executor.py) no longer demands
