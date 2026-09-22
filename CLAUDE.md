@@ -3,6 +3,30 @@
 
 ---
 
+## File map (vault's standard 5-file contract, mapped to this project's real names)
+
+This repo predates the vault-wide convention and uses different names for
+two of the five files — both are load-bearing and hook/session-protocol
+enforced, so they were NOT renamed during the 2026-09-22 reorg:
+
+| Standard role | This project's real file |
+|---|---|
+| `CLAUDE.md` | this file (root) — legacy cron pipeline + pointers into `storyengine/CLAUDE.md` (the SaaS app's own, more concise operating card) |
+| `AGENTS.md` | `AGENTS.md` (root) — one-line pointer to this file |
+| `CHECKLIST.md` | `tasks/todo.md` (current work) + `tasks/lessons.md` (hard-won patterns) + `tasks/decisions.md` (settled choices) — see Session Protocol below. `storyengine/CHECKLIST.md` is the separate, SaaS-app-specific plan-of-record. |
+| `HANDOFF.md` | `storyengine/HANDOFF.md` — the current, actively-maintained one. (A stale root-level `HANDOFF.md` from 2026-07-27 was retired to `docs/decisions/` on 2026-09-22 — don't recreate it at root.) |
+| `JOURNAL/YYYY-MM-DD.md` | `JOURNAL/` (root, started 2026-09-22) for outer/legacy-pipeline work; `storyengine/JOURNAL/` (started 2026-09-14) for SaaS-app work. `SYSTEM_STATE.md` is the historical log used before the JOURNAL/ convention existed here — kept as reference, nothing new gets appended. |
+
+Two more repo-specific structural things worth knowing up front:
+- `skills/video-pipeline/` and `remotion-video/` are hard runtime
+  dependencies of `storyengine/backend` (loaded via `sys.path` at exact
+  relative locations from 8+ backend files) — never move or rename either.
+- `docs/decisions/` (both here and `storyengine/docs/decisions/`) holds
+  finished/superseded plans and audits kept as historical reference, not
+  deleted — distinct from `docs/` proper, which is live reference material.
+
+---
+
 ## VPS Deploy Coordination Rule (MANDATORY — multiple agent sessions share this box)
 
 Restarting the StoryEngine backend kills uvicorn's in-process background tasks — that means
@@ -22,12 +46,18 @@ have clobbered each other this way. The protocol:
 ---
 
 ## Structural Change Rule
-**MANDATORY:** Any session that moves, renames, creates, or deletes files/folders MUST update `SYSTEM_STATE.md` before committing. This includes:
+**MANDATORY:** Any session that moves, renames, creates, or deletes files/folders MUST log it in today's `JOURNAL/YYYY-MM-DD.md` before committing. This includes:
 - New bots, steps, or modules
 - Renamed or moved files
 - Changed import paths
 - New cron jobs or Slack commands
 - New Supabase tables or fields
+
+`SYSTEM_STATE.md` is the historical log used for this before 2026-09-22 (12k+
+lines, one growing file — exactly the anti-pattern `JOURNAL/` sharding
+exists to prevent). It's kept as reference, not deleted, but nothing new
+gets appended to it — write to `JOURNAL/YYYY-MM-DD.md` instead, one file
+per calendar day.
 
 ---
 
@@ -185,12 +215,14 @@ storyengine/                     # Production dashboard (Next.js 16 + FastAPI + 
 tasks/                           # Task tracking, lessons learned
 ├── todo.md                      # Current tasks + handoffs
 ├── lessons.md                   # Hard-won patterns (read EVERY session)
-└── roadmap.md                   # Product roadmap + SaaS journal
+└── decisions.md                 # Settled architectural choices (append-only)
 docs/                            # Reference documentation
 ├── reports/                     # Completion reports, wiring status, migrations
 ├── reviews/                     # System reviews (animation, architecture)
 ├── reference/                   # Outdated but preserved docs
-└── superpowers/                 # Feature plans + specs
+├── superpowers/                 # Feature plans + specs
+└── decisions/                   # Finished/superseded plans + audits, kept as history
+JOURNAL/                         # Dated structural-change log (YYYY-MM-DD.md, started 2026-09-22)
 ```
 
 ## Architecture
@@ -322,9 +354,9 @@ cd storyengine/backend && arq backend.worker.WorkerSettings                # arq
 * Airtable schema & field maps → docs/airtable-schema.md
 * API integration patterns → docs/api-patterns.md
 * Data architecture → docs/data-architecture.md
-* Product roadmap → tasks/roadmap.md
 * Completion reports → docs/reports/
 * System reviews → docs/reviews/
+* Historical/superseded plans & audits → docs/decisions/ (dated, not live specs)
 
 ## Core Principles
 - **Thinking Partner First**: You are a co-creator, not a code executor. Before building, offer insights, challenge weak ideas, propose alternatives. Lead with the most interesting observation you have — never open with "Sure, I can do that."
