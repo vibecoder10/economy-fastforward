@@ -78,20 +78,43 @@ The real roster run happens on a NEW video (the 20-machine roster on `6ac28204` 
   static docs only, stops at `ready_for_scripting` with `RESEARCH_READY_MSG`) + a "Run to Research" button on the stage rail (`StaticDocuStageRail.tsx`, testid `run-to-research`). The rail's
   run buttons used to scroll out of reach on narrow screens; they now wrap under the stages. Tests: `tests/test_dvsu_run_all_replay.py` (3 new, mutation-checked). To add the script target next,
   copy the same pattern: add `script` to `AUTOBUILD_TARGETS`, `job_queue.py`, `worker.py`, the route, and a stop in the loop before voice.
-- **Step 0 DONE - Ryan named the gold standard (2026-09-21): this workspace's own 4 produced videos**, not the 7 competitor transcripts in `channel_videos` (those were a wrong guess, not
-  suggested to Ryan as final - leave them alone, they're separate competitor-DNA data). Pulled from `scripts.scene_text` (ordered by `scene`) and saved as plain markdown, ready to read:
-  `docs/gold-scripts/every-us-strategic-bomber.md` (28 scenes, 2576 words, video `658e11e0`, uploaded_draft), `every-british-aircraft-carrier-v1.md` (23 scenes, 3395 words, video `d2e37cd6`, rendered),
-  `every-british-aircraft-carrier-v2.md` (21 scenes, 2005 words, video `3f902e62`, uploaded_draft), `every-us-aircraft-carrier.md` (24 scenes, 3344 words, video `aa1ef106`, uploaded_draft).
-  Re-pull with `se db "SELECT json_agg(json_build_object('scene',scene,'title',title,'text',scene_text) ORDER BY scene) FROM scripts WHERE video_id='<id>'"` if these videos' scripts ever change.
-  **Open question for next session, don't resolve solo:** these read as plain encyclopedic scene summaries (one paragraph per aircraft/ship, Wikipedia-flat tone) - noticeably NOT the "clipped,
-  grave, institutionally literate" procurement-verdict voice in this workspace's current `style_summary` (`get_workspace_info`). Ask Ryan whether the grammar should target this OLDER produced
-  voice, the NEWER `style_summary` voice, or a blend, before building the checker - guessing wrong means rebuilding it.
-- **Step 1 - deterministic breakdown, no LLM.** Write an extractor that turns each gold script into a JSON grammar: sections (opening hook, per-machine segments, transitions, close); per segment word count,
-  sentence count and sentence-length series, opener type (dated event / hard number), digit and designation density, where the one-line verdict sits. Aggregate across the gold set into min/median/max ranges.
-  Emit a versioned `script_grammar.json` and a pure checker `check(script_text) -> violations` with the gold scripts as test fixtures. That checker is the gate the pipeline runs after generation.
-- **Step 2 - reconcile with what already exists before writing anything:** `dvsu_script_brief.py` (80/100/110 words per machine, 1 min per machine, brief fields intended_role/design/actual_use/outcome, 6000-byte brief),
-  the editorial audit (`evidence_led`, `coherent`, `spoken_style`), `machine_script_contract = factual_100_v1`, `pipeline_executor.run_script` + `dvsu_script_operations`, `machine_story_plans` /
-  `machine_script_briefs` / `machine_script_previews` payload keys, `DurableScriptClient` (will not resubmit an uncertain relay request; needs a reconcile). Decide keep / replace per piece.
+- **Step 0 DONE, corrected (2026-09-21) - the real gold standard is `~/Desktop/Projects/Designed vs used/`, NOT the DB scripts.**
+  My first guess (this workspace's 4 produced `scripts.scene_text` rows) was WRONG - Ryan corrected it to `desktop/designedvsused/top video scripts`. That folder's `TOP VIDEO SCRIPTS/` holds
+  **14 real .docx gold scripts** (24-30 richly-written paragraphs each, matching the standard below exactly) and the folder itself holds **5 standards docs that already ARE most of the
+  deterministic grammar** - read these FIRST, in this order, before writing any parser:
+  1. `docs/gold-scripts/standards/DvsU_Script_Writing_System.md` - THE spec. Word count 95-120/paragraph (never outside), 24-30 paragraphs/video (15 floor), 4-7 acts (each summarizable in
+     one sentence), one thesis, paragraph internal logic (problem -> design -> trade-off -> outcome, order flexible), max 4-5 name-openers per video (7 named alternative opener types given),
+     narrative-bridge transitions (list of forbidden vs required phrasings), no separate conclusion paragraph (ends ON the final unit), a full forbidden-patterns list, and a literal
+     `SUMMARY CHECKLIST` block at the end meant to be machine-readable already.
+  2. `DvsU_Example_Paragraphs.md` - real annotated paragraphs per opener category (human detail / consequence / paradox / date-event / contrast), each with a "why this works" note - use these
+     as few-shot examples AND as checker fixtures for "does this paragraph read like DvsU or like Wikipedia".
+  3. `DvsU_Research_Fact_Verification_Standard.md` (417 lines) - curation philosophy (curated documentary, not exhaustive encyclopedia; "be precise or be silent"; topic validation; likely a
+     multi-step research/verification procedure past line 55 - NOT fully read this session, read it in full before building the research/claim side of the new script stage).
+  4. `DvsU_Channel_Identity.md`, `DvsU_Producer_File_Standard.md` - not read this session; likely output-file/producer-handoff conventions.
+  - **All 14 gold scripts** are saved both as original `.docx` and pre-extracted plain `.txt` (docx-zip/XML extraction, paragraphs in order, no reformatting) in `docs/gold-scripts/scripts/`:
+    US/British aircraft carriers, US destroyers (1898-1945), British battleships, US battleships, US military helicopters, US strategic bombers, aircraft carriers sunk in combat, most hated
+    warships/helicopters/fighter jets, Soviet submarines, WWII landing ships, never-built US destroyers. Re-extract with the zipfile+regex method in this session's transcript if the source
+    folder changes (`python-docx` isn't installed; the raw `word/document.xml` `<w:t>` run-text approach worked cleanly - no `pandoc`/library dependency).
+  - **Observed but not yet reconciled:** several `.txt` files show short 1-15-word "paragraphs" interleaved with the real ~100-word ones (e.g. `every-us-strategic-bomber-ever-built.txt`,
+    `every-us-aircraft-carrier-ever-built.txt`, `every-us-destroyer-class-ever-built-1898-1945.txt`) - almost certainly ACT headers / unit-name labels / docx formatting artifacts preserved as
+    their own paragraph, NOT narration bloat. The cleaner ~24-28-paragraph, all-100-120-word files (the ones literally named `VOICEOVER_...`) look like the narration stripped of those labels.
+    Next session must open a `.docx` in Word/Pages (or diff a `.txt` against its `docx` XML with paragraph styles, e.g. `<w:pStyle>`) to confirm which lines are structural labels vs narration
+    before treating word-count outliers as rule violations.
+  - The old wrong-guess DB dump (4 files under a previous `docs/gold-scripts/`, pulled from `scripts.scene_text`) has been DELETED from the repo (git history still has it if ever needed) -
+    those 4 videos are real produced StoryEngine output but read as flat encyclopedic summaries, nothing like the real standard; do not confuse them with the gold set again.
+- **Step 1 - formalize the already-written rulebook into a machine-checkable grammar, no LLM.** `DvsU_Script_Writing_System.md`'s `SUMMARY CHECKLIST` is nearly there already - turn it into a
+  versioned `script_grammar.json` (word count 95-120/paragraph, 24-30 paragraphs/video with a 15 floor, 4-7 acts, <=5 name-openers/video, forbidden phrase/pattern list, ends on the final unit -
+  no conclusion paragraph) plus a pure checker `check(script_text) -> violations`. Validate the checker against the 14 real gold `.txt` files as fixtures - resolve the label-vs-narration ambiguity
+  above FIRST, or the checker will flag real gold scripts as violations for the wrong reason. `DvsU_Example_Paragraphs.md`'s categorized real paragraphs make good few-shot examples AND good
+  "does this read like DvsU" positive fixtures once the label issue is settled.
+- **Step 2 - reconcile with what already exists before writing anything.** Two systems, likely in tension, need a decision from Ryan on which wins where:
+  - **Gold standard (this session's find):** thesis-driven curation ("select the machines with the strongest stories, not the most complete list" - `DvsU_Research_Fact_Verification_Standard.md`),
+    24-30 units total, 4-7 acts, no fixed minutes-per-machine.
+  - **Current pipeline:** `roster_selection.selection_settings` derives the roster size from `video_length_minutes / minutes_per_machine` (currently 1 min/machine) - runtime-driven, not story-driven;
+    `dvsu_script_brief.py` (80/100/110 words per machine, 6000-byte brief, fields intended_role/design/actual_use/outcome - close to but not identical to the gold "problem/design/trade-off/outcome"
+    order); the editorial audit (`evidence_led`, `coherent`, `spoken_style`); `machine_script_contract = factual_100_v1`; `pipeline_executor.run_script` + `dvsu_script_operations`;
+    `machine_story_plans` / `machine_script_briefs` / `machine_script_previews` payload keys; `DurableScriptClient` (won't resubmit an uncertain relay request - needs a reconcile).
+  Decide keep / replace per piece before writing new code - the roster-size formula in particular may need to become "acts x units-per-act" instead of "runtime / minutes-per-machine".
 - **Step 3 - generation:** compile per-machine brief + grammar into the prompt (relay-capable, same prompt text for key and relay, length limits stated in the prompt), deterministic validator after, bounded retry.
 - **Step 4 - acceptance:** on a new video with a key installed, "Run to Script" unattended; script passes the checker; walk it in the browser pane.
 - The channel voice already lives in the workspace `style_summary` (see `get_workspace_info`).
