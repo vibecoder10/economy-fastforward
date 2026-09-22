@@ -145,6 +145,12 @@ def test_hard_violations_are_caught(bad, expected):
     assert any(expected in v for v in audit["violations"]), audit
 
 
+def test_electric_boat_and_u_boats_are_not_boat_violations():
+    text = GOOD_PARAGRAPH.replace("every submarine", "every Electric Boat hull and the U-boats it hunted")
+    audit = script.audit_paragraph(text, "USS Nautilus (SSN-571)", subject_context="Every US Submarine Class Ever Built")
+    assert not any("submarine terminology" in v for v in audit["violations"])
+
+
 def test_boats_is_only_a_violation_in_a_submarine_context():
     text = GOOD_PARAGRAPH.replace("every submarine", "every boat").replace("Nautilus", "B-52")
     audit = script.audit_paragraph(text, "Boeing B-52 Stratofortress", subject_context="Every US Strategic Bomber Ever Built")

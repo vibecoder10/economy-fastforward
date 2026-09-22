@@ -304,7 +304,9 @@ _WRITTEN_CONNECTOR_RE = re.compile(r"^(however|furthermore|moreover|additionally
 _RETIREMENT_ENDING_RE = re.compile(
     r"\b(retired|decommissioned|scrapped|struck from|withdrawn from service)\b[^.]*\b(1[89]\d\d|20\d\d)\b\.?$", re.I,
 )
-_BOATS_RE = re.compile(r"\bboats?\b", re.I)
+# Proper nouns that legitimately contain "boat" (the builder Electric Boat, German
+# U-boats) are not the terminology slip this rule exists to catch.
+_BOATS_RE = re.compile(r"(?<!Electric )(?<!U-)\bboats?\b", re.I)
 # Bare "The [Maker] [Designation] was/entered/first flew ..." opener (grammar
 # checker's own regex), plus a direct check for this machine's identity tokens
 # inside the first six words.
