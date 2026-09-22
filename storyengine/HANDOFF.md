@@ -78,9 +78,14 @@ The real roster run happens on a NEW video (the 20-machine roster on `6ac28204` 
   static docs only, stops at `ready_for_scripting` with `RESEARCH_READY_MSG`) + a "Run to Research" button on the stage rail (`StaticDocuStageRail.tsx`, testid `run-to-research`). The rail's
   run buttons used to scroll out of reach on narrow screens; they now wrap under the stages. Tests: `tests/test_dvsu_run_all_replay.py` (3 new, mutation-checked). To add the script target next,
   copy the same pattern: add `script` to `AUTOBUILD_TARGETS`, `job_queue.py`, `worker.py`, the route, and a stop in the loop before voice.
-- **Step 0 - Ryan names the gold-standard scripts.** Not found in the repo. Candidates: 7 full transcripts already in `channel_videos` for this workspace (tenant `561b872d`, source firecrawl, 13-19k chars each):
-  "Every SAAB Aircraft Ever Built", "Every Failed US Helicopter Ever Built & Why They Failed", "Never-Built US Aircraft Carriers We Nearly Got", "Never-Built US Warships We Nearly Got",
-  "Never-Built US Destroyers We Nearly Got", "Every Asian Aircraft Carrier Ever Built", "Never-Built British Warships We Nearly Got". Confirm which are gold, or point to the real files.
+- **Step 0 DONE - Ryan named the gold standard (2026-09-21): this workspace's own 4 produced videos**, not the 7 competitor transcripts in `channel_videos` (those were a wrong guess, not
+  suggested to Ryan as final - leave them alone, they're separate competitor-DNA data). Pulled from `scripts.scene_text` (ordered by `scene`) and saved as plain markdown, ready to read:
+  `docs/gold-scripts/every-us-strategic-bomber.md` (28 scenes, 2576 words, video `658e11e0`, uploaded_draft), `every-british-aircraft-carrier-v1.md` (23 scenes, 3395 words, video `d2e37cd6`, rendered),
+  `every-british-aircraft-carrier-v2.md` (21 scenes, 2005 words, video `3f902e62`, uploaded_draft), `every-us-aircraft-carrier.md` (24 scenes, 3344 words, video `aa1ef106`, uploaded_draft).
+  Re-pull with `se db "SELECT json_agg(json_build_object('scene',scene,'title',title,'text',scene_text) ORDER BY scene) FROM scripts WHERE video_id='<id>'"` if these videos' scripts ever change.
+  **Open question for next session, don't resolve solo:** these read as plain encyclopedic scene summaries (one paragraph per aircraft/ship, Wikipedia-flat tone) - noticeably NOT the "clipped,
+  grave, institutionally literate" procurement-verdict voice in this workspace's current `style_summary` (`get_workspace_info`). Ask Ryan whether the grammar should target this OLDER produced
+  voice, the NEWER `style_summary` voice, or a blend, before building the checker - guessing wrong means rebuilding it.
 - **Step 1 - deterministic breakdown, no LLM.** Write an extractor that turns each gold script into a JSON grammar: sections (opening hook, per-machine segments, transitions, close); per segment word count,
   sentence count and sentence-length series, opener type (dated event / hard number), digit and designation density, where the one-line verdict sits. Aggregate across the gold set into min/median/max ranges.
   Emit a versioned `script_grammar.json` and a pure checker `check(script_text) -> violations` with the gold scripts as test fixtures. That checker is the gate the pipeline runs after generation.
