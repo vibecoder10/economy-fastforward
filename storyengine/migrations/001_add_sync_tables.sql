@@ -1,5 +1,0 @@
--- DEPRECATED: This migration is no longer needed.
--- The schema.sql at the project root contains the complete schema (fresh start).
--- Run schema.sql in Supabase SQL Editor instead.
---
--- This file is kept for git history only.
