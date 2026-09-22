@@ -127,15 +127,21 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     This function converts the plain text to JSON string so the frontend can parse it.
     If the value is already valid JSON, it passes through unchanged.
 
-    C46d fix: a script_validation blob that carries ONLY the generic
-    quality-critic record (``{"quality_critic": {...}}`` —
-    pipeline_executor._grade_and_maybe_revise_script and
-    user_script.accept_external_script both write this key, and neither
-    guarantees a sibling "checks" array exists yet) used to fall through to
-    the plain-text branch below, find zero `[PASS]`/`[FAIL]` lines, and
-    silently return None — dropping the ONE thing the C46d "quality review"
-    banner (ScriptVoiceTab) needs to render. "checks" OR "quality_critic"
-    now both count as "already valid JSON", so this passes through as-is.
+    Any value that is already a valid JSON object passes through untouched.
+    The plain-text branch below exists only for the legacy text format, and
+    it must never run on JSON: it looks for `[PASS]`/`[FAIL]` lines, finds
+    none, and returns None - silently deleting the whole blob.
+
+    That trap has now bitten twice. First (C46d) with a blob carrying only
+    ``{"quality_critic": {...}}``, which dropped the quality-review banner.
+    Then again 2026-09-22 with the DvsU machine-documentary blob
+    (``{"script_hold": ..., "machine_script_blocks": ...}``), which reached
+    the frontend as null and made a finished 20/20 script report
+    "0/20 production scenes passed current factual review".
+
+    Both were the same bug: an allow-list of known keys. There is no
+    allow-list any more - if it parses as a JSON object, the frontend gets
+    it verbatim.
     """
     if val is None:
         return None
@@ -145,10 +151,10 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     if not val:
         return None
 
-    # If it's already valid JSON with the expected structure, return as-is
+    # Already JSON? Hand it back untouched, whatever keys it carries.
     try:
         parsed = json.loads(val)
-        if isinstance(parsed, dict) and ("checks" in parsed or "quality_critic" in parsed):
+        if isinstance(parsed, dict):
             return val
     except (json.JSONDecodeError, ValueError):
         pass

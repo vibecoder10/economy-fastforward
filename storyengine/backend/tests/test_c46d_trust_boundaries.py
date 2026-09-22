@@ -391,6 +391,47 @@ def test_parse_script_validation_still_passes_through_checks_shape():
     assert videos_route._parse_script_validation(blob) == blob
 
 
+def test_parse_script_validation_keeps_the_dvsu_machine_documentary_blob():
+    """A finished DvsU script must survive the trip to the frontend.
+
+    Regression, 2026-09-22: this blob carries neither "checks" nor
+    "quality_critic", so the old key allow-list sent it to the plain-text
+    parser, which found no [PASS] lines and returned None. A complete 20/20
+    script then rendered as "0/20 production scenes passed current factual
+    review", because the frontend computes that count from
+    machine_script_blocks and was receiving null.
+    """
+    blob = json.dumps({
+        "script_hold": {
+            "passed": True, "in_progress": False,
+            "completed_count": 20, "total_count": 20,
+            "units": [{"scene": 1, "machine": "USS Holland (SS-1)", "passed": True, "warnings": []}],
+        },
+        "machine_script_blocks": {
+            "USS Holland (SS-1)": {
+                "machine": "USS Holland (SS-1)", "scene": 1, "passed": True,
+                "paragraph": "Theodore Roosevelt asked the Navy for a harbor-defense craft in 1898.",
+                "machine_script_contract": "dvsu_script_v2",
+                "subject_context": "Every US Submarine Class Ever Built (2026)",
+                "source_fingerprint": "sha256-abc",
+            }
+        },
+    })
+
+    parsed = videos_route._parse_script_validation(blob)
+
+    assert parsed is not None, "the DvsU script blob must not be dropped to None"
+    decoded = json.loads(parsed)
+    assert decoded["script_hold"]["completed_count"] == 20
+    assert "USS Holland (SS-1)" in decoded["machine_script_blocks"]
+
+
+def test_parse_script_validation_passes_through_any_json_object():
+    """No key allow-list: the same trap has already bitten twice."""
+    blob = json.dumps({"some_future_key": {"nested": True}})
+    assert videos_route._parse_script_validation(blob) == blob
+
+
 def test_parse_script_validation_still_converts_legacy_plain_text():
     legacy = "Editorial validation: PASSED\n[PASS] number_density: 12/10 numbers found"
     parsed = videos_route._parse_script_validation(legacy)
