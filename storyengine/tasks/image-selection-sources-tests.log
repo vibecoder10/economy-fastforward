@@ -1,4 +1,0 @@
-Command: /tmp/storyengine-image-selection/storyengine/backend/venv/bin/python -m pytest backend/tests/test_reference_sources.py -q
-
-....                                                                     [100%]
-4 passed in 1.01s

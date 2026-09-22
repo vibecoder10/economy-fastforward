@@ -1,8 +1,0 @@
-.......................                                                  [100%]
-=============================== warnings summary ===============================
-tests/functional/test_static_docu_seed_reference.py::test_seed_reference_route_happy_path
-  /private/tmp/storyengine-image-selection/storyengine/backend/venv/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
-    import multipart
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-23 passed, 1 warning in 0.82s

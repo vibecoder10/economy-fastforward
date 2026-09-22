@@ -1,9 +1,0 @@
-
- RUN  v4.1.10 /Users/ryanayler/economy-fastforward/storyengine/frontend
-
-
- Test Files  2 passed (2)
-      Tests  5 passed (5)
-   Start at  18:26:38
-   Duration  439ms (transform 103ms, setup 0ms, import 335ms, tests 17ms, environment 0ms)
-
