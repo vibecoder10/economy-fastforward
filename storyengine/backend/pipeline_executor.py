@@ -12552,6 +12552,10 @@ scenes."""
                     pass
 
         await self._ensure_initialized()
+        # Arms pipeline.should_cancel AND binds the agent relay to this video, the
+        # same as every other stage entry - without it the v2 writer's per-machine
+        # cancel check is a no-op and its relay requests carry video_id=None.
+        await self._install_cancel_support(video_id)
         bot_name = "Script Bot"
 
         try:

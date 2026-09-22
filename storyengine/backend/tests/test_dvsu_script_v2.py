@@ -565,3 +565,17 @@ def test_legacy_script_writers_do_not_exist_anymore():
     hold_source = source.split("async def _run_static_script_hold")[1].split("\n    async def ")[0]
     assert 'machine_script_contract") == "factual_100_v1"' not in hold_source  # no contract-flag dispatch
     assert "run_factual_script_hold" not in hold_source and "complete_inventory_mode" not in hold_source
+
+
+def test_run_script_arms_cancel_support_and_relay_binding():
+    """Live find (2026-09-22): run_script never called _install_cancel_support, so the
+    v2 writer's per-machine cancel check was a no-op and every relay request it parked
+    carried video_id=None. The preview/research entries already arm it; run_script must too."""
+    import inspect
+
+    import pipeline_executor as executor
+
+    source = inspect.getsource(executor.PipelineExecutor.run_script)
+    arm = source.index("await self._install_cancel_support(video_id)")
+    first_video_read = source.index("await self._get_video(video_id)")
+    assert arm < first_video_read
