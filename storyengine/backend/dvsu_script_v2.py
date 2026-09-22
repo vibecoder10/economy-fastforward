@@ -85,7 +85,7 @@ SYSTEM_PROMPT = (
 
 _OUTPUT_SHAPE = (
     '{"paragraph": "...", '
-    '"claim_map": [{"sentence": "...", "source_url": "...", "quote": "..."}], '
+    '"claim_map": [{"sentence": "...", "fact_id": "<id from the BRIEF>"}], '
     '"opened_with_name": true|false, '
     '"bridged_to": "<machine name from this video>" | null}'
 )
@@ -199,8 +199,11 @@ def build_write_prompt(
         f"{_prior_paragraphs_block(prior_paragraphs)}"
         f"{_next_machine_block(next_machine)}\n"
         "Return only JSON: " + _OUTPUT_SHAPE + "\n"
-        "claim_map: one row per sentence that states a checkable fact, citing the BRIEF source_url and "
-        "quote that supports it (the landing line may be argued synthesis with no row). "
+        "claim_map: one row per sentence that states a checkable fact. Cite the fact by its FACT ID from "
+        "the list at the top of the BRIEF - do NOT write a source_url and do NOT write a quote; the quote "
+        "is attached from the brief by code, so a quote you type would be ignored. Cite the id whose fact "
+        "actually supports that sentence. If no fact in the brief supports a sentence, leave the sentence "
+        "out of claim_map (the landing line is usually argued synthesis and needs no row). "
         "opened_with_name: true only if the first words are this machine's name or designation."
     )
 
@@ -233,6 +236,49 @@ def brief_fingerprint(machine: str, brief: Optional[dict]) -> str:
         {"machine": machine, "brief": content, "contract": SCRIPT_CONTRACT},
         sort_keys=True, ensure_ascii=False, default=str,
     ).encode("utf-8")).hexdigest()
+
+
+_FACT_SLOTS = ("problem", "design", "trade_off", "surprising_fact", "contrast")
+
+
+def brief_facts(brief: dict) -> dict[str, dict]:
+    """Every citable fact in the brief, keyed by a stable id.
+
+    The writer cites these ids and never writes a quote; code attaches the
+    source_url and the verbatim quote afterwards. A model that never types a
+    quote cannot pair one with a sentence it does not support - which is what
+    happened on 2026-09-22, when drafts quoted the brief's own summary prose
+    (and, for Barracuda, a quote about deck guns backing a speed claim).
+    """
+    facts: dict[str, dict] = {}
+    if not isinstance(brief, dict):
+        return facts
+    for slot in _FACT_SLOTS:
+        entry = brief.get(slot)
+        if isinstance(entry, dict) and entry.get("answer") and entry.get("source_url"):
+            facts[slot] = {
+                "source_url": str(entry["source_url"]).strip(),
+                "quote": " ".join(str(entry.get("quote") or "").split()),
+            }
+    for index, entry in enumerate(brief.get("outcome_candidates") or [], start=1):
+        if isinstance(entry, dict) and entry.get("fact") and entry.get("source_url"):
+            facts[f"outcome{index}"] = {
+                "source_url": str(entry["source_url"]).strip(),
+                "quote": " ".join(str(entry.get("quote") or "").split()),
+            }
+    return facts
+
+
+def brief_markdown_with_fact_ids(brief: dict) -> str:
+    """The brief, with each citable fact labelled by the id the writer cites."""
+    body = brief_markdown(brief)
+    facts = brief_facts(brief)
+    lines = [
+        "FACT IDS (cite these in claim_map; do NOT write quotes yourself):",
+        *(f"  {fact_id} -> {value['source_url']}" for fact_id, value in facts.items()),
+        "",
+    ]
+    return "\n".join(lines) + body
 
 
 def brief_source_urls(brief: dict) -> set[str]:
@@ -274,23 +320,41 @@ def _normalize_draft(raw: Any, brief: dict, roster: list[str], machine: str) -> 
     paragraph = " ".join(str(raw.get("paragraph") or "").split())
     if not paragraph:
         return None, ["writer returned an empty paragraph"]
-    known_urls = brief_source_urls(brief)
+    # The quote is ALWAYS attached here from the brief, never taken from the
+    # model. A row cites a fact_id; an older-shape row citing only a
+    # source_url is resolved when that url identifies exactly one fact.
+    # Anything the model typed as a quote is discarded.
+    facts = brief_facts(brief)
+    by_url: dict[str, list[str]] = {}
+    for fact_id, value in facts.items():
+        by_url.setdefault(value["source_url"], []).append(fact_id)
     claim_map: list[dict] = []
-    dropped = 0
+    unknown = 0
     for row in raw.get("claim_map") or []:
         if not isinstance(row, dict):
             continue
         sentence = " ".join(str(row.get("sentence") or "").split())
-        source_url = str(row.get("source_url") or "").strip()
-        quote = " ".join(str(row.get("quote") or "").split())
-        if not sentence or not source_url:
+        if not sentence:
             continue
-        if known_urls and source_url not in known_urls:
-            dropped += 1
+        fact_id = str(row.get("fact_id") or "").strip()
+        if fact_id not in facts:
+            source_url = str(row.get("source_url") or "").strip()
+            candidates = by_url.get(source_url) or []
+            fact_id = candidates[0] if len(candidates) == 1 else ""
+        if not fact_id:
+            unknown += 1
             continue
-        claim_map.append({"sentence": sentence, "source_url": source_url, "quote": quote})
-    if dropped:
-        warnings.append(f"{dropped} claim_map row(s) cited a source that is not in the brief and were dropped")
+        fact = facts[fact_id]
+        claim_map.append({
+            "sentence": sentence,
+            "fact_id": fact_id,
+            "source_url": fact["source_url"],
+            "quote": fact["quote"],
+        })
+    if unknown:
+        warnings.append(
+            f"{unknown} claim_map row(s) named no fact in the brief and were dropped"
+        )
     bridged_to = raw.get("bridged_to")
     bridged_name: Optional[str] = None
     if isinstance(bridged_to, str) and bridged_to.strip():
@@ -323,7 +387,12 @@ async def _generate(client: Any, prompt: str, checkpoint_scope: Optional[dict]) 
 
     model = Models.CLAUDE_SONNET
     max_tokens = 1400
-    temperature = 0.4
+    # Deterministic output (2026-09-22). The same brief must produce the same
+    # paragraph on every run: a rerun should be a no-op, not a re-roll. Any
+    # sampling here turns quality into a dice roll, which is what the deleted
+    # code-side checker was built to paper over. Temperature also feeds
+    # request_fingerprint below, so the checkpoint/relay cache keys on it.
+    temperature = 0.0
     response = await client.generate(
         prompt=prompt, system_prompt=SYSTEM_PROMPT, model=model,
         max_tokens=max_tokens, temperature=temperature, complete_response=True,
@@ -357,7 +426,7 @@ async def write_paragraph(
     )
     write_prompt = build_write_prompt(
         title=title, thesis=thesis, acts=acts, machine=machine, act_number=act_number, act_thesis=act_thesis,
-        scene=scene, roster_size=len(roster), brief_markdown=brief_markdown(brief),
+        scene=scene, roster_size=len(roster), brief_markdown=brief_markdown_with_fact_ids(brief),
         prior_paragraphs=prior_paragraphs, next_machine=next_machine,
     )
     raw, model = await _generate(client, write_prompt, checkpoint_scope)

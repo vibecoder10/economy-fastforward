@@ -70,7 +70,7 @@ def _draft(paragraph=GOOD_PARAGRAPH, **extra):
     body = {
         "paragraph": paragraph,
         "claim_map": [{"sentence": "She crossed under the North Pole in 1958, a voyage no earlier vessel could have attempted.",
-                       "source_url": "https://example.navy.mil/outcome1", "quote": "Outcome quote one."}],
+                       "fact_id": "outcome1"}],
         "opened_with_name": False,
         "bridged_to": None,
     }
@@ -167,8 +167,12 @@ def test_clean_draft_costs_exactly_one_call_and_passes():
     assert block["machine_script_contract"] == script.SCRIPT_CONTRACT
     assert block["source_fingerprint"] == script.brief_fingerprint(MACHINE, _packet())
     assert block["bridged_to"] == SIBLING
-    assert block["claim_map"] == [{"sentence": "She crossed under the North Pole in 1958, a voyage no earlier vessel could have attempted.",
-                                   "source_url": "https://example.navy.mil/outcome1", "quote": "Outcome quote one."}]
+    assert block["claim_map"] == [{
+        "sentence": "She crossed under the North Pole in 1958, a voyage no earlier vessel could have attempted.",
+        "fact_id": "outcome1",
+        "source_url": "https://example.navy.mil/outcome1",
+        "quote": "Outcome quote one.",
+    }]
     assert block["attempts"] == 1 and block["violations"] == []
 
 
@@ -194,14 +198,60 @@ def test_nothing_the_old_checker_rejected_is_rejected_any_more():
     assert block["attempts"] == 1
 
 
-def test_claim_map_rows_citing_unknown_sources_are_dropped_with_a_warning():
+def test_the_quote_always_comes_from_the_brief_never_from_the_writer():
+    """Regression, 2026-09-22: drafts attached quotes that proved nothing.
+
+    Porpoise and Gato quoted the brief's own summary prose as if it were a
+    source quote; Barracuda backed a speed claim with a quote about deck
+    guns. The writer no longer writes quotes at all - it cites a fact id and
+    code attaches the verbatim quote, so a wrong pairing is unrepresentable.
+    """
     client = _Client(_draft(claim_map=[
-        {"sentence": "x", "source_url": "https://example.navy.mil/outcome1", "quote": "q"},
-        {"sentence": "y", "source_url": "https://invented.example/nope", "quote": "q"},
+        {"sentence": "x", "fact_id": "outcome1", "quote": "a quote the writer invented"},
+        {"sentence": "y", "fact_id": "problem", "source_url": "https://invented.example/nope"},
     ]))
     block = _write(client)
-    assert [row["source_url"] for row in block["claim_map"]] == ["https://example.navy.mil/outcome1"]
-    assert any("not in the brief" in w for w in block["warnings"])
+    assert [row["quote"] for row in block["claim_map"]] == ["Outcome quote one.", "Problem quote."]
+    assert [row["source_url"] for row in block["claim_map"]] == [
+        "https://example.navy.mil/outcome1", "https://example.navy.mil/problem",
+    ]
+    assert block["warnings"] == []
+
+
+def test_claim_map_rows_naming_no_fact_in_the_brief_are_dropped():
+    client = _Client(_draft(claim_map=[
+        {"sentence": "x", "fact_id": "outcome1"},
+        {"sentence": "y", "fact_id": "not_a_real_fact"},
+        {"sentence": "z", "source_url": "https://invented.example/nope"},
+    ]))
+    block = _write(client)
+    assert [row["fact_id"] for row in block["claim_map"]] == ["outcome1"]
+    assert any("named no fact in the brief" in w for w in block["warnings"])
+
+
+def test_an_older_shape_row_is_resolved_when_its_url_names_one_fact():
+    client = _Client(_draft(claim_map=[
+        {"sentence": "x", "source_url": "https://example.navy.mil/design", "quote": "ignored"},
+    ]))
+    block = _write(client)
+    assert block["claim_map"] == [{
+        "sentence": "x", "fact_id": "design",
+        "source_url": "https://example.navy.mil/design", "quote": "Design quote.",
+    }]
+
+
+def test_the_brief_handed_to_the_writer_lists_its_fact_ids():
+    labelled = script.brief_markdown_with_fact_ids(_packet())
+    assert "FACT IDS" in labelled
+    for fact_id in ("problem", "design", "trade_off", "outcome1", "outcome2", "surprising_fact", "contrast"):
+        assert f"  {fact_id} -> " in labelled, fact_id
+    assert "## Surprising fact" in labelled, "the brief body must still be present"
+
+
+def test_writer_runs_at_temperature_zero_so_a_rerun_is_not_a_re_roll():
+    client = _Client(_draft())
+    _write(client)
+    assert client.calls[0]["temperature"] == 0.0
 
 
 def test_bridged_to_must_name_another_roster_machine():

@@ -1022,6 +1022,10 @@ export type MachineScriptPreview = {
   subject_context?: string;
   claim_map?: Array<{
     sentence?: string;
+    // The fact this sentence cites, by its id in the research brief. The
+    // writer supplies only this; backend/dvsu_script_v2.py attaches the
+    // source_url and the verbatim quote, so they always agree with the brief.
+    fact_id?: string;
     source_url?: string;
     quote?: string;
   }>;
