@@ -1,31 +1,27 @@
-# HANDOFF - 2026-09-22 - dvsu_script_v2 is the only script writer (built, tested, committed); submarine video staged for scripting on the relay; deploy pending
+# HANDOFF - 2026-09-22 - dvsu_script_v2 driven live over the relay: 14/20 passed, 6 false-positive needs-review; three fixes deployed; rerun pending
 
 ## State
-- Prod: `8d4f2583d` deployed, healthy (`se health` 2026-09-22: frontend 200, no deploy lock). **This session's commit is NOT deployed.**
-- Branch: `main` at `c1dd9547`, ahead of origin by 1, not pushed. Unstaged and not mine: `../tasks/decisions.md`
-  (carries Ryan's uncommitted Jev entry plus my two new entries), untracked `jev-key-box.html`.
-- Backend suite 5408 passed / 0 failed (baseline 5721; the difference is ~300 legacy-writer tests deleted with the writers). Frontend tsc, build, vitest clean.
-- What shipped this session:
-  - `backend/dvsu_script_v2.py`: DESIGN.md as code. One paid Sonnet call per machine, code-side audit instead of a referee call, one bounded repair, stateful roster-order hold, readiness, hand-submit door, fail-soft `02-script.md` Drive export. Design gaps closed: bridge context = every prior paragraph tagged by act + next machine's problem line; word band 95-120 target / 80-150 hard. 40 tests.
-  - The three legacy writers are gone with no flag and no fallback: both branches inside `_run_static_script_hold` (now a one-line delegation), `factual_machine_pipeline.run_factual_script_hold`, `factual_machine_summary`'s writer+referee, `dvsu_script_operations.py`, 86 orphaned executor definitions, 12 legacy test files. Executor 22137 -> 17568 lines.
-  - Every gate keys on the one contract `dvsu_script_v2` (readiness, preview/block/submit, voice gate for any roster video, resume-time stale recheck only for v2-written scripts). Frontend gates on it too; Anton panels replaced by "Sources cited".
-  - `dvsu_research_v2.packet_from_verified_source_package`: the writer rebuilds the six-slot brief from the saved package (the Call-3 packet was never persisted).
-  - Video `6ac28204-681c-4839-9d11-6c3ba57b7b6e` (Every US Submarine Class Ever Built) verified ready: 20/20 packets reconstruct, 7 acts + thesis saved, relay enabled and opted in, status advanced `approved -> ready_for_scripting` (the executor's script gate refuses `approved`).
-- NOT done: the browser walk of the Script tab (cut at the context ceiling), the deploy, any paid script call.
+- Prod: `23b1dbe28` deployed 2026-09-22T05:34Z, healthy, idle (`active_work` 0, drain normal, no lock). Frontend deployed at 76717d466 (no frontend change since).
+- Branch `main` = origin/main at `23b1dbe2`. Not mine, left alone: `../tasks/decisions.md` (Ryan's uncommitted Jev entry + two entries), untracked `jev-key-box.html`.
+- Backend v2 suite: `tests/test_dvsu_script_v2.py` 42 passed (3 new tests). Full suite not rerun this session.
+- Video `6ac28204-681c-4839-9d11-6c3ba57b7b6e` (Every US Submarine Class Ever Built, tenant Designed Vs Used `561b872d`): status still `ready_for_scripting`. Script tab (local UI, workspace switcher -> Designed vs Used) shows 14/20 "Script preview passed", 6 "Needs review": A-class, S-class, Barracuda, Porpoise, Gato, Barbel. All six failed ONLY the boat-terminology regex on "Electric Boat" / "U-boats" / "Diesel Boats Forever" - the paragraphs themselves are fine. Banner reads "Run All stopped at Script - Something went wrong" (misleading copy for a needs_review outcome; open thread).
+- What shipped this session (all on prod):
+  1. `6bed9432` + `23b1dbe2` `dvsu_script_v2.boat_terminology_slip()`: proper nouns (capitalised word + Boat(s), U-boat) stripped before the boat check.
+  2. `35c541c2` `pipeline_executor.run_script` now calls `_install_cancel_support(video_id)` like every other stage entry - fixes BOTH the ignored cancel and relay requests parked with `video_id=None` (so `list_pending_llm_requests(video_id=...)` returned nothing; use no filter until a run on 23b1dbe2 proves it).
+- How the run was driven (Ryan's rule: no Anthropic key, Sonnet where the API call would run): MCP `script` (quote ~$0.02 nominal, confirm) -> loop `list_pending_llm_requests(status=pending)` -> Sonnet subagent gets SYSTEM+USER prompt verbatim, returns raw JSON -> `answer_llm_request`. 20 write calls + 6 repairs. Repairs for the known false positive were answered with the unchanged draft (Sonnet's own answer to the first one). Each Sonnet call ~60-100 s.
 
 ## Next action (start here cold)
-1. Ryan says "deploy". Then from this Mac: `git push origin main`, then `scripts/se.sh deploy <session-name> --with-frontend`, then `scripts/se.sh health` (expect `c1dd9547`).
-2. Walk it like a user: `scripts/se.sh devtoken`, `preview_start {name: "storyengine"}`, open video 6ac28204 -> Script tab. Expect 20 cards "Ready to script", the free readiness check green, no console errors. Screenshot.
-3. Script ONE machine on the relay first: MCP `script` tool is the whole-roster verb, so use `POST /api/pipeline/machine-script-preview/6ac28204-681c-4839-9d11-6c3ba57b7b6e` `{machine: "<first roster machine>", confirmed_paid_run: true}` (or the Script tab's "Run Script" button), then loop `list_pending_llm_requests` -> `answer_llm_request` (prompt asks for the JSON block shape in `dvsu_script_v2._OUTPUT_SHAPE`). Read the paragraph against `docs/gold-scripts/standards/DvsU_Script_Writing_System.md` with your eyes. Only then run the whole roster (MCP `script`, ~20 calls, bulk reuses nothing yet).
+1. Rerun: MCP `script` on 6ac28204 (quote, then confirm). Bulk runs reuse the 14 passed blocks (brief-fingerprint "current"), rewrite the 6 needs-review machines. Their prompts now include the finished A-class paragraph so the relay cache will NOT replay - expect 6 fresh requests; answer each via a Sonnet subagent (prompt verbatim, raw JSON). With the fixed audit they pass; expect status -> `ready_for_voice` and a Drive export `02-script.md`.
+2. Read all 20 paragraphs against `docs/gold-scripts/standards/DvsU_Script_Writing_System.md` with your eyes (MCP `get_script` or the Script tab). Two slips I noticed on the way: A-class says "gasoline fumes killed" where the source says explosion and fire; Holland says "made his victory untenable" vs source "fleet in an untenable position". Name-opener tally reads 1/5 though no paragraph opened with a name - check which one `opens_with_name` counted.
+3. Then walk the Script tab on prod (`/se-smoke`), screenshot, and hand Ryan the script for review before voice (paid).
 
 ## Open threads
-- `_machine_story_plan` + `_script_starvation_*` + `repair_promote_excerpt` (+ route in `routes/pipeline.py` + Research-tab button) survive only because that self-heal route still calls them; delete all three together (frontend change).
-- `dvsu_script_operations` DB table is now unused - drop in a migration. `dvsu_script_brief.py` / `script_research_packet.py` / `dvsu_research_handoff.package_brief` feed only research readiness now - candidates for the next research-side cut.
-- `docs/gold-scripts/grammar/` is committed; Ryan's two judgment calls in it (name-opener threshold, generic-praise severity) are unchanged and unreviewed.
-- Roster-size formula (thesis-driven 24-30 vs minutes-per-machine) still needs Ryan's call. VPS git remote PAT rotation (Ryan only).
+- "Run All stopped at Script - Something went wrong" banner for a needs_review outcome: wrong copy; the roster cards already say the truth.
+- `[INIT] AgentRelayClient OK` logged every ~10 s during the run: something re-initialises the lightweight pipeline per request (roster-dashboard polling?). Perf smell, not a bug.
+- Deploy-drain deadlock: a relay-parked run holds a generation claim and never finishes on its own; deploy waits up to 2 h. Cancel now works (fix 2), so the recipe is cancel -> wait for claim 0 -> deploy.
+- Carried from last session: delete `_machine_story_plan` + `_script_starvation_*` + `repair_promote_excerpt` together; drop `dvsu_script_operations` table; `docs/gold-scripts/grammar/` judgment calls unreviewed; roster-size formula needs Ryan; VPS git remote PAT rotation (Ryan only).
 
 ## Gotchas learned this session
-- Hand-picked deletion lists miss the closure: an AST fixpoint (dead when no Name/Attribute/string ref outside its own span; comments don't count) found 86 executor orphans in six rounds. Recipe in tasks/lessons.md.
-- Never pipe a background test run through `tail`: it hid 245 of 290 failures until a rerun to a file.
-- Replacing a block by line span swallowed the line after it (the voice stage's "Preparing the voice track" progress line); only a functional test caught it. Diff span edges.
-- The production guide says "script: start" for a video whose status is `approved`, but `run_script` refuses anything before `ready_for_scripting` - hand-run research via the relay never advances status; the free MCP `advance` verb fixes it.
+- Ryan's default dev token binds to "ryanayler's Workspace"; the DvsU video 404s until you pick "Designed vs Used" in the sidebar workspace switcher (X-Active-Tenant).
+- `se deploy` drains and WAITS for active work; a run blocked on the relay counts as active work. Don't start a deploy under a relay run unless you can end the run.
+- An audit regex false positive costs a paid repair call AND a needs_review per machine; watch the first repair request of any live run and read the violation text before answering.

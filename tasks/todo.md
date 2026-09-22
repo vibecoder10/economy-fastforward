@@ -4,6 +4,15 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## Handoff — 2026-09-22 — Submarine script driven live over the relay (14/20 passed); 3 fixes deployed (23b1dbe2); rerun pending
+
+Full state and next actions: `storyengine/HANDOFF.md`. Short version: deployed dvsu_script_v2 to prod, ran the whole
+20-machine roster through the MCP relay with Sonnet subagents answering each model call (no Anthropic key). Found and
+fixed three bugs live: boat-terminology regex false positive on proper nouns, run_script never arming cancel
+support / relay video binding, and generalised the proper-noun exemption. 14 paragraphs passed; the 6 needs-review
+ones failed only the old regex. NEXT: MCP `script` rerun (6 fresh relay answers), expect ready_for_voice, then read
+the 20 paragraphs against the v3 standard and hand Ryan the script.
+
 ## Handoff — 2026-09-21 (session 5) — dvsu_script_v2 is the only script writer; legacy writers deleted; deploy + browser walk pending
 
 Full state and next actions: `storyengine/HANDOFF.md`. Short version: `backend/dvsu_script_v2.py` built per
