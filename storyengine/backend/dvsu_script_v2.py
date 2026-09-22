@@ -304,9 +304,17 @@ _WRITTEN_CONNECTOR_RE = re.compile(r"^(however|furthermore|moreover|additionally
 _RETIREMENT_ENDING_RE = re.compile(
     r"\b(retired|decommissioned|scrapped|struck from|withdrawn from service)\b[^.]*\b(1[89]\d\d|20\d\d)\b\.?$", re.I,
 )
-# Proper nouns that legitimately contain "boat" (the builder Electric Boat, German
-# U-boats) are not the terminology slip this rule exists to catch.
-_BOATS_RE = re.compile(r"(?<!Electric )(?<!U-)\bboats?\b", re.I)
+# Proper nouns that legitimately contain "boat" - the builder Electric Boat, German
+# U-boats, the "Diesel Boats Forever" pin - are not the terminology slip this rule
+# exists to catch: a capitalised Boat(s) that follows another capitalised word is a
+# name, and U-boat is the enemy's designation. Both are removed before the check.
+_BOAT_PROPER_NOUN_RE = re.compile(r"(?:\b[A-Z][\w'-]*\s+)+Boats?\b|\b[Uu]-[Bb]oats?\b")
+_BOATS_RE = re.compile(r"\bboats?\b", re.I)
+
+
+def boat_terminology_slip(text: str) -> bool:
+    """True when the narration itself says boat/boats, ignoring proper nouns."""
+    return bool(_BOATS_RE.search(_BOAT_PROPER_NOUN_RE.sub(" ", str(text or ""))))
 # Bare "The [Maker] [Designation] was/entered/first flew ..." opener (grammar
 # checker's own regex), plus a direct check for this machine's identity tokens
 # inside the first six words.
@@ -420,7 +428,7 @@ def audit_paragraph(
     if sentences and _RETIREMENT_ENDING_RE.search(sentences[-1]):
         warnings.append("final line ends on a retirement/decommissioning date instead of landing")
 
-    if _submarine_context(subject_context, machine) and _BOATS_RE.search(text):
+    if _submarine_context(subject_context, machine) and boat_terminology_slip(text):
         violations.append("submarine terminology: use submarine/vessel, never boat/boats")
 
     mentioned = mentions_machine(text, machine)

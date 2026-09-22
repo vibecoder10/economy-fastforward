@@ -146,7 +146,9 @@ def test_hard_violations_are_caught(bad, expected):
 
 
 def test_electric_boat_and_u_boats_are_not_boat_violations():
-    text = GOOD_PARAGRAPH.replace("every submarine", "every Electric Boat hull and the U-boats it hunted")
+    text = GOOD_PARAGRAPH.replace(
+        "every submarine", "every Electric Boat hull, the U-boats it hunted and its 'Diesel Boats Forever' pin"
+    )
     audit = script.audit_paragraph(text, "USS Nautilus (SSN-571)", subject_context="Every US Submarine Class Ever Built")
     assert not any("submarine terminology" in v for v in audit["violations"])
 
