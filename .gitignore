@@ -102,3 +102,4 @@ docs/product-brain.md
 # Agent worktrees for isolated feature work (project convention, see CLAUDE.md)
 .worktrees/
 storyengine/tasks/named-machine-image-progress.jsonl
+pytest_cache
