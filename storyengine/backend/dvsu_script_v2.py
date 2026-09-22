@@ -129,6 +129,19 @@ def _next_machine_block(next_machine: Optional[dict]) -> str:
     return line + "\n"
 
 
+def _opener_block(scene: int) -> str:
+    assigned, alternate, previous = assigned_opener(scene)
+    avoid = (
+        f" The paragraph before this one was assigned {previous}, so do not open that way again."
+        if previous else ""
+    )
+    return (
+        f"OPENING (assigned for this paragraph): open with {assigned}. If the brief genuinely cannot "
+        f"support that, open with {alternate} instead - but never open with the machine's name, and never "
+        "open with a mechanical connector.{avoid_text}\n"
+    ).replace("{avoid_text}", avoid)
+
+
 def build_write_prompt(
     *,
     title: str,
@@ -175,9 +188,7 @@ def build_write_prompt(
         "- A final line that lands: short, a paradox/irony/reversal. If the last sentence could be deleted "
         "without losing meaning, rewrite it. Never summarize; land.\n"
         "- The machine's name or designation somewhere in the paragraph (it need not be the opener).\n\n"
-        "Opening: do NOT open with the machine's name by default - only a handful of paragraphs across the "
-        "whole video should. Open instead with a date, a problem, a paradox, a human detail, a consequence, "
-        "or a contrast. Naming the machine first is a conscious exception, not the default.\n"
+        f"{_opener_block(scene)}"
         "Bridging: the video must feel like a documentary, not a ranked list. If a prior paragraph (the "
         "immediate predecessor in the same act, or ANY earlier paragraph in an earlier act that shares a "
         "real fact with this machine) offers a genuine narrative bridge, open or close with it - grounded "
@@ -238,6 +249,32 @@ def brief_fingerprint(machine: str, brief: Optional[dict]) -> str:
     ).encode("utf-8")).hexdigest()
 
 
+# DvsU_Script_Writing_System.md's opener menu. Allocated per scene rather
+# than measured after the fact: rotating by scene guarantees no two adjacent
+# paragraphs are assigned the same kind of opening, which is the actual
+# failure the deleted name-opener detector was never able to see (scenes 14
+# and 15 of the submarine video both opened "Nautilus's 1955 trials...").
+OPENER_TYPES = (
+    "a date or event",
+    "a problem or need",
+    "a paradox or irony",
+    "a human detail",
+    "a consequence",
+    "a contrast",
+    "a principle or idea",
+)
+
+
+def assigned_opener(scene: int) -> tuple[str, str, str]:
+    """(assigned, alternate, previous) opener kinds for this scene."""
+    index = max(1, int(scene or 1)) - 1
+    return (
+        OPENER_TYPES[index % len(OPENER_TYPES)],
+        OPENER_TYPES[(index + 3) % len(OPENER_TYPES)],
+        OPENER_TYPES[(index - 1) % len(OPENER_TYPES)] if index else "",
+    )
+
+
 _FACT_SLOTS = ("problem", "design", "trade_off", "surprising_fact", "contrast")
 
 
@@ -279,6 +316,72 @@ def brief_markdown_with_fact_ids(brief: dict) -> str:
         "",
     ]
     return "\n".join(lines) + body
+
+
+_WORD_NUMBERS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+    "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_TENS_RE = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+_ONES_RE = "one|two|three|four|five|six|seven|eight|nine"
+_DESIGNATION_RE = re.compile(r"\b[A-Za-z]{1,5}[-\u2013]\d+\b")
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
+_COMPOUND_NUMBER_RE = re.compile(r"\b(" + _TENS_RE + r")[-\s](" + _ONES_RE + r")\b")
+
+
+def _normalize_number(token: str) -> str:
+    token = token.replace(",", "")
+    if "." in token:
+        token = token.rstrip("0").rstrip(".")
+    return token.lstrip("0") or "0"
+
+
+def _figures(text: str) -> set[str]:
+    """Every number in the text, with spelled-out forms folded into digits.
+
+    Machine designations (A-7, SS-163, V-1) are stripped first: their digits
+    are part of a name, not a quantity.
+    """
+    body = _DESIGNATION_RE.sub(" ", str(text or ""))
+    found = {_normalize_number(m.group(0)) for m in _NUMBER_RE.finditer(body)}
+    low = _COMPOUND_NUMBER_RE.sub(
+        lambda m: " %d " % (_WORD_NUMBERS[m.group(1)] + _WORD_NUMBERS[m.group(2)]), body.lower()
+    )
+    found |= {_normalize_number(m.group(0)) for m in _NUMBER_RE.finditer(low)}
+    for word, value in _WORD_NUMBERS.items():
+        if re.search(r"\b" + word + r"\b", low):
+            found.add(str(value))
+    return found
+
+
+def _is_specific(token: str) -> bool:
+    """Decimals, years and numbers >= 100 - figures a paragraph cannot invent.
+
+    Small integers are excluded because that is where an author's own
+    arithmetic lives: "forty seconds longer" is a correct reading of a brief
+    that says 100 seconds versus 60, and must not be called a fabrication.
+    """
+    return "." in token or len(token.replace(".", "")) >= 3
+
+
+def unsupported_figures(paragraph: str, brief: dict) -> list[str]:
+    """Specific figures the paragraph states that appear NOWHERE in the brief.
+
+    Measured against the WHOLE brief, not against one cited quote. A sentence
+    legitimately synthesises across slots while citing the single most
+    relevant fact, so a per-quote comparison flags ordinary good writing
+    (20% of the submarine video's shipped rows). Against the whole brief the
+    same 88 rows flag 0%, which is the point: anything left is a figure the
+    research never contained.
+
+    Advisory. Nothing here blocks a paragraph.
+    """
+    known = _figures(brief_markdown(brief)) if isinstance(brief, dict) else set()
+    return sorted(
+        figure for figure in _figures(paragraph) - known if _is_specific(figure)
+    )
 
 
 def brief_source_urls(brief: dict) -> set[str]:
@@ -437,6 +540,14 @@ async def write_paragraph(
         # quality judgement - there is no paragraph to surface, so the block
         # is marked unusable and the caller leaves the scene alone.
         draft = {"paragraph": "", "claim_map": [], "opened_with_name_reported": False, "bridged_to": None}
+
+    fabricated = unsupported_figures(draft["paragraph"], brief)
+    if fabricated:
+        # Advisory only - surfaced next to the paragraph for a human to judge.
+        warnings.append(
+            "[[user-facing]] figure(s) not found anywhere in this machine's research: "
+            + ", ".join(fabricated)
+        )
 
     return {
         "machine": machine,

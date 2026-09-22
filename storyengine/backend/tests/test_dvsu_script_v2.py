@@ -139,7 +139,7 @@ def test_write_prompt_first_paragraph_and_final_paragraph_edges():
     )
     assert "this is the first paragraph" in prompt
     assert "final paragraph of the video" in prompt
-    assert "do NOT open with the machine's name by default" in prompt
+    assert "never open with the machine's name" in prompt
     assert "never boat/boats" not in prompt
 
 
@@ -246,6 +246,62 @@ def test_the_brief_handed_to_the_writer_lists_its_fact_ids():
     for fact_id in ("problem", "design", "trade_off", "outcome1", "outcome2", "surprising_fact", "contrast"):
         assert f"  {fact_id} -> " in labelled, fact_id
     assert "## Surprising fact" in labelled, "the brief body must still be present"
+
+
+def test_every_scene_is_assigned_a_different_opener_from_the_one_before_it():
+    """Regression, 2026-09-22: scenes 14 and 15 both opened "Nautilus's 1955 trials...".
+
+    The deleted name-opener detector could never see this - it only asked
+    whether a paragraph opened with the machine's name. Opener KINDS are now
+    allocated per scene instead of measured afterwards, so two adjacent
+    paragraphs cannot be handed the same opening to write.
+    """
+    for scene in range(1, 31):
+        assigned, alternate, previous = script.assigned_opener(scene)
+        assert assigned in script.OPENER_TYPES
+        assert alternate != assigned
+        if scene > 1:
+            assert previous == script.assigned_opener(scene - 1)[0]
+            assert assigned != previous
+    assert script.assigned_opener(14)[0] != script.assigned_opener(15)[0]
+
+
+def test_the_prompt_tells_the_writer_which_opener_it_was_assigned():
+    prompt = script.build_write_prompt(
+        title=TITLE, thesis="t", acts=[], machine=MACHINE, act_number=1, act_thesis="",
+        scene=15, roster_size=20, brief_markdown="", prior_paragraphs=[], next_machine=None,
+    )
+    assigned, alternate, previous = script.assigned_opener(15)
+    assert f"open with {assigned}" in prompt
+    assert f"open with {alternate} instead" in prompt
+    assert f"was assigned {previous}" in prompt
+
+
+def test_a_figure_the_research_never_contained_is_flagged_but_never_blocks():
+    """Advisory, not a gate. Measured against the WHOLE brief.
+
+    A per-quote comparison flags 20% of good shipped writing, because a
+    sentence synthesises across slots while citing one fact. Against the
+    whole brief the submarine video's 88 shipped rows flag 0%.
+    """
+    client = _Client(_draft(GOOD_PARAGRAPH + " She cost three billion dollars in 1981."))
+    block = _write(client)
+    assert block["passed"] is True, "a flagged figure must never withhold the paragraph"
+    assert block["violations"] == []
+    assert any("1981" in w for w in block["warnings"])
+
+
+def test_authors_arithmetic_and_spelled_numbers_are_not_called_fabrication():
+    brief = {
+        "problem": {"answer": "S-3 took 100 seconds to periscope depth versus 60 for S-1.",
+                    "source_url": "https://example.navy.mil/problem", "quote": "q"},
+        "design": {"answer": "The 51 submarines were the largest single class.",
+                   "source_url": "https://example.navy.mil/design", "quote": "q"},
+    }
+    # derived from 100 - 60, spelled-out 51, and a machine designation
+    assert script.unsupported_figures(
+        "Its hull took forty seconds longer, and its fifty-one submarines served aboard A-7.", brief,
+    ) == []
 
 
 def test_writer_runs_at_temperature_zero_so_a_rerun_is_not_a_re_roll():
