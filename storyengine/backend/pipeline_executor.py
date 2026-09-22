@@ -12446,11 +12446,10 @@ scenes."""
 
         The manual door for machines the writer cannot draft well. No model
         call, no cost: the text is saved byte-identical (whitespace-normalized)
-        and faces the SAME code-side audit a generated paragraph must pass
-        (dvsu_script_v2.audit_paragraph) - a hand-written paragraph that
-        breaks the standard is rejected with the full warnings list. On save
-        it goes through _save_machine_script_block, exactly like a generated
-        block, so script_hold.units, scene rows and status advancement behave
+        and is never graded - the code-side audit that used to reject a
+        hand-written paragraph was removed 2026-09-22. On save it goes through
+        _save_machine_script_block, exactly like a generated block, so
+        script_hold.units, scene rows and status advancement behave
         identically.
         """
         import dvsu_script_v2

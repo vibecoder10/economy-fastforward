@@ -111,103 +111,10 @@ def test_brief_for_machine_reads_the_saved_package_by_cache_key():
 
 
 # ---------------------------------------------------------------------------
-# Code-side audit (the referee that replaced the paid referee call)
-# ---------------------------------------------------------------------------
-
-def test_good_paragraph_passes_with_no_violations():
-    audit = script.audit_paragraph(GOOD_PARAGRAPH, MACHINE, subject_context=TITLE)
-    assert audit["violations"] == []
-    assert script.WORD_TARGET_MIN <= audit["word_count"] <= script.WORD_TARGET_MAX
-    assert audit["opened_with_name"] is False
-
-
-def test_word_band_target_is_advisory_and_hard_band_blocks():
-    short = " ".join(["word"] * 90) + " Nautilus."
-    audit = script.audit_paragraph(short, MACHINE)
-    assert audit["violations"] == []
-    assert any("target band" in w for w in audit["warnings"])
-    too_short = " ".join(["word"] * 60) + " Nautilus."
-    assert any("hard" in v for v in script.audit_paragraph(too_short, MACHINE)["violations"])
-    too_long = " ".join(["word"] * 160) + " Nautilus."
-    assert any("hard" in v for v in script.audit_paragraph(too_long, MACHINE)["violations"])
-
-
-@pytest.mark.parametrize("bad, expected", [
-    (GOOD_PARAGRAPH.replace("Nautilus ended that bargain", "Nautilus, an incredible vessel, ended that bargain"), "hype"),
-    (GOOD_PARAGRAPH.replace("Nautilus ended that bargain", "Nautilus, arguably the most important vessel, ended that bargain"), "generic praise"),
-    ("The Nautilus was a submarine built by Electric Boat in 1954. " + GOOD_PARAGRAPH, "Wikipedia-style opening"),
-    (GOOD_PARAGRAPH + " In conclusion, she mattered.", "conclusion language"),
-    (GOOD_PARAGRAPH.replace("She crossed", "Next came the polar run. She crossed"), "ranked-list connector"),
-    (GOOD_PARAGRAPH.replace("every submarine", "every boat"), "submarine terminology"),
-])
-def test_hard_violations_are_caught(bad, expected):
-    audit = script.audit_paragraph(bad, MACHINE, subject_context=TITLE)
-    assert any(expected in v for v in audit["violations"]), audit
-
-
-def test_electric_boat_and_u_boats_are_not_boat_violations():
-    text = GOOD_PARAGRAPH.replace(
-        "every submarine", "every Electric Boat hull, the U-boats it hunted and its 'Diesel Boats Forever' pin"
-    )
-    audit = script.audit_paragraph(text, "USS Nautilus (SSN-571)", subject_context="Every US Submarine Class Ever Built")
-    assert not any("submarine terminology" in v for v in audit["violations"])
-
-
-def test_boats_is_only_a_violation_in_a_submarine_context():
-    text = GOOD_PARAGRAPH.replace("every submarine", "every boat").replace("Nautilus", "B-52")
-    audit = script.audit_paragraph(text, "Boeing B-52 Stratofortress", subject_context="Every US Strategic Bomber Ever Built")
-    assert not any("terminology" in v for v in audit["violations"])
-
-
-def test_paragraph_must_name_the_locked_machine():
-    text = GOOD_PARAGRAPH.replace("Nautilus", "the vessel")
-    audit = script.audit_paragraph(text, MACHINE, subject_context=TITLE)
-    assert any("never names" in v for v in audit["violations"])
-    # A roster entry with no distinctive token (e.g. "S-class") cannot be checked and is not penalized.
-    assert script.mentions_machine(text, "S-class") is None
-
-
-def test_name_opener_budget_is_advisory_until_spent_then_blocks():
-    opener = "Nautilus ended the bargain every submarine had lived by. " + GOOD_PARAGRAPH
-    within = script.audit_paragraph(opener, MACHINE, subject_context=TITLE, name_openers_used=2)
-    assert within["opened_with_name"] is True
-    assert within["violations"] == []
-    assert any("opens with the machine's name (3 of 5" in w for w in within["warnings"])
-    spent = script.audit_paragraph(opener, MACHINE, subject_context=TITLE, name_openers_used=script.NAME_OPENER_BUDGET)
-    assert any("name-openers are already used" in v for v in spent["violations"])
-
-
-def test_bare_the_maker_designation_opener_counts_as_a_name_opener():
-    assert script.opens_with_name("The Boeing XB-15 first flew in 1937 and never entered production.", "Boeing XB-15") is True
-    assert script.opens_with_name("Holland proved a submarine could threaten without fighting.", "S-class") is False
-
-
-def test_retirement_date_ending_is_a_warning():
-    text = GOOD_PARAGRAPH.replace("It had simply stopped needing the surface at all.", "She was decommissioned in 1980.")
-    audit = script.audit_paragraph(text, MACHINE, subject_context=TITLE)
-    assert any("retirement" in w for w in audit["warnings"])
-
-
-def test_gold_corpus_paragraphs_trip_no_pattern_violations():
-    """The forbidden-pattern rules mirror docs/gold-scripts/grammar, which is
-    validated against all 14 shipped scripts with zero hard-gate hits."""
-    fixtures = Path(__file__).resolve().parents[2] / "docs" / "gold-scripts" / "grammar" / "fixtures.json"
-    if not fixtures.exists():
-        pytest.skip("gold fixtures not present in this checkout")
-    scripts = json.loads(fixtures.read_text(encoding="utf-8"))
-    pattern_hits = []
-    for entry in scripts:
-        for paragraph in entry["paragraphs"]:
-            audit = script.audit_paragraph(paragraph, "")
-            pattern_hits.extend(v for v in audit["violations"] if "band" not in v)
-    assert pattern_hits == []
-
-
-# ---------------------------------------------------------------------------
 # Prompt: the v3 template plus the stateful context the design requires
 # ---------------------------------------------------------------------------
 
-def test_write_prompt_carries_brief_prior_paragraphs_next_machine_and_budget():
+def test_write_prompt_carries_brief_prior_paragraphs_and_next_machine():
     prompt = script.build_write_prompt(
         title=TITLE, thesis="The submarine stopped needing the surface.",
         acts=[{"act_number": 1, "argument": "The submarine learns to hide."}, {"act_number": 4, "argument": "The submarine stops surfacing."}],
@@ -215,13 +122,11 @@ def test_write_prompt_carries_brief_prior_paragraphs_next_machine_and_budget():
         brief_markdown=script.brief_markdown(_packet()),
         prior_paragraphs=[{"machine": SIBLING, "act_number": 1, "paragraph": "Holland proved a submarine could threaten without fighting."}],
         next_machine={"machine": "USS Thresher SSN-593", "act_number": 5, "problem": "Deeper diving demanded a new hull."},
-        name_openers_used=3,
     )
     assert "ENGINEERING DECISION" in prompt
     assert "95-120 words" in prompt
     assert "[Act 1] USS Holland SS-1: Holland proved" in prompt
     assert "NEXT MACHINE: USS Thresher SSN-593 (Act 5) - its problem: Deeper diving" in prompt
-    assert "3 of 5 name-openers used" in prompt
     assert "## Surprising fact" in prompt
     assert "never boat/boats" in prompt  # submarine context
     assert "bridged_to" in prompt
@@ -231,23 +136,22 @@ def test_write_prompt_first_paragraph_and_final_paragraph_edges():
     prompt = script.build_write_prompt(
         title="Every US Strategic Bomber Ever Built", thesis="t", acts=[], machine="Boeing B-52", act_number=1,
         act_thesis="", scene=1, roster_size=24, brief_markdown="", prior_paragraphs=[], next_machine=None,
-        name_openers_used=script.NAME_OPENER_BUDGET,
     )
     assert "this is the first paragraph" in prompt
     assert "final paragraph of the video" in prompt
-    assert "Do NOT open this paragraph with the machine's name" in prompt
+    assert "do NOT open with the machine's name by default" in prompt
     assert "never boat/boats" not in prompt
 
 
 # ---------------------------------------------------------------------------
-# write_paragraph: one call, at most one bounded repair, block shape
+# write_paragraph: exactly one call, block shape, nothing can reject it
 # ---------------------------------------------------------------------------
 
 def _write(client, **overrides):
     kwargs = dict(
         title=TITLE, thesis="t", acts=[{"act_number": 4, "argument": "The submarine stops surfacing."}],
         roster=[SIBLING, MACHINE], machine=MACHINE, scene=2, act_number=4, brief=_packet(),
-        prior_paragraphs=[], next_machine=None, name_openers_used=0,
+        prior_paragraphs=[], next_machine=None,
     )
     kwargs.update(overrides)
     return asyncio.run(script.write_paragraph(client, **kwargs))
@@ -268,24 +172,26 @@ def test_clean_draft_costs_exactly_one_call_and_passes():
     assert block["attempts"] == 1 and block["violations"] == []
 
 
-def test_violation_triggers_exactly_one_repair_call_then_accepts():
-    bad = GOOD_PARAGRAPH.replace("Nautilus ended that bargain", "Nautilus, an incredible vessel, ended that bargain")
-    client = _Client(_draft(bad), _draft())
-    block = _write(client)
-    assert len(client.calls) == 2
-    assert "VIOLATIONS TO FIX" in client.calls[1]["prompt"]
-    assert "hype language: 'incredible'" in client.calls[1]["prompt"]
-    assert block["passed"] is True and block["attempts"] == 2
+def test_nothing_the_old_checker_rejected_is_rejected_any_more():
+    """The code-side audit was removed 2026-09-22: no quality rule can block.
 
-
-def test_repair_that_still_violates_returns_needs_review_without_a_third_call():
-    bad = GOOD_PARAGRAPH.replace("Nautilus ended that bargain", "Nautilus, an incredible vessel, ended that bargain")
-    client = _Client(_draft(bad), _draft(bad))
+    This paragraph trips every hard rule the old checker had - hype, generic
+    praise, a Wikipedia opening, conclusion language, a ranked-list connector
+    and boat/boats in a submarine video. It must now be written in ONE call,
+    with no repair call, and come back passed and intact.
+    """
+    bad = (
+        "The Nautilus was a submarine built by Electric Boat in 1954. For fifty years every boat had been "
+        "a surface ship that could hide. Nautilus, an incredible vessel and arguably the most important "
+        "one, ended that bargain. Next came the polar run. In conclusion, she mattered."
+    )
+    client = _Client(_draft(bad))
     block = _write(client)
-    assert len(client.calls) == 2
-    assert block["passed"] is False
-    assert any("hype" in v for v in block["violations"])
-    assert block["paragraph"] == bad  # the draft stays visible for hand-editing
+    assert len(client.calls) == 1, "a repair call was made; the repair loop should be gone"
+    assert block["passed"] is True
+    assert block["violations"] == []
+    assert block["paragraph"] == bad, "the paragraph must be surfaced in full, unedited"
+    assert block["attempts"] == 1
 
 
 def test_claim_map_rows_citing_unknown_sources_are_dropped_with_a_warning():
@@ -372,15 +278,18 @@ def test_preview_readiness_names_the_missing_research_packet():
     assert script.preview_readiness(_video([MACHINE])["research_payload"], MACHINE)["ready"] is True
 
 
-def test_submitted_block_faces_the_same_audit_with_no_model_call():
+def test_submitted_block_is_never_graded_and_makes_no_model_call():
     roster = [SIBLING, MACHINE]
     video = _video(roster)
     block = script.submitted_block(video, roster, MACHINE, "  " + GOOD_PARAGRAPH + "  ")
     assert block["passed"] is True and block["paragraph"] == GOOD_PARAGRAPH
     assert block["research_source"] == "hand_submitted" and block["scene"] == 2
     assert block["source_fingerprint"] == script.brief_fingerprint(MACHINE, _packet())
-    rejected = script.submitted_block(video, roster, MACHINE, GOOD_PARAGRAPH + " In conclusion, she mattered.")
-    assert rejected["passed"] is False and any("conclusion" in v for v in rejected["violations"])
+    # A hand-written paragraph that would have failed every old rule is kept.
+    once_rejected = script.submitted_block(
+        video, roster, MACHINE, GOOD_PARAGRAPH + " In conclusion, she was an incredible boat."
+    )
+    assert once_rejected["passed"] is True and once_rejected["violations"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -479,19 +388,31 @@ def test_bulk_run_passes_every_prior_paragraph_and_the_next_machines_problem(hol
     assert f"[Act 1] {SIBLING}:" in third and f"[Act 2] {MACHINE}:" in third
 
 
-def test_bulk_run_stops_on_a_failed_paragraph_with_needs_review_and_keeps_the_draft(hold):
+def test_bulk_run_saves_and_advances_even_when_a_paragraph_breaks_the_old_rules(hold):
+    """No paragraph is withheld any more; the run completes and advances."""
     roster = [SIBLING, MACHINE]
     bad = GOOD_PARAGRAPH.replace("Nautilus ended that bargain", "Nautilus, an incredible vessel, ended that bargain")
     holland = GOOD_PARAGRAPH.replace("Nautilus", "Holland")
-    client = _Client(_draft(holland), _draft(bad), _draft(bad))
+    client = _Client(_draft(holland), _draft(bad))
+    ex, state = hold(roster, client=client)
+    result = asyncio.run(script.run_script_hold(ex, "v", state["video"], roster))
+    assert result["status"] == "completed"
+    assert len(client.calls) == 2, "no repair call should be made"
+    assert [machine for machine, _ in state["saved"]] == [SIBLING, MACHINE]
+    saved_preview = [p for key, p in state["previews"] if p["machine"] == MACHINE][-1]
+    assert saved_preview["passed"] is True and saved_preview["paragraph"] == bad
+
+
+def test_bulk_run_still_stops_when_the_writer_returns_nothing_usable(hold):
+    """A transport failure is not a quality judgement - there is no text to save."""
+    roster = [SIBLING, MACHINE]
+    holland = GOOD_PARAGRAPH.replace("Nautilus", "Holland")
+    client = _Client(_draft(holland), "not json at all")
     ex, state = hold(roster, client=client)
     result = asyncio.run(script.run_script_hold(ex, "v", state["video"], roster))
     assert result["status"] == "needs_review"
-    assert "hype language" in result["error"]
-    assert state["saved"] == [(SIBLING, False)]
+    assert [machine for machine, _ in state["saved"]] == [SIBLING]
     assert state["status_writes"] == []
-    failed_preview = [p for key, p in state["previews"] if p["machine"] == MACHINE][-1]
-    assert failed_preview["passed"] is False and failed_preview["paragraph"] == bad
 
 
 def test_missing_research_packet_is_a_clear_needs_review_not_a_crash(hold):

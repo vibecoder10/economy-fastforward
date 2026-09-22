@@ -9,18 +9,21 @@ the legacy non-inventory paragraph writer) and
 ``factual_100_v1`` path). Ripped out 2026-09-21; see HANDOFF.md.
 
 Mirrors ``dvsu_research_v2.py``'s shape: prompt constants, pure
-``_normalize_*``/``_audit_*`` helpers, one ``client.generate()`` per
+``_normalize_*`` helpers, one ``client.generate()`` per
 paragraph with the same checkpoint/fingerprint pattern (so the agent LLM relay
 and restart-resume work unchanged), fail-soft Drive export.
 
-Locked rules (DESIGN.md "Decisions - Ryan, 2026-09-18"):
+Locked rules:
 
-1. One paid call per machine, NO separate referee call. QA is code-side:
-   word count, forbidden-phrase regex, name-opener budget, terminology.
-   At most one bounded repair call when a hard violation is found.
-2. Script-writing is stateful and runs in roster/act order: the running
-   name-opener tally and every prior finished paragraph are passed as
-   context.
+1. One paid call per machine, NO referee call and NO code-side audit.
+   The code-side checker (word band, forbidden-phrase regex, name-opener
+   budget, terminology) and its bounded repair call were removed 2026-09-22
+   at Ryan's direction: it was legacy, it blocked good paragraphs on regex
+   false positives, and no script should ever be withheld. Every paragraph
+   this module writes is saved and surfaced in full; quality is a human
+   judgement made against docs/gold-scripts/standards/.
+2. Script-writing is stateful and runs in roster/act order: every prior
+   finished paragraph is passed as context.
 3. No new storage layer. Blocks live where they always did
    (``videos.script_validation.machine_script_blocks`` + ``scripts`` rows,
    previews in ``research_payload.machine_script_previews``), plus a
@@ -31,13 +34,13 @@ The two gaps the design left open, resolved here (2026-09-21):
 * Cross-act sibling relevance: EVERY prior finished paragraph (full text,
   tagged with its act) is passed, plus the next machine's name and its
   research "problem" line for a forward bridge. The model picks the bridge;
-  code records ``bridged_to`` for audit. Bounded cost (~30 paragraphs x ~110
+  code records ``bridged_to``. Bounded cost (~30 paragraphs x ~110
   words ~= 5K tokens by the end of a video). The roster stage is untouched.
-* Word band: 95-120 is the TARGET (outside it = advisory warning, never a
-  reject). 80-150 is the HARD band (outside it = one repair call, then
-  needs-review). Empirical basis, docs/gold-scripts/grammar: 14 shipped
+* Word band: 95-120 is handed to the writer as guidance in the prompt and is
+  never enforced. Empirical basis, docs/gold-scripts/grammar: 14 shipped
   scripts, 373 paragraphs, median 107, p10 84, p90 129; 24% under 95 and 18%
-  over 120. "Never less, never more" is aspirational, not what ships.
+  over 120. "Never less, never more" is aspirational, not what ships - which
+  is exactly why nothing rejects a paragraph for missing it.
 """
 
 from __future__ import annotations
@@ -61,14 +64,10 @@ logger = logging.getLogger(__name__)
 SCRIPT_CONTRACT = "dvsu_script_v2"
 RESEARCH_SOURCE = "dvsu_research_v2_packet"
 
+# Length guidance handed to the writer in the prompt. Advisory only - nothing
+# in this module blocks a paragraph for being outside it.
 WORD_TARGET_MIN = 95
 WORD_TARGET_MAX = 120
-WORD_HARD_MIN = 80
-WORD_HARD_MAX = 150
-# DESIGN.md / DvsU_Script_Writing_System.md: "Maximum 4-5 paragraphs out of
-# 30 may open with the unit's name."
-NAME_OPENER_BUDGET = 5
-MAX_REPAIR_CALLS = 1
 
 DEFAULT_VOICE_ID = "1SM7GgM6IMuvQlz2BwM3"
 
@@ -130,20 +129,6 @@ def _next_machine_block(next_machine: Optional[dict]) -> str:
     return line + "\n"
 
 
-def _name_opener_block(name_openers_used: int) -> str:
-    remaining = max(0, NAME_OPENER_BUDGET - name_openers_used)
-    if remaining <= 0:
-        return (
-            f"NAME-OPENER BUDGET: all {NAME_OPENER_BUDGET} name-openers for this video are already spent. "
-            "Do NOT open this paragraph with the machine's name or designation.\n"
-        )
-    return (
-        f"NAME-OPENER BUDGET: {name_openers_used} of {NAME_OPENER_BUDGET} name-openers used so far in this "
-        f"video; {remaining} remain for the whole rest of the video. Opening with the name is a conscious "
-        "exception, not the default.\n"
-    )
-
-
 def build_write_prompt(
     *,
     title: str,
@@ -157,7 +142,6 @@ def build_write_prompt(
     brief_markdown: str,
     prior_paragraphs: list[dict],
     next_machine: Optional[dict],
-    name_openers_used: int,
 ) -> str:
     submarine = _submarine_context(title, machine, thesis)
     terminology = (
@@ -191,11 +175,9 @@ def build_write_prompt(
         "- A final line that lands: short, a paradox/irony/reversal. If the last sentence could be deleted "
         "without losing meaning, rewrite it. Never summarize; land.\n"
         "- The machine's name or designation somewhere in the paragraph (it need not be the opener).\n\n"
-        f"Opening: do NOT open with the machine's name by default - across a full {roster_size}-unit video "
-        f"only {NAME_OPENER_BUDGET} total may open that way. Open instead with a date, a problem, a paradox, "
-        "a human detail, a consequence, or a contrast. Naming the machine first is a conscious exception, "
-        "not the default.\n"
-        f"{_name_opener_block(name_openers_used)}\n"
+        "Opening: do NOT open with the machine's name by default - only a handful of paragraphs across the "
+        "whole video should. Open instead with a date, a problem, a paradox, a human detail, a consequence, "
+        "or a contrast. Naming the machine first is a conscious exception, not the default.\n"
         "Bridging: the video must feel like a documentary, not a ranked list. If a prior paragraph (the "
         "immediate predecessor in the same act, or ANY earlier paragraph in an earlier act that shares a "
         "real fact with this machine) offers a genuine narrative bridge, open or close with it - grounded "
@@ -220,16 +202,6 @@ def build_write_prompt(
         "claim_map: one row per sentence that states a checkable fact, citing the BRIEF source_url and "
         "quote that supports it (the landing line may be argued synthesis with no row). "
         "opened_with_name: true only if the first words are this machine's name or designation."
-    )
-
-
-def build_repair_prompt(draft: dict, violations: list[str], write_prompt: str) -> str:
-    return (
-        "Your draft below violates the script standard. Fix ONLY the listed violations and keep every "
-        "other word, fact, and the bridge exactly as they are. Return the same JSON shape.\n\n"
-        f"VIOLATIONS TO FIX:\n" + "\n".join(f"- {v}" for v in violations) + "\n\n"
-        f"DRAFT JSON:\n{json.dumps(draft, ensure_ascii=False)}\n\n"
-        "ORIGINAL BRIEF AND RULES (unchanged):\n" + write_prompt
     )
 
 
@@ -276,56 +248,8 @@ def brief_source_urls(brief: dict) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Code-side audit (Ryan's decision 1: no referee call; regex + counts instead)
+# Word count (informational only - reported on the block, never gates it)
 # ---------------------------------------------------------------------------
-
-# Mirrors docs/gold-scripts/grammar/script_grammar.json (validated against all
-# 14 gold scripts: zero hard-gate hits). Severity split is the same: hype and
-# strict praise are violations, the soft praise words are warnings because 4
-# of 14 shipped scripts use them deliberately.
-_HYPE_TERMS = (
-    "incredible", "amazing", "stunning", "insane", "epic", "jaw-dropping", "jaw dropping", "mind-blowing",
-    "mind blowing", "game-changing", "game changing", "breathtaking", "unbelievable", "spectacular",
-    "undoubtedly",
-)
-_GENERIC_PRAISE_STRICT = ("one of the greatest", "arguably the most", "arguably the greatest")
-_GENERIC_PRAISE_SOFT = ("legendary", "iconic", "revolutionary")
-_CONCLUSION_TERMS = ("so what have we learned", "in conclusion", "to sum up", "to summarize", "in summary")
-_WIKIPEDIA_OPENING_RE = re.compile(
-    r"^(the|a|an)\s[\w .,'\-]+\bwas\s(a|an)\b[\w .,'\-]*\b(developed|built|designed|manufactured|produced)\sby\b",
-    re.I,
-)
-_SPEC_LIST_RE = re.compile(r"\bit (had|also had|featured|carried)\b.{0,80}\bit (had|also had|featured|carried)\b", re.I)
-_RANKED_CONNECTOR_RE = re.compile(
-    r"^(next (is|came|up)\b|another [a-z][a-z \-]{0,30}\b(was|is)\b|moving on\b|at number\b|coming in at\b|number \d+\b)",
-    re.I,
-)
-_WRITTEN_CONNECTOR_RE = re.compile(r"^(however|furthermore|moreover|additionally|nevertheless|in addition)\b[,\s]", re.I)
-_RETIREMENT_ENDING_RE = re.compile(
-    r"\b(retired|decommissioned|scrapped|struck from|withdrawn from service)\b[^.]*\b(1[89]\d\d|20\d\d)\b\.?$", re.I,
-)
-# Proper nouns that legitimately contain "boat" - the builder Electric Boat, German
-# U-boats, the "Diesel Boats Forever" pin - are not the terminology slip this rule
-# exists to catch: a capitalised Boat(s) that follows another capitalised word is a
-# name, and U-boat is the enemy's designation. Both are removed before the check.
-_BOAT_PROPER_NOUN_RE = re.compile(r"(?:\b[A-Z][\w'-]*\s+)+Boats?\b|\b[Uu]-[Bb]oats?\b")
-_BOATS_RE = re.compile(r"\bboats?\b", re.I)
-
-
-def boat_terminology_slip(text: str) -> bool:
-    """True when the narration itself says boat/boats, ignoring proper nouns."""
-    return bool(_BOATS_RE.search(_BOAT_PROPER_NOUN_RE.sub(" ", str(text or ""))))
-# Bare "The [Maker] [Designation] was/entered/first flew ..." opener (grammar
-# checker's own regex), plus a direct check for this machine's identity tokens
-# inside the first six words.
-_NAME_OPENER_RE = re.compile(
-    r"^The ([A-Z][\w.\-]*(?:\s+[A-Z0-9][\w.\-']*){0,5})\s+(was|is|entered|first flew|first|became|had|served|flew)\b"
-)
-_GENERIC_MACHINE_TOKENS = {
-    "class", "uss", "hms", "hmas", "hmcs", "ins", "sms", "the", "and", "of", "type", "mark", "mk", "ship",
-    "ships", "boat", "submarine", "destroyer", "cruiser", "carrier", "battleship", "bomber", "fighter",
-    "tank", "helicopter", "aircraft", "project", "model", "variant", "series",
-}
 
 
 def word_count(text: str) -> int:
@@ -333,125 +257,8 @@ def word_count(text: str) -> int:
     return len(re.findall(r"\b[\w]+(?:[-'][\w]+)*\b", str(text or "")))
 
 
-def _sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?])\s+", " ".join(str(text or "").split()))
-    return [p.strip() for p in parts if p.strip()]
-
-
 def _squash(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
-
-
-def machine_identity_tokens(machine: str) -> list[str]:
-    """Distinctive squashed tokens (designations, proper names) that identify a machine in prose."""
-    tokens = []
-    for raw in re.findall(r"[A-Za-z0-9]+(?:[-–][A-Za-z0-9]+)*", str(machine or "")):
-        # A hyphenated designation (SS-1, B-52, SSN-571) is one spoken token;
-        # a hyphenated phrase with no digit (S-class, Lend-Lease) is not.
-        parts = [raw] if any(ch.isdigit() for ch in raw) else re.split(r"[-–]", raw)
-        for part in parts:
-            squashed = _squash(part)
-            if not squashed or squashed in _GENERIC_MACHINE_TOKENS:
-                continue
-            if any(ch.isdigit() for ch in squashed):
-                if len(squashed) >= 3:
-                    tokens.append(squashed)
-            elif len(squashed) >= 4:
-                tokens.append(squashed)
-    return tokens
-
-
-def mentions_machine(paragraph: str, machine: str) -> Optional[bool]:
-    """True/False when the machine has distinctive tokens; None when it cannot be checked."""
-    tokens = machine_identity_tokens(machine)
-    if not tokens:
-        return None
-    squashed = _squash(paragraph)
-    return any(tok in squashed for tok in tokens)
-
-
-def opens_with_name(paragraph: str, machine: str) -> bool:
-    text = " ".join(str(paragraph or "").split())
-    if not text:
-        return False
-    if _NAME_OPENER_RE.match(text):
-        return True
-    head_words = re.findall(r"[A-Za-z0-9]+(?:[-–'][A-Za-z0-9]+)*", text)[:6]
-    head = _squash(" ".join(head_words))
-    return any(tok in head for tok in machine_identity_tokens(machine))
-
-
-def audit_paragraph(
-    paragraph: str,
-    machine: str,
-    *,
-    subject_context: str = "",
-    name_openers_used: int = 0,
-) -> dict:
-    """Pure grade of one paragraph. Returns violations (block), warnings (advisory), and facts."""
-    text = " ".join(str(paragraph or "").split())
-    violations: list[str] = []
-    warnings: list[str] = []
-    words = word_count(text)
-    if not text:
-        return {"violations": ["paragraph is empty"], "warnings": [], "word_count": 0, "opened_with_name": False}
-
-    if words < WORD_HARD_MIN or words > WORD_HARD_MAX:
-        violations.append(f"{words} words is outside the hard {WORD_HARD_MIN}-{WORD_HARD_MAX} band")
-    elif words < WORD_TARGET_MIN or words > WORD_TARGET_MAX:
-        warnings.append(f"{words} words is outside the {WORD_TARGET_MIN}-{WORD_TARGET_MAX} target band")
-
-    lowered = text.lower()
-    for term in _HYPE_TERMS:
-        if re.search(r"\b" + re.escape(term) + r"\b", lowered):
-            violations.append(f"hype language: '{term}'")
-    for term in _GENERIC_PRAISE_STRICT:
-        if re.search(r"\b" + re.escape(term) + r"\b", lowered):
-            violations.append(f"generic praise: '{term}'")
-    for term in _GENERIC_PRAISE_SOFT:
-        if re.search(r"\b" + re.escape(term) + r"\b", lowered):
-            warnings.append(f"generic praise word: '{term}'")
-    for term in _CONCLUSION_TERMS:
-        if term in lowered:
-            violations.append(f"conclusion language: '{term}'")
-    if _WIKIPEDIA_OPENING_RE.search(text):
-        violations.append("Wikipedia-style opening ('The X was a [type] built by [company]...')")
-    if _SPEC_LIST_RE.search(text):
-        warnings.append("list-writing pattern ('It had... it also had...')")
-
-    sentences = _sentences(text)
-    for sentence in sentences:
-        if _RANKED_CONNECTOR_RE.match(sentence):
-            violations.append(f"ranked-list connector: '{sentence[:40]}'")
-        if _WRITTEN_CONNECTOR_RE.match(sentence):
-            warnings.append(f"written-language connector start: '{sentence.split()[0]}'")
-    if sentences and _RETIREMENT_ENDING_RE.search(sentences[-1]):
-        warnings.append("final line ends on a retirement/decommissioning date instead of landing")
-
-    if _submarine_context(subject_context, machine) and boat_terminology_slip(text):
-        violations.append("submarine terminology: use submarine/vessel, never boat/boats")
-
-    mentioned = mentions_machine(text, machine)
-    if mentioned is False:
-        violations.append(f"paragraph never names the locked machine ({machine})")
-
-    opened = opens_with_name(text, machine)
-    if opened:
-        if name_openers_used >= NAME_OPENER_BUDGET:
-            violations.append(
-                f"opens with the machine's name but all {NAME_OPENER_BUDGET} name-openers are already used"
-            )
-        else:
-            warnings.append(
-                f"opens with the machine's name ({name_openers_used + 1} of {NAME_OPENER_BUDGET} for this video)"
-            )
-
-    return {
-        "violations": list(dict.fromkeys(violations)),
-        "warnings": list(dict.fromkeys(warnings)),
-        "word_count": words,
-        "opened_with_name": opened,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +312,7 @@ def _normalize_draft(raw: Any, brief: dict, roster: list[str], machine: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# One machine: write (+ at most one repair), audit, assemble the block
+# One machine: write, assemble the block
 # ---------------------------------------------------------------------------
 
 
@@ -541,10 +348,9 @@ async def write_paragraph(
     brief: dict,
     prior_paragraphs: list[dict],
     next_machine: Optional[dict],
-    name_openers_used: int,
     checkpoint_scope: Optional[dict] = None,
 ) -> dict:
-    """One paid call (plus at most MAX_REPAIR_CALLS bounded repairs); returns the block dict."""
+    """One paid call; returns the block dict. Nothing here can reject a paragraph."""
     act_thesis = next(
         (str(a.get("argument") or "") for a in acts if isinstance(a, dict) and int(a.get("act_number") or 0) == int(act_number)),
         "",
@@ -552,47 +358,30 @@ async def write_paragraph(
     write_prompt = build_write_prompt(
         title=title, thesis=thesis, acts=acts, machine=machine, act_number=act_number, act_thesis=act_thesis,
         scene=scene, roster_size=len(roster), brief_markdown=brief_markdown(brief),
-        prior_paragraphs=prior_paragraphs, next_machine=next_machine, name_openers_used=name_openers_used,
+        prior_paragraphs=prior_paragraphs, next_machine=next_machine,
     )
     raw, model = await _generate(client, write_prompt, checkpoint_scope)
     draft, warnings = _normalize_draft(raw, brief, roster, machine)
     attempts = 1
     if draft is None:
-        audit = {"violations": warnings, "warnings": [], "word_count": 0, "opened_with_name": False}
+        # Nothing parseable came back. That is a transport failure, not a
+        # quality judgement - there is no paragraph to surface, so the block
+        # is marked unusable and the caller leaves the scene alone.
         draft = {"paragraph": "", "claim_map": [], "opened_with_name_reported": False, "bridged_to": None}
-        warnings = []
-    else:
-        audit = audit_paragraph(draft["paragraph"], machine, subject_context=title, name_openers_used=name_openers_used)
-        repairs = 0
-        while audit["violations"] and repairs < MAX_REPAIR_CALLS:
-            repairs += 1
-            attempts += 1
-            repair_prompt = build_repair_prompt(
-                {"paragraph": draft["paragraph"], "claim_map": draft["claim_map"],
-                 "opened_with_name": draft["opened_with_name_reported"], "bridged_to": draft["bridged_to"]},
-                audit["violations"], write_prompt,
-            )
-            raw_repair, _ = await _generate(client, repair_prompt, checkpoint_scope)
-            repaired, repair_warnings = _normalize_draft(raw_repair, brief, roster, machine)
-            if repaired is None:
-                warnings.append("repair call returned no usable draft; keeping the first draft")
-                break
-            draft, warnings = repaired, repair_warnings
-            audit = audit_paragraph(draft["paragraph"], machine, subject_context=title, name_openers_used=name_openers_used)
 
-    all_warnings = list(dict.fromkeys(list(audit["warnings"]) + list(warnings)))
-    passed = not audit["violations"]
     return {
         "machine": machine,
         "scene": scene,
         "act_number": act_number,
         "paragraph": draft["paragraph"],
-        "word_count": audit["word_count"],
-        "passed": passed,
-        "warnings": list(audit["violations"]) + all_warnings if not passed else all_warnings,
-        "violations": list(audit["violations"]),
+        "word_count": word_count(draft["paragraph"]),
+        # `passed` now means only "there is a usable paragraph here". Quality
+        # is never judged in code: a written paragraph always passes.
+        "passed": bool(draft["paragraph"].strip()),
+        "warnings": list(dict.fromkeys(warnings)),
+        "violations": [] if draft["paragraph"].strip() else list(dict.fromkeys(warnings)),
         "claim_map": draft["claim_map"],
-        "opened_with_name": bool(audit["opened_with_name"]),
+        "opened_with_name": bool(draft["opened_with_name_reported"]),
         "bridged_to": draft["bridged_to"],
         "machine_script_contract": SCRIPT_CONTRACT,
         "research_source": RESEARCH_SOURCE,
@@ -699,10 +488,9 @@ def _roster_act_numbers(payload: dict, roster: list[str]) -> dict[str, int]:
 def _prior_context(
     roster: list[str], scene: int, blocks: dict, previews: dict, subject_context: str, act_numbers: dict[str, int],
     written_this_run: dict[str, dict],
-) -> tuple[list[dict], int]:
-    """Every earlier-scene paragraph that is current (this run > saved block > passed preview)."""
+) -> list[dict]:
+    """Every earlier-scene paragraph that is current (this run > saved block > saved preview)."""
     prior: list[dict] = []
-    name_openers = 0
     for earlier_scene in range(1, scene):
         earlier = roster[earlier_scene - 1]
         candidate = written_this_run.get(earlier)
@@ -718,12 +506,8 @@ def _prior_context(
         if not candidate:
             continue
         paragraph = " ".join(str(candidate.get("paragraph") or "").split())
-        opened = candidate.get("opened_with_name")
-        if not isinstance(opened, bool):
-            opened = opens_with_name(paragraph, earlier)
-        name_openers += 1 if opened else 0
         prior.append({"machine": earlier, "act_number": act_numbers.get(earlier, 0), "paragraph": paragraph})
-    return prior, name_openers
+    return prior
 
 
 def _next_machine_context(payload: dict, roster: list[str], scene: int, act_numbers: dict[str, int]) -> Optional[dict]:
@@ -865,26 +649,29 @@ async def run_script_hold(
             await ex._log_activity(bot_name, video_id, "running", f"Paragraph {scene}/{len(roster)} reused (current): {machine}")
             continue
 
-        prior, name_openers_used = _prior_context(roster, scene, blocks, previews, title, act_numbers, written)
+        prior = _prior_context(roster, scene, blocks, previews, title, act_numbers, written)
         next_machine = _next_machine_context(payload, roster, scene, act_numbers)
         await ex._log_activity(
             bot_name, video_id, "running",
             f"Writing paragraph {scene}/{len(roster)}: {machine} (act {act_numbers.get(machine, 0)}, "
-            f"{len(prior)} prior paragraph(s) in context, {name_openers_used}/{NAME_OPENER_BUDGET} name-openers used)",
+            f"{len(prior)} prior paragraph(s) in context)",
         )
         block = await write_paragraph(
             client, title=title, thesis=thesis, acts=acts, roster=roster, machine=machine, scene=scene,
             act_number=act_numbers.get(machine, 0), brief=brief, prior_paragraphs=prior, next_machine=next_machine,
-            name_openers_used=name_openers_used, checkpoint_scope=checkpoint_scope,
+            checkpoint_scope=checkpoint_scope,
         )
         refused = await _checkpoint_preview(block)
         if refused:
             return refused
 
         if not block["passed"]:
-            failures.append(f"{machine}: " + "; ".join(block["violations"] or ["script audit failed"]))
+            # Reached only when the writer returned nothing usable at all.
+            # No quality rule can land here - there is simply no text to save.
+            reason = "; ".join(block["warnings"] or ["writer returned no usable paragraph"])
+            failures.append(f"{machine}: {reason}")
             results.append(block)
-            await ex._log_activity(bot_name, video_id, "failed", f"Paragraph needs review: {machine}: " + "; ".join(block["violations"])[:800])
+            await ex._log_activity(bot_name, video_id, "failed", f"No paragraph written: {machine}: {reason}"[:800])
             if matched:
                 return _target_result(block)
             continue
@@ -924,28 +711,23 @@ async def run_script_hold(
 
 
 # ---------------------------------------------------------------------------
-# Hand-written door (the old G23a submit path, same audit as a generated draft)
+# Hand-written door (the old G23a submit path)
 # ---------------------------------------------------------------------------
 
 
 def submitted_block(video: dict, roster: list[str], machine: str, paragraph: str) -> dict:
-    """Grade a hand-written paragraph exactly like a generated one; no model call."""
+    """Wrap a hand-written paragraph as a block; no model call, no grading."""
     payload = _object(video.get("research_payload"))
     title = str(video.get("video_title") or video.get("headline") or "")
     scene = roster.index(machine) + 1
     act_numbers = _roster_act_numbers(payload, roster)
-    blocks = saved_blocks(video)
-    previews = payload.get("machine_script_previews") if isinstance(payload.get("machine_script_previews"), dict) else {}
-    _, name_openers_used = _prior_context(roster, scene, blocks, previews, title, act_numbers, {})
     brief = brief_for_machine(payload, machine)
     text = " ".join(str(paragraph or "").split())
-    audit = audit_paragraph(text, machine, subject_context=title, name_openers_used=name_openers_used)
-    passed = not audit["violations"]
     return {
         "machine": machine, "scene": scene, "act_number": act_numbers.get(machine, 0), "paragraph": text,
-        "word_count": audit["word_count"], "passed": passed,
-        "warnings": (list(audit["violations"]) + list(audit["warnings"])) if not passed else list(audit["warnings"]),
-        "violations": list(audit["violations"]), "claim_map": [], "opened_with_name": bool(audit["opened_with_name"]),
+        "word_count": word_count(text), "passed": True,
+        "warnings": [],
+        "violations": [], "claim_map": [], "opened_with_name": False,
         "bridged_to": None, "machine_script_contract": SCRIPT_CONTRACT, "research_source": "hand_submitted",
         "source_fingerprint": brief_fingerprint(machine, brief), "subject_context": title, "saved": False,
     }
