@@ -174,9 +174,13 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
   and fixed (formatter hid conversion-signal excerpts the gate demanded). Script previews ran
   under full law: 0/3 passed, ALL failures writer-side - the writer pass is the remaining half.
   See HANDOFF.md + memory storyengine-dvsu-writer-gap.]`
-- G3b encode the missing script laws: verdict-punch + no-redundancy + spec-block validators in
-  pipeline_executor.py, tenant script prompt upgrade, preview promotion, park-don't-halt,
-  category-aware Tavily queries. `[todo]`
+- G3b encode the missing script laws. `[SUPERSEDED 2026-09-22 - do NOT build validators]`
+  The "validators + park-don't-halt" half of this row is dead: Ryan deleted the code-side script
+  checker on 2026-09-22 and set a standing rule that no paragraph may ever be blocked and every
+  script must be surfaced in full. Quality now goes into the WRITER'S INPUT, not a grader on its
+  output - see storyengine/SCOPE-research-slot-contract.md and the shipped steps 1 (temperature 0,
+  quote-locked citations) and 2 (allocated opener kinds, advisory figure check). The still-live
+  parts of this row are the tenant script prompt upgrade and category-aware Tavily queries.
 - G3c UI rework for the channel-manager loop: inline card inspectors on Research + Script tabs,
   editable preview paragraphs, fix silent-save traps, jump links, batch confirms, DvsU-aware
   guided banner. `[todo]`
@@ -249,6 +253,15 @@ any clip spend.
 - Multi-language until the Slow Spanish channel is the active model.
 
 ## Log
+- 2026-09-22: Legacy code-side script checker DELETED (@ e97a8b33) - it withheld 14 good paragraphs
+  over "boat" inside proper nouns. New standing rule: nothing blocks, everything is surfaced, guard
+  rails are advisory and live in the input. Fixed a real API bug that dropped the whole DvsU script
+  blob before the frontend (@ e7a1056c, second time that allow-list trap fired). Determinism step 1
+  (temperature 0 + quote-locked fact-id citations, @ c4d7b86c) and step 2 (opener kinds allocated
+  per scene + unsupported_figures advisory, @ 0360a300) shipped and deployed at 0360a3001. Submarine
+  video 6ac28204 finished at 20/20, ready_for_voice. Research slot contract scoped, not started
+  (SCOPE-research-slot-contract.md) - a numeric support check there flags 55% of 179 pairings and
+  was deliberately NOT shipped.
 - 2026-07-15 (later): 3-way divergence reconciled and deployed @ 37469540 (chain + WIP + tier fix,
   226 tests green, tsc clean; VPS hot patches archived in stash@{0} on the box - verified byte-subset,
   nothing lost). Census-format section LIVE in tenant script prompt (14,269 chars). ElevenLabs key in
