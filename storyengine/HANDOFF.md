@@ -1,27 +1,87 @@
-# HANDOFF - 2026-09-22 - dvsu_script_v2 driven live over the relay: 14/20 passed, 6 false-positive needs-review; three fixes deployed; rerun pending
+# HANDOFF - 2026-09-22 - submarine script finished (20/20, ready_for_voice); legacy script checker deleted; determinism steps 1+2 shipped
 
 ## State
-- Prod: `23b1dbe28` deployed 2026-09-22T05:34Z, healthy, idle (`active_work` 0, drain normal, no lock). Frontend deployed at 76717d466 (no frontend change since).
-- Branch `main` = origin/main at `23b1dbe2`. Not mine, left alone: `../tasks/decisions.md` (Ryan's uncommitted Jev entry + two entries), untracked `jev-key-box.html`.
-- Backend v2 suite: `tests/test_dvsu_script_v2.py` 42 passed (3 new tests). Full suite not rerun this session.
-- Video `6ac28204-681c-4839-9d11-6c3ba57b7b6e` (Every US Submarine Class Ever Built, tenant Designed Vs Used `561b872d`): status still `ready_for_scripting`. Script tab (local UI, workspace switcher -> Designed vs Used) shows 14/20 "Script preview passed", 6 "Needs review": A-class, S-class, Barracuda, Porpoise, Gato, Barbel. All six failed ONLY the boat-terminology regex on "Electric Boat" / "U-boats" / "Diesel Boats Forever" - the paragraphs themselves are fine. Banner reads "Run All stopped at Script - Something went wrong" (misleading copy for a needs_review outcome; open thread).
-- What shipped this session (all on prod):
-  1. `6bed9432` + `23b1dbe2` `dvsu_script_v2.boat_terminology_slip()`: proper nouns (capitalised word + Boat(s), U-boat) stripped before the boat check.
-  2. `35c541c2` `pipeline_executor.run_script` now calls `_install_cancel_support(video_id)` like every other stage entry - fixes BOTH the ignored cancel and relay requests parked with `video_id=None` (so `list_pending_llm_requests(video_id=...)` returned nothing; use no filter until a run on 23b1dbe2 proves it).
-- How the run was driven (Ryan's rule: no Anthropic key, Sonnet where the API call would run): MCP `script` (quote ~$0.02 nominal, confirm) -> loop `list_pending_llm_requests(status=pending)` -> Sonnet subagent gets SYSTEM+USER prompt verbatim, returns raw JSON -> `answer_llm_request`. 20 write calls + 6 repairs. Repairs for the known false positive were answered with the unchanged draft (Sonnet's own answer to the first one). Each Sonnet call ~60-100 s.
+- Prod: `0360a3001` deployed 2026-09-22T13:48Z, healthy, idle (`active_work` 0, no lock).
+- Branch `main` = origin/main at `735e549d` (one commit ahead of prod: a docs-only
+  scope file, nothing to deploy).
+- Backend suite 5405 passed / 4 skipped. Frontend `tsc` clean.
+- Not mine, left alone: `../tasks/decisions.md` (Ryan's uncommitted Jev entries),
+  untracked `storyengine/jev-key-box.html`. Also untracked:
+  `storyengine/DvsU_submarines_script.md` - the 20-paragraph script I generated
+  for Ryan's review; delete it freely, it is regenerable from the DB.
+- Video `6ac28204-681c-4839-9d11-6c3ba57b7b6e` (Every US Submarine Class Ever Built,
+  tenant Designed Vs Used `561b872d-7b73-45e3-9c44-7f30c3566eda`): **status
+  `ready_for_voice`**, 20/20 paragraphs saved, all cards green. Voice is the next
+  paid stage and has NOT been run. Ryan has read the script.
+
+- What shipped this session:
+  1. `e97a8b33` - deleted the legacy code-side script checker: `audit_paragraph`,
+     the boat/mentions/name-opener detectors, `build_repair_prompt` + the repair
+     loop, and the branch that refused to save. Nothing can block a paragraph on
+     quality now. `passed` means only "there is a usable paragraph here"; an
+     unparseable writer response still fails closed (no text to surface).
+  2. `e7a1056c` - **real bug**: `routes/videos.py::_parse_script_validation` only
+     passed JSON through if it had `"checks"` or `"quality_critic"`. The DvsU blob
+     has neither, so the whole thing was dropped to `None` on the way out of the
+     API and a finished script read "0/20 production scenes". Key allow-list
+     removed; any JSON object now passes through. Second time this trap fired.
+  3. `c4d7b86c` - determinism step 1: temperature 0.4 -> 0.0, and quote-locked
+     citations (the writer cites a `fact_id`; code attaches source_url + verbatim
+     quote from the brief and discards any quote the model typed).
+  4. `0360a300` - step 2: opener KINDS allocated per scene (adjacent scenes can no
+     longer get the same opening), plus `unsupported_figures()` advisory.
+  5. `735e549d` - scope doc for the research slot contract (not started).
 
 ## Next action (start here cold)
-1. Rerun: MCP `script` on 6ac28204 (quote, then confirm). Bulk runs reuse the 14 passed blocks (brief-fingerprint "current"), rewrite the 6 needs-review machines. Their prompts now include the finished A-class paragraph so the relay cache will NOT replay - expect 6 fresh requests; answer each via a Sonnet subagent (prompt verbatim, raw JSON). With the fixed audit they pass; expect status -> `ready_for_voice` and a Drive export `02-script.md`.
-2. Read all 20 paragraphs against `docs/gold-scripts/standards/DvsU_Script_Writing_System.md` with your eyes (MCP `get_script` or the Script tab). Two slips I noticed on the way: A-class says "gasoline fumes killed" where the source says explosion and fire; Holland says "made his victory untenable" vs source "fleet in an untenable position". Name-opener tally reads 1/5 though no paragraph opened with a name - check which one `opens_with_name` counted.
-3. Then walk the Script tab on prod (`/se-smoke`), screenshot, and hand Ryan the script for review before voice (paid).
+Implement `storyengine/SCOPE-research-slot-contract.md` (Ryan approved scoping it;
+he has NOT yet approved building it - confirm first). Recommended option B: add a
+`headline` field to each brief slot naming the one claim its quote proves, making
+a 1:1 support check legitimate. Start by reading that file, then
+`backend/dvsu_research_v2.py` (`_normalize_answer_slot`,
+`_build_verified_source_package`, `packet_from_verified_source_package`).
+
+The two risks are the whole job, not the check: (a) the packet round-trip rebuilds
+from `{text, source_url, quote}` only, so an unthreaded field vanishes silently;
+(b) `brief_fingerprint` hashes the brief, so if `headline` lands on old packets
+every saved block in every video goes stale and the next bulk run pays to rewrite
+everything. Write the fingerprint-stability test FIRST.
 
 ## Open threads
-- "Run All stopped at Script - Something went wrong" banner for a needs_review outcome: wrong copy; the roster cards already say the truth.
-- `[INIT] AgentRelayClient OK` logged every ~10 s during the run: something re-initialises the lightweight pipeline per request (roster-dashboard polling?). Perf smell, not a bug.
-- Deploy-drain deadlock: a relay-parked run holds a generation claim and never finishes on its own; deploy waits up to 2 h. Cancel now works (fix 2), so the recipe is cancel -> wait for claim 0 -> deploy.
-- Carried from last session: delete `_machine_story_plan` + `_script_starvation_*` + `repair_promote_excerpt` together; drop `dvsu_script_operations` table; `docs/gold-scripts/grammar/` judgment calls unreviewed; roster-size formula needs Ryan; VPS git remote PAT rotation (Ryan only).
+- Voice stage for 6ac28204 is unrun and PAID. Needs a cost quote + Ryan's yes.
+- Script content notes Ryan has (from my read against
+  `docs/gold-scripts/standards/DvsU_Script_Writing_System.md`), none fixed:
+  scene 1 Holland says Dewey's "victory untenable" but the source says the
+  SPANISH having two craft would have left Dewey's FLEET untenable - real
+  precision slip; scenes 14/15 both open "Nautilus's 1955 trials..." (step 2
+  prevents this in future writes, does not fix the saved text); scene 11 Tang has
+  muddy pronouns; scenes 4/8/17 have long trailing final lines instead of short
+  landings; scene 2 "sunk Holland's own first trial" is figurative but risky;
+  scene 12 says the pin was "stitched together" - it was *designed*.
+- Roster size: 20 units against the standard's 24-30 target (15 floor). Ryan's
+  call, untouched.
+- Carried: delete `_machine_story_plan` + `_script_starvation_*` +
+  `repair_promote_excerpt` together; drop `dvsu_script_operations` table;
+  `docs/gold-scripts/grammar/` judgment calls unreviewed; VPS git remote PAT
+  rotation (Ryan only).
 
 ## Gotchas learned this session
-- Ryan's default dev token binds to "ryanayler's Workspace"; the DvsU video 404s until you pick "Designed vs Used" in the sidebar workspace switcher (X-Active-Tenant).
-- `se deploy` drains and WAITS for active work; a run blocked on the relay counts as active work. Don't start a deploy under a relay run unless you can end the run.
-- An audit regex false positive costs a paid repair call AND a needs_review per machine; watch the first repair request of any live run and read the violation text before answering.
+- **The relay cache for 6ac28204 is cold twice over.** Both the prompt shape and
+  the temperature changed, and `request_fingerprint` keys on both. A rerun of the
+  script stage re-asks all 20 paragraphs through the relay; the saved script is
+  untouched. Expect ~2 min of Sonnet subagent time per paragraph.
+- **Measure a proposed checker before wiring it in.** The number-support check
+  flags 20% of shipped rows per-quote, 55% at the research slot level, and 0%
+  against the whole brief. Only the last one shipped. A brief slot pairs a
+  450-char synthesis with ONE 250-char quote - the quote being narrower is the
+  contract, not a defect.
+- `se db` runs POSIX regex; `\y` works, `\s` in `substring(... from ...)` gets
+  eaten by the shell. `.env` on the VPS cannot be `source`d (line 42 has an
+  unquoted `<` in EMAIL_FROM) - use
+  `env $(grep -E "^(DATABASE_URL|SUPABASE)" ../.env | xargs -d "\n")`.
+- `database.py` has no `init_db`; just import `fetch_one` and call it.
+- The prod frontend at `76.13.119.181:3001` shows the marketing page when signed
+  out. Verify against the LOCAL dev server (`se devtoken`) which auto-logs-in
+  against the PROD API - that tests deployed backend code.
+- If another chat owns port 3001, `preview_start` refuses; just `navigate` to
+  `localhost:3001` and reuse it. Clicks need the Browser pane visible;
+  `read_page`/`get_page_text`/`find` work while it is hidden.
