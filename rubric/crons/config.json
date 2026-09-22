@@ -1,5 +1,0 @@
-{
-  "brandName": "RUBRIC Crons",
-  "cronPaths": ["./data/crons.json"],
-  "timezone": "auto"
-}

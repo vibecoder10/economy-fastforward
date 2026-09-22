@@ -1,7 +1,0 @@
-{
-  "team_enabled": false,
-  "paused_agents": [],
-  "skipped_tasks": [],
-  "priority_overrides": {},
-  "cadence": "max"
-}
