@@ -12,8 +12,8 @@ sessions already built the two pieces this module generalizes:
      VERBATIM (imported from ``originality``, not re-typed) and only adds an
      optional second grading pass against a channel's own rules text.
 
-  2. The DvsU PLAN->WRITE->EDIT harness's proven EDIT loop
-     (``pipeline_executor.py``'s ``_run_static_script_hold``, ~L10486-10518):
+  2. The EDIT-loop pattern the (since deleted, 2026-09-21) DvsU PLAN->WRITE->EDIT
+     harness proved:
      on a failing draft, resend the SAME draft with ONLY the named
      violations named — never a fresh re-roll — bounded at 2 rounds, then
      the caller marks the result ``needs_review``. ``edit_draft_with_violations``
@@ -52,8 +52,8 @@ from originality import (
     _extract_json,
 )
 
-# DvsU's proven bound (pipeline_executor._run_static_script_hold's own EDIT
-# loop: `while _blocking_warnings(warnings) and edit_round < 2`).
+# DvsU's proven bound (the deleted Anton harness's own EDIT loop ran at most 2 rounds;
+# dvsu_script_v2 keeps one bounded repair for the same reason).
 MAX_EDIT_ROUNDS = 2
 
 

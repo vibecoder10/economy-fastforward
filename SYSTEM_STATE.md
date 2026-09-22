@@ -1,5 +1,37 @@
 # System State — Economy FastForward
 
+## DVSU script pipeline v2 shipped as the ONLY script writer; three legacy writers deleted (2026-09-21)
+
+- New module `storyengine/backend/dvsu_script_v2.py` implements `docs/dvsu-script-pipeline-v2-2026-09-18/DESIGN.md`
+  (prompt, code-side audit replacing the paid referee, one bounded repair, stateful roster-order hold, readiness,
+  hand-submit door, fail-soft `02-script.md` Drive export). `pipeline_executor._run_static_script_hold` is now a
+  one-line delegation to it; `check_machine_script_preview_readiness`, `run_machine_script_preview`,
+  `run_machine_script_submit`, the voice gate in `run_voice` and `actions._factual_script_recheck_needed` all key on
+  `dvsu_script_v2.SCRIPT_CONTRACT` ("dvsu_script_v2"). `machine_script_contract == "factual_100_v1"` remains ONLY the
+  research-v2 selector.
+- New in `dvsu_research_v2.py`: `packet_from_verified_source_package` (inverse of `adapt_packet_to_factual_card`) -
+  the writer rebuilds the six-slot brief from `machine_raw_source_packages` because the Call-3 packet was never persisted.
+- Deleted: the Anton inventory writer + legacy paragraph writer (both inside `_run_static_script_hold`) and every
+  helper only they used (86 executor definitions, e.g. `_validate_machine_story_sentences`, `_apply_dvsu_language_polish`,
+  `_anton_preview_quality_audit`, `_persist_machine_script_attempt_state`, `_telemetry_quality_critique`);
+  `factual_machine_pipeline.run_factual_script_hold` / `factual_script_readiness` (module keeps its research-readiness
+  helpers only); `factual_machine_summary`'s writer/referee (`generate_factual_machine_summary`,
+  `review_existing_factual_summary`, prompts) leaving only `_eligible_candidates`/`_parse_json_object`/`_model_name`;
+  `backend/dvsu_script_operations.py` (its `dvsu_script_operations` DB table is now unused - drop in a later migration);
+  12 legacy test files (`test_g17/g18/g20/g23a/g24_*`, `test_dvsu_script_writer.py`, `test_script_compiler_integration.py`,
+  `test_factual_machine_summary.py`, `test_factual_sentence_boundaries.py`, `test_dvsu_script_operations.py`,
+  `functional/test_factual_machine_pipeline.py`, `functional/test_script_review_gate.py`) plus legacy tests removed by
+  name from `test_machine_documentary_hold.py` and three research-side test files.
+- Still alive on purpose: `_machine_story_plan` + `_script_starvation_*` + `PipelineExecutor.repair_promote_excerpt`
+  (the Research tab's promote-excerpt self-heal route still calls them) - downstream of the deleted 5-sentence shape,
+  flagged as follow-up in HANDOFF.md.
+- Frontend: `ScriptVoiceTab.tsx` / `ResearchTab.tsx` gate previews on the v2 contract (`machinePreviewPassesContract`
+  lost its `factualMode` argument; `machinePreviewHasCurrentFactualIdentity` -> `machinePreviewHasCurrentIdentity`;
+  the Anton "sentence assembly" / "quality audit" / editorial-thesis panels are replaced by a "Sources cited" list from
+  `claim_map` plus a bridge/name-opener line). `lib/api.ts` `MachineScriptPreview` mirrors the v2 block.
+  `ScriptVoiceTab.factual.test.ts` rewritten to pin the contract id to the backend constant.
+- Tests: `storyengine/backend/tests/test_dvsu_script_v2.py` (40).
+
 ## Backend test-gate cleanup, group B: machine research / reference cache / roster shape (2026-09-21)
 
 - Tests only; no production change (the `_machine_documentary_hold_roster_entries` size-bound fix landed with group A).

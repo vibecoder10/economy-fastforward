@@ -126,39 +126,3 @@ def _run_static_script_hold_source() -> str:
     return "\n".join(lines[start:end])
 
 
-def test_run_static_script_hold_computes_overrides_once_before_the_loop():
-    """Wiring lock (same pattern as test_first_run_checklist_wired_lock.py):
-    proves the fetch happens ONCE per script-hold run (not per machine —
-    would be a needless DB round-trip per roster item) by requiring it to
-    appear textually before the per-machine `for i, machine in
-    selected_units:` loop starts."""
-    source = _run_static_script_hold_source()
-    fetch_pos = source.index("await self._load_dvsu_rule_overrides(video)")
-    loop_pos = source.index("for i, machine in selected_units:")
-    assert fetch_pos < loop_pos
-
-
-def test_run_static_script_hold_threads_overrides_into_every_validator_call():
-    """Wiring lock: every call to the three C46c-aware validators inside
-    _run_static_script_hold must actually pass dvsu_rule_overrides through —
-    a helper that resolves the right value but is never threaded to the
-    gate is dead code."""
-    source = _run_static_script_hold_source()
-
-    story_sentence_calls = [
-        line for line in source.splitlines()
-        if "_validate_machine_story_sentences(machine, story_plan, bundle" in line
-    ]
-    assert story_sentence_calls, "expected at least one _validate_machine_story_sentences call"
-    assert all("dvsu_rule_overrides" in line for line in story_sentence_calls)
-
-    static_paragraph_calls = [
-        line for line in source.splitlines()
-        if "self._validate_static_unit_paragraph(machine, paragraph" in line
-    ]
-    assert static_paragraph_calls, "expected at least one _validate_static_unit_paragraph call"
-    assert all("dvsu_rule_overrides" in line for line in static_paragraph_calls)
-
-    audit_block_start = source.index("quality_audit = _anton_preview_quality_audit(")
-    audit_block = source[audit_block_start:audit_block_start + 300]
-    assert "dvsu_rule_overrides" in audit_block

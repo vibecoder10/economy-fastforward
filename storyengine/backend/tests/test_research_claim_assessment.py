@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from factual_machine_summary import generate_factual_machine_summary
 from research_claim_assessment import (
     _assessed_receipt,
     _partition_claim_response,
@@ -161,25 +160,6 @@ async def test_assessment_receipt_detects_tampering_and_package_mutation():
         MACHINE, _package(), ScriptedClient(json.dumps(_claims())), CONTEXT)
     package["candidate_excerpts"][0]["text"] = "USS Plunger (SS-2) was commissioned in 1904."
     assert current_assessment(MACHINE, package, CONTEXT) is None
-
-
-@pytest.mark.asyncio
-async def test_research_writer_requires_current_supported_assessment_and_passes_constraints():
-    package = _package()
-    assessment = await assess_verified_package(MACHINE, package, ScriptedClient(json.dumps(_claims())), CONTEXT)
-    package["claim_assessment"] = assessment
-    sentence = "USS Plunger (SS-2) was commissioned in 1903."
-    draft = json.dumps({"paragraph": sentence, "claim_map": [{"sentence": sentence, "citations": [{"excerpt_id": "S1-E1"}]}]})
-    client = ScriptedClient(draft, json.dumps({"passed": True, "issues": []}))
-    result = await generate_factual_machine_summary(MACHINE, package, client, subject_context=CONTEXT, purpose="research")
-
-    assert result["passed"] is True
-    assert "CLAIM ASSESSMENT" in client.calls[0]["prompt"]
-    assert "claim_assessment_constraints_not_evidence" in client.calls[1]["prompt"]
-
-    held = await generate_factual_machine_summary(MACHINE, _package(), client, subject_context=CONTEXT, purpose="research")
-    assert held["passed"] is False
-    assert "claim assessment" in held["warnings"][0].lower()
 
 
 def test_assessment_fingerprint_excludes_only_the_saved_receipt():

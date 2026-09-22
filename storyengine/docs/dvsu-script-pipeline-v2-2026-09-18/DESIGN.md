@@ -158,3 +158,64 @@ concrete — not part of the new design).
 
 All 3 open questions resolved — this design is now approved for implementation, same status as
 research DESIGN.md.
+
+## Implementation - 2026-09-21 (`backend/dvsu_script_v2.py`)
+
+Built as the ONLY script writer. The three legacy paths (the Anton inventory
+writer and the legacy paragraph writer inside `pipeline_executor._run_static_script_hold`,
+and `factual_machine_pipeline.run_factual_script_hold`'s `factual_100_v1` write+referee)
+were deleted with no flag and no fallback; `_run_static_script_hold` is now a one-line
+delegation to `dvsu_script_v2.run_script_hold`. Tests: `backend/tests/test_dvsu_script_v2.py`.
+
+### The two gaps this design left open, resolved
+
+1. **Cross-act sibling relevance.** Every prior finished paragraph (full text, tagged
+   `[Act n] <machine>:`) is passed in roster order, plus the NEXT machine's name, act and
+   research "problem" line for a forward bridge. The model picks the bridge; code records
+   `bridged_to` (validated against the roster) for audit. Cost is bounded: ~30 paragraphs x
+   ~110 words is roughly 5K tokens by the final paragraph. The roster stage (`dvsu_roster_v2`)
+   is untouched; no pre-declared plant/payoff pairs.
+2. **Word band.** 95-120 is the TARGET, stated verbatim in the prompt; outside it the block
+   carries an advisory warning and still passes. 80-150 is the HARD band; outside it the
+   writer makes one bounded repair call, then returns `passed=False` (needs review, draft
+   kept visible). Basis (`docs/gold-scripts/grammar`, 14 shipped scripts, 373 paragraphs):
+   median 107, p10 84, p90 129; 24% run under 95 and 18% over 120, so "never less, never
+   more" is the aspiration, not the gate. The grammar checker's own hard band stays 80-170
+   for *grading shipped scripts*; 150 is the *generation* ceiling because nothing above the
+   p90 is worth paying a model to pad toward.
+
+### Locked per-call output shape
+
+`{"paragraph", "claim_map": [{"sentence", "source_url", "quote"}], "opened_with_name", "bridged_to"}`.
+`claim_map` rows citing a URL that is not in the machine's brief are dropped with a warning;
+`opened_with_name` is recomputed in code (the model's self-report is recorded, not trusted);
+`bridged_to` must name another roster machine or becomes null.
+
+### Code-side audit (the referee that replaced the paid referee call)
+
+Violations (one repair call, then needs-review): hard word band, hype terms, strict
+generic praise, Wikipedia-style opening, conclusion language, ranked-list connectors,
+missing machine name, `boat/boats` in a submarine context, and opening with the name once
+the 5-per-video budget is spent. Warnings (advisory): target word band, soft praise words
+(`legendary`/`iconic`/`revolutionary` - 4 of 14 gold scripts use them deliberately),
+list-writing, written connector starts, a retirement-date ending, and each name-opener
+while the budget lasts. The pattern rules mirror `docs/gold-scripts/grammar/script_grammar.json`
+and trip zero violations on the gold corpus (tested).
+
+### Input
+
+The Call-3 packet itself was never persisted (only the adapted package/card), so the
+writer rebuilds the six slots from `machine_raw_source_packages` via
+`dvsu_research_v2.packet_from_verified_source_package` (positional on the `C3-n` source
+ids, the exact inverse of the adapter). A machine with no v2 packet (legacy research)
+cannot be scripted; the readiness check says so and points at per-machine research.
+
+### State, storage, model
+
+Stateful in roster order as decided: bulk runs reuse any block that is already current
+(same v2 contract, scene, subject and research fingerprint) without spend; a single-machine
+press is always a paid regenerate. Blocks live where they always did
+(`script_validation.machine_script_blocks` + `scripts` rows, previews in
+`research_payload.machine_script_previews`); `02-script.md` is exported to the video's Drive
+research folder fail-soft. Model: `Models.CLAUDE_SONNET`, temperature 0.4, checkpointed
+exactly like research v2 so the agent LLM relay and restart-resume work unchanged.

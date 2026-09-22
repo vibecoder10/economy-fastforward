@@ -41,37 +41,6 @@ def test_targeted_recovery_suppresses_alternate_discovery_wave():
     assert "not payload.get('_dvsu_source_recovery')" in source
 
 
-def test_preview_returns_needs_review_for_unready_factual_evidence_without_research(monkeypatch):
-    ex = object.__new__(executor.PipelineExecutor)
-    video = {'research_payload': {'machine_script_contract': 'factual_100_v1'}}
-    monkeypatch.setattr(executor, '_machine_documentary_hold_roster', lambda _: [MACHINE])
-    monkeypatch.setattr(executor, '_locked_roster_item_for_machine', lambda _r, _m: MACHINE)
-    ex._ensure_initialized = AsyncMock(); ex._install_cancel_support = AsyncMock()
-    ex._get_video = AsyncMock(return_value=video); ex._load_prompt_overrides = AsyncMock()
-    ex.check_machine_script_preview_readiness = AsyncMock(return_value={'ready': False, 'warnings': ['stale assessment']})
-    ex.run_one_machine_research = AsyncMock(side_effect=AssertionError('preview must not prepare research'))
-    ex._run_static_script_hold = AsyncMock(side_effect=AssertionError('unready evidence must not write'))
-    result = asyncio.run(ex.run_machine_script_preview('video', MACHINE))
-    assert result['status'] == 'needs_review'
-    assert result['next_action'] == 'review_saved_evidence_in_research'
-    assert result['preparation_required'] is False
-    ex.run_one_machine_research.assert_not_awaited()
-    ex._run_static_script_hold.assert_not_awaited()
-
-
-def test_preview_keeps_nonfactual_path_and_cancelled_prepare(monkeypatch):
-    ex = object.__new__(executor.PipelineExecutor)
-    video = {'research_payload': {}}
-    monkeypatch.setattr(executor, '_machine_documentary_hold_roster', lambda _: [MACHINE])
-    monkeypatch.setattr(executor, '_locked_roster_item_for_machine', lambda _r, _m: MACHINE)
-    ex._ensure_initialized = AsyncMock(); ex._install_cancel_support = AsyncMock(); ex._get_video = AsyncMock(return_value=video)
-    ex._load_prompt_overrides = AsyncMock(); ex.check_machine_script_preview_readiness = AsyncMock(return_value={'ready': False, 'preparable': True})
-    ex.run_one_machine_research = AsyncMock(side_effect=AssertionError('nonfactual must not prepare'))
-    ex._run_static_script_hold = AsyncMock(return_value={'status': 'completed'})
-    assert asyncio.run(ex.run_machine_script_preview('video', MACHINE))['status'] == 'completed'
-    ex.run_one_machine_research.assert_not_awaited()
-
-
 def test_ready_factual_preview_bypasses_research(monkeypatch):
     ex = object.__new__(executor.PipelineExecutor)
     video = {'research_payload': {'machine_script_contract': 'factual_100_v1'}}

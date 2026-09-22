@@ -1,55 +1,81 @@
-# HANDOFF - 2026-09-21 Research 20/20 verified + shipped; gold-standard scripts found; script-stage build starts next
+# HANDOFF - 2026-09-21 (session 5) - dvsu_script_v2 built and wired as the ONLY script writer; three legacy writers deleted; NOT yet walked in the browser, NOT deployed
 
 ## State
-- Prod: `8d4f2583d` deployed, healthy (`se.sh health` clean, no lock). 2 doc-only commits landed after
-  that deploy (`2a15110b`, `ff3d3faa`) - nothing to deploy for those.
-- Branch: `main`, pushed and clean except pre-existing `frontend/next-env.d.ts` / `../tasks/decisions.md`
-  (not mine, leave alone) and untracked `storyengine/jev-key-box.html` (not mine, leave alone).
-- What shipped this session:
-  - Deleted the invalid Anthropic key for "Designed vs Used"; proved the free relay photo judge live on
-    a 4-machine proof video (`dc217efd-...`, safe to delete); subject-named image discovery confirmed live.
-  - **Research 20/20 verified** on `6ac28204-...` ("Every US Submarine Class Ever Built"). Found + fixed a
-    real matcher bug (labels with a trailing parenthetical, e.g. "Barracuda class (V-1 group)", could never
-    match evidence) and a writer-brief size limit (unbounded relay answers failed 5/8 cards) - both deployed.
-  - One rule everywhere now: key installed -> pipeline uses it (paid); no key -> the connected agent answers
-    (free) (`agent_relay.relay_active`). Before this session the relay flag beat an installed key.
-  - UI: Research "Approve Research" button now follows the real gate at 20/20 (was stuck on "incomplete");
-    Gather panel shows real title, hides "Retry" at 100%, labels hand-placed photos.
-  - New Run All target `research` (static docs only): roster -> images -> per-machine research, stops before
-    script. "Run to Research" button added; Run All buttons no longer scroll off-screen on narrow layouts.
-  - **Found the real gold-standard scripts** (my first DB-based guess was wrong, corrected by Ryan): pulled
-    into `docs/gold-scripts/` from `~/Desktop/Projects/Designed vs used/`.
+- Prod: still `8d4f2583d` (untouched, healthy at last check). **Nothing from this session is deployed.**
+- Branch: `main`, one linear commit from this session (see `git log -1`). Not pushed.
+- Backend suite: `cd backend && ./venv/bin/python -m pytest tests/ -q` -> 5408 passed, 4 skipped, 0 failed (baseline before: 5721 passed - the difference is the ~300 legacy-writer tests removed with the writers).
+- Frontend: `npx tsc --noEmit` clean, `npm run build` clean, vitest 17/17 (gate test rewritten).
+- Pre-existing, not mine, left alone (unstaged): `frontend/next-env.d.ts`, untracked `jev-key-box.html`, and
+  `../tasks/decisions.md` (it carried Ryan's uncommitted Jev entry, so my two decision entries sit in the working
+  tree next to it, uncommitted - commit that file once Ryan has looked).
+- Untracked `docs/gold-scripts/grammar/` is now COMMITTED as part of this work (its `script_grammar.json`
+  note was updated to explain the 150 vs 170 ceiling). Ryan's two judgment calls in it (name-opener
+  threshold, generic-praise severity split) still deserve his eyes; they are unchanged.
+- Session cut at the context ceiling (~510K tokens) right after the suite went green, per the CLAUDE.md
+  ceiling rule - the browser walk was deliberately left to the next session rather than done degraded.
+
+## What shipped (code, tested, not yet deployed)
+The plan from session 3/4's handoff, executed as written:
+
+1. **`backend/dvsu_script_v2.py`** - DESIGN.md as code. Prompt = PROMPT-v3 verbatim plus the stateful
+   context blocks; code-side audit replaces the paid referee (word bands, forbidden patterns mirroring
+   `docs/gold-scripts/grammar`, name-opener budget of 5, submarine `boat` rule, machine-name check);
+   at most ONE bounded repair call; `run_script_hold` walks the roster in order, reuses current blocks
+   without spend, checkpoints every draft as a preview, saves passed blocks through the unchanged
+   `_save_machine_script_block`, advances to `ready_for_voice` only when every machine is current, and
+   exports `02-script.md` to the video's Drive research folder fail-soft. Also `preview_readiness`,
+   `script_readiness`, `submitted_block` (the hand-written door). 40 tests in `tests/test_dvsu_script_v2.py`.
+2. **The two design gaps, resolved** (also appended to DESIGN.md "Implementation - 2026-09-21"):
+   every prior paragraph is passed with its act plus the next machine's problem line, model reports
+   `bridged_to`; word band 95-120 target / 80-150 hard (gold corpus: median 107, p10 84, p90 129).
+3. **`dvsu_research_v2.packet_from_verified_source_package`** - the Call-3 packet was never persisted,
+   so the writer rebuilds the six slots from the adapted package (positional on `C3-n` ids). A machine
+   with legacy (non-v2) research cannot be scripted; readiness says "run per-machine research".
+4. **Deleted, no fallback:** both writers inside `_run_static_script_hold` (now a one-line delegation),
+   `factual_machine_pipeline.run_factual_script_hold`/`factual_script_readiness`, the writer+referee in
+   `factual_machine_summary` (module is now 155 lines of research helpers), `dvsu_script_operations.py`,
+   86 orphaned executor definitions (found by an AST fixpoint tool, see tasks/lessons.md), 12 legacy test
+   files and ~170 legacy tests removed by name. `pipeline_executor.py` 22137 -> 17568 lines.
+5. **Every gate keyed on the one contract** `dvsu_script_v2`: readiness check, preview/block/submit
+   entry points, `run_voice`'s script gate (now for ANY roster video, not just `factual_100_v1`),
+   `actions._factual_script_recheck_needed` (now only rechecks v2-written scripts, so rendered legacy
+   videos are never bounced back to script on resume). `machine_script_contract == "factual_100_v1"`
+   survives only as the research-v2 selector.
+6. **Frontend:** `ScriptVoiceTab.tsx`/`ResearchTab.tsx` gate on the v2 contract; the Anton "sentence
+   assembly"/"quality audit"/editorial-thesis panels are gone, replaced by "Sources cited" (claim_map)
+   plus a bridge/name-opener line; `api.ts` type mirrors the block. Legacy previews/blocks on prod will
+   show "Needs review - This saved paragraph is from an older writer. Rerun the script for this machine."
+   That is intended.
 
 ## Next action (start here cold)
-Read `docs/gold-scripts/standards/DvsU_Script_Writing_System.md` first (its `SUMMARY CHECKLIST` at the end
-is nearly a machine-readable grammar already), then `DvsU_Example_Paragraphs.md`. Before writing a parser,
-resolve the open thread below (structural labels vs narration in some extracted `.txt` files) by opening one
-of the ambiguous `.docx` files directly (e.g. `docs/gold-scripts/scripts/Every_US_Aircraft_Carrier_Ever_Built.docx`)
-and checking its paragraph styles. Then write `script_grammar.json` (word count 95-120/paragraph, 24-30
-paragraphs/video with a 15 floor, 4-7 acts, <=5 name-openers/video, the forbidden-pattern list, ends on the
-final unit with no separate conclusion paragraph) plus a pure `check(script_text) -> violations`, validated
-against all 14 gold `.txt` files as fixtures - before touching `dvsu_script_brief.py` or any generation code.
-Read `DvsU_Research_Fact_Verification_Standard.md` in full (417 lines, only skimmed this session) before
-building the research/claim side of the new script stage.
+1. **Walk it in the browser like a user (NOT done this session).** `scripts/se.sh devtoken`, then
+   `preview_start {name: "storyengine"}` -> the submarine video (20/20 researched under v2) -> Script tab.
+   Check: roster panel renders, each card shows "Ready to script" (v2 packet present) or the older-writer
+   notice, the free readiness check works, the "Sources cited" block renders on a preview. Screenshots.
+   NOTE: local UI talks to the PROD API, so the new backend is only exercised after deploy - the local
+   walk proves the frontend against prod's legacy data.
+2. Ask Ryan, then `se deploy <session> --with-frontend`. Then ONE paid single-machine preview on the
+   submarine video (one Sonnet call, cents) as the first-run proof, read the paragraph with your eyes
+   against the v3 standard before running the whole roster (~24 calls).
+3. Follow-ups this session deliberately did not take:
+   - `_machine_story_plan` + `_script_starvation_*` + `PipelineExecutor.repair_promote_excerpt` (+ its
+     route in `routes/pipeline.py` and the Research-tab button) survive only because that research
+     self-heal route still calls them. They are downstream of the deleted 5-sentence shape; delete the
+     route+method+button together (frontend change).
+   - `dvsu_script_operations` DB table is unused now - drop in a migration.
+   - `dvsu_script_brief.py` / `script_research_packet.py` / `dvsu_research_handoff.package_brief` are kept
+     ONLY because `factual_research_readiness` and the v2 adapter's `script_brief_readiness` still read
+     them; they no longer feed any writer. Candidates for the next research-side simplification.
+   - Tests deleted by name in `test_machine_documentary_hold.py` (136) included the old
+     `check_machine_script_preview_readiness` tests; the new readiness is covered in
+     `test_dvsu_script_v2.py` but a direct executor-level readiness test would be worth adding.
+   - Roster-size formula question (thesis-driven 24-30 vs minutes-per-machine) still needs Ryan's call.
+   - VPS git remote PAT rotation (Ryan only).
 
-## Open threads
-- **Structural-label ambiguity (blocks Step 1):** several extracted gold `.txt` files mix real ~100-word
-  paragraphs with short 1-15-word lines (act headers or unit-name labels, probably) - e.g.
-  `every-us-strategic-bomber-ever-built.txt`, `every-us-aircraft-carrier-ever-built.txt`,
-  `every-us-destroyer-class-ever-built-1898-1945.txt`. The `VOICEOVER_*`-named files look clean (no short
-  lines) - likely narration already stripped of labels. Confirm before building the word-count checker.
-- **Roster-size formula may need to change:** the real standard is thesis-driven (24-30 units, 4-7 acts,
-  "curate for story, not completeness"); the current pipeline derives roster size from
-  `video_length_minutes / minutes_per_machine` (runtime-driven). Needs Ryan's call before Step 2.
-- The 20-machine submarine roster (`6ac28204-...`) is hand-composed, not web-verified - keep only as a
-  research/script-writing fixture; do the real roster run on a NEW video once the script stage exists.
-- VPS git remote embeds a GitHub PAT (`~/projects/economy-fastforward/.git/config`) - rotate it (Ryan only).
-
-## Gotchas learned this session
-- `list_pending_llm_requests {status:"answered"}` caps at 50, oldest first, and the reply is huge (saved to
-  a file) - parse with python3, don't trust "all accepted" from a subagent without checking saved cards.
-- A relay-answered machine's card can be accepted (6/6 answers) yet still fail to save - check
-  `research_payload.unit_research_cards[].script_brief_readiness.passed` and grep backend logs for
-  "Factual source research stopped at" - don't trust the MCP guide's stage-level summary alone.
-- docx text extraction needs no library: `zipfile` + regex over `word/document.xml`'s `<w:t>` runs works
-  cleanly and preserves paragraph order.
+## Gotchas learned this session (also in tasks/lessons.md)
+- Hand-picked deletion lists miss the closure; the AST fixpoint tool
+  (`deadcode_fixpoint.py`, kept only in this session's scratchpad - recreate from lessons.md if needed)
+  found 86 executor orphans in six rounds. References in comments/docstrings do not count.
+- Never pipe a background test run through `tail`: it hid 245 of 290 failures until a rerun to a file.
+- Replacing a block by line span can swallow the line after it - the voice stage's "Preparing the voice
+  track" progress line vanished and only a functional test caught it. Diff the span edges.

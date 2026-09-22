@@ -1,0 +1,111 @@
+{
+  "_meta": {
+    "source": [
+      "docs/gold-scripts/standards/DvsU_Script_Writing_System.md",
+      "docs/gold-scripts/standards/DvsU_Example_Paragraphs.md"
+    ],
+    "validated_against": "docs/gold-scripts/grammar/fixtures.json (14 gold scripts, 373 narration paragraphs)",
+    "cross_checked_against": "storyengine/notes/dvsu-quality-law.md (QL-1..QL-15, Ryan-ruled 2026-07-16)",
+    "note": "Grading bands for SHIPPED scripts. The live writer (backend/dvsu_script_v2.py) uses the same 95-120 target but a tighter 80-150 generation ceiling: only 6 of 373 gold paragraphs exceed 150 and none exceed 170, so 170 stays the grading hard_max here while 150 is the point past which a generated draft is repaired rather than accepted."
+  },
+  "paragraph_word_count": {
+    "hard_min": 80,
+    "hard_max": 170,
+    "target_min": 95,
+    "target_max": 120,
+    "doc_claim": "95-120 words. Never less. Never more.",
+    "empirical_note": "Pooled across all 14 gold scripts (373 paragraphs): median 107, p10 84, p90 129. 90/373 (24%) fall under 95 and 66/373 (18%) run over 120 - the written 'never less, never more' is aspirational, not what ships. Outside target band is a warning, not a rejection; only outside the hard band is a violation."
+  },
+  "paragraph_count_per_video": {
+    "hard_floor": 15,
+    "target_min": 24,
+    "target_max": 30,
+    "soft_ceiling": 32,
+    "doc_claim": "24-30 paragraphs. Below 15 too short. Above 32 retention drops (split into Part 1/2).",
+    "empirical_note": "Gold script paragraph counts range 23-33; several run slightly under 24 or over 30 and are still shipped, so under/over target is a warning, not a rejection. Only under the 15 floor or over 32 is a violation."
+  },
+  "acts_per_video": {
+    "min": 4,
+    "max": 7,
+    "doc_claim": "4-7 acts per video, each summarizable in one sentence.",
+    "checkable_from_text": false,
+    "note": "None of the 14 gold scripts carry act headers in the narration body (act structure is thematic, not marked - see DvsU_Script_Writing_System.md's 'ACTS' section and QL-47's ban on act labels in the voiceover file). This cannot be graded from script_text alone; check() accepts an optional act_count to validate this rule when the outline stage supplies it, and otherwise reports it as 'not_checked'."
+  },
+  "name_openers": {
+    "pattern_doc": "Bare 'The [Maker] [Designation/Name] ...' opener, e.g. 'The Boeing XB-15 first flew...'",
+    "doc_ideal_max_share": 0.17,
+    "doc_claim": "Maximum 4-5 paragraphs out of 30 may open with the unit's name.",
+    "warn_share": 0.7,
+    "empirical_note": "Per-script bare-name-opener share across the 14 gold fixtures ranges 0% to 83% (bomber script 83%, most-hated-helicopters 68%, most scripts 0-26%). The written 4-5-of-30 ceiling (~17%) is violated by several shipped scripts, most dramatically the strategic-bomber script, which opens almost every paragraph with the machine's name. This is an open tension between the written standard and shipped practice (same shape as storyengine/notes/dvsu-quality-law.md's QL-7, which found a pooled ~57% share and set severity to 'warn', not 'hard-gate'). check() warns above warn_share and separately reports the doc's stricter ideal as guidance; it does not hard-reject on this rule."
+  },
+  "forbidden_patterns": [
+    {
+      "id": "hype_language",
+      "severity": "violation",
+      "terms": [
+        "incredible",
+        "amazing",
+        "stunning",
+        "insane",
+        "epic",
+        "jaw-dropping",
+        "jaw dropping",
+        "mind-blowing",
+        "mind blowing",
+        "game-changing",
+        "game changing",
+        "breathtaking",
+        "unbelievable",
+        "spectacular",
+        "undoubtedly"
+      ]
+    },
+    {
+      "id": "generic_praise_strict",
+      "severity": "violation",
+      "terms": [
+        "one of the greatest",
+        "arguably the most",
+        "arguably the greatest"
+      ]
+    },
+    {
+      "id": "generic_praise_soft",
+      "severity": "warning",
+      "terms": [
+        "legendary",
+        "iconic",
+        "revolutionary",
+        "game-changing"
+      ],
+      "note": "Written standard bans these outright, but 4 of the 14 gold scripts use them 11 times (mostly 'revolutionary design/concept', including one deliberate negation - 'Caldwell wasn't revolutionary. It was practical.' - that directly serves the anti-hype thesis rather than violating it). Downgraded to warning rather than hard-gate, matching dvsu-quality-law.md's QL-12 pattern of warning on an unanchored superlative rather than banning the word outright."
+    },
+    {
+      "id": "wikipedia_opening",
+      "severity": "violation",
+      "regex": "^(the|a|an)\\s[\\w .,'\\-]+\\bwas\\s(a|an)\\b[\\w .,'\\-]*\\b(developed|built|designed|manufactured|produced)\\sby\\b",
+      "flags": "i"
+    },
+    {
+      "id": "conclusion_language",
+      "severity": "violation",
+      "terms": [
+        "so what have we learned",
+        "in conclusion",
+        "to sum up",
+        "to summarize",
+        "in summary"
+      ]
+    },
+    {
+      "id": "spec_list_dump",
+      "severity": "warning",
+      "regex": "\\bit (had|also had|featured|carried)\\b.{0,80}\\bit (had|also had|featured|carried)\\b",
+      "flags": "i"
+    }
+  ],
+  "ending_rule": {
+    "doc_claim": "The video ends on the final unit. No separate conclusion paragraph.",
+    "check": "forbidden_patterns' conclusion_language group is re-checked against the final paragraph specifically, since a summary close is the one forbidden pattern most likely to appear only at the very end."
+  }
+}

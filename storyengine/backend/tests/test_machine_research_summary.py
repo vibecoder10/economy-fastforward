@@ -8,7 +8,7 @@ from machine_research_summary import (
 )
 import factual_machine_research as factual
 import pipeline_executor as pe
-from factual_machine_summary import REVIEW_CONTEXT_VERSION, _writer_prompt
+from factual_machine_summary import REVIEW_CONTEXT_VERSION
 from research_claim_assessment import _claims_fingerprint, assessment_fingerprint
 
 
@@ -102,17 +102,6 @@ def test_factual_card_with_saved_failed_summary_cannot_revalidate_as_passed():
 
     legacy_card = factual.build_factual_evidence_card(MACHINE, package)
     assert pe._research_card_contract_warnings(MACHINE, legacy_card, package) == []
-
-
-def test_writer_prompt_keeps_saved_briefing_as_context_not_evidence():
-    prompt = _writer_prompt(
-        MACHINE, [], [], purpose="research",
-        research_briefings=[{"machine": MACHINE, "paragraph": "Prior briefing."}],
-    )
-
-    assert "factual research briefing" in prompt
-    assert "context only, never evidence" in prompt
-    assert "EVIDENCE:" in prompt
 
 
 def test_recoverable_classifier_only_unwraps_known_source_transport_failure():

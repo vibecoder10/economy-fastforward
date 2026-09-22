@@ -1337,20 +1337,22 @@ async def _pause_for_approval_gate(
 
 
 def _factual_script_recheck_needed(video: dict) -> bool:
-    """Prevent a resumed downstream job from trusting a stale factual approval."""
-    if not is_at_or_past_stage(video.get("status"), "ready_for_voice"):
+    """Prevent a resumed downstream job from trusting a stale machine-script approval.
+
+    Only scripts written by dvsu_script_v2 are rechecked (research may have
+    changed under them). A legacy-scripted video that is already voiced or
+    rendered is never bounced back to script by a resume; the voice gate in
+    run_voice is what refuses to voice a legacy script.
+    """
+    if video.get("render_mode") != "static_docu" or not is_at_or_past_stage(video.get("status"), "ready_for_voice"):
         return False
-    payload = video.get("research_payload") or {}
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (TypeError, ValueError):
-            payload = {}
-    if not isinstance(payload, dict) or payload.get("machine_script_contract") != "factual_100_v1":
+    import dvsu_script_v2
+    blocks = dvsu_script_v2.saved_blocks(video)
+    if not any(isinstance(b, dict) and b.get("machine_script_contract") == dvsu_script_v2.SCRIPT_CONTRACT for b in blocks.values()):
         return False
-    from factual_machine_pipeline import factual_script_readiness
     from pipeline_executor import _machine_documentary_hold_roster
-    return not factual_script_readiness(video, _machine_documentary_hold_roster(video))
+    roster = _machine_documentary_hold_roster(video)
+    return bool(roster) and not dvsu_script_v2.script_readiness(video, roster)
 
 
 async def _static_image_coverage_missing(video: dict, tenant_id: str) -> bool:

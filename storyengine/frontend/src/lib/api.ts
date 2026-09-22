@@ -1005,39 +1005,29 @@ export const runPipelineStage = (videoId: string, stage: string, params?: Record
   return fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}${queryString}`, { method: "POST" });
 };
 
+// One DvsU machine paragraph as written by backend/dvsu_script_v2.py (the only
+// script writer). Mirrors that module's block dict field-for-field.
 export type MachineScriptPreview = {
   machine: string;
   scene: number;
+  act_number?: number;
   paragraph: string;
   word_count: number;
   passed: boolean;
   warnings: string[];
-  onscreen_label?: string;
+  violations?: string[];
   research_source?: string;
-  story_plan?: Record<string, unknown>;
-  quality_audit?: {
-    passed?: boolean;
-    summary?: string;
-    checks?: Array<{
-      name?: string;
-      label?: string;
-      passed?: boolean;
-      detail?: string;
-      advisory?: boolean;
-    }>;
-  };
-  claim_bundle?: {
-    editorial_thesis?: string;
-    formula_sentences?: string[];
-    paragraph?: string;
-    onscreen_label?: string;
-    claim_map?: Array<{
-      span?: string;
-      slot?: string;
-      used_evidence_ids?: string[];
-      evidence_ids?: string[];
-    }>;
-  };
+  machine_script_contract?: string;
+  source_fingerprint?: string;
+  subject_context?: string;
+  claim_map?: Array<{
+    sentence?: string;
+    source_url?: string;
+    quote?: string;
+  }>;
+  opened_with_name?: boolean;
+  bridged_to?: string | null;
+  saved?: boolean;
 };
 
 export type MachineScriptPreviewReadiness = {

@@ -192,71 +192,33 @@ function fullMachineResearchGatePassed(validation: any, verifiedCount: number, r
   );
 }
 
-function machinePreviewPassesAntonGate(preview: any): boolean {
-  const formulaSentences = Array.isArray(preview?.claim_bundle?.formula_sentences)
-    ? preview.claim_bundle.formula_sentences
-    : [];
-  const auditChecks = Array.isArray(preview?.quality_audit?.checks)
-    ? preview.quality_audit.checks
-    : [];
-  const blockingAuditChecksPassed = auditChecks.every((check: any) => check?.passed || check?.advisory);
-  const completeFormulaSentences = formulaSentences.length === 5
-    && formulaSentences.every((sentence: any) => String(sentence || "").trim().length > 0);
-  return Boolean(
-    preview?.passed === true
-    && preview?.quality_audit?.passed === true
-    && auditChecks.length > 0
-    && blockingAuditChecksPassed
-    && completeFormulaSentences
-  );
-}
-
+// The research-side contract (roster + per-machine research v2 selector). It
+// no longer selects a script writer: backend/dvsu_script_v2.py is the only one.
 const FACTUAL_MACHINE_SCRIPT_CONTRACT = "factual_100_v1";
-const FACTUAL_REVIEW_CONTEXT_VERSION = 6;
-const DVSU_COMPILER_VERSION = 2;
-const DVSU_EDITORIAL_VERSION = 2;
-
-export function machinePreviewPassesEditorialGate(preview: any): boolean {
-  const audit = preview?.editorial_review;
-  const words = String(preview?.paragraph || "").trim().split(/\s+/).filter(Boolean).length;
-  const version = audit?.version;
-  const checks = version === 1
-    ? ["design_intent", "actual_use", "consequence", "gap_or_supported_substitute", "verdict", "spoken_style"]
-    : ["evidence_led", "coherent", "spoken_style"];
-  return Boolean(preview?.compiler_version === DVSU_COMPILER_VERSION
-    && preview?.factual_passed === true
-    && preview?.editorial_review_version === version
-    && (version === 1 || version === DVSU_EDITORIAL_VERSION) && audit?.passed === true
-    && Array.isArray(audit?.issues) && audit.issues.length === 0
-    && checks.every((key) => audit?.checks?.[key] === true)
-    && words >= 80 && words <= 110);
-}
+// Must equal backend/dvsu_script_v2.py's SCRIPT_CONTRACT (ScriptVoiceTab.factual.test.ts pins it).
+const DVSU_SCRIPT_CONTRACT = "dvsu_script_v2";
 
 export function machinePreviewPassesContract(
   preview: any,
-  factualMode: boolean,
   machine: string,
   scene: number,
   subjectContext: string,
 ): boolean {
-  if (!factualMode) return machinePreviewPassesAntonGate(preview);
   return Boolean(
     preview?.passed === true
     && String(preview?.paragraph || "").trim()
-    && machinePreviewPassesEditorialGate(preview)
-    && machinePreviewHasCurrentFactualIdentity(preview, machine, scene, subjectContext)
+    && machinePreviewHasCurrentIdentity(preview, machine, scene, subjectContext)
   );
 }
 
-export function machinePreviewHasCurrentFactualIdentity(
+export function machinePreviewHasCurrentIdentity(
   preview: any,
   machine: string,
   scene: number,
   subjectContext: string,
 ): boolean {
   return Boolean(
-    preview?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT
-    && preview?.review_context_version === FACTUAL_REVIEW_CONTEXT_VERSION
+    preview?.machine_script_contract === DVSU_SCRIPT_CONTRACT
     && preview?.subject_context === subjectContext
     && Number(preview?.scene) === scene
     && factualMachineIdentityMatches(preview?.machine, machine)
@@ -305,20 +267,9 @@ function machinePreviewReviewMessages(preview: any): string[] {
   const warningRows = Array.isArray(preview?.warnings)
     ? preview.warnings.map((warning: any) => String(warning || "").trim()).filter(Boolean)
     : [];
-  const auditSummary = preview?.quality_audit?.passed === false && preview?.quality_audit?.summary
-    ? [String(preview.quality_audit.summary)]
-    : [];
-  const failedAuditRows = Array.isArray(preview?.quality_audit?.checks)
-    ? preview.quality_audit.checks
-        .filter((check: any) => check && check.passed === false && !check.advisory)
-        .map((check: any) => [check.label || check.name, check.detail].filter(Boolean).join(": "))
-        .map((message: any) => String(message || "").trim())
-        .filter(Boolean)
-    : [];
-  const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows].map((message) => message.replace(/\[\[user-facing\]\]\s*/g, ""))));
-  if (preview?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT
-      && !machinePreviewPassesEditorialGate(preview) && messages.length === 0) {
-    messages.push("This saved draft has not passed the current DVSU writing checks. Check research readiness before generating a replacement.");
+  const messages: string[] = Array.from(new Set<string>(warningRows.map((message: string) => message.replace(/\[\[user-facing\]\]\s*/g, ""))));
+  if (preview?.passed !== true && messages.length === 0 && String(preview?.paragraph || "").trim()) {
+    messages.push("This saved paragraph is from an older writer. Rerun the script for this machine.");
   }
   return preview?.research_source === "readiness_preflight" ? messages : messages.slice(0, 6);
 }
@@ -344,17 +295,8 @@ function previewErrorArtifact(
     passed: false,
     warnings: reviewMessages.length ? reviewMessages : [summary],
     research_source: researchSource,
-    claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
-    quality_audit: {
-      passed: false,
-      summary,
-      checks: [{
-        name: checkName,
-        label: checkLabel,
-        passed: false,
-        detail: summary,
-      }],
-    },
+    violations: [`${checkLabel || checkName}: ${summary}`],
+    claim_map: [],
   };
 }
 
@@ -2118,7 +2060,6 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
   })();
   const machineRoster = Array.isArray(researchPayload?.unit_roster) ? researchPayload.unit_roster : [];
   const isMachineDocumentary = video.render_mode === "static_docu" && machineRoster.length > 0;
-  const isFactualMachineScript = researchPayload?.machine_script_contract === FACTUAL_MACHINE_SCRIPT_CONTRACT;
   const scriptHold = parsedScriptValidation?.script_hold || null;
   const factualScriptBlocks = parsedScriptValidation?.machine_script_blocks || null;
   const researchRosterGate = researchPayload?.unit_roster_validation || null;
@@ -2138,7 +2079,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       researchPayload?.machine_script_contract, validation, verifiedMachineResearchCount, roster.length,
     );
     if (passed) {
-      return isFactualMachineScript
+      return isMachineDocumentary
         ? { ...(validation || {}), passed: true, complete_title: true, roster_count: roster.length, warnings: [] }
         : validation;
     }
@@ -2149,7 +2090,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       warnings: validation?.warnings || [`Machine research is incomplete: ${verifiedMachineResearchCount}/${roster.length} verified cards finished.`],
     };
   })();
-  const scriptRosterGate = isFactualMachineScript ? null : (parsedScriptValidation?.unit_roster || null);
+  const scriptRosterGate = isMachineDocumentary ? null : (parsedScriptValidation?.unit_roster || null);
   const factualPreviewForMachine = (machine: string, scene: number): MachineScriptPreview | null => {
     const findFactualPreview = (previews: any): MachineScriptPreview | null => {
       if (!previews || typeof previews !== "object" || Array.isArray(previews)) return null;
@@ -2161,7 +2102,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     };
     const currentPreview = findFactualPreview(researchPayload?.machine_script_previews);
     const subjectContext = String(video.video_title || video.headline || "");
-    if (machinePreviewHasCurrentFactualIdentity(currentPreview, machine, scene, subjectContext)) {
+    if (machinePreviewHasCurrentIdentity(currentPreview, machine, scene, subjectContext)) {
       return currentPreview;
     }
     return findFactualPreview(factualScriptBlocks);
@@ -2174,16 +2115,16 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       || factualMachineIdentityMatches(preview?.machine, machine)
     ));
     const block = (match?.[1] as MachineScriptPreview) || null;
-    return machinePreviewHasCurrentFactualIdentity(
+    return machinePreviewHasCurrentIdentity(
       block, machine, scene, String(video.video_title || video.headline || ""),
     ) ? block : null;
   };
-  const factualScriptRosterGate = isFactualMachineScript ? (() => {
+  const factualScriptRosterGate = isMachineDocumentary ? (() => {
     const failures = machineRoster.map((item: any, index: number) => {
       const machine = machineLabel(item);
       const preview = factualPreviewForMachine(machine, index + 1);
       if (machinePreviewPassesContract(
-        preview, true, machine, index + 1, String(video.video_title || video.headline || ""),
+        preview, machine, index + 1, String(video.video_title || video.headline || ""),
       )) return null;
       const reason = machinePreviewReviewMessages(preview)[0]
         || (preview ? "Current factual review did not pass." : "No current factual script is saved.");
@@ -2196,16 +2137,16 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       warnings: failures,
     };
   })() : null;
-  const activeRosterGate = isFactualMachineScript
+  const activeRosterGate = isMachineDocumentary
     ? factualScriptRosterGate
     : scriptRosterGate || (machineResearchGate?.passed === false ? machineResearchGate : researchRosterGate);
   const scriptGenerationBlockedByRoster = Boolean(
-    (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.complete_title
-    && (isFactualMachineScript ? machineResearchGate : activeRosterGate)?.passed === false,
+    (isMachineDocumentary ? machineResearchGate : activeRosterGate)?.complete_title
+    && (isMachineDocumentary ? machineResearchGate : activeRosterGate)?.passed === false,
   );
   // This narrow eligibility gate applies only to the factual batch start
   // control. Other downstream script/voice gates keep the shared roster hold.
-  const runAllScriptBlockedByRoster = isFactualMachineScript ? false : scriptGenerationBlockedByRoster;
+  const runAllScriptBlockedByRoster = isMachineDocumentary ? false : scriptGenerationBlockedByRoster;
   const scriptRosterGatePanel = activeRosterGate ? (
     <div className="rounded-xl p-4" style={{ background: activeRosterGate.passed ? "rgba(0,230,138,.06)" : "rgba(255,120,73,.08)", border: `1px solid ${activeRosterGate.passed ? "rgba(0,230,138,.22)" : "rgba(255,120,73,.25)"}` }}>
       <div className="flex items-start justify-between gap-3 mb-2">
@@ -2219,7 +2160,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       </div>
       {activeRosterGate.passed ? (
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          {isFactualMachineScript ? "All factual script blocks passed current review." : "Script matches the locked research roster."}
+          {isMachineDocumentary ? "All factual script blocks passed current review." : "Script matches the locked research roster."}
         </p>
       ) : (
         <ul className="space-y-1">
@@ -2245,98 +2186,26 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     : activePreviewReadiness.message;
   const activeMachinePreview = useMemo(() => {
     const livePreview = machinePreview && previewMatchesMachine(machinePreview, activePreviewMachine) ? machinePreview : null;
-    const savedFactualBlock = isFactualMachineScript
+    const savedFactualBlock = isMachineDocumentary
       ? factualPreviewForMachine(activePreviewMachine, activePreviewScene)
       : null;
     if (livePreview && machinePreviewPassesContract(
-      livePreview, isFactualMachineScript, activePreviewMachine, activePreviewScene,
+      livePreview, activePreviewMachine, activePreviewScene,
       String(video.video_title || video.headline || ""),
     )) return livePreview;
     if (savedFactualBlock) return savedFactualBlock;
     if (livePreview) return livePreview;
     return previewForMachine(researchPayload?.machine_script_previews, activePreviewMachine);
   }, [machinePreview, researchPayload?.machine_script_previews, activePreviewMachine,
-      activePreviewScene, factualScriptBlocks, isFactualMachineScript, video.video_title, video.headline]);
-  const previewClaimMap = Array.isArray(activeMachinePreview?.claim_bundle?.claim_map)
-    ? activeMachinePreview?.claim_bundle?.claim_map
-    : [];
-  const previewFormulaSentences = Array.isArray(activeMachinePreview?.claim_bundle?.formula_sentences)
-    ? activeMachinePreview?.claim_bundle?.formula_sentences
+      activePreviewScene, factualScriptBlocks, isMachineDocumentary, video.video_title, video.headline]);
+  const previewClaimMap = Array.isArray(activeMachinePreview?.claim_map)
+    ? activeMachinePreview.claim_map
     : [];
   const machinePreviewPassed = machinePreviewPassesContract(
-    activeMachinePreview, isFactualMachineScript, activePreviewMachine, activePreviewScene,
+    activeMachinePreview, activePreviewMachine, activePreviewScene,
     String(video.video_title || video.headline || ""),
   );
   const activePreviewReviewMessages = machinePreviewReviewMessages(activeMachinePreview);
-  const previewEvidenceById = (() => {
-    const rows: Record<string, {
-      slot?: string;
-      claim?: string;
-      source_excerpt?: string;
-      source_title?: string;
-      source_url?: string;
-      locator?: string;
-      source_excerpt_id?: string;
-      source_excerpt_hash?: string;
-      source_tier?: string;
-      source_capture_method?: string;
-      source_variant_selection?: any;
-      source_slot_hints?: string[];
-    }> = {};
-    const slots = Array.isArray((activeMachinePreview?.story_plan as any)?.slots)
-      ? (activeMachinePreview?.story_plan as any).slots
-      : [];
-    for (const slot of slots) {
-      const slotName = String(slot?.slot || "");
-      const segments = Array.isArray(slot?.evidence_segments) ? slot.evidence_segments : [];
-      for (const segment of segments) {
-        const id = String(segment?.evidence_id || "");
-        if (!id) continue;
-        rows[id] = {
-          slot: slotName,
-          claim: String(segment?.claim || ""),
-          source_excerpt: String(segment?.source_excerpt || ""),
-          source_title: String(segment?.source_title || ""),
-          source_url: String(segment?.source_url || ""),
-          locator: String(segment?.locator || ""),
-          source_excerpt_id: String(segment?.source_excerpt_id || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.excerpt_id || ""),
-          source_excerpt_hash: String(segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, activePreviewSourcePackage)?.text_hash || ""),
-          source_tier: sourceTierForEvidence(segment, activePreviewSourcePackage)?.label,
-          source_capture_method: sourceCaptureMethodForEvidence(segment, activePreviewSourcePackage),
-          source_variant_selection: sourceVariantSelectionForEvidence(segment, activePreviewSourcePackage),
-          source_slot_hints: sourceSlotHintsForEvidence(segment, activePreviewSourcePackage),
-        };
-      }
-    }
-    return rows;
-  })();
-  const previewFormulaRows = previewFormulaSentences.map((sentence: string, index: number) => {
-    const expectedSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
-    const expectedSlot = expectedSlots[index] || "conclusion";
-    const claimRows = index < expectedSlots.length
-      ? previewClaimMap.filter((row: any) => {
-          const span = String(row?.span || "").trim();
-          const slot = String(row?.slot || "").trim();
-          const spanMatchesSentence = span && (span === sentence || sentence.includes(span));
-          return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));
-        })
-      : [];
-    const evidenceIds = Array.from(new Set(
-      claimRows.flatMap((row: any) => {
-        if (Array.isArray(row?.used_evidence_ids)) return row.used_evidence_ids;
-        if (Array.isArray(row?.evidence_ids)) return row.evidence_ids;
-        return [];
-      }).map((id: any) => String(id || "").trim()).filter(Boolean)
-    ));
-    const evidenceRows = evidenceIds.map((id) => ({ id, evidence: previewEvidenceById[id] }));
-    return {
-      sentence,
-      slot: expectedSlot,
-      label: index < expectedSlots.length ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion",
-      evidenceRows,
-    };
-  });
-
   const handleMachineReadiness = async (machineOverride?: string) => {
     const machine = machineOverride || previewMachine || machineRosterLabels[0];
     if (!machine) return;
@@ -2440,7 +2309,6 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       invalidateAll();
       if (machinePreviewPassesContract(
         result.preview,
-        isFactualMachineScript,
         machine,
         Math.max(1, machineRosterLabels.findIndex((label: string) => machineLabelMatches(label, machine)) + 1),
         String(video.video_title || video.headline || ""),
@@ -2461,10 +2329,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
 
   const machineScriptPreviewPassCount = machineRosterLabels.filter((machine: string, index: number) => (
     machinePreviewPassesContract(
-      isFactualMachineScript
-        ? factualPreviewForMachine(machine, index + 1)
-        : previewForMachine(researchPayload?.machine_script_previews, machine),
-      isFactualMachineScript,
+      factualPreviewForMachine(machine, index + 1),
       machine,
       index + 1,
       String(video.video_title || video.headline || ""),
@@ -2475,15 +2340,15 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       const block = factualProductionBlockForMachine(machine, index + 1);
       const sceneText = scenes.find((candidate) => candidate.sceneNumber === index + 1)?.narrationText?.trim();
       return machinePreviewPassesContract(
-        block, true, machine, index + 1,
+        block, machine, index + 1,
         String(video.video_title || video.headline || ""),
       ) && Boolean(sceneText && sceneText === String(block?.paragraph || "").trim());
     })()
   )).length;
-  const machineScriptProductionCount = isFactualMachineScript
+  const machineScriptProductionCount = isMachineDocumentary
     ? factualScriptProductionCount
     : (scriptHold?.units?.filter((unit: any) => unit?.passed).length || scenesWithScript);
-  const machineScriptPanelDone = isFactualMachineScript
+  const machineScriptPanelDone = isMachineDocumentary
     ? machineScriptProductionCount === machineRosterLabels.length && machineRosterLabels.length > 0
     : scriptDone;
   const machineScriptRosterPanel = isMachineDocumentary ? (
@@ -2495,14 +2360,14 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Machine script roster</h3>
           </div>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {isFactualMachineScript
+            {isMachineDocumentary
               ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes passed current factual review; ${machineScriptPreviewPassCount}/${machineRosterLabels.length} script previews passed. ${machineScriptPanelDone ? "Script complete." : "Review or rerun the remaining script cards."}`
               : machineScriptProductionCount > machineScriptPreviewPassCount
               ? `${machineScriptProductionCount}/${machineRosterLabels.length} production scenes scripted. ${machineScriptProductionCount === machineRosterLabels.length ? "Script complete." : "Run remaining cards, or run all script cards to finish the rest."}`
               : `${machineScriptPreviewPassCount}/${machineRosterLabels.length} single-machine script tests passed. Run one card to tune the paragraph, or run all script cards to create production scenes.`}
           </p>
           <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,.08)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, ((isFactualMachineScript ? machineScriptProductionCount : Math.max(machineScriptPreviewPassCount, machineScriptProductionCount)) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }} />
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, ((isMachineDocumentary ? machineScriptProductionCount : Math.max(machineScriptPreviewPassCount, machineScriptProductionCount)) / Math.max(1, machineRosterLabels.length)) * 100)}%`, background: machineScriptPanelDone ? "var(--green)" : "var(--orange)" }} />
           </div>
         </div>
         <ActionButton
@@ -2525,22 +2390,20 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           const cardSourceStatus = sourcePackageStatus(sourcePackage, machine);
           const cardReadiness = machineResearchReadiness(researchCard);
           const researchReady = cardReadiness.ready;
-          const preview = isFactualMachineScript
-            ? factualPreviewForMachine(machine, index + 1)
-            : previewForMachine(researchPayload?.machine_script_previews, machine);
+          const preview = factualPreviewForMachine(machine, index + 1);
           const previewPassed = machinePreviewPassesContract(
-            preview, isFactualMachineScript, machine, index + 1,
+            preview, machine, index + 1,
             String(video.video_title || video.headline || ""),
           );
           const holdUnit = Array.isArray(scriptHold?.units)
             ? scriptHold.units.find((unit: any) => machineLabelMatches(unit?.machine || unit?.unit, machine))
             : null;
           const scene = scenes.find((candidate) => candidate.sceneNumber === index + 1);
-          const productionBlock = isFactualMachineScript ? factualProductionBlockForMachine(machine, index + 1) : null;
-          const productionDone = isFactualMachineScript
+          const productionBlock = isMachineDocumentary ? factualProductionBlockForMachine(machine, index + 1) : null;
+          const productionDone = isMachineDocumentary
             ? Boolean(
               machinePreviewPassesContract(
-                productionBlock, true, machine, index + 1,
+                productionBlock, machine, index + 1,
                 String(video.video_title || video.headline || ""),
               ) && scene?.narrationText?.trim() === String(productionBlock?.paragraph || "").trim(),
             )
@@ -2549,11 +2412,11 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           const statusLabel = productionDone
             ? "Production scene"
             : previewPassed
-              ? (isFactualMachineScript ? "Script preview passed" : "Script test passed")
+              ? (isMachineDocumentary ? "Script preview passed" : "Script test passed")
               : preview
                 ? "Needs review"
                 : researchReady ? "Ready to script"
-                  : isFactualMachineScript ? "Research check needed"
+                  : isMachineDocumentary ? "Research check needed"
                     : cardReadiness.needsRevalidate ? "Revalidate needed" : "Research blocked";
           const statusColor = productionDone || previewPassed ? "var(--green)" : researchReady ? "var(--orange)" : "var(--text-tertiary)";
           const runningThisPreview = previewGeneratingMachine === machine;
@@ -2586,13 +2449,13 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                   <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                     {productionDone
                       ? `Scene ${scene?.sceneNumber || index + 1} has script text.`
-                      : isFactualMachineScript && preview
+                      : isMachineDocumentary && preview
                         ? (previewPassed
                           ? "Reviewed preview saved. Run All adds it to the production script."
                           : (machinePreviewReviewMessages(preview)[0] || "Current factual review did not pass."))
                       : researchReady
-                        ? (isFactualMachineScript ? "Saved evidence is ready for writing." : cardSourceStatus.message)
-                        : isFactualMachineScript
+                        ? (isMachineDocumentary ? "Saved evidence is ready for writing." : cardSourceStatus.message)
+                        : isMachineDocumentary
                           ? "Review the saved evidence in Research before writing."
                           : cardReadiness.needsRevalidate
                             ? "Revalidate needed - re-run research on the Research tab to compute readiness."
@@ -2603,7 +2466,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                   <button
                     type="button"
                     onClick={() => handleMachinePreview(machine)}
-                    disabled={previewGenerating || scriptTaskRunning || regeneratingScript || (!isFactualMachineScript && !researchReady)}
+                    disabled={previewGenerating || scriptTaskRunning || regeneratingScript || (!isMachineDocumentary && !researchReady)}
                     className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all enabled:hover:brightness-110 disabled:opacity-40"
                     style={{ background: previewPassed ? "transparent" : "var(--orange)", color: previewPassed ? "var(--orange)" : "var(--bg-void)", border: "1px solid var(--orange)" }}
                   >
@@ -2765,14 +2628,6 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                   <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{activeMachinePreview?.machine}</span>
                   <span className="text-xs font-mono" style={{ color: machinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{activeMachinePreview?.word_count} words · {machinePreviewPassed ? "Passed" : "Needs review"}</span>
                 </div>
-                {activeMachinePreview?.claim_bundle?.editorial_thesis && (
-                  <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
-                    <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>
-                      {activeMachinePreview?.claim_bundle?.editorial_thesis}
-                    </p>
-                  </div>
-                )}
                 {!machinePreviewPassed && activePreviewReviewMessages.length > 0 && (
                   <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                     <div className="text-[10px] font-semibold uppercase tracking-wider">Review reason</div>
@@ -2790,94 +2645,27 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                     Preview stopped before a paragraph was generated.
                   </div>
                 )}
-                {!isFactualMachineScript && !activeMachinePreview?.quality_audit?.checks?.length && (
-                  <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
-                    Legacy preview missing Anton audit. Regenerate this machine before accepting it.
-                  </div>
-                )}
-                {previewFormulaSentences.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                      <ShieldCheck size={13} />
-                      Sentence assembly
-                    </div>
-                    {previewFormulaRows.map((row, index) => (
-                      <div key={`formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
-                        <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
-                          {row.label}
-                        </span>
-                        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
-                        {row.evidenceRows.length > 0 && (
-                          <div className="mt-2 space-y-2">
-                            {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
-                              <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
-                                <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                  {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
-                                </p>
-                                {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!!activeMachinePreview?.quality_audit?.checks?.length && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: activeMachinePreview?.quality_audit?.passed ? "var(--green)" : "var(--orange)" }}>
-                      <ShieldCheck size={13} />
-                      Anton quality audit
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {activeMachinePreview?.quality_audit?.checks?.map((check, index) => {
-                        const checkPassedOrAdvisory = check.passed || check.advisory;
-                        return (
-                          <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: checkPassedOrAdvisory ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${checkPassedOrAdvisory ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: checkPassedOrAdvisory ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
-                            {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                {(activeMachinePreview?.bridged_to || activeMachinePreview?.opened_with_name) && (
+                  <p className="mt-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    {activeMachinePreview?.bridged_to ? `Bridges to ${activeMachinePreview?.bridged_to}. ` : ""}
+                    {activeMachinePreview?.opened_with_name ? "Opens with the machine's name (counts against the 5-per-video budget)." : ""}
+                  </p>
                 )}
                 {previewClaimMap.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                       <ShieldCheck size={13} />
-                      Evidence map
+                      Sources cited
                     </div>
-                    {previewClaimMap.slice(0, 8).map((row, index) => {
-                      const evidenceIds = Array.isArray(row.used_evidence_ids)
-                        ? row.used_evidence_ids
-                        : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
-                      const evidenceRows = evidenceIds
-                        .map((id) => ({ id, evidence: previewEvidenceById[id] }))
-                        .filter((item: { id: string; evidence?: any }) => item.id);
-                      return (
-                        <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
-                          <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{row.slot || "slot"}</span>
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
-                          </div>
-                          <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>
-                          {evidenceRows.length > 0 && (
-                            <div className="mt-2 space-y-2">
-                              {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
-                                <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
-                                  <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
-                                  </p>
-                                  {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
-                                  {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {previewClaimMap.slice(0, 12).map((row, index) => (
+                      <div key={`claim-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
+                        {row.source_url && (
+                          <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] underline" style={{ color: "var(--turquoise)" }}>{row.source_url}</a>
+                        )}
+                        {row.quote && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-tertiary)" }}>&ldquo;{row.quote}&rdquo;</p>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

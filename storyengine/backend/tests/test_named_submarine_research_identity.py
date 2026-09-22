@@ -141,7 +141,6 @@ async def test_machine_script_preview_accepts_em_dash_display_label_without_prod
     assert result["status"] == "completed"
     executor._ensure_initialized.assert_awaited_once_with()
     executor._get_video.assert_awaited_once_with("video-test")
-    executor._load_prompt_overrides.assert_awaited_once_with(video)
     executor.check_machine_script_preview_readiness.assert_awaited_once_with("video-test", canonical)
     hold.assert_awaited_once_with("video-test", video, [canonical], target_machine=canonical)
     assert hold.await_args.kwargs.get("save_target_script") is None

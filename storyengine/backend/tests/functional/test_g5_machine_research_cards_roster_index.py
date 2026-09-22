@@ -142,32 +142,3 @@ def test_reupserting_the_same_roster_slot_updates_in_place_not_a_new_row(monkeyp
     assert row["validation"]["passed"] is True
 
 
-def test_update_validation_scoped_to_roster_index_never_touches_the_other_colliding_row(monkeypatch):
-    """_update_machine_research_validation (the no-spend readiness self-heal
-    write) must refresh ONLY the roster slot it was called for. A
-    machine_key-scoped WHERE would have updated BOTH colliding rows with one
-    machine's verdict."""
-    table = _RosterIndexKeyedTable()
-    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
-    executor.tenant_id = "tenant-a"
-
-    async def fake_execute(query, *args):
-        return await table.execute(query, *args)
-
-    monkeypatch.setattr(pe, "execute", fake_execute)
-
-    asyncio.run(executor._upsert_machine_research_card(
-        "video-a", _COLLIDING_A, 2, {"unit": _COLLIDING_A}, {"passed": True, "warnings": []},
-    ))
-    asyncio.run(executor._upsert_machine_research_card(
-        "video-a", _COLLIDING_B, 3, {"unit": _COLLIDING_B}, {"passed": True, "warnings": []},
-    ))
-
-    asyncio.run(executor._update_machine_research_validation(
-        "video-a", _COLLIDING_B, 3, {"machine": _COLLIDING_B, "passed": False, "warnings": ["fresh failure"]},
-    ))
-
-    slot_a = table.rows[("tenant-a", "video-a", 2)]
-    slot_b = table.rows[("tenant-a", "video-a", 3)]
-    assert slot_a["validation"] == {"passed": True, "warnings": []}  # untouched
-    assert slot_b["validation"] == {"machine": _COLLIDING_B, "passed": False, "warnings": ["fresh failure"]}

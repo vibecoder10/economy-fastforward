@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -515,6 +516,85 @@ def adapt_packet_to_factual_card(
     return {"package": package, "card": card}
 
 
+# Inverse of _build_verified_source_package: the Call-3 packet is never
+# persisted on its own (only the adapted package/card are checkpointed - see
+# pipeline_executor's Call-3 branch), so the script writer rebuilds the six
+# slots from the package. The mapping is positional and mirrors
+# _packet_citations' fixed iteration order exactly: source C3-1 is the problem
+# slot, C3-2 design, C3-3 trade_off, C3-4 surprising_fact, C3-5 contrast, and
+# C3-6 onward are the outcome candidates.
+_C3_SLOT_BY_INDEX = {1: "problem", 2: "design", 3: "trade_off", 4: "surprising_fact", 5: "contrast"}
+_C3_SOURCE_ID_RE = re.compile(r"^C3-(\d+)(?:-E1)?$")
+
+
+def _c3_index(source_or_excerpt_id: Any) -> Optional[int]:
+    match = _C3_SOURCE_ID_RE.match(str(source_or_excerpt_id or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def packet_from_verified_source_package(machine: str, package: Any) -> Optional[dict]:
+    """Rebuild the Call-3 packet (minus ``act_number``) from an adapted package.
+
+    Returns ``None`` when the package was not produced by Call 3 (no ``C3-n``
+    sources - e.g. a legacy Tavily/Kie research card) or when any required
+    slot's claim text is missing. Slot ``answer``/``fact`` text comes from the
+    validated ``claim_assessment.claims`` row that cites that slot's excerpt;
+    ``quote`` is the excerpt text with the bookkeeping ``Regarding <machine>:``
+    label stripped; ``source_url`` is the excerpt's own URL.
+    """
+    if not isinstance(package, dict):
+        return None
+    prefix = _candidate_text(machine, "")
+    excerpts_by_index: dict[int, dict] = {}
+    for row in package.get("candidate_excerpts") or []:
+        if not isinstance(row, dict):
+            continue
+        index = _c3_index(row.get("excerpt_id"))
+        if index is not None and index not in excerpts_by_index:
+            excerpts_by_index[index] = row
+    if not excerpts_by_index:
+        return None
+    claims_by_index: dict[int, str] = {}
+    assessment = package.get("claim_assessment") if isinstance(package.get("claim_assessment"), dict) else {}
+    for claim in assessment.get("claims") or []:
+        if not isinstance(claim, dict) or str(claim.get("status") or "") != "supported":
+            continue
+        for evidence in claim.get("evidence") or []:
+            index = _c3_index((evidence or {}).get("excerpt_id")) if isinstance(evidence, dict) else None
+            if index is not None and index not in claims_by_index and str(claim.get("claim") or "").strip():
+                claims_by_index[index] = str(claim["claim"]).strip()
+
+    def _entry(index: int, text_key: str) -> Optional[dict]:
+        excerpt = excerpts_by_index.get(index)
+        text = claims_by_index.get(index)
+        if not excerpt or not text:
+            return None
+        quote = str(excerpt.get("text") or "")
+        if prefix and quote.startswith(prefix):
+            quote = quote[len(prefix):].strip()
+        source_url = str(excerpt.get("source_url") or "").strip()
+        if not source_url or not quote:
+            return None
+        return {text_key: text, "source_url": source_url, "quote": quote}
+
+    packet: dict[str, Any] = {"machine": machine}
+    for index, slot in _C3_SLOT_BY_INDEX.items():
+        entry = _entry(index, "answer")
+        if entry is None:
+            return None
+        packet[slot] = entry
+    outcomes = []
+    for index in sorted(excerpts_by_index):
+        if index >= 6:
+            entry = _entry(index, "fact")
+            if entry is not None:
+                outcomes.append(entry)
+    if not outcomes:
+        return None
+    packet["outcome_candidates"] = outcomes[:4]
+    return packet
+
+
 # ---------------------------------------------------------------------------
 # Drive export (DESIGN.md "Output file layout") - fail-soft, never blocks
 # research generation. Mirrors dvsu_roster_v2.py's own export functions.
@@ -522,7 +602,6 @@ def adapt_packet_to_factual_card(
 
 
 def _machine_slug(machine: str) -> str:
-    import re
     slug = re.sub(r"[^a-z0-9]+", "-", str(machine or "").strip().lower()).strip("-")
     return slug or "machine"
 

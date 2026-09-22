@@ -56,30 +56,6 @@ def test_ss105_mutated_citation_rejects_the_stale_assessment():
     assert package_brief(machine, broken, title)["ready"] is False
 
 
-def test_real_preview_entrypoint_uses_saved_ss105_evidence_without_research(monkeypatch):
-    machine, title, _package, payload = _fixture()
-    video = {"video_title": title, "research_payload": payload}
-    ex = object.__new__(executor.PipelineExecutor)
-    ex.tenant_id = "offline-tenant"
-    ex._ensure_initialized = AsyncMock()
-    ex._install_cancel_support = AsyncMock()
-    ex._get_video = AsyncMock(return_value=video)
-    ex._load_prompt_overrides = AsyncMock()
-    ex._load_machine_research_cards = AsyncMock(return_value=payload)
-    ex._update_machine_research_validation = AsyncMock()
-    ex.run_one_machine_research = AsyncMock(side_effect=AssertionError("preview must not prepare research"))
-    ex._run_static_script_hold = AsyncMock(return_value={"status": "completed", "preview": {"machine": machine}})
-    monkeypatch.setattr(executor, "_machine_documentary_hold_roster", lambda _video: [machine])
-    monkeypatch.setattr(executor, "_locked_roster_item_for_machine", lambda roster, selected: machine if selected == machine else None)
-    monkeypatch.setattr(executor, "enrich_research_payload_readiness", AsyncMock(return_value=payload))
-
-    result = asyncio.run(ex.run_machine_script_preview("offline-video", machine))
-
-    assert result["status"] == "completed"
-    ex.run_one_machine_research.assert_not_awaited()
-    ex._run_static_script_hold.assert_awaited_once_with("offline-video", video, [machine], target_machine=machine)
-
-
 def test_baseline_twenty_machine_readiness_is_offline_and_reports_every_saved_gap(monkeypatch):
     saved = _replay_fixture()
     roster = saved["roster"]

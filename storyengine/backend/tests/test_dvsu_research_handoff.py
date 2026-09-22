@@ -8,7 +8,66 @@ import pytest
 import dvsu_research_handoff as handoff
 from dvsu_script_brief import build_dvsu_brief, brief_warnings
 from research_claim_assessment import _assessed_receipt, _validated_claims, _prompt, assessment_fingerprint
-from test_script_compiler_integration import _package, MACHINE, SUBJECT
+import factual_machine_summary as summary
+
+
+# Fixture inlined from the deleted tests/test_script_compiler_integration.py (2026-09-21):
+# one Holland package with an already-assessed, traceable claim ledger.
+MACHINE = "SS-1 USS Holland"
+SUBJECT = "Every US Submarine Class Ever Built"
+URL = "https://navy.example/holland"
+PARAGRAPH = (
+    "SS-1 USS Holland was designed to test a practical submarine for the Navy. "
+    "Its gasoline engine powered surface running, while electric motors drove it underwater. "
+    "That arrangement separated the demands of surface travel from the confined work of submerged operation. "
+    "The vessel served as a training platform, giving crews a place to learn the machinery and practice handling it. "
+    "It was eventually retired, but the experience remained useful to the submarine force that followed. "
+    "The design offered a working boat; service turned that boat into a working school."
+)
+
+
+def _package():
+    identity = "SS-1 USS Holland was the first commissioned submarine in the United States Navy."
+    design = "SS-1 USS Holland used a gasoline engine for surface running and electric motors underwater."
+    service = "SS-1 USS Holland served as a training vessel after commissioning in 1900."
+    package = {
+        "machine": MACHINE,
+        "machine_key": "SS1",
+        "sources": [{"source_id": "N1", "url": URL, "title": "Navy history"}],
+        "candidate_excerpts": [
+            {"excerpt_id": "E1", "source_id": "N1", "source_url": URL, "source_title": "Navy history",
+             "source_tier": 1, "locator": "E1", "source_capture_method": "fetched_page", "text": identity},
+            {"excerpt_id": "E2", "source_id": "N1", "source_url": URL, "source_title": "Navy history",
+             "source_tier": 1, "locator": "E2", "source_capture_method": "fetched_page", "text": design},
+            {"excerpt_id": "E3", "source_id": "N1", "source_url": URL, "source_title": "Navy history",
+             "source_tier": 1, "locator": "E3", "source_capture_method": "fetched_page", "text": service},
+        ],
+    }
+    claims = [
+        {"id": "C1", "claim": "SS-1 USS Holland was the first commissioned submarine in the United States Navy.",
+         "scope": "identity", "status": "supported", "reason": "exact", "evidence": [{"excerpt_id": "E1", "quote": identity}], "counterevidence": []},
+        {"id": "C2", "claim": "SS-1 USS Holland used gasoline and electric propulsion.",
+         "scope": "design", "status": "supported", "reason": "exact", "evidence": [{"excerpt_id": "E2", "quote": design}], "counterevidence": []},
+        {"id": "C3", "claim": "SS-1 USS Holland served as a training vessel after commissioning in 1900.",
+         "scope": "service", "status": "supported", "reason": "exact", "evidence": [{"excerpt_id": "E3", "quote": service}], "counterevidence": []},
+        {"id": "C4", "claim": "SS-1 USS Holland was sunk in battle.", "scope": "outcome", "status": "insufficient",
+         "reason": "no source", "evidence": [], "counterevidence": []},
+    ]
+    package["candidate_excerpts"].append({"excerpt_id": "E4", "source_id": "N1", "source_url": URL,
+        "source_title": "Synthetic protocol fixture", "source_tier": 1, "locator": "E4",
+        "source_capture_method": "fetched_page", "text": PARAGRAPH})
+    claims.append({"id": "C5", "claim": PARAGRAPH, "scope": "synthetic narrative protocol fixture",
+        "narrative_roles": ["intended_role", "design", "actual_use", "outcome"],
+        "status": "supported", "reason": "exact test fixture", "evidence": [{"excerpt_id": "E4", "quote": PARAGRAPH}],
+        "counterevidence": []})
+    # Store the same normalized receipt shape produced by the assessor; the
+    # packet compiler must only accept this current, traceable ledger.
+    package["claim_assessment"] = _assessed_receipt(
+        MACHINE, package, SUBJECT,
+        _validated_claims(claims, summary._eligible_candidates(MACHINE, package, SUBJECT)),
+    )
+    return package
+
 
 
 def test_legacy_assessment_shape_and_explicit_role_validation():
@@ -92,20 +151,6 @@ def test_intended_training_role_is_advisory_and_unknown_blockers_fail_closed():
     assert brief['ready'] is True
     assert 'actual_use' in brief['missing_narrative_roles']
     assert brief_warnings({'ready': False, 'missing_fields': ['current_claim_assessment']})
-
-@pytest.mark.asyncio
-async def test_stale_real_packet_stops_writer_without_provider_calls():
-    from factual_machine_summary import generate_factual_machine_summary
-    from research_claim_assessment import _assessed_receipt
-    package = _package()
-    claims = [c for c in package['claim_assessment']['claims'] if c['scope'] != 'synthetic narrative protocol fixture']
-    package['claim_assessment'] = _assessed_receipt(MACHINE, package, SUBJECT, claims)
-    package['claim_assessment']['source_fingerprint'] = 'stale-receipt'
-    client = SimpleNamespace(generate=AsyncMock(side_effect=AssertionError('Incomplete research must not spend on writing')))
-    result = await generate_factual_machine_summary(MACHINE, package, client, subject_context=SUBJECT)
-    assert result['passed'] is False
-    assert any('stale' in w for w in result['warnings'])
-    client.generate.assert_not_awaited()
 
 
 @pytest.mark.asyncio

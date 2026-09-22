@@ -43,61 +43,6 @@ def _evidence():
     ]
 
 
-def test_research_writer_and_referee_fit_budget_without_archival_receipt():
-    assessment = _assessment()
-    evidence = _evidence()
-    writer = summary._writer_prompt(MACHINE, evidence, [], subject_context=TITLE,
-                                    purpose="research", claim_assessment=assessment)
-    reviewer = summary._review_prompt(
-        MACHINE,
-        {"paragraph": f"{MACHINE} is covered by the supplied evidence.", "claim_map": []},
-        evidence,
-        TITLE,
-        assessment,
-    )
-
-    assert assert_request_budget(writer, "writer", 900)["input_token_upper_bound"] <= 48000
-    assert assert_request_budget(reviewer, "reviewer", 900)["input_token_upper_bound"] <= 48000
-    assert "previous_assessment" not in writer
-    assert "previous_assessment" not in reviewer
-    assert "raw_response" not in writer
-    assert "raw_response" not in reviewer
-    assert '"quote"' not in writer.split("EVIDENCE:\n", 1)[0]
-
-
-def test_archived_history_has_no_prompt_effect_but_current_constraints_do():
-    assessment = _assessment()
-    evidence = _evidence()
-    baseline = summary._writer_prompt(MACHINE, evidence, [], subject_context=TITLE,
-                                      purpose="research", claim_assessment=assessment)
-
-    archived = copy.deepcopy(assessment)
-    archived["previous_assessment"] = {"history_sentinel": "different archival history" * 5000}
-    with_history = summary._writer_prompt(MACHINE, evidence, [], subject_context=TITLE,
-                                          purpose="research", claim_assessment=archived)
-    assert with_history == baseline
-    assert "ARCHIVED-HISTORY-MUST-NOT-REACH-PROMPT" not in with_history
-
-    changed = copy.deepcopy(assessment)
-    changed["claims"][0]["status"] = "disputed"
-    changed["claims"][0]["claim"] = "Changed current claim constraint."
-    current_change = summary._writer_prompt(MACHINE, evidence, [], subject_context=TITLE,
-                                            purpose="research", claim_assessment=changed)
-    assert current_change != baseline
-    assert "Changed current claim constraint." in current_change
-    assert '"status": "disputed"' in current_change
-
-
-def test_empty_budget_failure_starts_fresh_without_invalid_repair_instruction():
-    prompt = summary._writer_prompt(
-        MACHINE, [], ["Script request exceeds the conservative model input budget."],
-        prior_draft="", subject_context=TITLE, purpose="research", claim_assessment={"claims": []},
-    )
-    assert "stopped before a draft was produced" in prompt
-    assert "there is no previous draft to preserve or repair" in prompt
-    assert "Previous draft to repair" not in prompt
-
-
 def _readiness_executor(monkeypatch, base_warnings, assessment):
     ex = object.__new__(executor.PipelineExecutor)
     ex.tenant_id = "tenant"
@@ -123,18 +68,6 @@ def _readiness_executor(monkeypatch, base_warnings, assessment):
     monkeypatch.setattr(handoff, "package_brief_warnings", lambda *_: [])
     monkeypatch.setattr("research_claim_assessment.current_assessment", lambda *_: assessment)
     return ex
-
-
-def test_readiness_ignores_summary_gap_and_never_schedules_preparation(monkeypatch):
-    # fce298f8: factual scripts are evidence-led from the assessed claims, so a
-    # missing/stale research summary no longer blocks a preview, and the script
-    # path never schedules source discovery or summary generation ("preparable").
-    ex = _readiness_executor(monkeypatch, [SUMMARY_GAP], {"status": "assessed"})
-    result = asyncio.run(ex.check_machine_script_preview_readiness("video", MACHINE))
-    assert result["ready"] is True
-    assert result["preparable"] is False
-    assert result["preparation_required"] is False
-    assert SUMMARY_GAP not in result["warnings"]
 
 
 def test_readiness_keeps_other_failure_blocked_and_never_prepares(monkeypatch):

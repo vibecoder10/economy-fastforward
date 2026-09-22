@@ -129,37 +129,4 @@ def test_load_overrides_never_infers_most_hated_from_title(monkeypatch):
 # QL-66 (OR-9 ruled) — the five locked thumbnail-text series + open rule.
 # ---------------------------------------------------------------------------
 
-def test_ql66_locked_series_requires_exact_phrase():
-    assert pe._dvsu_thumbnail_series_warning("Every US Battleship Ever Built", "EVER BUILT") is None
-    warning = pe._dvsu_thumbnail_series_warning("Every US Battleship Ever Built", "ALL BUILT")
-    assert warning is not None
-    assert "EVER BUILT" in warning
 
-
-def test_ql66_locked_series_case_insensitive_match_passes():
-    assert pe._dvsu_thumbnail_series_warning("Every British Carrier Ever Built", "ever built") is None
-
-
-def test_ql66_all_five_locked_series_recognized():
-    cases = [
-        ("Every US Battleship Ever Built", "EVER BUILT"),
-        ("The Never-Built Bomber We Nearly Got", "NEVER BUILT"),
-        ("Most Hated Warships Ever", "MOST HATED"),
-        ("Most Underrated Submarines", "UNDERRATED"),
-        ("Aircraft Carriers Sunk in Combat", "SUNK IN COMBAT"),
-    ]
-    for title, locked_phrase in cases:
-        assert pe._dvsu_thumbnail_series_warning(title, locked_phrase) is None
-        assert pe._dvsu_thumbnail_series_warning(title, "WRONG TEXT") is not None
-
-
-def test_ql66_new_type_without_a_series_is_unconstrained():
-    """OR-9 ruled: "BY PILOTS"/"BY CREWS" (and anything else new) stay under
-    the open 2-4-word rule until they prove out as a series — never flagged."""
-    assert pe._dvsu_thumbnail_series_warning("Flown by the Best Pilots", "BY PILOTS") is None
-    assert pe._dvsu_thumbnail_series_warning("Flown by the Best Pilots", "ANYTHING GOES") is None
-
-
-def test_ql66_non_vacuous_module_constant_has_exactly_five_locked_phrases():
-    phrases = {phrase for _, phrase in pe._DVSU_LOCKED_THUMBNAIL_SERIES}
-    assert phrases == {"EVER BUILT", "NEVER BUILT", "MOST HATED", "UNDERRATED", "SUNK IN COMBAT"}

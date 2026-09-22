@@ -201,20 +201,6 @@ async def test_partial_or_cancelled_script_stops_before_voice(monkeypatch, scrip
     assert statuses[-1][0] == terminal_status
 
 
-def test_factual_script_recheck_uses_saved_contract_before_downstream_resume(monkeypatch):
-    factual = types.ModuleType("factual_machine_pipeline")
-    factual.factual_script_readiness = lambda *_args: False
-    executor = types.ModuleType("pipeline_executor")
-    executor._machine_documentary_hold_roster = lambda _video: ["SS-105"]
-    monkeypatch.setitem(sys.modules, "factual_machine_pipeline", factual)
-    monkeypatch.setitem(sys.modules, "pipeline_executor", executor)
-
-    assert actions._factual_script_recheck_needed(_state(
-        status="ready_for_voice",
-        research_payload={"machine_script_contract": "factual_100_v1"},
-    )) is True
-
-
 @pytest.mark.asyncio
 async def test_research_target_runs_roster_and_research_then_stops_before_the_script(monkeypatch):
     state = _state()

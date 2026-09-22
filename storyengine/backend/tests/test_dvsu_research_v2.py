@@ -294,12 +294,10 @@ def test_hold_uses_call3_path_and_never_calls_legacy_research_functions(hold_cas
     import pipeline_executor as pe
     import factual_source_search
     import research_claim_assessment as rca
-    import factual_machine_summary as fms
 
     async def _must_not_be_called(*a, **k):
         raise AssertionError("legacy factual research function must not run on the Call 3 path")
     monkeypatch.setattr(rca, "assess_verified_package", _must_not_be_called)
-    monkeypatch.setattr(fms, "generate_factual_machine_summary", _must_not_be_called)
 
     ledger_calls = []
     async def _record(*a, **k):

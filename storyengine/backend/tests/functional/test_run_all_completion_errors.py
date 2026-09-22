@@ -15,6 +15,11 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     if factual_script_current is not None:
         video["research_payload"] = {"machine_script_contract": "factual_100_v1"}
         video["video_title"] = "Every British Aircraft Carrier Class Ever Built"
+        # A dvsu_script_v2-written block: only those are rechecked for staleness on resume.
+        video["script_validation"] = {"machine_script_blocks": {"Majestic class": {
+            "machine": "Majestic class", "paragraph": "Reviewed narration.", "passed": True,
+            "machine_script_contract": "dvsu_script_v2",
+        }}}
     if research_result is not None:
         video.setdefault("research_payload", {}).update({
             "unit_roster_validation": {"passed": True},
@@ -75,8 +80,10 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     pe = types.ModuleType("pipeline_executor")
     pe.PipelineExecutor = lambda _tenant: Executor()
     pe._machine_documentary_hold_roster = lambda _v: ["Majestic class"]
-    factual = types.ModuleType("factual_machine_pipeline")
-    factual.factual_script_readiness = lambda _v, _r: factual_script_current
+    script_v2 = types.ModuleType("dvsu_script_v2")
+    script_v2.SCRIPT_CONTRACT = "dvsu_script_v2"
+    script_v2.saved_blocks = lambda v: (v.get("script_validation") or {}).get("machine_script_blocks") or {}
+    script_v2.script_readiness = lambda _v, _r: factual_script_current
     route = types.ModuleType("routes.pipeline")
     route._set_task_status = lambda _id, status, msg, **_kw: statuses.append((status, msg))
     route._clear_task_status = lambda *_a: None
@@ -87,7 +94,7 @@ def _build(*, thumbnail_result=None, saved_thumbnail=None, step_result=None,
     dial = types.ModuleType("autopilot_dial")
     dial.get_autopilot_dial = AsyncMock(return_value=types.SimpleNamespace(kill_switch_tripped_at="now" if kill_switch else None))
     dial.check_weekly_budget = AsyncMock(return_value=(True, 0, None))
-    with patch.dict(sys.modules, {"pipeline_executor": pe, "routes.pipeline": route, "generation_claims": claims, "queue_delivery": delivery, "autopilot_dial": dial, "factual_machine_pipeline": factual}), \
+    with patch.dict(sys.modules, {"pipeline_executor": pe, "routes.pipeline": route, "generation_claims": claims, "queue_delivery": delivery, "autopilot_dial": dial, "dvsu_script_v2": script_v2}), \
          patch.object(actions, "fetch_one", fetch), patch.object(actions, "fetch_all", fetch_all), \
          patch.object(actions, "execute", execute), \
          patch("asyncio.sleep", AsyncMock()):

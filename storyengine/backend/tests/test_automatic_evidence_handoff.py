@@ -125,33 +125,6 @@ def test_real_pdf_fetch_reads_page77_without_a_model(monkeypatch):
     assert '1901.' in text
 
 
-def test_captured_evidence_reaches_real_writer_and_review_protocol_without_large_context():
-    import factual_machine_summary as summary
-    _, package = capture_pair()
-    assessor = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package))))
-    package['claim_assessment'] = asyncio.run(assess_verified_package(MACHINE, package, assessor, TITLE))
-    brief = package_brief(MACHINE, package, TITLE)
-    paragraph = ('Admiral Dewey endorsed SS-1 USS Holland for coast and harbor defense after studying its practical military potential. '
-        'Its design combined dual propulsion, separate ballast systems, and a hydrodynamic hull that gave early crews a workable underwater craft. '
-        'In service, Holland became a classroom at the Naval Academy, where officers learned machinery, diving procedures, and submerged-operation routines. '
-        'Improved Holland-type boats followed as the A-class, carrying those practical lessons into a growing Navy submarine program. '
-        'Holland connected underwater promise to practical submarine-force training.')
-    calls = []
-    async def generate(**kwargs):
-        calls.append(kwargs)
-        if 'DVsU documentary writer' in kwargs['system_prompt']:
-            return json.dumps({'paragraph':paragraph,'claim_map':[{'sentence':sentence,'fact_ids':[f['fact_id'] for f in brief['facts']]} for sentence in summary._sentences(paragraph)]})
-        return json.dumps({'passed':True,'issues':[],'support_audit':[{'sentence':sentence,'supported':True,'explanation':'Synthetic protocol fixture.','unsupported_claims':[]} for sentence in summary._sentences(paragraph)],'editorial_review':{'version':1,'passed':True,'issues':[],
-            'checks':dict.fromkeys(['design_intent','actual_use','consequence','gap_or_supported_substitute','verdict','spoken_style'],True)}})
-    result = asyncio.run(summary.generate_factual_machine_summary(MACHINE, package, SimpleNamespace(generate=generate), subject_context=TITLE))
-    assert result['passed'] and result['factual_passed'], result
-    assert 80 <= result['word_count'] <= 110
-    assert len(calls) == 2
-    assert URL not in calls[0]['prompt'] and 'officersastothegreat' not in calls[0]['prompt']
-    assert len(calls[0]['prompt'].encode()) < 10000
-    assert URL in calls[1]['prompt']
-
-
 def test_research_route_forwards_only_valid_known_source_urls(monkeypatch):
     import routes.pipeline as route
     calls = []
@@ -189,61 +162,3 @@ def test_saved_assessment_replays_with_materialized_identity_quote_without_new_c
     assert current_assessment(MACHINE,package,TITLE) == assessment
 
 
-def test_naval_academy_draft_reuses_saved_text_and_still_calls_referee():
-    import factual_machine_summary as summary
-    from machine_research_summary import saved_research_summary
-    _, package = capture_pair()
-    assessor = SimpleNamespace(generate=AsyncMock(return_value=json.dumps(assessment_response(package))))
-    package['claim_assessment'] = asyncio.run(assess_verified_package(MACHINE,package,assessor,TITLE))
-    anchor = next(r for r in _eligible_candidates(MACHINE,package,TITLE).values()
-                  if not r['identity_requires_review'] and 'training submarine' in r['text'])
-    text = 'SS-1 USS Holland served at the U.S. Naval Academy as a training submarine.'
-    assert summary._sentences(text) == [text]
-    assert summary._sentences('She traveled to the U.S. Holland followed.') == ['She traveled to the U.S.', 'Holland followed.']
-    draft = {'paragraph':text,'claim_map':[{'sentence':text,'citations':[{'excerpt_id':anchor['excerpt_id'],'quote':anchor['text']}]}],
-             'sources':[anchor], 'passed':False,'warnings':['claim_map row 1 sentence is not an exact sentence in the paragraph.','claim_map must cover every paragraph sentence exactly once.']}
-    saved = saved_research_summary(MACHINE,package,draft,TITLE)
-    calls=[]
-    async def generate(**kw):
-        calls.append(kw)
-        assert 'independent factual referee' in kw['system_prompt']
-        return json.dumps({'passed':True,'issues':[]})
-    result=asyncio.run(summary.generate_factual_machine_summary(MACHINE,package,SimpleNamespace(generate=generate),
-        subject_context=TITLE,purpose='research',previous_summary=saved))
-    assert result['passed'] and result['paragraph']==text and len(calls)==1
-
-
-def test_complete_sentence_selection_keeps_all_fields_and_never_rewrites_words():
-    from factual_machine_summary import _compact_script_rows, _word_count
-    sentences = [
-        ('SS-1 USS Holland was endorsed by Admiral Dewey as a useful boat for harbor and coast defense.', ['F1']),
-        ('Her design brought together dual propulsion systems, separate ballast systems, and a hydrodynamic hull with its equipment inside a single compartment.', ['F2']),
-        ('The optional description also listed several more details about equipment, machinery, layout, and the arrangement of the internal space, none of which is needed to preserve the central design and service account.', ['F2']),
-        ('Additional armament details included a bow torpedo tube and a dynamite gun that was subsequently removed from the vessel.', ['F2']),
-        ('At the U.S. Naval Academy, Holland served as a training submarine, putting the boat to practical use for the Navy.', ['F3']),
-        ('Improved Holland-type boats became the A-class, carrying that design forward and making her contribution part of the submarine force that followed.', ['F4']),
-    ]
-    rows=[{'sentence':s,'fact_ids':ids} for s,ids in sentences]
-    draft={'paragraph':' '.join(r['sentence'] for r in rows),'claim_map':rows}
-    brief={'fields':{name:[fid] for name,fid in zip(['intended_role','design','actual_use','outcome'],['F1','F2','F3','F4'])}}
-    assert _word_count(draft['paragraph'])>110
-    compact=_compact_script_rows(MACHINE,draft,brief)
-    assert 80<=_word_count(compact['paragraph'])<=110
-    assert compact['claim_map'][0]==rows[0] and compact['claim_map'][-1]==rows[-1]
-    assert all(r in rows for r in compact['claim_map'])
-    assert {fid for r in compact['claim_map'] for fid in r['fact_ids']}=={'F1','F2','F3','F4'}
-    assert compact==_compact_script_rows(MACHINE,draft,brief)
-
-
-def test_ordered_citation_partition_handles_abbreviations_without_allowing_omissions():
-    import factual_machine_summary as summary
-    _, package=capture_pair()
-    candidates=_eligible_candidates(MACHINE,package,TITLE)
-    anchor=next(r for r in candidates.values() if 'training submarine' in r['text'])
-    text='SS-1 USS Holland helped establish the U.S. Submarine Force. She served as a training submarine.'
-    parts=['SS-1 USS Holland helped establish the U.S. Submarine Force.', 'She served as a training submarine.']
-    rows=[{'sentence':part,'citations':[{'excerpt_id':anchor['excerpt_id'],'quote':anchor['text']}]} for part in parts]
-    _,warnings,_=summary._validate_draft(MACHINE,{'paragraph':text,'claim_map':rows},candidates)
-    assert not warnings
-    _,warnings,_=summary._validate_draft(MACHINE,{'paragraph':text+' This sentence has no citation.','claim_map':rows},candidates)
-    assert any('cover every' in w for w in warnings)

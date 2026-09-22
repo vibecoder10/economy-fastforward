@@ -4,6 +4,15 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## Handoff — 2026-09-21 (session 5) — dvsu_script_v2 is the only script writer; legacy writers deleted; deploy + browser walk pending
+
+Full state and next actions: `storyengine/HANDOFF.md`. Short version: `backend/dvsu_script_v2.py` built per
+docs/dvsu-script-pipeline-v2-2026-09-18/DESIGN.md (both open gaps resolved, addendum in that doc), wired as the one
+path through `_run_static_script_hold`; the Anton/legacy/factual_100_v1 writers and everything only they used are gone
+(-4,570 executor lines, 12 legacy test files). Backend suite green, tsc/build/vitest green. NOT deployed, NOT walked in
+the browser yet (cut at the context ceiling). Next: browser walk of the Script tab, ask Ryan, deploy, one paid
+single-machine preview as first-run proof.
+
 ## Handoff — 2026-09-21 (night) — Clean slate; MCP tools for by-hand machine research
 
 Full state, how-to and open items: `storyengine/HANDOFF.md` (read it first). Short version: prod `da3db6b0b`, backend suite

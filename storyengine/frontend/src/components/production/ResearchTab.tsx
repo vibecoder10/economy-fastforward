@@ -164,22 +164,13 @@ function fullMachineResearchGatePassed(validation: any, verifiedCount: number, r
   );
 }
 
-function machinePreviewPassesAntonGate(preview: any): boolean {
-  const formulaSentences = Array.isArray(preview?.claim_bundle?.formula_sentences)
-    ? preview.claim_bundle.formula_sentences
-    : [];
-  const auditChecks = Array.isArray(preview?.quality_audit?.checks)
-    ? preview.quality_audit.checks
-    : [];
-  const blockingAuditChecksPassed = auditChecks.every((check: any) => check?.passed || check?.advisory);
-  const completeFormulaSentences = formulaSentences.length === 5
-    && formulaSentences.every((sentence: any) => String(sentence || "").trim().length > 0);
+// Mirrors ScriptVoiceTab's gate: only a block written by backend/dvsu_script_v2.py
+// (the one script writer) that passed its code-side audit counts.
+function machinePreviewPassesAudit(preview: any): boolean {
   return Boolean(
     preview?.passed === true
-    && preview?.quality_audit?.passed === true
-    && auditChecks.length > 0
-    && blockingAuditChecksPassed
-    && completeFormulaSentences
+    && String(preview?.paragraph || "").trim()
+    && preview?.machine_script_contract === "dvsu_script_v2"
   );
 }
 
@@ -188,17 +179,7 @@ function machinePreviewReviewMessages(preview: any): string[] {
   const warningRows = Array.isArray(preview?.warnings)
     ? preview.warnings.map((warning: any) => String(warning || "").trim()).filter(Boolean)
     : [];
-  const auditSummary = preview?.quality_audit?.passed === false && preview?.quality_audit?.summary
-    ? [String(preview.quality_audit.summary)]
-    : [];
-  const failedAuditRows = Array.isArray(preview?.quality_audit?.checks)
-    ? preview.quality_audit.checks
-        .filter((check: any) => check && check.passed === false && !check.advisory)
-        .map((check: any) => [check.label || check.name, check.detail].filter(Boolean).join(": "))
-        .map((message: any) => String(message || "").trim())
-        .filter(Boolean)
-    : [];
-  const messages = Array.from(new Set([...warningRows, ...auditSummary, ...failedAuditRows]));
+  const messages: string[] = Array.from(new Set<string>(warningRows));
   return preview?.research_source === "readiness_preflight" ? messages : messages.slice(0, 6);
 }
 
@@ -223,17 +204,8 @@ function previewErrorArtifact(
     passed: false,
     warnings: reviewMessages.length ? reviewMessages : [summary],
     research_source: researchSource,
-    claim_bundle: { editorial_thesis: "", formula_sentences: [], claim_map: [] },
-    quality_audit: {
-      passed: false,
-      summary,
-      checks: [{
-        name: checkName,
-        label: checkLabel,
-        passed: false,
-        detail: summary,
-      }],
-    },
+    violations: [`${checkLabel || checkName}: ${summary}`],
+    claim_map: [],
   };
 }
 
@@ -1313,7 +1285,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
         ));
       }
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-      if (machinePreviewPassesAntonGate(result.preview)) {
+      if (machinePreviewPassesAudit(result.preview)) {
         toast.success(`${machine} preview generated. Production script unchanged.`);
       } else {
         toast.error(`${machine} preview needs review. Production script unchanged.`);
@@ -1487,59 +1459,11 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
       ? localMachinePreview
       : previewForMachine(research?.machine_script_previews, selectedMachineLabel)
   ), [localMachinePreview, research?.machine_script_previews, selectedMachineLabel]);
-  const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_bundle?.claim_map)
-    ? selectedMachinePreview.claim_bundle.claim_map
+  const selectedPreviewClaimMap = Array.isArray(selectedMachinePreview?.claim_map)
+    ? selectedMachinePreview.claim_map
     : [];
-  const selectedPreviewFormulaSentences = Array.isArray(selectedMachinePreview?.claim_bundle?.formula_sentences)
-    ? selectedMachinePreview.claim_bundle.formula_sentences
-    : [];
-  const selectedPreviewEvidenceSegments = Array.isArray(selectedResearchCard?.evidence_segments)
-    ? selectedResearchCard.evidence_segments
-    : [];
-  const selectedPreviewEvidenceById: Record<string, any> = selectedPreviewEvidenceSegments.reduce((rows: Record<string, any>, segment: any) => {
-    const evidenceId = String(segment?.evidence_id || "").trim();
-    if (!evidenceId) return rows;
-    const tier = sourceTierForEvidence(segment, selectedSourcePackage);
-    const source_slot_hints = sourceSlotHintsForEvidence(segment, selectedSourcePackage);
-    rows[evidenceId] = {
-      ...segment,
-      source_excerpt: String(segment?.source_excerpt || "").trim(),
-      source_excerpt_id: segment?.source_excerpt_id || sourceCandidateForEvidence(segment, selectedSourcePackage)?.excerpt_id,
-      source_excerpt_hash: segment?.source_excerpt_hash || sourceCandidateForEvidence(segment, selectedSourcePackage)?.text_hash,
-      source_tier: tier?.tier ? `Tier ${tier.tier}` : segment?.source_tier,
-      source_capture_method: sourceCaptureMethodForEvidence(segment, selectedSourcePackage),
-      source_variant_selection: sourceVariantSelectionForEvidence(segment, selectedSourcePackage),
-      source_slot_hints,
-    };
-    return rows;
-  }, {});
-  const selectedMachinePreviewPassed = machinePreviewPassesAntonGate(selectedMachinePreview);
+  const selectedMachinePreviewPassed = machinePreviewPassesAudit(selectedMachinePreview);
   const selectedMachinePreviewReviewMessages = machinePreviewReviewMessages(selectedMachinePreview);
-  const selectedPreviewFormulaRows = selectedPreviewFormulaSentences.map((sentence: string, index: number) => {
-    const expectedSlots = ["original_problem", "engineering_decision", "tradeoff", "reality"];
-    const expectedSlot = expectedSlots[index] || "paragraph_derived_conclusion";
-    const claimRows = index < expectedSlots.length
-      ? selectedPreviewClaimMap.filter((row: any) => {
-          const span = String(row?.span || "").trim();
-          const slot = String(row?.slot || "").trim();
-          const spanMatchesSentence = span && (span === sentence || sentence.includes(span));
-          return Boolean(spanMatchesSentence && (!slot || slot === expectedSlot));
-        })
-      : [];
-    const evidenceIds = Array.from(new Set(
-      claimRows.flatMap((row: any) => {
-        if (Array.isArray(row?.used_evidence_ids)) return row.used_evidence_ids;
-        if (Array.isArray(row?.evidence_ids)) return row.evidence_ids;
-        return [];
-      }).map((id: any) => String(id || "").trim()).filter(Boolean)
-    ));
-    return {
-      sentence,
-      slot: expectedSlot,
-      label: index < expectedSlots.length ? ["problem", "decision", "tradeoff", "reality"][index] : "conclusion",
-      evidenceRows: evidenceIds.map((id) => ({ id, evidence: selectedPreviewEvidenceById[id] })),
-    };
-  });
   const verifiedMachineResearchCount = useMemo(() => {
     if (!research) return 0;
     return research.unit_roster.filter((item: any) => {
@@ -2082,12 +2006,6 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                     <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{selectedMachinePreview.machine}</span>
                     <span className="text-xs font-mono" style={{ color: selectedMachinePreviewPassed ? "var(--green)" : "var(--orange)" }}>{selectedMachinePreview.word_count} words · {selectedMachinePreviewPassed ? "Passed" : "Needs review"}</span>
                   </div>
-                  {selectedMachinePreview.claim_bundle?.editorial_thesis && (
-                    <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(79,214,198,.07)", border: "1px solid rgba(79,214,198,.18)" }}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>Editorial thesis</div>
-                      <p className="mt-1 text-sm" style={{ color: "var(--text-primary)" }}>{selectedMachinePreview.claim_bundle.editorial_thesis}</p>
-                    </div>
-                  )}
                   {!selectedMachinePreviewPassed && selectedMachinePreviewReviewMessages.length > 0 && (
                     <div className="mb-3 rounded-md px-3 py-2" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
                       <div className="text-[10px] font-semibold uppercase tracking-wider">Review reason</div>
@@ -2106,94 +2024,27 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                       Preview stopped before a paragraph was generated.
                     </div>
                   )}
-                  {!selectedMachinePreview.quality_audit?.checks?.length && (
-                    <div className="mt-3 rounded-md px-3 py-2 text-xs" style={{ background: "rgba(255,120,73,.08)", color: "var(--orange)", border: "1px solid rgba(255,120,73,.18)" }}>
-                      Legacy preview missing Anton audit. Regenerate this machine before accepting it.
-                    </div>
-                  )}
-                  {selectedPreviewFormulaRows.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                        <ShieldCheck size={13} />
-                        Sentence assembly
-                      </div>
-                      {selectedPreviewFormulaRows.map((row, index) => (
-                        <div key={`formula-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
-                          <span className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: index < 4 ? "var(--turquoise)" : "var(--orange)", background: index < 4 ? "rgba(79,214,198,.1)" : "rgba(255,120,73,.1)" }}>
-                            {row.label}
-                          </span>
-                          <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
-                          {row.evidenceRows.length > 0 && (
-                            <div className="mt-2 space-y-2">
-                              {row.evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
-                                <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
-                                  <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                    {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
-                                  </p>
-                                  {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.source_excerpt}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!!selectedMachinePreview.quality_audit?.checks?.length && (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: selectedMachinePreview.quality_audit.passed ? "var(--green)" : "var(--orange)" }}>
-                        <ShieldCheck size={13} />
-                        Anton quality audit
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {selectedMachinePreview.quality_audit.checks.map((check, index) => {
-                          const checkPassedOrAdvisory = check.passed || check.advisory;
-                          return (
-                            <div key={`${check.name || "audit"}-${index}`} className="rounded-md px-3 py-2" style={{ background: checkPassedOrAdvisory ? "rgba(0,230,138,.07)" : "rgba(255,120,73,.08)", border: `1px solid ${checkPassedOrAdvisory ? "rgba(0,230,138,.16)" : "rgba(255,120,73,.2)"}` }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: checkPassedOrAdvisory ? "var(--green)" : "var(--orange)" }}>{check.label || check.name}{check.advisory ? " · advisory" : ""}</div>
-                              {check.detail && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{check.detail}</p>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  {(selectedMachinePreview.bridged_to || selectedMachinePreview.opened_with_name) && (
+                    <p className="mt-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      {selectedMachinePreview.bridged_to ? `Bridges to ${selectedMachinePreview.bridged_to}. ` : ""}
+                      {selectedMachinePreview.opened_with_name ? "Opens with the machine's name (counts against the 5-per-video budget)." : ""}
+                    </p>
                   )}
                   {selectedPreviewClaimMap.length > 0 && (
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                         <ShieldCheck size={13} />
-                        Evidence map
+                        Sources cited
                       </div>
-                      {selectedPreviewClaimMap.slice(0, 8).map((row: any, index: number) => {
-                        const evidenceIds = Array.isArray(row.used_evidence_ids)
-                          ? row.used_evidence_ids
-                          : Array.isArray(row.evidence_ids) ? row.evidence_ids : [];
-                        const evidenceRows = evidenceIds
-                          .map((id: string) => ({ id, evidence: selectedPreviewEvidenceById[id] }))
-                          .filter((item: { id: string; evidence?: any }) => item.id);
-                        return (
-                          <div key={`${row.slot || "slot"}-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
-                            <div className="mb-1 flex flex-wrap items-center gap-2">
-                              <span className="rounded px-1.5 py-0.5 text-[10px] font-mono uppercase" style={{ color: "var(--turquoise)", background: "rgba(79,214,198,.1)" }}>{row.slot || "slot"}</span>
-                              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{evidenceIds.join(", ")}</span>
-                            </div>
-                            <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.span}</p>
-                            {evidenceRows.length > 0 && (
-                              <div className="mt-2 space-y-2">
-                                {evidenceRows.map(({ id, evidence }: { id: string; evidence?: any }) => (
-                                  <div key={id} className="rounded px-2 py-2" style={{ background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.06)" }}>
-                                    <p className="truncate text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                                      {[evidence?.source_title || id, evidence?.source_tier, evidence?.source_capture_method, sourceVariantSelectionLabel(evidence?.source_variant_selection), Array.isArray(evidence?.source_slot_hints) && evidence.source_slot_hints.length ? `hints ${evidence.source_slot_hints.join(", ")}` : "", evidence?.source_excerpt_id || evidence?.locator, evidence?.source_excerpt_hash ? `hash ${String(evidence.source_excerpt_hash).slice(0, 8)}` : ""].filter(Boolean).join(" · ")}
-                                    </p>
-                                    {evidence?.claim && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-primary)" }}>{evidence.claim}</p>}
-                                    {evidence?.source_excerpt && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{evidence.source_excerpt}</p>}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {selectedPreviewClaimMap.slice(0, 12).map((row: any, index: number) => (
+                        <div key={`claim-${index}`} className="rounded-md px-3 py-2" style={{ background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.08)" }}>
+                          <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{row.sentence}</p>
+                          {row.source_url && (
+                            <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] underline" style={{ color: "var(--turquoise)" }}>{row.source_url}</a>
+                          )}
+                          {row.quote && <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-tertiary)" }}>&ldquo;{row.quote}&rdquo;</p>}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
