@@ -86,6 +86,14 @@ If there's even a **1% chance** a skill applies → **invoke it**.
 
 ---
 
+## Assets
+
+Produced/generated assets from working on this project (screenshots, mockups,
+one-off review captures — not the pipeline's own video/image output, which
+flows through Airtable/Google Drive/Supabase per the pipeline itself) go to
+`Assets/story-engine/`, routed by type per `Assets/CLAUDE.md` — not scattered
+into this repo.
+
 ## Stack
 **Pipeline:** Python 3.11+ (async) · Remotion · Supabase (orchestration DB) · Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) · Google Drive (storage) · Slack (control)
 **StoryEngine:** Next.js 16 · React 19 · TypeScript · TailwindCSS 4 · Framer Motion · React Query · FastAPI · Supabase PostgreSQL · asyncpg

@@ -63,7 +63,11 @@ CALL3_SYSTEM_PROMPT = (
 # second locked rule).
 CALL3_SEARCH_BUDGET_PER_SLOT = 3
 
-_SLOT_ANSWER_SHAPE = '{"answer":"...","source_url":"...","quote":"..."}'
+_SLOT_ANSWER_SHAPE = '{"answer":"...","headline":"...","source_url":"...","quote":"..."}'
+_HEADLINE_RULE = (
+    '`headline` is the ONE specific claim from `answer` that `quote` is meant to prove - a single '
+    "fact, figure, or comparison, not a restatement of the whole answer."
+)
 
 # The six answers become the machine's compact writer brief, which is rejected above 6000 bytes
 # (dvsu_script_brief.MAX_BRIEF_BYTES) even when every answer is valid. Unbounded answers failed 5 of 8
@@ -104,7 +108,7 @@ def _call3_problem_prompt(machine: str, act_number: int, shared_context: list[st
         "required this machine. Prefer primary/institutional sources (official history offices, museums, "
         "established history publications) over Wikipedia; use Wikipedia only as a last resort, and "
         "replace it with a follow-up search if it is your only result.\n"
-        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} {_HEADLINE_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -115,7 +119,7 @@ def _call3_design_prompt(machine: str, act_number: int, shared_context: list[str
         f'response to that need - a query like "{machine} design decision/innovation [specific feature]". '
         "Find the specific engineering decision. Prefer primary/institutional sources over Wikipedia; use "
         "Wikipedia only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} {_HEADLINE_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -126,7 +130,7 @@ def _call3_trade_off_prompt(machine: str, act_number: int, shared_context: list[
         f'query like "{machine} limitation/trade-off [specific consequence]". Find what was sacrificed to '
         "get that design. Prefer primary/institutional sources over Wikipedia; use Wikipedia only as a "
         "last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} {_HEADLINE_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -139,8 +143,8 @@ def _call3_outcome_prompt(machine: str, act_number: int, shared_context: list[st
         "search itself - surface several, let the writer choose later. Prefer primary/institutional "
         "sources over Wikipedia; use Wikipedia only as a last resort, and replace it with a follow-up "
         "search if it is your only result.\n"
-        f"{_OUTCOME_LENGTH_RULE} "
-        'Return only JSON: {"candidates":[{"fact":"...","source_url":"...","quote":"..."}, ...]} '
+        f"{_OUTCOME_LENGTH_RULE} {_HEADLINE_RULE} "
+        'Return only JSON: {"candidates":[{"fact":"...","headline":"...","source_url":"...","quote":"..."}, ...]} '
         "with 2-4 entries."
     )
 
@@ -153,7 +157,7 @@ def _call3_surprising_fact_prompt(machine: str, act_number: int, shared_context:
         "something promising turns up (e.g. a named person or incident mentioned in passing). Find one "
         "fact most viewers wouldn't already know. Prefer primary/institutional sources over Wikipedia; use "
         "Wikipedia only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} {_HEADLINE_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -164,7 +168,7 @@ def _call3_contrast_prompt(machine: str, act_number: int, shared_context: list[s
         f'and what actually happened, or how it is remembered now - a query like "{machine} intended vs '
         'actual / obsoleted / legacy". Prefer primary/institutional sources over Wikipedia; use Wikipedia '
         "only as a last resort, and replace it with a follow-up search if it is your only result.\n"
-        f"{_SLOT_LENGTH_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
+        f"{_SLOT_LENGTH_RULE} {_HEADLINE_RULE} Return only JSON: {_SLOT_ANSWER_SHAPE}"
     )
 
 
@@ -190,7 +194,11 @@ def _normalize_answer_slot(raw: Any) -> Optional[dict]:
     quote = str(raw.get("quote") or "").strip()
     if not answer or not source_url or not quote:
         return None
-    return {"answer": answer, "source_url": source_url, "quote": quote}
+    result = {"answer": answer, "source_url": source_url, "quote": quote}
+    headline = str(raw.get("headline") or "").strip()
+    if headline:
+        result["headline"] = headline
+    return result
 
 
 def _normalize_outcome_candidates(raw: Any) -> list[dict]:
@@ -206,7 +214,11 @@ def _normalize_outcome_candidates(raw: Any) -> list[dict]:
         source_url = str(item.get("source_url") or "").strip()
         quote = str(item.get("quote") or "").strip()
         if fact and source_url and quote:
-            out.append({"fact": fact, "source_url": source_url, "quote": quote})
+            candidate = {"fact": fact, "source_url": source_url, "quote": quote}
+            headline = str(item.get("headline") or "").strip()
+            if headline:
+                candidate["headline"] = headline
+            out.append(candidate)
     return out[:4]
 
 
@@ -336,16 +348,27 @@ def _source_title_for(url: str) -> str:
     return hostname or url
 
 
-def _packet_citations(packet: dict) -> list[tuple[str, str, str, Optional[str]]]:
-    """Flatten a Call-3 packet into ``(claim_text, source_url, quote, role)`` rows."""
-    rows: list[tuple[str, str, str, Optional[str]]] = []
+def _packet_citations(packet: dict) -> list[tuple[str, str, str, Optional[str], str]]:
+    """Flatten a Call-3 packet into ``(claim_text, source_url, quote, role, headline)`` rows.
+
+    ``headline`` is ``""`` when the slot has none (older research, or a
+    generation that skipped it) - never omitted from the tuple, so callers
+    can tell "no headline" apart from a malformed row without an extra branch.
+    """
+    rows: list[tuple[str, str, str, Optional[str], str]] = []
     for slot in ("problem", "design", "trade_off", "surprising_fact", "contrast"):
         entry = packet.get(slot)
         if isinstance(entry, dict) and entry.get("answer") and entry.get("source_url") and entry.get("quote"):
-            rows.append((str(entry["answer"]), str(entry["source_url"]), str(entry["quote"]), _SLOT_NARRATIVE_ROLE[slot]))
+            rows.append((
+                str(entry["answer"]), str(entry["source_url"]), str(entry["quote"]),
+                _SLOT_NARRATIVE_ROLE[slot], str(entry.get("headline") or "").strip(),
+            ))
     for entry in packet.get("outcome_candidates") or []:
         if isinstance(entry, dict) and entry.get("fact") and entry.get("source_url") and entry.get("quote"):
-            rows.append((str(entry["fact"]), str(entry["source_url"]), str(entry["quote"]), _SLOT_NARRATIVE_ROLE["outcome_candidates"]))
+            rows.append((
+                str(entry["fact"]), str(entry["source_url"]), str(entry["quote"]),
+                _SLOT_NARRATIVE_ROLE["outcome_candidates"], str(entry.get("headline") or "").strip(),
+            ))
     return rows
 
 
@@ -367,7 +390,7 @@ def _build_verified_source_package(machine: str, packet: dict, subject_context: 
     sources: list[dict] = []
     excerpts: list[dict] = []
     raw_claims: list[dict] = []
-    for index, (claim_text, source_url, quote, role) in enumerate(_packet_citations(packet), start=1):
+    for index, (claim_text, source_url, quote, role, headline) in enumerate(_packet_citations(packet), start=1):
         source_id = f"C3-{index}"
         excerpt_id = f"{source_id}-E1"
         text = _candidate_text(machine, quote)
@@ -375,11 +398,20 @@ def _build_verified_source_package(machine: str, packet: dict, subject_context: 
         sources.append({
             "source_id": source_id, "source_url": source_url, "url": source_url, "source_title": title,
         })
-        excerpts.append({
+        excerpt = {
             "excerpt_id": excerpt_id, "source_id": source_id, "source_url": source_url,
             "text": text, "locator": excerpt_id, "source_capture_method": "fetched_page",
             "source_title": title,
-        })
+        }
+        # Carried on the excerpt, never the claim: `_validated_claims` strips
+        # any key it doesn't whitelist, so a `headline` on `raw_claim` below
+        # would silently vanish on the very next save - the class of bug
+        # fixed in routes/videos.py on 2026-09-22. The excerpt row is copied
+        # through `_eligible_candidates` (`{**raw, ...}`) untouched, so this
+        # is the one place an extra field survives the round trip.
+        if headline:
+            excerpt["headline"] = headline
+        excerpts.append(excerpt)
         raw_claim = {
             "claim": claim_text, "scope": "machine", "status": "supported",
             "reason": "Call 3 targeted search citation",
@@ -575,7 +607,11 @@ def packet_from_verified_source_package(machine: str, package: Any) -> Optional[
         source_url = str(excerpt.get("source_url") or "").strip()
         if not source_url or not quote:
             return None
-        return {text_key: text, "source_url": source_url, "quote": quote}
+        result = {text_key: text, "source_url": source_url, "quote": quote}
+        headline = str(excerpt.get("headline") or "").strip()
+        if headline:
+            result["headline"] = headline
+        return result
 
     packet: dict[str, Any] = {"machine": machine}
     for index, slot in _C3_SLOT_BY_INDEX.items():

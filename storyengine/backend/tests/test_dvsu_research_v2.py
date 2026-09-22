@@ -364,3 +364,87 @@ def test_every_slot_prompt_states_the_length_limits_that_keep_the_brief_under_bu
         assert "250 characters" in prompt, slot
     assert "450 characters" in v2._call3_problem_prompt("Gato class", 3, [])
     assert "220 characters" in v2._call3_outcome_prompt("Gato class", 3, [])
+
+
+# ---------------------------------------------------------------------------
+# `headline` slot field (research slot contract, SCOPE-research-slot-contract.md)
+# ---------------------------------------------------------------------------
+
+def test_brief_fingerprint_is_byte_identical_for_a_packet_without_headline():
+    """Pin: adding `headline` support must never change the fingerprint of a
+    packet that has no headline (every video researched before this field
+    existed). If this breaks, every saved script block in every video goes
+    stale and the next bulk run pays to rewrite everything - the exact risk
+    SCOPE-research-slot-contract.md's constraint 2 calls out."""
+    import dvsu_script_v2 as script
+
+    packet = {
+        "machine": MACHINE,
+        "act_number": 4,
+        "problem": {"answer": "Diesel submarines had to surface to breathe.",
+                    "source_url": "https://example.navy.mil/problem", "quote": "Problem quote."},
+        "design": {"answer": "A pressurized-water reactor drove the propulsion plant.",
+                   "source_url": "https://example.navy.mil/design", "quote": "Design quote."},
+        "trade_off": {"answer": "Shielding and reactor space cost weapons volume.",
+                      "source_url": "https://example.navy.mil/tradeoff", "quote": "Trade-off quote."},
+        "outcome_candidates": [
+            {"fact": "Crossed under the North Pole in 1958.", "source_url": "https://example.navy.mil/outcome1", "quote": "Outcome quote one."},
+            {"fact": "Signalled underway on nuclear power in 1955.", "source_url": "https://example.navy.mil/outcome2", "quote": "Outcome quote two."},
+        ],
+        "surprising_fact": {"answer": "Her first message was a plain three-word signal.",
+                            "source_url": "https://example.navy.mil/surprise", "quote": "Surprising quote."},
+        "contrast": {"answer": "Built as an experiment, she rewrote the fleet.",
+                     "source_url": "https://example.navy.mil/contrast", "quote": "Contrast quote."},
+    }
+    # Hardcoded, not recomputed: this literal was captured against the code as
+    # it existed before `headline` support was added, precisely so a later
+    # accidental change (e.g. always adding the key, even empty) fails loudly.
+    assert script.brief_fingerprint(MACHINE, packet) == (
+        "4bf77070fdcbaf2c8864f742bbdcf6543ad38fdf0d4e1762452947981b1a4088"
+    )
+
+
+def test_headline_survives_the_packet_to_package_to_packet_round_trip():
+    packet = _example_packet()
+    packet["problem"]["headline"] = "Diesel boats had to surface to recharge."
+    packet["outcome_candidates"][0]["headline"] = "Nautilus set a submerged-transit record."
+    out = v2.adapt_packet_to_factual_card(MACHINE, 1, packet, 1, TITLE)
+    rebuilt = v2.packet_from_verified_source_package(MACHINE, out["package"])
+    assert rebuilt["problem"]["headline"] == "Diesel boats had to surface to recharge."
+    assert rebuilt["outcome_candidates"][0]["headline"] == "Nautilus set a submerged-transit record."
+    # A slot with no headline must not gain the key at all (constraint 2/3:
+    # absent means absent, never an empty string that would still flip a
+    # fingerprint or need a "was this skipped or blank" branch downstream).
+    assert "headline" not in rebuilt["design"]
+
+
+def test_headline_absent_on_old_packages_rebuilds_with_no_headline_key():
+    """A package saved before `headline` existed has no headline anywhere on
+    its excerpts. Rebuilding it must produce a packet identical in shape to
+    today's packets - the check that reads `headline` must be skippable, not
+    failed, for this case (constraint 3)."""
+    out = v2.adapt_packet_to_factual_card(MACHINE, 1, _example_packet(), 1, TITLE)
+    rebuilt = v2.packet_from_verified_source_package(MACHINE, out["package"])
+    for slot in ("problem", "design", "trade_off", "surprising_fact", "contrast"):
+        assert "headline" not in rebuilt[slot]
+    for candidate in rebuilt["outcome_candidates"]:
+        assert "headline" not in candidate
+
+
+def test_normalize_answer_slot_captures_optional_headline():
+    assert v2._normalize_answer_slot({
+        "answer": "a" * 5, "source_url": "https://x", "quote": "q", "headline": "the claim",
+    }) == {"answer": "aaaaa", "source_url": "https://x", "quote": "q", "headline": "the claim"}
+    # Absent/blank headline never adds the key.
+    assert "headline" not in v2._normalize_answer_slot({
+        "answer": "a" * 5, "source_url": "https://x", "quote": "q",
+    })
+    assert "headline" not in v2._normalize_answer_slot({
+        "answer": "a" * 5, "source_url": "https://x", "quote": "q", "headline": "   ",
+    })
+
+
+def test_outcome_candidate_prompt_and_slot_shapes_request_headline():
+    assert "headline" in v2._SLOT_ANSWER_SHAPE
+    assert "headline" in v2._call3_problem_prompt("Gato class", 3, [])
+    assert "headline" in v2._call3_outcome_prompt("Gato class", 3, [])
