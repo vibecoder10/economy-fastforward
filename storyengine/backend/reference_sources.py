@@ -185,7 +185,7 @@ def _merge(base: dict, record: dict|None, context: list[dict], code=None, reason
     return _candidate(record.get("image_url") or base["image_url"],source_page=record.get("source_page") or base.get("source_page"),title=record.get("title", ""),caption=record.get("caption", ""),width=record.get("width"),height=record.get("height"),evidence=(record.get("evidence") or [])+(page_evidence or [])+context,reason_code=code,reason=reason)
 
 # The nouns a roster can be "about". Longer/rarer words first so "warship" is not read as "ship".
-SUBJECT_WORDS = ('submarine', 'aircraft', 'helicopter', 'tank', 'warship', 'locomotive', 'rocket', 'ship')
+SUBJECT_WORDS = ('submarine', 'aircraft', 'helicopter', 'tank', 'battleship', 'warship', 'locomotive', 'rocket', 'ship')
 
 
 def roster_subject(*texts) -> str:
@@ -204,6 +204,7 @@ def _category(machine: str, facts: dict | None) -> str:
     for word in SUBJECT_WORDS:
         if word in role: return word
     if re.search(r'\b(?:agss|ssn|ssbn|ssgn|ss)-\d',role): return 'submarine'
+    if re.search(r'\bbb-\d',role): return 'battleship'
     if any(w in role for w in ('bomber','fighter')): return 'aircraft'
     return ''
 
@@ -214,12 +215,17 @@ def _entity_queries(machine: str, names: list[str], facts: dict | None) -> list[
     meaningful = [n for n in names if not re.fullmatch(r'[A-Z]+-?\d+(?:\s+through\s+[A-Z]+-?\d+)?',n,re.I)]
     subject = meaningful[0] if meaningful else machine
     subject = re.sub(r'^(?:(?:[A-Z]+-\d+\+?)[,\s]*(?:through\s*)?)+\s*','',subject)
+    # A year in the name ("Texas (1892)") is what separates it from its namesakes; keep it.
+    year = re.search(r'\((?:[^)]*\D)?((?:18|19|20)\d\d)\b[^)]*\)',subject)
     subject = re.sub(r'\s*\([^)]*\)','',subject).strip()
     subject = re.sub(r'\s+class\b','-class',subject,flags=re.I)
     subject = subject.replace('"','').strip()
     designation = re.search(r'\b(?:[A-Z]{1,6})-\d+\b',machine)
+    # A one-ship name alone ("Iowa") finds the state or a later namesake; its hull number pins the ship.
+    pin = (f'"{designation.group()}"' if designation and designation.group() not in subject
+           and not subject.lower().endswith('-class') else '')
     queries = []
-    if subject: queries.append(' '.join(x for x in (f'"{subject}"',category) if x))
+    if subject: queries.append(' '.join(x for x in (f'"{subject}"',pin,category,year.group(1) if year else '') if x))
     if designation: queries.append(' '.join(x for x in (f'"{designation.group()}"',category) if x))
     return list(dict.fromkeys(queries))[:2]
 

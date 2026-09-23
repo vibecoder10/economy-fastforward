@@ -310,8 +310,23 @@ def test_roster_subject_reads_the_machine_noun_from_title_then_thesis():
     from reference_sources import roster_subject
     assert roster_subject("Every US Submarine Class Ever Built (2026)", "") == "submarine"
     assert roster_subject("Every Bomber", "The heavy aircraft that ended a war") == "aircraft"
-    assert roster_subject("Battleships of the fleet") == "" and roster_subject("Warships that changed war") == "warship"
+    assert roster_subject("Battleships of the fleet") == "battleship" and roster_subject("Warships that changed war") == "warship"
+    assert roster_subject("Ships of the line") == "ship" and roster_subject("Every US Battleship Class Ever Built (2026)") == "battleship"
     assert roster_subject(None, None) == ""
+
+
+def test_a_one_ship_name_is_pinned_by_its_hull_number_or_year():
+    # Live bug (video 7b6914b6): bare "Iowa"/"Maine"/"Texas" resolved to the STATE articles, whose
+    # dozens of images filled every candidate slot, and "Virginia-class" found the modern submarine.
+    from reference_sources import _entity_queries
+    facts = {"subject": "battleship"}
+    assert _entity_queries("Iowa (BB-4)", ["Iowa (BB-4)"], facts) == ['"Iowa" "BB-4" battleship', '"BB-4" battleship']
+    assert _entity_queries("Maine (ACR-1)", ["Maine (ACR-1)"], facts)[0] == '"Maine" "ACR-1" battleship'
+    assert _entity_queries("Texas (1892)", ["Texas (1892)"], facts) == ['"Texas" battleship 1892']
+    assert _entity_queries("Virginia class", ["Virginia class"], facts) == ['"Virginia-class" battleship']
+    assert _entity_queries("Iowa (BB-4)", ["Iowa (BB-4)"], {})[1] == '"BB-4" battleship'
+    # A class name is never pinned to one hull.
+    assert _entity_queries("Barracuda class (V-1 group)", ["Barracuda class (V-1 group)"], {"subject": "submarine"})[0] == '"Barracuda-class" submarine'
 
 
 def test_every_search_names_the_subject_even_when_the_machine_name_does_not():
