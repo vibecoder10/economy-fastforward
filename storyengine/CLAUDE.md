@@ -41,6 +41,32 @@ mutate) | `se deploy` | `se restart [svc]` | `se token [--mint]` |
 - Plans/handoffs at this root: GOAL.md, HANDOFF.md (one file, no dated copies)
 - Canonical local project: `/Users/ryanayler/AgentVault/Projects/story-engine/`
 
+## No API key? The session is the API (relay mode)
+
+When a workspace has no Anthropic key, run the pipeline through the
+`storyengine` MCP exactly as normal. Do not hand-write research or scripts,
+and do not use `submit_research`/`submit_script` shortcuts. The pipeline code
+runs unchanged; this session only stands in for the Anthropic API.
+
+1. `get_workspace_info` - `agent_llm_relay: true` means the relay is live
+   (tenant opted in AND no key; `backend/agent_relay.py::relay_active`).
+2. Start the stage with its normal verb (`research`, `script`, ...).
+3. Loop: `list_pending_llm_requests(status=pending)` -> answer the prompt
+   exactly as the model would (raw output, same format) -> `answer_llm_request`.
+   Requests come one at a time; poll again after each answer.
+4. Hand each prompt to a Sonnet subagent: give it the `request_id` so it
+   fetches the prompt itself, tell it to return ONLY the raw answer and never
+   call `answer_llm_request`. The session posts the answer.
+5. Vision passes go through the relay too (roster photo checks via
+   `gather_roster_images`; `reference_selection.judge_mode` returns "relay"
+   when there is no key). The answerer must really LOOK at every image:
+   download each candidate `image_url` to the scratchpad with curl and open
+   it with Read. Never judge a photo from its URL, filename or caption.
+
+Goal: prove the system runs unattended. When a key is added later, the same
+pipeline runs with no change. Media stages (voice, images, clips, render)
+are still real spend - quote first.
+
 ## Hard rules
 
 - **Money:** anything that triggers paid generation (images, clips, voice)

@@ -386,6 +386,69 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
     assert pe._live_roster_gate(drifted, payload)["passed"] is False
 
 
+def test_call2_prompt_for_complete_title_lists_every_class_without_thesis_filter():
+    """Regression, 2026-09-23: "Every US Battleship Class Ever Built" came back
+    with five single Iowa-class ships and ~9 classes missing, because the
+    thesis filter ("keep only the stronger one") overrode the title's promise."""
+    acts = [{"act_number": 1, "argument": "A."}]
+    complete = v2._call2_user_prompt("Every US Battleship Class Ever Built (2026)", "T", acts)
+    assert "keep only the" not in complete
+    assert "20-25" not in complete
+    assert "Never list two ships of the same class" in complete
+    assert "no count limit" in complete
+
+    shortlist = v2._call2_user_prompt("How the Battleship Lost the Pacific", "T", acts)
+    assert "find 20-25 real, specifically-named machines" in shortlist
+    assert "keep only the\nstronger one" in shortlist
+
+
+def test_complete_title_roster_keeps_every_entry_and_sizes_runtime_to_it(monkeypatch):
+    """Ryan, 2026-09-23: an "every X" title keeps every member found; the video
+    runtime follows the roster at the saved pacing. Truncating to the runtime
+    target used to cut the tail - the chronological ending of the story."""
+    import pipeline_executor as pe
+
+    video = {
+        "id": "v", "status": "idea_logged", "render_mode": "static_docu",
+        "video_length_minutes": 20,
+        "video_title": "Every US Battleship Class Ever Built (2026)",
+        "research_payload": {"machine_script_contract": "factual_100_v1"},
+    }
+    ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    ex.tenant_id = "t"
+    ex._get_video = AsyncMock(side_effect=lambda _: copy.deepcopy(video))
+    ex._pipeline = SimpleNamespace(anthropic=object(), should_cancel=AsyncMock(return_value=False))
+    ex._log_activity = AsyncMock()
+
+    async def save(query, *args):
+        if "video_length_minutes" in query:
+            video["video_length_minutes"] = args[0]
+        else:
+            video["research_payload"] = json.loads(args[0])
+        return "UPDATE 1"
+    monkeypatch.setattr(pe, "execute", save)
+    monkeypatch.setattr(pe, "fetch_one", AsyncMock(return_value={"has_saved_work": False}))
+
+    roster = [{"machine": f"Class {n}", "act_number": 1} for n in range(23)]
+    draft = {
+        "thesis": "T", "acts": [{"act_number": 1, "argument": "A"}],
+        "unit_roster": roster,
+        "recommended_final_roster": [row["machine"] for row in roster],
+        "shared_context": [],
+    }
+    monkeypatch.setattr(v2, "run_thesis_roster_and_context", AsyncMock(return_value=draft))
+
+    result = asyncio.run(ex.run_roster_selection("v"))
+    assert result == {"status": "roster_ready", "video_id": "v", "selected_count": 23}
+    assert video["video_length_minutes"] == 23
+    payload = video["research_payload"]
+    assert [row["machine"] for row in payload["unit_roster"]] == [f"Class {n}" for n in range(23)]
+    assert "roster_candidate_overflow" not in payload
+    assert payload["roster_selection"]["target_count"] == 23
+    # The saved selection agrees with the resized runtime, so the live gate passes.
+    assert pe._live_roster_gate(video, payload)["passed"] is True
+
+
 class _FakeDrive:
     """Records the kwargs of every Drive files().create/list/update call."""
 

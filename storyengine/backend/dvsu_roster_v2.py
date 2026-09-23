@@ -89,18 +89,42 @@ CALL2_SYSTEM_PROMPT = (
 CALL2_SEARCH_BUDGET = 15
 
 
+# "Every / all / ever built" titles promise the whole category. The thesis
+# filter above ("keep only the stronger one") silently broke that promise on
+# 2026-09-23: "Every US Battleship Class Ever Built" came back with five
+# single Iowa-class ships and ~9 classes missing. For these titles the
+# category sets the roster and the runtime follows it (run_roster_selection).
+_COMPLETE_ROSTER_INSTRUCTIONS = (
+    "This title promises EVERY member of its category, so completeness overrides the thesis filter.\n"
+    "Using web search, list every real member of the category the title names - for a class title, every\n"
+    "class, one entry per class, named as the class (e.g. \"Ajax class\"; a one-ship class is named by its\n"
+    "ship). Never list two ships of the same class. Never drop a member because another proves the same\n"
+    "point; leave one out only if the title itself excludes it (e.g. never built, when the title says\n"
+    "\"ever built\"). There is no count limit - the video's runtime is sized to your list. Assign every\n"
+    "machine to the act it best proves. Order machines chronologically within each act.\n"
+)
+
+
 def _call2_user_prompt(title: str, thesis: str, acts: list[dict]) -> str:
+    from pipeline_executor import _title_needs_complete_roster
+
     act_lines = "\n".join(f"{act['act_number']}. {act['argument']}" for act in acts)
+    if _title_needs_complete_roster(title):
+        selection = _COMPLETE_ROSTER_INSTRUCTIONS
+    else:
+        selection = (
+            "Using web search, find 20-25 real, specifically-named machines (not a category like \"destroyers\"\n"
+            "or \"cruisers\" - one concrete named unit or named class, e.g. \"HMS Devastation\", \"Ajax class\") that\n"
+            "together prove this thesis. Assign every machine to exactly one act - the machine must exist\n"
+            "BECAUSE it proves that act's argument. If two machines would prove the same point, keep only the\n"
+            "stronger one. Order machines chronologically within each act.\n"
+        )
     return (
         f'Video title: "{title}"\n'
         f'Thesis: "{thesis}"\n'
         f"Acts:\n{act_lines}\n"
         "\n"
-        "Using web search, find 20-25 real, specifically-named machines (not a category like \"destroyers\"\n"
-        "or \"cruisers\" - one concrete named unit or named class, e.g. \"HMS Devastation\", \"Ajax class\") that\n"
-        "together prove this thesis. Assign every machine to exactly one act - the machine must exist\n"
-        "BECAUSE it proves that act's argument. If two machines would prove the same point, keep only the\n"
-        "stronger one. Order machines chronologically within each act.\n"
+        + selection +
         "\n"
         "Also note 3-5 facts you encounter that apply across MULTIPLE machines rather than one specific\n"
         "unit (a shared technological shift, a doctrine change, an external event that reframes several\n"
