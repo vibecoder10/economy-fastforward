@@ -8244,7 +8244,7 @@ class PipelineExecutor:
                     if self._db_write_missed(resized):
                         return {"status": "failed", "video_id": video_id, "error": "Runtime resize refused",
                                 "roster_selection_failed": True}
-                    await self._log_activity("Research Agent", video_id, "info",
+                    await self._log_activity("Research Agent", video_id, "completed",
                                               f"Complete-title roster found {found} entries; runtime set to {minutes:g} min")
                     settings = selection_settings(minutes, pacing)
                 draft = bound_selection_candidates(draft, settings["target_count"])
