@@ -4,7 +4,7 @@
 - Prod: `7528431a` deployed 17:34Z, healthy, no lock, 0 active work. Branch `main` = origin/main, clean.
 - Video `7b6914b6-3ff5-46d0-b05f-138a984baa32` "Every US Battleship Class Ever Built (2026)" (tenant
   Designed Vs Used): **status `ready_for_voice`**, 23/23 paragraphs, 2,678 words, runtime 23 min.
-  All of it ran on the no-key relay, $0 spend. Voice NOT run (quote: ~$1.65).
+  All of it ran on the no-key relay, $0 spend. Test vehicle only - not to be voiced.
 - Script for Ryan to read: `~/AgentVault/Assets/story-engine/docs/battleship-script-2026-09-23.md`.
 - Submarine video `6ac28204` untouched.
 - What shipped this session:
@@ -18,9 +18,9 @@
   fixture failures - still unfixed, see prior handoff in git history).
 
 ## Next action (start here cold)
-Show Ryan the "ready for automation" verdict (below + JOURNAL/2026-09-23.md) and ask ONE question:
-fix the research-quality gap first (claim text vs source page), or run voice (~$1.65) on this video.
-Do not run voice without his yes.
+The battleship video was only a test vehicle - Ryan: do NOT voice or finish it. The job now is fixing
+the pipeline gaps it exposed. Start with blocker 1 below (claim text vs its source page), then 2 and 3.
+Plan the fix with Ryan before coding; per scripts-are-never-blocked, a new check warns, never blocks.
 
 ## Verdict: where a human had to step in (automation blockers, worst first)
 1. **Claim text drifts from its source.** Quotes were 100% verbatim, but ~1 in 5 claims added a number,
