@@ -20,12 +20,13 @@
 ## Next action (start here cold)
 The battleship video was only a test vehicle - Ryan: do NOT voice or finish it. The job now is fixing
 the pipeline gaps it exposed. Start with blocker 1 below (claim text vs its source page), then 2 and 3.
-Plan the fix with Ryan before coding; per scripts-are-never-blocked, a new check warns, never blocks.
+NO output checker (Ryan, firm). Fix the input: feed the script writer the verbatim source quote +
+context instead of the model-written claim. Blockers 2 and 3 are plain bugs. Confirm the pick with Ryan.
 
 ## Verdict: where a human had to step in (automation blockers, worst first)
 1. **Claim text drifts from its source.** Quotes were 100% verbatim, but ~1 in 5 claims added a number,
    a date, a sibling ship's fact or unsupported framing. The card gate only checks the quote exists.
-   Needs a claim-vs-page number check in research (advisory, per scripts-are-never-blocked).
+   Fix by removing the re-write step (writer reads the real quote), not by adding a checker.
 2. **Two copies of each card.** The script brief reads `research_payload.unit_research_cards` +
    `machine_raw_source_packages`, not the `machine_research_cards` table. Fixes to the table do nothing.
 3. **Race:** starting machine N+1 right after N ends can reset N's verdict in
