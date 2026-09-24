@@ -272,3 +272,37 @@ async def test_durable_pending_row_write_retries_then_fails_loudly(monkeypatch, 
     else:
         await call
     assert calls == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_finished_leftover_job_is_skipped_not_409(monkeypatch):
+    """2026-09-24: a refused job left arq's kept result under attempt 1 but no
+    background_tasks row, so every retry re-derived attempt 1 and got a 409.
+    A FINISHED leftover is now skipped; the next attempt number is used."""
+    attempts = []
+
+    async def fake_fetch_one(query, *args):
+        return {"n": 0}
+
+    async def fake_enqueue_stage(pool, stage, video_id, tenant_id, attempt, **kwargs):
+        attempts.append(attempt)
+        return None if attempt == 1 else f"autobuild:vid1:{attempt}"
+
+    async def finished(job_id, pool):
+        return job_id.endswith(":1")
+
+    persisted = []
+
+    async def fake_db_persist_task(*a, **kw):
+        persisted.append(kw)
+
+    monkeypatch.setattr(pipeline_mod, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pipeline_mod, "enqueue_stage", fake_enqueue_stage)
+    monkeypatch.setattr(pipeline_mod, "_is_finished_arq_job", finished)
+    monkeypatch.setattr(pipeline_mod, "db_persist_task", fake_db_persist_task)
+
+    await pipeline_mod._enqueue_or_fallback(
+        _fake_request(arq_pool=object()), _FakeBackgroundTasks(), "autobuild", "vid1", "tenant1",
+        AsyncMock(), durable_only=True)
+    assert attempts == [1, 2]
+    assert persisted[0]["attempt"] == 2 and persisted[0]["job_id"] == "autobuild:vid1:2"

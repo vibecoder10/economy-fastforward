@@ -862,6 +862,15 @@ def _get_arq_pool(request: Request):
     return getattr(request.app.state, "arq", None)
 
 
+async def _is_finished_arq_job(job_id: str, arq_pool) -> bool:
+    """True only when arq holds a FINISHED job under this id (its kept result is
+    what makes a re-enqueue collide). Any lookup error reads as not finished."""
+    try:
+        return await Job(job_id, arq_pool).status() == JobStatus.complete
+    except Exception:
+        return False
+
+
 async def _enqueue_or_fallback(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -914,6 +923,17 @@ async def _enqueue_or_fallback(
             attempt = int((prior or {}).get("n") or 0) + 1
             expected_job_id = make_job_id(stage, video_id, attempt)
             job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt, **stage_kwargs)
+            # A job that finished without ever getting its background_tasks row
+            # (refused as unknown, or its write was lost) leaves no history, so
+            # the next call re-derives the same attempt and arq's 24h result
+            # dedup refuses it. Skip past such FINISHED leftovers; a job that is
+            # still queued or running stays a genuine duplicate (409 below).
+            for _ in range(3):
+                if job_id or not await _is_finished_arq_job(expected_job_id, arq_pool):
+                    break
+                attempt += 1
+                expected_job_id = make_job_id(stage, video_id, attempt)
+                job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt, **stage_kwargs)
             if job_id:
                 # A durable job whose pending row never lands is refused by the
                 # worker as "unknown" while the caller's claim stays held - a
