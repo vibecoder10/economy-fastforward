@@ -143,6 +143,24 @@ def test_write_prompt_first_paragraph_and_final_paragraph_edges():
     assert "never boat/boats" not in prompt
 
 
+def test_submarine_rule_keys_on_subject_not_thesis_wording():
+    # 2026-09-24: helicopter video 09debd56 got the boat/boats rule on every
+    # paragraph because its thesis said "hunt submarines".
+    def prompt_for(title, machine, thesis):
+        return script.build_write_prompt(
+            title=title, thesis=thesis, acts=[], machine=machine, act_number=1, act_thesis="",
+            scene=2, roster_size=20, brief_markdown="", prior_paragraphs=[], next_machine=None,
+        )
+
+    helicopter = prompt_for(
+        "Every US Military Helicopter Ever Built (2026)", "Sikorsky SH-60 Seahawk",
+        "Helicopters learned to carry troops, fight tanks, and hunt submarines.",
+    )
+    assert "never boat/boats" not in helicopter
+    submarine = prompt_for(TITLE, MACHINE, "t")
+    assert "never boat/boats" in submarine
+
+
 # ---------------------------------------------------------------------------
 # write_paragraph: exactly one call, block shape, nothing can reject it
 # ---------------------------------------------------------------------------

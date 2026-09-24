@@ -92,6 +92,9 @@ _OUTPUT_SHAPE = (
 
 
 def _submarine_context(*texts: str) -> bool:
+    """True when the video's SUBJECT is submarines. Pass only the title and the
+    machine name - never the thesis, which can mention submarines in passing
+    (the helicopter video's thesis says "hunt submarines")."""
     return any(re.search(r"\bsubmarines?\b|\bsubs?\b|\bU-boats?\b", str(t or ""), re.I) for t in texts)
 
 
@@ -156,7 +159,7 @@ def build_write_prompt(
     prior_paragraphs: list[dict],
     next_machine: Optional[dict],
 ) -> str:
-    submarine = _submarine_context(title, machine, thesis)
+    submarine = _submarine_context(title, machine)
     terminology = (
         "Submarine terminology (project-specific): refer to the subject and its successors as a "
         "submarine/submarines or vessel/vessels, never boat/boats.\n\n"
