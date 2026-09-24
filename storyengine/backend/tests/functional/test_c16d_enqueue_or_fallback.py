@@ -233,3 +233,42 @@ async def test_no_arq_pool_falls_back_without_querying_attempt(monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failures, expect_error", [(1, False), (2, True)])
+async def test_durable_pending_row_write_retries_then_fails_loudly(monkeypatch, failures, expect_error):
+    """2026-09-24: a transient asyncpg error dropped the durable pending row; the
+    worker refused the job as unknown and the queue lane stayed held with nothing
+    running. The write is now required for durable dispatch: retried once, then 503."""
+    calls = []
+
+    async def fake_fetch_one(query, *args):
+        return {"n": 0}
+
+    async def fake_enqueue_stage(pool, stage, video_id, tenant_id, attempt, **kwargs):
+        return "autobuild:vid1:1"
+
+    async def fake_db_persist_task(*a, **kw):
+        calls.append(kw.get("required"))
+        if len(calls) <= failures:
+            raise RuntimeError("could not determine data type of parameter $4")
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(pipeline_mod, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pipeline_mod, "enqueue_stage", fake_enqueue_stage)
+    monkeypatch.setattr(pipeline_mod, "db_persist_task", fake_db_persist_task)
+    monkeypatch.setattr(pipeline_mod.asyncio, "sleep", no_sleep)
+
+    call = pipeline_mod._enqueue_or_fallback(
+        _fake_request(arq_pool=object()), _FakeBackgroundTasks(), "autobuild", "vid1", "tenant1",
+        AsyncMock(), durable_only=True)
+    if expect_error:
+        with pytest.raises(HTTPException) as err:
+            await call
+        assert err.value.status_code == 503
+    else:
+        await call
+    assert calls == [True, True]

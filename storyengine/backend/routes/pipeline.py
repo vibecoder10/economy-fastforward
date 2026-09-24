@@ -915,11 +915,28 @@ async def _enqueue_or_fallback(
             expected_job_id = make_job_id(stage, video_id, attempt)
             job_id = await enqueue_stage(arq_pool, stage, video_id, tenant_id, attempt, **stage_kwargs)
             if job_id:
-                await db_persist_task(
-                    tenant_id, video_id, stage, "pending",
-                    message=f"{stage} queued — job_id={job_id}",
-                    job_id=job_id, attempt=attempt,
-                )
+                # A durable job whose pending row never lands is refused by the
+                # worker as "unknown" while the caller's claim stays held - a
+                # silent wedge (seen 2026-09-24 on a transient asyncpg error).
+                # Retry once, then fail loudly: the refused job starts nothing.
+                for persist_try in range(2):
+                    try:
+                        await db_persist_task(
+                            tenant_id, video_id, stage, "pending",
+                            message=f"{stage} queued — job_id={job_id}",
+                            job_id=job_id, attempt=attempt, required=durable_only,
+                        )
+                        break
+                    except Exception as persist_exc:
+                        if persist_try:
+                            raise HTTPException(
+                                status_code=503,
+                                detail=(
+                                    "StoryEngine could not record the queued job, so nothing "
+                                    "was started; retry Run All."
+                                ),
+                            ) from persist_exc
+                        await asyncio.sleep(0.5)
                 # The worker runs in another process and cannot update this
                 # process-local optimistic marker. Tag it so status reads and
                 # start guards reconcile it against the durable terminal row.
