@@ -8227,26 +8227,10 @@ class PipelineExecutor:
                 draft = await run_thesis_roster_and_context(
                     self._pipeline.anthropic, title,
                     checkpoint_scope={"tenant_id": self.tenant_id, "video_id": video_id},
+                    target_count=settings["target_count"],
                 )
                 if not isinstance(draft, dict):
                     raise ValueError("DVSU roster generation returned no structured payload")
-                found = len(draft.get("unit_roster") or [])
-                if _title_needs_complete_roster(title) and found >= 3 and found != settings["target_count"]:
-                    # An "every X" title keeps every member; the runtime follows the
-                    # category at the saved pacing instead of truncating its tail
-                    # (Ryan, 2026-09-23). Under 3 still fails the structural check.
-                    from decimal import Decimal
-                    minutes = Decimal(str(settings["minutes_per_machine"])) * found
-                    resized = await execute(
-                        "UPDATE videos SET video_length_minutes=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
-                        minutes, video_id, self.tenant_id,
-                    )
-                    if self._db_write_missed(resized):
-                        return {"status": "failed", "video_id": video_id, "error": "Runtime resize refused",
-                                "roster_selection_failed": True}
-                    await self._log_activity("Research Agent", video_id, "completed",
-                                              f"Complete-title roster found {found} entries; runtime set to {minutes:g} min")
-                    settings = selection_settings(minutes, pacing)
                 draft = bound_selection_candidates(draft, settings["target_count"])
                 merged = dict(payload)
                 merged.update({key: value for key, value in draft.items() if key in selection_keys})

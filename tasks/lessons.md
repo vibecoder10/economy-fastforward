@@ -799,3 +799,7 @@ POST /api/pipeline/cancel said "cancelling" but the v2 writer kept parking parag
 
 ## 2026-09-22 - Drive real pipeline stages with Sonnet subagents when the tenant has no key
 Ryan's rule for these sessions: no Anthropic API; where the pipeline would call Sonnet, spawn a Sonnet subagent with the SYSTEM and USER prompt verbatim, demand raw JSON, and relay the answer unchanged (strip code fences only). That keeps the run honest - the audit/repair path is exercised on real Sonnet output, not on Fable-polished text. Repairs for a KNOWN audit false positive may be answered with the unchanged draft (that is what Sonnet returned the first time).
+
+## 2026-09-24 - The length Ryan sets is the roster size, even for "every X" titles
+The 2026-09-23 rule ("every X" title keeps every member, runtime grows to fit) was a misread. Ryan: "if we say 20 min, we mean 20 minutes and 20 helicopters in the class of the title." Fixed in dvsu_roster_v2 (roster prompt asks for exactly target_count, one entry per class/type) and pipeline_executor.run_roster_selection (runtime resize deleted).
+**How to apply:** never change `video_length_minutes` from pipeline code. When a title and the set length disagree, the length wins and the title's category only decides WHICH machines, not how many.

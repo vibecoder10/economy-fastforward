@@ -89,31 +89,32 @@ CALL2_SYSTEM_PROMPT = (
 CALL2_SEARCH_BUDGET = 15
 
 
-# "Every / all / ever built" titles promise the whole category. The thesis
-# filter above ("keep only the stronger one") silently broke that promise on
-# 2026-09-23: "Every US Battleship Class Ever Built" came back with five
-# single Iowa-class ships and ~9 classes missing. For these titles the
-# category sets the roster and the runtime follows it (run_roster_selection).
-_COMPLETE_ROSTER_INSTRUCTIONS = (
-    "This title promises EVERY member of its category, so completeness overrides the thesis filter.\n"
-    "Using web search, list every real member of the category the title names - for a class title, every\n"
-    "class, one entry per class, named as the class (e.g. \"Ajax class\"; a one-ship class is named by its\n"
-    "ship). Never list two ships of the same class. Never drop a member because another proves the same\n"
-    "point; leave one out only if the title itself excludes it (e.g. never built, when the title says\n"
-    "\"ever built\"). There is no count limit - the video's runtime is sized to your list. Assign every\n"
-    "machine to the act it best proves. Order machines chronologically within each act.\n"
-)
+# "Every / all / ever built" titles name a category. The thesis filter
+# ("keep only the stronger one") once returned five single Iowa-class ships
+# for "Every US Battleship Class Ever Built" (2026-09-23), so these titles
+# get one-entry-per-type rules. The count is still the runtime: the video
+# length Ryan sets is the roster size (20 min = 20 machines), never resized.
+def _complete_roster_instructions(target_count: int) -> str:
+    return (
+        f"This title names a category. Using web search, pick exactly {target_count} real members of it - one\n"
+        "entry per distinct class or type, named as the class or type (e.g. \"Ajax class\", \"UH-1 Iroquois\";\n"
+        "a one-ship class is named by its ship). Never list two ships of one class or two variants of one\n"
+        "type. Spread the picks across the category's whole history, choosing the members that best prove\n"
+        "the thesis. Leave out anything the title itself excludes (e.g. never built, when the title says\n"
+        "\"ever built\"). Assign every machine to the act it best proves. Order machines chronologically\n"
+        "within each act.\n"
+    )
 
 
-def _call2_user_prompt(title: str, thesis: str, acts: list[dict]) -> str:
+def _call2_user_prompt(title: str, thesis: str, acts: list[dict], target_count: int) -> str:
     from pipeline_executor import _title_needs_complete_roster
 
     act_lines = "\n".join(f"{act['act_number']}. {act['argument']}" for act in acts)
     if _title_needs_complete_roster(title):
-        selection = _COMPLETE_ROSTER_INSTRUCTIONS
+        selection = _complete_roster_instructions(target_count)
     else:
         selection = (
-            "Using web search, find 20-25 real, specifically-named machines (not a category like \"destroyers\"\n"
+            f"Using web search, find exactly {target_count} real, specifically-named machines (not a category like \"destroyers\"\n"
             "or \"cruisers\" - one concrete named unit or named class, e.g. \"HMS Devastation\", \"Ajax class\") that\n"
             "together prove this thesis. Assign every machine to exactly one act - the machine must exist\n"
             "BECAUSE it proves that act's argument. If two machines would prove the same point, keep only the\n"
@@ -213,7 +214,7 @@ async def _call_thesis_and_acts(client: Any, title: str, checkpoint_scope: Optio
 
 
 async def _call_roster_and_shared_context(
-    client: Any, title: str, thesis: str, acts: list[dict], checkpoint_scope: Optional[dict],
+    client: Any, title: str, thesis: str, acts: list[dict], checkpoint_scope: Optional[dict], target_count: int,
 ) -> dict:
     from shared.clients.anthropic_client import WEB_SEARCH_TOOL
     from orchestrator.pipeline_constants import Models
@@ -225,7 +226,7 @@ async def _call_roster_and_shared_context(
             "Roster discovery needs a web-search capable research provider; this gateway cannot execute web search"
         )
 
-    prompt = _call2_user_prompt(title, thesis, acts)
+    prompt = _call2_user_prompt(title, thesis, acts, target_count)
     system_prompt = CALL2_SYSTEM_PROMPT
     model = Models.CLAUDE_SONNET
     max_tokens = 6000
@@ -298,7 +299,7 @@ def validate_roster_structure(payload: dict, target_count: int) -> dict:
 
 
 async def run_thesis_roster_and_context(
-    anthropic_client: Any, title: str, checkpoint_scope: Optional[dict] = None,
+    anthropic_client: Any, title: str, checkpoint_scope: Optional[dict] = None, target_count: int = 20,
 ) -> dict:
     """Calls 1+2: thesis+acts, then roster+shared-context.
 
@@ -316,7 +317,7 @@ async def run_thesis_roster_and_context(
     """
     thesis_and_acts = await _call_thesis_and_acts(anthropic_client, title, checkpoint_scope)
     roster_and_context = await _call_roster_and_shared_context(
-        anthropic_client, title, thesis_and_acts["thesis"], thesis_and_acts["acts"], checkpoint_scope,
+        anthropic_client, title, thesis_and_acts["thesis"], thesis_and_acts["acts"], checkpoint_scope, target_count,
     )
     roster = roster_and_context["roster"]
     draft = {

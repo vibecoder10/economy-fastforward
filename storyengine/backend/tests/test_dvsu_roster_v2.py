@@ -73,7 +73,7 @@ def test_call2_roster_and_shared_context_uses_web_search_tool_and_sorts_by_act()
         "shared_context": ["Fact A", "Fact B"],
     }))
     acts = [{"act_number": 1, "argument": "First act."}, {"act_number": 2, "argument": "Second act."}]
-    result = asyncio.run(v2._call_roster_and_shared_context(client, "Title", "Thesis text", acts, None))
+    result = asyncio.run(v2._call_roster_and_shared_context(client, "Title", "Thesis text", acts, None, 20))
     assert client.kwargs["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": v2.CALL2_SEARCH_BUDGET}]
     assert client.kwargs["system_prompt"] == v2.CALL2_SYSTEM_PROMPT
     assert '"Thesis text"' in client.kwargs["prompt"]
@@ -92,7 +92,7 @@ def test_call2_gateway_mode_guard_raises_without_calling_generate():
     client.generate = _boom  # type: ignore[assignment]
     with pytest.raises(ValueError):
         asyncio.run(v2._call_roster_and_shared_context(
-            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None,
+            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None, 20,
         ))
 
 
@@ -100,7 +100,7 @@ def test_call2_rejects_empty_roster():
     client = _Client(json.dumps({"roster": [], "shared_context": []}))
     with pytest.raises(ValueError):
         asyncio.run(v2._call_roster_and_shared_context(
-            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None,
+            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None, 20,
         ))
 
 
@@ -386,26 +386,29 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
     assert pe._live_roster_gate(drifted, payload)["passed"] is False
 
 
-def test_call2_prompt_for_complete_title_lists_every_class_without_thesis_filter():
+def test_call2_prompt_for_complete_title_picks_the_runtime_count_one_per_class():
     """Regression, 2026-09-23: "Every US Battleship Class Ever Built" came back
-    with five single Iowa-class ships and ~9 classes missing, because the
-    thesis filter ("keep only the stronger one") overrode the title's promise."""
+    with five single Iowa-class ships, because the thesis filter ("keep only the
+    stronger one") ran without a one-entry-per-class rule. Ryan, 2026-09-24:
+    the set length is the count - 20 min is exactly 20 machines, even for an
+    "every X" title."""
     acts = [{"act_number": 1, "argument": "A."}]
-    complete = v2._call2_user_prompt("Every US Battleship Class Ever Built (2026)", "T", acts)
+    complete = v2._call2_user_prompt("Every US Military Helicopter Ever Built (2026)", "T", acts, 20)
     assert "keep only the" not in complete
-    assert "20-25" not in complete
-    assert "Never list two ships of the same class" in complete
-    assert "no count limit" in complete
+    assert "pick exactly 20 real members" in complete
+    assert "Never list two ships of one class or two variants of one" in complete
+    assert "no count limit" not in complete
 
-    shortlist = v2._call2_user_prompt("How the Battleship Lost the Pacific", "T", acts)
-    assert "find 20-25 real, specifically-named machines" in shortlist
+    shortlist = v2._call2_user_prompt("How the Battleship Lost the Pacific", "T", acts, 12)
+    assert "find exactly 12 real, specifically-named machines" in shortlist
     assert "keep only the\nstronger one" in shortlist
 
 
-def test_complete_title_roster_keeps_every_entry_and_sizes_runtime_to_it(monkeypatch):
-    """Ryan, 2026-09-23: an "every X" title keeps every member found; the video
-    runtime follows the roster at the saved pacing. Truncating to the runtime
-    target used to cut the tail - the chronological ending of the story."""
+def test_complete_title_roster_never_resizes_the_runtime_ryan_set(monkeypatch):
+    """Ryan, 2026-09-24: "if we say 20 min, we mean 20 minutes and 20" machines.
+    An "every X" title used to resize the runtime to whatever the roster found
+    (the 2026-09-23 rule, now reversed). The roster is asked for the target
+    count and bounded to it; the saved length never changes."""
     import pipeline_executor as pe
 
     video = {
@@ -439,13 +442,12 @@ def test_complete_title_roster_keeps_every_entry_and_sizes_runtime_to_it(monkeyp
     monkeypatch.setattr(v2, "run_thesis_roster_and_context", AsyncMock(return_value=draft))
 
     result = asyncio.run(ex.run_roster_selection("v"))
-    assert result == {"status": "roster_ready", "video_id": "v", "selected_count": 23}
-    assert video["video_length_minutes"] == 23
+    assert result == {"status": "roster_ready", "video_id": "v", "selected_count": 20}
+    assert video["video_length_minutes"] == 20
+    assert v2.run_thesis_roster_and_context.await_args.kwargs["target_count"] == 20
     payload = video["research_payload"]
-    assert [row["machine"] for row in payload["unit_roster"]] == [f"Class {n}" for n in range(23)]
-    assert "roster_candidate_overflow" not in payload
-    assert payload["roster_selection"]["target_count"] == 23
-    # The saved selection agrees with the resized runtime, so the live gate passes.
+    assert len(payload["unit_roster"]) == 20
+    assert payload["roster_selection"]["target_count"] == 20
     assert pe._live_roster_gate(video, payload)["passed"] is True
 
 
