@@ -17,11 +17,27 @@
 - Backend suite: 5410 pass / 4 skip / 3 fail (the 3 old `test_dvsu_saved_evidence_replay.py`
   fixture failures - still unfixed, see prior handoff in git history).
 
-## Next action (start here cold)
-The battleship video was only a test vehicle - Ryan: do NOT voice or finish it. The job now is fixing
-the pipeline gaps it exposed. Start with blocker 1 below (claim text vs its source page), then 2 and 3.
-NO output checker (Ryan, firm). Fix the input: feed the script writer the verbatim source quote +
-context instead of the model-written claim. Blockers 2 and 3 are plain bugs. Confirm the pick with Ryan.
+## Next action (start here cold) - Ryan approved "go" on this plan 2026-09-23
+Battleship video = test vehicle only, never voice it. Build: **the writer reads real page text, not the
+model's summary claim.** NO output checker of any kind (Ryan, firm).
+
+Key fact: the pipeline never opens a source page. `dvsu_research_v2._build_verified_source_package`
+stores the model's quote as excerpt `text` and labels it `source_capture_method: "fetched_page"` - nothing
+is fetched. The writer's brief (`dvsu_research_v2._machine_packet_markdown`, via
+`dvsu_script_v2.brief_for_machine` / `brief_markdown_with_fact_ids`) shows the model-written `answer`
++ quote; the `answer` is where the drift lives (~1 in 5 claims on the battleship run).
+
+Plan (touches >3 files - confirm shape with Ryan before coding):
+1. MEASURE first (a test run, not a checker): offline script over the battleship video's 23 machines x
+   ~9 cited URLs (read from `research_payload.machine_raw_source_packages`). Fetch each page, find the
+   quote, cut a ~500-char passage around it. Report: pages that load, quote found, passage size, and
+   whether the 36 known-bad claims' true facts sit inside the passage (audit list: this session's
+   JOURNAL/2026-09-23.md + the fixes applied). Show Ryan the numbers.
+2. If the numbers are good: at research save time, the server fetches the page and stores the real
+   passage on the excerpt (true `fetched_page`). Page won't load -> keep the model's quote alone. Never block.
+3. The writer's brief shows the passage as the fact (drop the model `answer`/`headline` from the writer's
+   view; keep them for UI labels). Watch the 6000-byte brief cap (`dvsu_script_brief.MAX_BRIEF_BYTES`).
+4. Tests with this run's data as fixtures. Then blockers 2 and 3 below (plain bugs).
 
 ## Verdict: where a human had to step in (automation blockers, worst first)
 1. **Claim text drifts from its source.** Quotes were 100% verbatim, but ~1 in 5 claims added a number,
