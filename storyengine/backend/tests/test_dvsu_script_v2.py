@@ -248,6 +248,29 @@ def test_the_brief_handed_to_the_writer_lists_its_fact_ids():
     assert "## Surprising fact" in labelled, "the brief body must still be present"
 
 
+def test_the_writer_reads_source_quotes_never_the_research_summary():
+    """Regression, battleship run 2026-09-23: 34 claims drifted from their sources.
+
+    Every drift lived in the model's summary, never in the verbatim quote -
+    e.g. North Carolina's summary said the torpedo hit "below her belt" while
+    the quote itself says "just forward of the thick armor belt".
+    """
+    packet = _packet()
+    packet["problem"] = {
+        "answer": "A Japanese torpedo hit North Carolina below her belt.",
+        "source_url": "https://battleshipnc.com/torpedo-hit/",
+        "quote": "Another torpedo blasted NORTH CAROLINA on her port (left) side just forward of the thick armor belt.",
+    }
+    labelled = script.brief_markdown_with_fact_ids(packet)
+    assert "just forward of the thick armor belt" in labelled
+    assert "[problem] https://battleshipnc.com/torpedo-hit/" in labelled
+    assert "below her belt" not in labelled
+    for summary in ("Crossed under the North Pole", "Her first message", "Built as an experiment"):
+        assert summary not in labelled, summary
+    for quote in ("Outcome quote one.", "Surprising quote.", "Contrast quote."):
+        assert quote in labelled, quote
+
+
 def test_every_scene_is_assigned_a_different_opener_from_the_one_before_it():
     """Regression, 2026-09-22: scenes 14 and 15 both opened "Nautilus's 1955 trials...".
 
@@ -489,7 +512,7 @@ def test_bulk_run_passes_every_prior_paragraph_and_the_next_machines_problem(hol
     ex, state = hold(roster, client=client)
     result = asyncio.run(script.run_script_hold(ex, "v", state["video"], roster))
     assert result["status"] == "completed"
-    assert "NEXT MACHINE: USS Nautilus SSN-571 (Act 2) - its problem: Diesel submarines" in client.calls[0]["prompt"]
+    assert "NEXT MACHINE: USS Nautilus SSN-571 (Act 2) - its problem: Problem quote." in client.calls[0]["prompt"]
     third = client.calls[2]["prompt"]
     assert f"[Act 1] {SIBLING}:" in third and f"[Act 2] {MACHINE}:" in third
 

@@ -174,7 +174,8 @@ def build_write_prompt(
         "Audience: military-history enthusiasts, 55+, who already know the machine exists and will "
         "fact-check every claim. Do not spend words proving it existed. Write as an equal, not a teacher.\n\n"
         "Source: use only the supplied BRIEF (Problem / Design / Trade-off / Outcome / Surprising fact / "
-        "Contrast, each already sourced). Do not add outside knowledge or invented dates/numbers - but DO "
+        "Contrast). Each fact is a verbatim quote from its source page - read it closely and state only what "
+        "it says. Do not add outside knowledge or invented dates/numbers - but DO "
         "state the argued lesson the facts support. This is an essay making an argument, not a "
         "citation-safe recitation.\n\n"
         f"Length: {WORD_TARGET_MIN}-{WORD_TARGET_MAX} words. Never less, never more. A pivotal machine "
@@ -183,8 +184,8 @@ def build_write_prompt(
         "Must include, non-negotiable:\n"
         "- At least one surprising fact most viewers won't already know. Check the BRIEF's \"Surprising "
         "fact\" section first; don't cut it for budget.\n"
-        "- A real contrast (expectation vs. reality, design vs. outcome, intention vs. legacy). The BRIEF's "
-        "\"Contrast\" section is often already written as this - use it or sharpen it, don't discard it.\n"
+        "- A real contrast (expectation vs. reality, design vs. outcome, intention vs. legacy). Build it "
+        "from the BRIEF's \"Contrast\" quote when it supports one - don't discard it.\n"
         "- A final line that lands: short, a paradox/irony/reversal. If the last sentence could be deleted "
         "without losing meaning, rewrite it. Never summarize; land.\n"
         "- The machine's name or designation somewhere in the paragraph (it need not be the opener).\n\n"
@@ -306,16 +307,50 @@ def brief_facts(brief: dict) -> dict[str, dict]:
     return facts
 
 
+_SLOT_TITLES = {
+    "problem": "Problem", "design": "Design", "trade_off": "Trade-off",
+    "surprising_fact": "Surprising fact", "contrast": "Contrast",
+}
+
+
 def brief_markdown_with_fact_ids(brief: dict) -> str:
-    """The brief, with each citable fact labelled by the id the writer cites."""
-    body = brief_markdown(brief)
+    """The writer's brief: each fact is its source's own words, labelled by the id the writer cites.
+
+    The research model's summary (``answer``/``fact``) is left out on purpose.
+    On the battleship run 34 claims had drifted from their sources (a wrong
+    date, a sibling ship's fact, an added figure) and in all 34 the drift
+    lived in that summary, never in the verbatim quote. The summary stays on
+    the packet for labels and the Drive export; the writer only reads quotes.
+    """
     facts = brief_facts(brief)
     lines = [
         "FACT IDS (cite these in claim_map; do NOT write quotes yourself):",
         *(f"  {fact_id} -> {value['source_url']}" for fact_id, value in facts.items()),
         "",
+        f"# {(brief or {}).get('machine') or ''}",
+        "",
     ]
-    return "\n".join(lines) + body
+
+    def _fact(fact_id: str, heading: str) -> None:
+        lines.append(heading)
+        lines.append("")
+        fact = facts.get(fact_id)
+        lines.append(f"[{fact_id}] {fact['source_url']}\n> {fact['quote']}" if fact else "(none)")
+        lines.append("")
+
+    for slot in ("problem", "design", "trade_off"):
+        _fact(slot, f"## {_SLOT_TITLES[slot]}")
+    outcome_ids = [fact_id for fact_id in facts if fact_id.startswith("outcome")]
+    lines.append("## Outcome candidates")
+    lines.append("")
+    if not outcome_ids:
+        lines.append("(none)")
+    for fact_id in outcome_ids:
+        lines.append(f"- [{fact_id}] {facts[fact_id]['source_url']}\n  > {facts[fact_id]['quote']}")
+    lines.append("")
+    for slot in ("surprising_fact", "contrast"):
+        _fact(slot, f"## {_SLOT_TITLES[slot]}")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 _WORD_NUMBERS = {
@@ -695,7 +730,7 @@ def _next_machine_context(payload: dict, roster: list[str], scene: int, act_numb
         return None
     machine = roster[scene]
     brief = brief_for_machine(payload, machine)
-    problem = str(((brief or {}).get("problem") or {}).get("answer") or "") if brief else ""
+    problem = str(((brief or {}).get("problem") or {}).get("quote") or "") if brief else ""
     return {"machine": machine, "act_number": act_numbers.get(machine, 0), "problem": problem}
 
 
