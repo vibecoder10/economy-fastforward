@@ -19,6 +19,9 @@
 Voice is PAID (ElevenLabs). Quote first, get Ryan's yes, then run `voice` for 09debd56.
 
 ## Open threads
+- LATER (Ryan wants it ready): weekday + time-of-day cadence for the queue ("weekly on Tuesday 9am").
+  Today only `autopilot_config.production_interval_days` (every N days from the last launch, needs Autopilot on,
+  set on /autopilot). Build after the first full end-to-end relay test passes.
 - `backend/dvsu_script_v2.py` ~L159: submarine terminology rule fires on the helicopter video (its thesis says
   "hunt submarines"). Task chip made. Script already written with it; no "boat" harm seen.
 - A relay request waits only 1800s. A long pause kills the stage; re-running resumes from saved answers.
