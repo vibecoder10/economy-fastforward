@@ -530,3 +530,13 @@ def test_both_drive_exports_write_under_the_pinned_root(monkeypatch):
     research_v2._export_machine_packet_to_drive("Vid", {"machine": "Ajax class"})
     assert made[0] == ("Vid", "PINNED")
     assert all(name != "StoryEngine Research" for name, _ in made)
+
+
+def test_call1_thesis_must_cover_the_whole_title_scope():
+    """Regression, 2026-09-24: "Every US Military Helicopter Ever Built" got an
+    Army-only thesis ("The US Army kept building helicopters..."), and the
+    roster then dropped the CH-53 and CH-46 for weak Army-story picks. The
+    scope rule goes in the input, not a checker (Ryan)."""
+    prompt = v2._call1_user_prompt("Every US Military Helicopter Ever Built (2026)")
+    assert "The thesis must cover everything the title names" in prompt
+    assert "every service" in prompt
