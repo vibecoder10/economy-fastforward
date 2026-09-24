@@ -18,13 +18,17 @@
   fixture failures - still unfixed, see prior handoff in git history).
 
 ## Next action (start here cold) - updated 2026-09-24
-Steps 1-3 of the old plan are DONE, in a smaller shape Ryan chose ("option 1"):
-- Measured (`docs/battleship-relay-test/passage-measure.md`): all 34 drifted claims lived in the model
-  `answer`, never in the quote. Fetching pages added the true fact for only 1 of 34 -> NO page fetch.
-- `957a0afb` deployed 12:37Z 2026-09-24: `dvsu_script_v2.brief_markdown_with_fact_ids` shows the writer
-  only `[fact_id] url` + verbatim quote; `answer`/`fact` summaries hidden from the writer (kept for
-  UI/Drive). Proven on the VPS against the battleship data. No checker (Ryan, firm).
-Next: blockers 2 and 3 below (plain bugs). Battleship video stays test-only, never voice it.
+THE REAL VIDEO NOW: `09debd56-6be0-4eb5-ad68-9cead8ba07f5` "Every US Military Helicopter Ever Built (2026)"
+(tenant Designed Vs Used, 20 min, relay on, $0 so far). Roster DONE and saved: 20 types, 5 acts x 4, all
+services (Army, Navy, Marines, Coast Guard). Next: gather photos (`gather_roster_images`, relay vision -
+download + Read every image), then research one machine at a time, then script. Battleship 7b6914b6 =
+test only, never voice it.
+Shipped today (all deployed): `957a0afb` writer reads quotes not summaries; `741a9b37` set length = roster
+size (never resize); `9669f4b0` thesis covers the whole title; `2150bf3d` category titles ("every/all/ever
+built") pick the list from the title FIRST, then write thesis + acts around it.
+Known: research quote shows ~$0.05 even when the relay does the work ($0) - fix later. After each deploy the
+MCP endpoint returns 502 for ~1 min.
+Relay answers: Sonnet subagent gets the prompt verbatim, no extra rules from me (fair test), fences stripped.
 
 ## Verdict: where a human had to step in (automation blockers, worst first)
 1. **Claim text drifts from its source.** Quotes were 100% verbatim, but ~1 in 5 claims added a number,
