@@ -20,8 +20,10 @@
 ## Next action (start here cold) - updated 2026-09-24
 THE REAL VIDEO NOW: `09debd56-6be0-4eb5-ad68-9cead8ba07f5` "Every US Military Helicopter Ever Built (2026)"
 (tenant Designed Vs Used, 20 min, relay on, $0 so far). Roster DONE and saved: 20 types, 5 acts x 4, all
-services (Army, Navy, Marines, Coast Guard). Next: gather photos (`gather_roster_images`, relay vision -
-download + Read every image), then research one machine at a time, then script. Battleship 7b6914b6 =
+services (Army, Navy, Marines, Coast Guard). Photos DONE: 20/20 verified, all US-marked (checked by eye;
+`0cdcdd27` made the judge prefer the operator the title names). Next: research one machine at a time
+(`research_machine`, 6 relay answers each), then script. Relay helpers (recreate if the scratchpad is gone):
+mcp.py (pending -> req/<id>.json, answer <id> <file>), judge_brief.md for Sonnet photo judges. Battleship 7b6914b6 =
 test only, never voice it.
 Shipped today (all deployed): `957a0afb` writer reads quotes not summaries; `741a9b37` set length = roster
 size (never resize); `9669f4b0` thesis covers the whole title; `2150bf3d` category titles ("every/all/ever
