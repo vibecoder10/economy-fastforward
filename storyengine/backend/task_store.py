@@ -43,7 +43,7 @@ async def db_persist_task(
             existing = await fetch_one(
                 "SELECT id FROM background_tasks "
                 "WHERE tenant_id = $1 AND video_id = $2 AND task_type = $3 "
-                "AND (($4 IS NULL AND job_id IS NULL) OR job_id = $4) "
+                "AND (($4::text IS NULL AND job_id IS NULL) OR job_id = $4::text) "
                 "AND status IN ('pending', 'running') LIMIT 1",
                 tenant_id, video_id, task_type, job_id,
             )
@@ -51,7 +51,7 @@ async def db_persist_task(
                 updated = await execute(
                     "UPDATE background_tasks SET status = 'running', message = $1 "
                     "WHERE id = $2 AND tenant_id = $3 AND video_id = $4 AND task_type = $5 "
-                    "AND (($6 IS NULL AND job_id IS NULL) OR job_id = $6) "
+                    "AND (($6::text IS NULL AND job_id IS NULL) OR job_id = $6::text) "
                     "AND status IN ('pending', 'running')",
                     message, existing["id"], tenant_id, video_id, task_type, job_id,
                 )
@@ -59,7 +59,7 @@ async def db_persist_task(
                     verified = await fetch_one(
                         "SELECT id FROM background_tasks "
                         "WHERE tenant_id = $1 AND video_id = $2 AND task_type = $3 "
-                        "AND (($4 IS NULL AND job_id IS NULL) OR job_id = $4) "
+                        "AND (($4::text IS NULL AND job_id IS NULL) OR job_id = $4::text) "
                         "AND status = 'running' LIMIT 1",
                         tenant_id, video_id, task_type, job_id,
                     )
@@ -70,7 +70,7 @@ async def db_persist_task(
             existing = await fetch_one(
                 "SELECT id FROM background_tasks "
                 "WHERE tenant_id = $1 AND video_id = $2 AND task_type = $3 "
-                "AND (($4 IS NULL AND job_id IS NULL) OR job_id = $4) "
+                "AND (($4::text IS NULL AND job_id IS NULL) OR job_id = $4::text) "
                 "AND status = 'pending' LIMIT 1",
                 tenant_id, video_id, task_type, job_id,
             )
@@ -81,7 +81,7 @@ async def db_persist_task(
                 "UPDATE background_tasks "
                 "SET status = $1, message = $2, error_message = $3, completed_at = now() "
                 "WHERE tenant_id = $4 AND video_id = $5 AND task_type = $6 "
-                "AND (($7 IS NULL AND job_id IS NULL) OR job_id = $7) "
+                "AND (($7::text IS NULL AND job_id IS NULL) OR job_id = $7::text) "
                 "AND (status IN ('running', 'pending') "
                 "      OR (status = 'cancelled' AND completed_at IS NULL))",
                 status, message, error, tenant_id, video_id, task_type, job_id,
@@ -106,7 +106,7 @@ async def db_persist_task(
             verified = await fetch_one(
                 "SELECT id FROM background_tasks "
                 "WHERE tenant_id = $1 AND video_id = $2 AND task_type = $3 "
-                "AND (($4 IS NULL AND job_id IS NULL) OR job_id = $4) "
+                "AND (($4::text IS NULL AND job_id IS NULL) OR job_id = $4::text) "
                 "AND status = 'running' LIMIT 1",
                 tenant_id, video_id, task_type, job_id,
             )

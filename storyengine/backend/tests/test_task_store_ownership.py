@@ -22,7 +22,7 @@ async def test_terminal_update_carries_full_owner_tuple_and_null_job_is_not_wild
 
     query, args = calls[0]
     assert "tenant_id = $4 AND video_id = $5 AND task_type = $6" in query
-    assert "($7 IS NULL AND job_id IS NULL) OR job_id = $7" in query
+    assert "($7::text IS NULL AND job_id IS NULL) OR job_id = $7::text" in query
     assert args[3:] == ("tenant-a", "video-a", "machine_preview", None)
 
 
@@ -75,7 +75,7 @@ async def test_running_message_update_rechecks_the_full_owner_tuple(monkeypatch)
     query, args = updates[0]
     assert "SET status = 'running'" in query
     assert "tenant_id = $3 AND video_id = $4 AND task_type = $5" in query
-    assert "($6 IS NULL AND job_id IS NULL) OR job_id = $6" in query
+    assert "($6::text IS NULL AND job_id IS NULL) OR job_id = $6::text" in query
     assert args == ("working", "only-the-owned-row", "tenant-a", "video-a", "script", "job-a")
 
 
