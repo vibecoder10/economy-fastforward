@@ -116,7 +116,7 @@ def test_run_thesis_roster_and_context_merges_calls_and_is_drive_fail_soft():
     )
     # No Drive credentials are configured in this sandbox - this proves the
     # export failure never propagates out of run_thesis_roster_and_context.
-    result = asyncio.run(v2.run_thesis_roster_and_context(client, "Every Widget", checkpoint_scope=None))
+    result = asyncio.run(v2.run_thesis_roster_and_context(client, "How Widgets Won", checkpoint_scope=None))
     assert result["thesis"] == "T"
     assert result["acts"] == [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}]
     assert result["unit_roster"] == [{"machine": "M1", "act_number": 1}, {"machine": "M2", "act_number": 2}]
@@ -386,19 +386,26 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
     assert pe._live_roster_gate(drifted, payload)["passed"] is False
 
 
-def test_call2_prompt_for_complete_title_picks_the_runtime_count_one_per_class():
-    """Regression, 2026-09-23: "Every US Battleship Class Ever Built" came back
-    with five single Iowa-class ships, because the thesis filter ("keep only the
-    stronger one") ran without a one-entry-per-class rule. Ryan, 2026-09-24:
-    the set length is the count - 20 min is exactly 20 machines, even for an
-    "every X" title."""
-    acts = [{"act_number": 1, "argument": "A."}]
-    complete = v2._call2_user_prompt("Every US Military Helicopter Ever Built (2026)", "T", acts, 20)
-    assert "keep only the" not in complete
-    assert "pick exactly 20 real members" in complete
-    assert "Never list two ships of one class or two variants of one" in complete
-    assert "no count limit" not in complete
+def test_category_title_prompts_pick_the_list_then_write_the_story():
+    """Regression, 2026-09-24 "Every US Military Helicopter Ever Built": story-first
+    let an Army-only thesis and a tiltrotor act bend the picks (V-22 in, CH-53 out,
+    UH-60 + SH-60 both listed). Category titles now pick the list from the title
+    alone, then write the story around it (Ryan). Count = the runtime Ryan set."""
+    listing = v2._category_roster_prompt("Every US Military Helicopter Ever Built (2026)", 20)
+    assert "Thesis" not in listing and "Acts" not in listing
+    assert "pick exactly 20 real members" in listing
+    assert "UH-60 and SH-60 are one" in listing
+    assert "no tiltrotor" in listing
+    assert "every service" in listing
 
+    story = v2._story_for_roster_prompt("Every US Military Helicopter Ever Built (2026)", ["R-4 Hoverfly", "UH-1 Iroquois"])
+    assert "exactly these 2 machines" in story and "- UH-1 Iroquois" in story
+    assert "spelled exactly as listed" in story
+    assert "near-equal share" in story
+
+
+def test_shortlist_title_prompt_asks_for_the_runtime_count():
+    acts = [{"act_number": 1, "argument": "A."}]
     shortlist = v2._call2_user_prompt("How the Battleship Lost the Pacific", "T", acts, 12)
     assert "find exactly 12 real, specifically-named machines" in shortlist
     assert "keep only the\nstronger one" in shortlist
@@ -540,3 +547,31 @@ def test_call1_thesis_must_cover_the_whole_title_scope():
     prompt = v2._call1_user_prompt("Every US Military Helicopter Ever Built (2026)")
     assert "The thesis must cover everything the title names" in prompt
     assert "every service" in prompt
+
+
+def test_category_title_runs_list_then_story_and_keeps_list_order():
+    client = _Client(
+        json.dumps({"roster": ["R-4 Hoverfly", "UH-1 Iroquois", "AH-64 Apache"], "shared_context": ["ctx"]}),
+        json.dumps({"thesis": "T", "acts": [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}],
+                    "roster": [{"machine": "AH-64 Apache", "act_number": 2}, {"machine": "uh-1 iroquois", "act_number": 1},
+                               {"machine": "R-4 Hoverfly", "act_number": 1}]}),
+    )
+    result = asyncio.run(v2.run_thesis_roster_and_context(
+        client, "Every US Military Helicopter Ever Built", checkpoint_scope=None, target_count=3))
+    first, second = client.calls
+    assert first["tools"] and "pick exactly 3 real members" in first["prompt"]
+    assert "tools" not in second or not second.get("tools")
+    assert "- UH-1 Iroquois" in second["prompt"]
+    assert result["unit_roster"] == [
+        {"machine": "R-4 Hoverfly", "act_number": 1},
+        {"machine": "UH-1 Iroquois", "act_number": 1},
+        {"machine": "AH-64 Apache", "act_number": 2},
+    ]
+    assert result["thesis"] == "T" and result["shared_context"] == ["ctx"]
+
+
+def test_story_call_that_drops_a_machine_fails_closed():
+    client = _Client(json.dumps({"thesis": "T", "acts": [{"act_number": 1, "argument": "A"}],
+                                 "roster": [{"machine": "R-4 Hoverfly", "act_number": 1}]}))
+    with pytest.raises(ValueError, match="UH-1 Iroquois"):
+        asyncio.run(v2._call_story_for_roster(client, "Every X", ["R-4 Hoverfly", "UH-1 Iroquois"], None))
