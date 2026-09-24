@@ -1,34 +1,31 @@
-# HANDOFF - 2026-09-24 - helicopter video: roster + photos done on the relay; 5 pipeline fixes shipped
+# HANDOFF - 2026-09-24 - helicopter video: research done 20/20 on the relay; token-cost dive next
 
 ## State
-- Prod: `0cdcdd27` deployed 14:34Z, healthy, no lock, 0 active work.
-- Branch: `main` = origin/main after this handoff commit. Clean.
+- Prod: `0cdcdd27` deployed, healthy, NO lock (removed 19:21Z). Nothing deployed this session.
 - THE REAL VIDEO: `09debd56-6be0-4eb5-ad68-9cead8ba07f5` "Every US Military Helicopter Ever Built (2026)"
   (tenant Designed Vs Used, 20 min, relay on, $0 spent). Status `idea_logged`.
-  - Roster DONE: 20 types, 5 acts x 4, every service (Army, Navy, Marines, Coast Guard).
-  - Photos DONE: 20/20 verified, all US-marked (I checked every photo by eye).
-  - Research NOT started. Script NOT started.
+  - Roster DONE (20 types). Photos DONE (20/20 US-marked).
+  - Research DONE: 20/20 cards, 20/20 verdicts passed (`unit_research_hold_validation`). Guide says research done.
+  - Script NOT started.
 - Battleship `7b6914b6` = test only, never voice it. Submarine `6ac28204` untouched.
-- What shipped this session (all deployed):
-  1. `957a0afb` script writer reads the verbatim source quote, never the research model's summary
-     (all 34 battleship drift errors lived in the summary). Measuring run: docs/battleship-relay-test/passage-measure.md.
-  2. `741a9b37` set video length = roster size (20 min = 20 machines), never auto-resized. Reverses 2026-09-23 rule.
-  3. `9669f4b0` thesis must cover everything the title names.
-  4. `2150bf3d` category titles ("every/all/ever built") pick the LIST from the title first, then write
-     thesis + acts around it (`dvsu_roster_v2._call_category_roster` / `_call_story_for_roster`).
-  5. `0cdcdd27` photo judge gets the video title, reports `operator_match`; foreign/civil photos only as fallback.
 
-## Next action (start here cold)
-Research the helicopter video, one machine at a time, on the relay:
-1. `get_production_guide 09debd56-6be0-4eb5-ad68-9cead8ba07f5` (roster + image_gather should read done).
-2. `research_machine(video_id, machine="R-4 Hoverfly")` (exact roster names: see guide/roster).
-3. Loop 6 relay requests per machine (problem, design, trade-off, outcomes, surprising fact, contrast):
-   `cd storyengine/scripts/relay && python3 mcp.py pending 09debd56-...` -> give each `req/<id>.json` to a
-   Sonnet subagent (prompt verbatim, web search, raw JSON only) -> `python3 mcp.py answer <id> <file>`.
-   Check the stage name printed by `pending`; `waitnew.sh` only matches `_judge_via_relay|_call|research`.
-4. After each machine, confirm its verdict with `get_production_guide` (race bug below).
+## FIRST: token cost dive (Ryan asked for this next session)
+- Each Sonnet helper starts at ~77k context before doing any work (measured from its jsonl usage:
+  ~40k shared cached prefix + ~37k agent-specific). Parts: ~55 fully-loaded tool schemas (in-app
+  Browser ~20, Artifact, Workflow, iOS Simulator, terminal, widgets, Docs) + ~200 deferred tool names +
+  CLAUDE.md chain (~17k tokens: vault CLAUDE.md, 34 KB project CLAUDE.md + its 6 @-imported docs,
+  storyengine/CLAUDE.md) + skills list. Exact split not visible - measure it.
+- Built `.claude/agents/relay-researcher.md` (Sonnet, 5 tools only). Try it: does it really drop the
+  tool schemas? Does it still load the CLAUDE.md chain? Compare its first-turn usage to ~77k.
+- Ideas to weigh: turn off in-app Browser / iOS Simulator connectors for StoryEngine sessions; slim the
+  34 KB project CLAUDE.md (its @-imports load into every helper).
+
+## Next action (after the token dive)
+Script the helicopter video on the relay: `script` verb for 09debd56, then answer its relay requests.
+Use one helper per batch of requests, not one per request.
 
 ## Open threads
+- A relay request waits only 1800s. A long pause kills the stage; re-running research_machine resumes from saved answers.
 - Race: starting machine N+1 right after N can reset N's verdict to "pending" in
   `research_payload.unit_research_hold_validation` (6/23 on battleships). Re-run `research_machine` on it.
 - Two card copies: script brief reads `research_payload`, not the `machine_research_cards` table.
