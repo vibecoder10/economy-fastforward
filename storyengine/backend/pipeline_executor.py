@@ -5474,6 +5474,11 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
                     facts[key] = value
         if subject:
             facts["subject"] = subject
+        # The photo judge must know whose machines the video is about: on
+        # "Every US Military Helicopter" 6 of 20 picks were right-type photos
+        # in Israeli, Iranian, Australian or civil markings (2026-09-24).
+        if video.get("video_title"):
+            facts["video_title"] = str(video["video_title"])
         entries.append({
             "name": name,
             "aliases": aliases,

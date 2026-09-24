@@ -345,3 +345,27 @@ def test_roster_entries_carry_the_subject_from_a_dict_or_json_payload():
         video = {"id": "v", "video_title": "Every US Submarine Class Ever Built", "render_mode": "static_docu", "research_payload": research_payload}
         got = entries(video)
         assert got and all(e["facts"].get("subject") == "submarine" for e in got)
+
+
+def test_photo_in_the_videos_own_operator_markings_beats_a_sharper_foreign_one():
+    """Regression, 2026-09-24 "Every US Military Helicopter Ever Built": 6 of 20
+    picks were the right type in Israeli, Iranian, Australian or civil markings.
+    The judge now reports operator_match; a false one is used only as a fallback."""
+    cs=[candidate('israeli'),candidate('us')]
+    js=[judgment('israeli',score=5),judgment('us',score=3)]
+    js[0]['operator_match']=False
+    js[1]['operator_match']=True
+    primary,_=rs.choose_candidate(cs,rs.validate_judgment({'candidates':js},cs))
+    assert primary[2]['id']=='us'
+    js[1]['operator_match']=None  # unknown is not demoted
+    primary,_=rs.choose_candidate(cs,rs.validate_judgment({'candidates':js},cs))
+    assert primary[2]['id']=='us'
+    js=[judgment('israeli',score=5)]
+    js[0]['operator_match']=False  # the only eligible photo is still used
+    primary,_=rs.choose_candidate(cs[:1],rs.validate_judgment({'candidates':js},cs[:1]))
+    assert primary[2]['id']=='israeli'
+
+
+def test_judge_is_told_the_video_title_operator_rule():
+    prompt=rs.judgment_prompt('CH-47 Chinook',[],{'subject':'helicopter','video_title':'Every US Military Helicopter Ever Built (2026)'})
+    assert 'Every US Military Helicopter' in prompt and 'operator_match' in prompt

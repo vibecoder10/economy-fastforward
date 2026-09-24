@@ -216,7 +216,10 @@ def judgment_prompt(machine, aliases, facts):
         "An exact unique prototype designation in a caption can identify a one-off machine. Respect era and conversion configuration; "
         "incompatible configurations are rejected. Insufficient evidence stays uncertain. Pixels check visible contradictions and "
         "media suitability; obscured details alone are not contradictions. Reject drawings, diagrams, scale models, interiors, text pages "
-        "and unrelated subjects. Then assess view usefulness independently, including rejected candidates. "
+        "and unrelated subjects. Operator: when Roster facts give a video_title naming an operator (a country, a service, "
+        "\"US military\"), set operator_match=true if the photo's visible markings or caption show that operator, false if they "
+        "show another country's or a civil operator, null if neither can be told. It never changes identity. "
+        "Then assess view usefulness independently, including rejected candidates. "
         + view_criteria(machine, facts) + " "
         "Score integers0..5: coverage(entire machine in frame), features(defining geometry visible), sharpness(usable detail/resolution), "
         "unobstructed(little water/equipment/covering hiding subject), perspective(low distortion). A dramatic angle never automatically "
@@ -225,7 +228,7 @@ def judgment_prompt(machine, aliases, facts):
         "Return ONLY JSON, exactly one judgment for every candidate ID, no extras/duplicates: "
         '{"candidates":[{"id":"c1","identity":{"status":"confirmed|uncertain|rejected","reason":"specific reason",'
         '"evidence":[{"url":"exact supplied source URL","quote":"exact substring of supplied text"}]},'
-        '"usable":true,"scores":{"coverage":0,"features":0,"sharpness":0,"unobstructed":0,"perspective":0},'
+        '"usable":true,"operator_match":null,"scores":{"coverage":0,"features":0,"sharpness":0,"unobstructed":0,"perspective":0},'
         '"view":"side|three_quarter|front|rear|top|other","reason":"why useful or unsuitable","limitations":["limitation"]}]}. '
         "Unconfirmed candidates may have empty evidence. Confirmed candidates require real supplied captions and required membership evidence."
     )
@@ -247,7 +250,8 @@ def validate_judgment(judgment, candidates, *, machine=""):
             or not isinstance(item.get("reason"), str) or not item["reason"].strip()
             or not isinstance(identity.get("reason"), str) or not identity["reason"].strip()
             or not isinstance(item.get("limitations"), list) or len(item["limitations"]) > 10
-            or any(not isinstance(s, str) for s in item["limitations"])):
+            or any(not isinstance(s, str) for s in item["limitations"])
+            or item.get("operator_match") not in (True, False, None)):
             raise SelectionFailure("invalid_review", "The comparison returned malformed scores or reasons.")
         if identity["status"] == "confirmed" and not _valid_citations(by_id[item["id"]], identity, machine):
             # One unsupported claim must exclude that photo, not poison other
@@ -302,7 +306,10 @@ def choose_candidate(candidates, judgments, machine=""):
                 score += sum(points for _, points in adjustments)
                 judgment = dict(judgment, score_adjustments=[{"reason": r, "points": p} for r, p in adjustments])
             eligible.append((round(score, 1), index, candidate, judgment))
-    eligible.sort(key=lambda row: (-row[0], row[1]))
+    # A photo in the video's own operator's markings beats a sharper one in a
+    # foreign or civil operator's; the foreign one is used only when no other
+    # eligible photo exists (Ryan, 2026-09-24).
+    eligible.sort(key=lambda row: (row[3].get("operator_match") is False, -row[0], row[1]))
     if not eligible:
         return None, None
     primary = eligible[0]
@@ -330,8 +337,8 @@ def _rerank_saved_review(receipt):
     if not (repaired or selected_invalid):
         return None
     try:
-        fields = ("id", "identity", "usable", "scores", "view", "reason", "limitations")
-        judgments = validate_judgment({"candidates": [{k: c[k] for k in fields} for c in candidates]}, candidates,
+        fields = ("id", "identity", "usable", "operator_match", "scores", "view", "reason", "limitations")
+        judgments = validate_judgment({"candidates": [{k: c.get(k) for k in fields} for c in candidates]}, candidates,
                                       machine=machine)
         primary, _ = choose_candidate(candidates, judgments, machine)
     except (SelectionFailure, KeyError, TypeError):
@@ -502,7 +509,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
             return saved
         selected = _summary(candidate) | judgment | {"score": score, "hosted_url": hosted}
         receipt = dict(saved, status="selected", reason_code=None, selected=selected, supporting=[], checked_at=datetime.now(timezone.utc).isoformat(),
-            candidates=[_summary(c) | {k: c[k] for k in ("identity", "usable", "scores", "view", "limitations")}
+            candidates=[_summary(c) | {k: c.get(k) for k in ("identity", "usable", "operator_match", "scores", "view", "limitations")}
                         for c in candidates],
             reason="Selected a source-supported photograph from the saved comparison after validating caption identity.")
         await execute("""INSERT INTO static_reference_cache
