@@ -1,0 +1,274 @@
+[
+ {
+  "machine": "Connecticut class",
+  "claim_id": "C2",
+  "bad_text": "The Connecticut class abandoned the Virginia class's superposed turret arrangement, which had stacked 8-inch guns atop 12-inch turrets and hurt rate of fire.",
+  "fix_text": null,
+  "evidence": "The cited ibiblio.org page (bb18cl.htm) never mentions the Virginia class, superposed turrets, or rate-of-fire problems. It only describes Connecticut's own secondary battery layout (eight 8-inch guns in twin turrets, twelve 7-inch guns in casemates) and calls it the end of an internal Navy debate \u2014 it does not say what arrangement was being abandoned or attribute a superposed-turret design to the Virginia class. This is a substantive addition not supported by the cited source.",
+  "quote_found": true
+ },
+ {
+  "machine": "Connecticut class",
+  "claim_id": "C3",
+  "bad_text": "Their mixed armament limited effective long-range fire control compared to the uniform-caliber ships that followed.",
+  "fix_text": null,
+  "evidence": "The cited ibiblio.org page only says the mixed-battery type was superseded in esteem by HMS Dreadnought's all-big-gun concept before the last four ships commissioned. It says nothing about fire-control effectiveness or long-range gunnery comparisons; the only 'fire control' mention on the page is unrelated (cage-mast fire control positions in a photo caption). This sentence is an unsupported addition.",
+  "quote_found": true
+ },
+ {
+  "machine": "Connecticut class",
+  "claim_id": "C4",
+  "bad_text": "1908-09 world cruise",
+  "fix_text": "1907-09 world cruise",
+  "evidence": "The cited ibiblio.org page states the cruise was the '1907-09' (also written '1907-1909') World cruise of the Great White Fleet, and the history.navy.mil DANFS entry confirms the fleet sailed from Hampton Roads 16 December 1907 and returned 22 February 1909. The claim's '1908-09' start year is off by a year.",
+  "quote_found": true
+ },
+ {
+  "machine": "Illinois class",
+  "claim_id": "C5",
+  "bad_text": "Within a decade HMS Dreadnought's all-big-gun revolution made this whole mixed-caliber generation obsolete.",
+  "fix_text": null,
+  "evidence": "The cited page (en.wikipedia.org/wiki/Illinois-class_battleship) never mentions HMS Dreadnought, an 'all-big-gun revolution', or the class becoming obsolete within a decade. It confirms the transitional-design facts (first modern gun turrets, new rapid-firing secondary guns, last to use fire-tube boilers and Harvey armor) but this closing sentence is an added claim with no support on the page.",
+  "quote_found": true
+ },
+ {
+  "machine": "Kearsarge class",
+  "claim_id": "C7",
+  "bad_text": "As Crane Ship No. 1",
+  "fix_text": "As AB-1 Kearsarge",
+  "evidence": "The cited ibiblio DANFS page describes the Squalus salvage (\"One of many accomplishments was the raising of sunken submarine Squalus off the New Hampshire coast\") in the paragraph BEFORE the sentence \"On 6 November 1941 she was designated Crane Ship No. 1\" \u2014 i.e. the ship was still named/registered as Kearsarge (AB-1) at the time of the Squalus raising, not yet 'Crane Ship No. 1'. The claim's framing puts the later name on the earlier event.",
+  "quote_found": true
+ },
+ {
+  "machine": "Kearsarge class",
+  "claim_id": "C7",
+  "bad_text": " in 1939",
+  "fix_text": "",
+  "evidence": "The cited page never states a year for the Squalus salvage; the date '1939' is not supported anywhere on the fetched source page.",
+  "quote_found": true
+ },
+ {
+  "machine": "Kearsarge class",
+  "claim_id": "C8",
+  "bad_text": " (BB-58)",
+  "fix_text": "",
+  "evidence": "The cited ibiblio page only says 'new battleships such as Indiana and Alabama' with no hull numbers given; '(BB-58)' is not supported by the source page.",
+  "quote_found": true
+ },
+ {
+  "machine": "Kearsarge class",
+  "claim_id": "C8",
+  "bad_text": " (BB-60)",
+  "fix_text": "",
+  "evidence": "The cited ibiblio page only says 'new battleships such as Indiana and Alabama' with no hull numbers given; '(BB-60)' is not supported by the source page.",
+  "quote_found": true
+ },
+ {
+  "machine": "Maine (ACR-1)",
+  "claim_id": "C4",
+  "bad_text": "her near-sister USS New York (ACR-2) actually entered service before her despite being numbered second",
+  "fix_text": "her near-sister USS Texas actually entered service before her despite being laid down later",
+  "evidence": "The Wikipedia article's explanatory notes state: 'Texas was laid down after Maine, but commissioned first.' Texas (not New York, ACR-2) was Maine's actual near-sister, built under the same 1886 congressional authorization and design contest. USS New York (ACR-2) was an unrelated, larger armored cruiser; the 'ACR-2' label the claim cites only reflects the article's infobox 'Succeeded by' hull-number sequence, not a sister-ship or build-order relationship. The claim swapped Texas for New York.",
+  "quote_found": true
+ },
+ {
+  "machine": "Maine class",
+  "claim_id": "C1",
+  "bad_text": "eight days after declaring war on Spain",
+  "fix_text": "nine days after declaring war on Spain",
+  "evidence": "en.wikipedia.org/wiki/Maine-class_battleship states war on Spain was declared 25 April 1898 and Congress authorized the class on 4 May 1898 (the cited source page itself, plus this corroborating page). April 25 to May 4 is 9 days, not 8.",
+  "quote_found": true
+ },
+ {
+  "machine": "Maine class",
+  "claim_id": "C1",
+  "bad_text": "the battleship lost in Havana harbor",
+  "fix_text": "the armored cruiser lost in Havana harbor",
+  "evidence": "en.wikipedia.org/wiki/Maine-class_battleship explicitly refers to 'the destruction of the armored cruiser Maine in Havana harbor' - the original USS Maine that exploded in 1898 (namesake of this class's lead ship) is described by the source as an armored cruiser, not a battleship.",
+  "quote_found": true
+ },
+ {
+  "machine": "Maine class",
+  "claim_id": "C5",
+  "bad_text": "within five years of completion",
+  "fix_text": "within six years of completion",
+  "evidence": "en.wikipedia.org/wiki/Maine-class_battleship infobox shows the class was built/completed 1899-1904 (commissioned 1902-1904). The South Carolina-class dreadnoughts were commissioned in 1910, roughly six years after the Maine class's 1904 completion, not five.",
+  "quote_found": true
+ },
+ {
+  "machine": "Maine class",
+  "claim_id": "C8",
+  "bad_text": "fully scrapped by 17 December 1923",
+  "fix_text": "disarmed by 17 December 1923",
+  "evidence": "en.wikipedia.org/wiki/USS_Maine_(BB-10) says Maine was sold for scrap in January 1922 and 'By 17 December 1923, she had been disarmed... Maine was then scrapped' - the source ties that date to disarmament, not to completed scrapping, and its own infobox lists her fate as 'Broken up, 1922'.",
+  "quote_found": true
+ },
+ {
+  "machine": "Virginia class",
+  "claim_id": "C2",
+  "bad_text": "four twin 8-inch turrets directly atop the four 12-inch main turrets",
+  "fix_text": "two twin 8-inch turrets directly atop the two 12-inch main turrets",
+  "evidence": "globalsecurity.org bb-super-turrets.htm and the Scientific American 1907 article both describe the Virginia class as having only TWO 12-inch main turrets (fore and aft, each a twin mount) with TWO of the four 8-inch turrets superposed directly on top of them; the other two 8-inch turrets were separate wing turrets on the beam, not stacked on a 12-inch turret. The claim's 'four twin 8-inch turrets directly atop the four 12-inch main turrets' overstates both counts - there were never four 12-inch turrets, and only two 8-inch turrets were actually superposed.",
+  "quote_found": true
+ },
+ {
+  "machine": "Virginia class",
+  "claim_id": "C4",
+  "bad_text": "Virginia-class units mostly missed the fleet's signature moment.",
+  "fix_text": null,
+  "evidence": "The cited globalsecurity.org page only covers USS Nebraska joining the Great White Fleet late (San Francisco, May 1908) as a replacement for USS Alabama. It does not support 'mostly missed' - historically 4 of the 5 Virginia-class ships (Virginia, Georgia, New Jersey, Rhode Island) sailed with the fleet from its December 1907 departure; only Nebraska joined mid-voyage. The claim's framing that the class 'mostly missed' the cruise is not supported by the source and contradicts the well-documented fact that most Virginia-class ships were original Great White Fleet participants.",
+  "quote_found": true
+ },
+ {
+  "machine": "Virginia class",
+  "claim_id": "C5",
+  "bad_text": "the same year the class was completing commissioning",
+  "fix_text": null,
+  "evidence": "HMS Dreadnought commissioned in December 1906. The Virginia-class ship USS Nebraska (per the globalsecurity.org bb-14 page cited elsewhere in this card) was not commissioned until 1 July 1907, a year after Dreadnought. So the class was not 'completing commissioning' in the same year Dreadnought entered service; the navyhistory.org source cited for this claim does not state or support this timing detail at all.",
+  "quote_found": true
+ },
+ {
+  "machine": "Iowa class",
+  "claim_id": "C1",
+  "bad_text": "in 1939-40",
+  "fix_text": "in 1938-40",
+  "evidence": "The cited page (pacificbattleship.com) gives no authorization date at all, and its own quote is fine, but the actual authorization history (confirmed via the Second Vinson Act / Naval Act of 1938, and corroborated by the navalgazing.net source cited elsewhere in this same card, which states Iowa and New Jersey were ordered 1 Jul 1939 under the Second Vinson Act) shows Congress authorized the class starting in 1938, not 1939. '1939-40' omits the 1938 authorization year and is a date range shifted later than what actually happened.",
+  "quote_found": true
+ },
+ {
+  "machine": "Iowa class",
+  "claim_id": "C5",
+  "bad_text": "carrier aircraft and submarines eliminated Japan's battleships first",
+  "fix_text": null,
+  "evidence": "The cited 19fortyfive.com page explicitly lists three causes, not two: 'A submarine sank Kongo. Carrier aircraft sank Musashi, then Yamato, then Haruna at her moorings. Older battleships fought the war's last gun duel at Surigao Strait.' The claim's phrasing implies only carrier aircraft and submarines eliminated Japan's battleships, omitting that the source also credits older US battleships (the Surigao Strait gun duel, which sank Fuso and Yamashiro) with eliminating Japanese battleships. A same-length/shorter fix isn't clean since a third category needs to be added; a longer replacement such as 'carrier aircraft, submarines, and older US battleships eliminated Japan's battleships first' would match the source.",
+  "quote_found": true
+ },
+ {
+  "machine": "New Mexico class",
+  "claim_id": "C4",
+  "bad_text": "fired the first ship-borne guided missile test shots in US Navy history",
+  "fix_text": "fired the first test shots from a ship-borne Terrier missile",
+  "evidence": "The cited Wikipedia page (USS Mississippi (BB-41)) only states 'The first test firings of a ship-borne Terrier missile took place on 28-29 January 1953 off Cape Cod' \u2014 it does not say this was the first ship-borne guided missile test in overall US Navy history (earlier guided-missile shipboard/submarine tests, e.g. the Loon program, predate this). The claim generalizes a Terrier-specific 'first' into a Navy-wide 'first', which the source does not support.",
+  "quote_found": true
+ },
+ {
+  "machine": "North Carolina class",
+  "claim_id": "C1",
+  "bad_text": "The Navy studied over fifty design schemes before settling on nine 16-inch guns at high speed to also keep pace with new fast carriers.",
+  "fix_text": null,
+  "evidence": "The cited historyofwar.org page discusses the design evolving 'over some time' and 'changed repeatedly' (mentioning a General Board proposal and a CNO alternative) but never gives a count of design schemes studied \u2014 no '50' or 'fifty' appears anywhere on the page. The specific figure 'over fifty design schemes' is not supported by this source.",
+  "quote_found": true
+ },
+ {
+  "machine": "North Carolina class",
+  "claim_id": "C4",
+  "bad_text": "and the fix was simply swapping to differently-bladed propellers",
+  "fix_text": "and swapping to differently-bladed propellers reduced the vibration, though it was never entirely fixed",
+  "evidence": "The cited pwencycl.kgbudge.com page says the four/five-bladed propeller change 'reduced the vibrations enough to permit the ships to join the fleet. But the problem was never entirely fixed: The after range-finder vibrated excessively at certain speeds, the after fire control tower had to be fitted with large external braces, and the turbine and gear casings also had to be braced.' The claim's framing of this as simply 'the fix' overstates a partial, incomplete remedy as a complete solution.",
+  "quote_found": true
+ },
+ {
+  "machine": "North Carolina class",
+  "claim_id": "C6",
+  "bad_text": "torpedoed North Carolina below her belt",
+  "fix_text": "torpedoed North Carolina just forward of her belt",
+  "evidence": "The cited battleshipnc.com/torpedo-hit page states the torpedo 'blasted NORTH CAROLINA on her port (left) side just forward of the thick armor belt' \u2014 the location was forward of the belt, not below it.",
+  "quote_found": true
+ },
+ {
+  "machine": "North Carolina class",
+  "claim_id": "C6",
+  "bad_text": "the crew corrected the list by counterflooding and kept station",
+  "fix_text": "the crew corrected the list by counterflooding, but the ship was ordered out of formation to port for repairs",
+  "evidence": "The same cited page reports the ship did NOT keep station afterward: 'Admiral gave us word to head into port as our oil slick is jeopardizing the remaining Task Force' \u2014 she was ordered to leave the formation and proceed to port for repairs, contradicting 'kept station'.",
+  "quote_found": true
+ },
+ {
+  "machine": "North Carolina class",
+  "claim_id": "C8",
+  "bad_text": "Saved from scrapping by a statewide campaign, North Carolina was brought to Wilmington in 1961",
+  "fix_text": null,
+  "evidence": "The cited source (https://battleshipnc.com/ homepage) only supports the '11,000+ North Carolinians' WWII memorial claim (verbatim quote found). It contains no mention of a statewide save-from-scrapping campaign or the year 1961 \u2014 neither appears anywhere on the fetched homepage, so those specific details are not supported by this citation even though they may be true history documented elsewhere on the site.",
+  "quote_found": true
+ },
+ {
+  "machine": "Pennsylvania class",
+  "claim_id": "C4",
+  "bad_text": "flagship of the Pacific Fleet nicknamed 'Pennsy', ",
+  "fix_text": "a Pacific Fleet battleship, ",
+  "evidence": "The cited Wikipedia article (en.wikipedia.org/wiki/USS_Pennsylvania_(BB-38)) never uses the nickname 'Pennsy' anywhere in the article, and it does not identify Pennsylvania as flagship of the Pacific Fleet at the time of the 7 December 1941 attack. The article's 'flagship' mentions cover 1916 (Atlantic Fleet), 1921 (Battle Fleet), 1924 (Battle Division 3), 1934 (fleet flagship), 1943 (Fifth Amphibious Force), and 1945 (Task Force 95) - none for December 1941. On the morning of the attack she is described only as 'in Dry Dock No. 1 in Pearl Harbor undergoing a refit'; she had left her prior flagship role years earlier.",
+  "quote_found": true
+ },
+ {
+  "machine": "Pennsylvania class",
+  "claim_id": "C7",
+  "bad_text": "two days before Japan's surrender",
+  "fix_text": "three days before Japan's surrender",
+  "evidence": "The torpedo hit occurred the night of 12 August 1945, and the same Wikipedia article states 'On 15 August, the Japanese surrendered, ending the war.' That is a 3-day gap, not 2.",
+  "quote_found": true
+ },
+ {
+  "machine": "South Dakota class (1939)",
+  "claim_id": "C1",
+  "bad_text": "Congress authorized the first two South Dakota-class ships on 25 June 1938, with a second pair added under the FY1940 program.",
+  "fix_text": "Congress approved the first two South Dakota-class ships with a formal order on 4 April 1938, with a second pair authorized by Congress on 25 June 1938.",
+  "evidence": "naval-encyclopedia.com's timeline says the first pair's characteristics were 'finally approved on 4 January 1938' and 'the formal order followed...on 4 April 1938.' It then says 'On 25 june 1938, the deteriorating international situation...had the Congress authorizing a FURTHER two' ships -- i.e. 25 June 1938 authorized the SECOND pair, not the first. The page also does not describe a South Dakota-class 'second pair added under the FY1940 program' -- the FY1940 reference on the page is to tonnage held for the 'next pair' in context of the Escalator Clause enabling the future Iowa class, not a second South Dakota-class pair. The claim has the date and the pair-order reversed.",
+  "quote_found": true
+ },
+ {
+  "machine": "South Dakota class (1939)",
+  "claim_id": "C3",
+  "bad_text": "The Navy accepted worse crew habitability -- smaller berths and mess halls, and ventilation ports removed in favor of artificial air circulation -- to fit everything in.",
+  "fix_text": "The Navy accepted a cramped superstructure and restricted turret arcs (290 degrees instead of 300) to fit everything in.",
+  "evidence": "The cited navalgazing.net page (full text checked) never mentions crew habitability, berths, mess halls, ventilation ports, or artificial air circulation anywhere. It does describe the shortened hull cramping the superstructure and restricting Turret 1/2 arcs to 290 degrees instead of 300, and making the bridge smaller -- but nothing about crew living spaces or ventilation. This sentence appears to be fabricated/unsupported by the cited source.",
+  "quote_found": true
+ },
+ {
+  "machine": "South Carolina class",
+  "claim_id": "C1",
+  "bad_text": "1906",
+  "fix_text": null,
+  "evidence": "Cited page (historyofwar.org weapons_south_carolina_class_battleships.html) confirms 'Work on the designs began in 1904, and they were authorised by Congress on 3 March 1905' but never states HMS Dreadnought's commissioning/debut year anywhere on the page (0 occurrences of '1906'). The 1906 date, while true, is not supported by this source.",
+  "quote_found": true
+ },
+ {
+  "machine": "South Carolina class",
+  "claim_id": "C5",
+  "bad_text": "1910",
+  "fix_text": null,
+  "evidence": "Cited page (19fortyfive.com) never states South Carolina's commissioning year; it only says she 'appeared only four years after Dreadnought was in service' (Dreadnought launched 1906). The exact figure '1910' does not appear anywhere on this page, even though it is the correct commissioning year per other sources.",
+  "quote_found": true
+ },
+ {
+  "machine": "South Carolina class",
+  "claim_id": "C8",
+  "bad_text": "24 April 1924",
+  "fix_text": null,
+  "evidence": "Cited page (Wikipedia, USS Michigan (BB-27)) gives Michigan's own decommissioning (11 February 1922) and striking (10 November 1923) dates and the Article II scrapping mandate, but never states South Carolina's specific 24 April 1924 scrap date anywhere on the page (0 occurrences of '1924'). That exact date only appears on the separate USS South Carolina (BB-26) Wikipedia page, which is not the source cited for this claim.",
+  "quote_found": true
+ },
+ {
+  "machine": "Wyoming class",
+  "claim_id": "C4",
+  "bad_text": "1944",
+  "fix_text": null,
+  "evidence": "Cited page (historyofwar.org weapons_uss_wyoming.html) describes Wyoming losing her three remaining 12-inch turrets during a refit 'during this period' (the WWII gunnery-training years) but never gives the year 1944 anywhere on the page. The '1944' date for losing her big guns only appears on a different source (ibiblio bb32cl.htm), not the one cited for this claim.",
+  "quote_found": true
+ },
+ {
+  "machine": "New York class",
+  "claim_id": "C4",
+  "bad_text": "detected aircraft up to 48 miles out and could track 14-inch shells in flight",
+  "fix_text": null,
+  "evidence": "Cited page (history.navy.mil NH 105852) only says the XAF radar was installed on USS New York in late 1938 and 'tested at sea during the first months of 1939.' It gives no detection range and says nothing about tracking shells in flight; the '48 miles' figure and the shell-tracking capability are not stated anywhere on the page.",
+  "quote_found": true
+ },
+ {
+  "machine": "Nevada class",
+  "claim_id": "C6",
+  "bad_text": "three torpedo hits to port",
+  "fix_text": "five torpedo hits to port",
+  "evidence": "Cited page (ibiblio USN Pearl Harbor attack damage report, bb37-Pearl.html) describes Oklahoma taking three initial torpedo hits (heeling to 45 degrees), then 'two or three additional torpedo hits,' and states the official best estimate was that she 'was struck by five airplane torpedoes.' The 135-degree capsize over eight-to-ten minutes followed the full set of hits, not just the initial three, so attributing the capsize to only 'three torpedo hits' understates the page's own count.",
+  "quote_found": true
+ }
+]

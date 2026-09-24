@@ -31,7 +31,7 @@ Plan (touches >3 files - confirm shape with Ryan before coding):
 1. MEASURE first (a test run, not a checker): offline script over the battleship video's 23 machines x
    ~9 cited URLs (read from `research_payload.machine_raw_source_packages`). Fetch each page, find the
    quote, cut a ~500-char passage around it. Report: pages that load, quote found, passage size, and
-   whether the 36 known-bad claims' true facts sit inside the passage (audit list: this session's
+   whether the 36 known-bad claims' true facts sit inside the passage (audit list: `docs/battleship-relay-test/claim-audit-34.json` + `claim-fixes-applied.json`; also this session's
    JOURNAL/2026-09-23.md + the fixes applied). Show Ryan the numbers.
 2. If the numbers are good: at research save time, the server fetches the page and stores the real
    passage on the excerpt (true `fetched_page`). Page won't load -> keep the model's quote alone. Never block.
