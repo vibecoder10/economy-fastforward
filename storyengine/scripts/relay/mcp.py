@@ -1,7 +1,8 @@
 """Tiny StoryEngine MCP client for relay work, so big prompts/answers never pass through chat.
 
   python3 mcp.py pending [video_id]        -> saves each pending request to req/<id>.json, prints a summary
-  python3 mcp.py answer <request_id> <file> -> posts the file's text as the answer (code fences stripped)
+  python3 mcp.py answer <request_id> <file> -> posts the file's text as the answer (code fences stripped;
+                                              .json must parse, .txt is posted as plain text)
 """
 import json, os, re, sys, urllib.request
 
@@ -49,5 +50,6 @@ if __name__ == "__main__":
             print(r["request_id"], r["stage"], target.group(1) if target else "", len(r["prompt"]))
     elif cmd == "answer":
         text = strip_fences(open(sys.argv[3]).read())
-        json.loads(text)  # must be valid JSON before it is posted
+        if not sys.argv[3].endswith(".txt"):
+            json.loads(text)  # must be valid JSON before it is posted (.txt = plain-text answer, e.g. vision QA)
         print(json.dumps(call("answer_llm_request", {"request_id": sys.argv[2], "response": text}))[:400])
