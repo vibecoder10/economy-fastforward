@@ -74,6 +74,7 @@ function QueueStatus({ item, pause }: { item: QueueItem; pause?: QueuePauseState
 export function TitleListQueue() {
   const queryClient = useQueryClient();
   const [titleText, setTitleText] = useState("");
+  const [lengthMinutes, setLengthMinutes] = useState(20);
   const [modeChoice, setModeChoice] = useState<{ tenantId: string; mode: QueueRunMode } | null>(null);
   const [deliveryChoice, setDeliveryChoice] = useState<{ tenantId: string; mode: QueueDeliveryMode } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -126,6 +127,7 @@ export function TitleListQueue() {
           continuous,
           required_render_mode: selectedMode === "static_docu" ? "static_docu" : null,
           delivery_mode: selectedDelivery,
+          video_length_minutes: lengthMinutes,
         },
       ),
     onSuccess: async (response, continuous) => {
@@ -253,6 +255,21 @@ export function TitleListQueue() {
           <p className="mt-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
             {titles.length} unique title{titles.length === 1 ? "" : "s"} ready
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <label htmlFor="title-list-length" className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+              Length (minutes)
+            </label>
+            <input
+              id="title-list-length"
+              type="number"
+              min={1}
+              step={1}
+              value={lengthMinutes}
+              onChange={(event) => setLengthMinutes(Math.max(1, Math.round(Number(event.target.value) || 1)))}
+              className="w-20 rounded-lg px-2 py-1.5 text-xs outline-none"
+              style={{ background: "rgba(0,0,0,0.2)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+            />
+          </div>
         </div>
 
         <div className="grid content-start gap-3 sm:grid-cols-2">
@@ -374,7 +391,14 @@ export function TitleListQueue() {
                   style={{ background: "rgba(255,255,255,0.025)", border: "1px solid var(--border-subtle)" }}
                 >
                   <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{index + 1}</span>
-                  <p className="min-w-0 text-xs font-medium" style={{ color: "var(--text-primary)" }}>{item.title}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{item.title}</p>
+                    {item.video_length_minutes != null && (
+                      <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                        {item.video_length_minutes} min
+                      </p>
+                    )}
+                  </div>
                   <QueueStatus item={item} pause={pause} />
                   <div className="flex items-center gap-2 md:justify-end">
                     {item.video_id && (

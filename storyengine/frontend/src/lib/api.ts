@@ -358,6 +358,7 @@ export interface QueueItem {
   delivery_channel_id?: string | null;
   last_error?: string | null;
   completed_at?: string | null;
+  video_length_minutes?: number | null;
 }
 
 export interface QueueAddItem {
@@ -410,6 +411,7 @@ export const addToQueue = (
     continuous?: boolean;
     required_render_mode?: "static_docu" | null;
     delivery_mode?: QueueDeliveryMode;
+    video_length_minutes?: number;
   },
 ) =>
   fetchApi<QueueAddResponse>("/api/queue", {

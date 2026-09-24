@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import uuid
 from contextlib import asynccontextmanager
@@ -67,6 +68,9 @@ class QueueItemIn(BaseModel):
     title: str
     framework_angle: Optional[str] = None
     writer_guidance: Optional[str] = None
+    # Per-item override for QueueAddRequest.video_length_minutes below — only
+    # meaningful when set; None means "use the request-level default".
+    video_length_minutes: Optional[float] = None
 
 
 class QueueAddRequest(BaseModel):
@@ -75,12 +79,36 @@ class QueueAddRequest(BaseModel):
     continuous: bool = False
     required_render_mode: Optional[str] = None
     delivery_mode: Literal["render_only", "youtube_unlisted"] = "render_only"
+    # Applies to every title in this paste unless an item overrides it. Feeds
+    # production_queue.video_length_minutes -> _prepare_video's videos INSERT,
+    # so roster_selection.selection_target has a real length to read (20 min
+    # = 20 machines) instead of failing with "duration and minutes_per_machine
+    # must be finite positive numbers".
+    video_length_minutes: Optional[float] = None
 
 
 class QueuePatch(BaseModel):
     title: Optional[str] = None
     position: Optional[int] = None
     status: Optional[str] = None  # 'queued' | 'skipped'
+
+
+def _validate_video_length(value) -> Optional[float]:
+    """Reject non-finite / non-positive lengths outright — a bad value here
+    reaches _prepare_video's videos INSERT unchecked otherwise, and only
+    surfaces much later as roster_selection's opaque 'duration and
+    minutes_per_machine must be finite positive numbers'."""
+    if value is None:
+        return None
+    try:
+        minutes = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="video_length_minutes must be a number.")
+    if not math.isfinite(minutes) or minutes <= 0:
+        raise HTTPException(
+            status_code=422, detail="video_length_minutes must be a finite number greater than 0."
+        )
+    return minutes
 
 
 # --- engine functions (shared by routes, chat ops, and the autopilot loop) ---
@@ -93,12 +121,15 @@ async def add_queue_items(
     continuous: bool = False,
     required_render_mode: Optional[str] = None,
     delivery_mode: str = "render_only",
+    video_length_minutes: Optional[float] = None,
 ) -> int:
     """Append items (dicts with title / framework_angle / writer_guidance /
-    user_script) to the end of the tenant's queue, preserving given order.
-    Positions move in gaps of 10 so reorders are one-row updates."""
+    user_script / video_length_minutes) to the end of the tenant's queue,
+    preserving given order. Positions move in gaps of 10 so reorders are
+    one-row updates."""
     if delivery_mode not in ("render_only", "youtube_unlisted"):
         raise HTTPException(status_code=422, detail="Unsupported queue delivery mode.")
+    default_length = _validate_video_length(video_length_minutes)
     delivery_channel_id = None
     if delivery_mode == "youtube_unlisted":
         profile = await fetch_one(
@@ -123,12 +154,15 @@ async def add_queue_items(
         if not title:
             continue
         pos += 10
+        item_length = _validate_video_length(it.get("video_length_minutes"))
+        if item_length is None:
+            item_length = default_length
         result = await execute(
             "INSERT INTO production_queue (tenant_id, position, title, framework_angle, "
             "writer_guidance, user_script, source_asset_id, item_key, continuous, "
-            "required_render_mode, delivery_mode, delivery_channel_id) "
+            "required_render_mode, delivery_mode, delivery_channel_id, video_length_minutes) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, "
-            "lower(regexp_replace(trim($8), '[[:space:]]+', ' ', 'g')), $9, $10, $11, $12) "
+            "lower(regexp_replace(trim($8), '[[:space:]]+', ' ', 'g')), $9, $10, $11, $12, $13) "
             "ON CONFLICT (tenant_id, item_key) WHERE item_key IS NOT NULL DO NOTHING",
             tenant_id, pos, title,
             (it.get("framework_angle") or None),
@@ -140,6 +174,7 @@ async def add_queue_items(
             required_render_mode,
             delivery_mode,
             delivery_channel_id,
+            item_length,
         )
         if not str(result).endswith(" 0"):
             count += 1
@@ -427,10 +462,11 @@ async def _prepare_video(tenant_id: str, item: dict, *, via: str) -> tuple[str, 
             await conn.execute(
                 """INSERT INTO videos (
                        id, tenant_id, project_id, video_title, status, headline, source,
-                       framework_angle, writer_guidance, created_at
-                   ) VALUES ($1, $2, $3, $4, 'idea_logged', $4, $5, $6, $7, now())""",
+                       framework_angle, writer_guidance, video_length_minutes, created_at
+                   ) VALUES ($1, $2, $3, $4, 'idea_logged', $4, $5, $6, $7, $8, now())""",
                 video_id, tenant_id, str(project["id"]), item["title"], via,
                 item.get("framework_angle"), item.get("writer_guidance"),
+                item.get("video_length_minutes"),
             )
             await conn.execute(
                 "UPDATE production_queue SET video_id = $1, status = 'dispatching', "
@@ -770,7 +806,7 @@ async def list_queue(tenant_id=Depends(get_tenant_id)):
         """SELECT id, position, title, framework_angle, status, video_id,
                   source_asset_id, launched_at, created_at, continuous,
                   required_render_mode, attempt_count, last_error, completed_at
-                  , delivery_mode, delivery_channel_id
+                  , delivery_mode, delivery_channel_id, video_length_minutes
            FROM production_queue WHERE tenant_id = $1 AND status != 'skipped'
            ORDER BY status = 'queued' DESC, position, created_at""",
         tenant_id,
@@ -788,6 +824,11 @@ async def add_to_queue(
         raise HTTPException(status_code=400, detail="No items to queue.")
     if body.required_render_mode not in (None, "static_docu"):
         raise HTTPException(status_code=422, detail="Unsupported required render mode.")
+    from routes.billing import enforce_video_length_cap
+    lengths = {body.video_length_minutes, *(i.video_length_minutes for i in body.items)}
+    for length in lengths:
+        _validate_video_length(length)
+        await enforce_video_length_cap(tenant_id, length)
     n = await add_queue_items(
         tenant_id,
         [i.model_dump() for i in body.items],
@@ -795,6 +836,7 @@ async def add_to_queue(
         continuous=body.continuous,
         required_render_mode=body.required_render_mode,
         delivery_mode=body.delivery_mode,
+        video_length_minutes=body.video_length_minutes,
     )
     if n == 0 and not any(i.title.strip() for i in body.items):
         raise HTTPException(status_code=400, detail="No usable titles in those items.")

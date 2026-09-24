@@ -30,8 +30,102 @@ async def test_repeat_title_intake_is_idempotent_with_normalized_key(monkeypatch
     assert count == 1
     first, second = execute.await_args_list
     assert "lower(regexp_replace(trim($8)" in first.args[0]
-    assert first.args[9:] == (True, "static_docu", "render_only", None)
+    assert first.args[9:] == (True, "static_docu", "render_only", None, None)
     assert "ON CONFLICT" in first.args[0]
+
+
+@pytest.mark.asyncio
+async def test_add_queue_items_stores_request_level_video_length(monkeypatch):
+    monkeypatch.setattr(queue, "fetch_one", AsyncMock(return_value={"p": 0}))
+    execute = AsyncMock(return_value="INSERT 0 1")
+    monkeypatch.setattr(queue, "execute", execute)
+
+    count = await queue.add_queue_items(
+        "tenant-1", [{"title": "A Title"}], video_length_minutes=20,
+    )
+
+    assert count == 1
+    args = execute.await_args_list[0].args
+    assert args[-1] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_add_queue_items_per_item_length_overrides_request_default(monkeypatch):
+    monkeypatch.setattr(queue, "fetch_one", AsyncMock(return_value={"p": 0}))
+    execute = AsyncMock(return_value="INSERT 0 1")
+    monkeypatch.setattr(queue, "execute", execute)
+
+    await queue.add_queue_items(
+        "tenant-1",
+        [{"title": "A Title", "video_length_minutes": 45}],
+        video_length_minutes=20,
+    )
+
+    args = execute.await_args_list[0].args
+    assert args[-1] == 45.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_length", [0, -5, float("nan"), float("inf")])
+async def test_add_queue_items_rejects_invalid_video_length(monkeypatch, bad_length):
+    monkeypatch.setattr(queue, "fetch_one", AsyncMock(return_value={"p": 0}))
+    monkeypatch.setattr(queue, "execute", AsyncMock(return_value="INSERT 0 1"))
+
+    with pytest.raises(queue.HTTPException) as exc_info:
+        await queue.add_queue_items(
+            "tenant-1", [{"title": "A Title"}], video_length_minutes=bad_length,
+        )
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_prepare_video_insert_includes_video_length(monkeypatch):
+    statements = []
+
+    class Conn:
+        async def fetchrow(self, query, *args):
+            statements.append((query, args))
+            return {"id": "item-1", "video_id": None}
+
+        async def execute(self, query, *args):
+            statements.append((query, args))
+            return "INSERT 0 1"
+
+        def transaction(self):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    conn = Conn()
+
+    class Pool:
+        def acquire(self):
+            return conn
+
+    monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=Pool()))
+    monkeypatch.setattr(
+        "routes.projects._get_or_create_project",
+        AsyncMock(return_value={"id": "project-1"}),
+    )
+
+    video_id, created = await queue._prepare_video(
+        "tenant-1",
+        {"id": "item-1", "title": "Title", "framework_angle": None,
+         "writer_guidance": None, "video_length_minutes": 20},
+        via="autopilot_queue",
+    )
+
+    assert created is True
+    assert video_id
+    insert_query, insert_args = next(
+        (q, a) for q, a in statements if "INSERT INTO videos" in q
+    )
+    assert "video_length_minutes" in insert_query
+    assert 20 in insert_args
 
 
 @pytest.mark.asyncio
@@ -454,7 +548,7 @@ async def test_unlisted_intake_snapshots_only_stored_connected_channel(monkeypat
     )
 
     assert count == 1
-    assert execute.await_args.args[-2:] == ("youtube_unlisted", "UC-owner")
+    assert execute.await_args.args[-3:-1] == ("youtube_unlisted", "UC-owner")
     assert "stored-token" not in execute.await_args.args
 
 
@@ -537,3 +631,63 @@ async def test_legacy_c55_full_auto_promotes_only_scheduler_noncontinuous_defaul
     assert manual.get("delivery_mode") == "render_only"
     profile.assert_awaited_once()
     assert "SET delivery_mode='youtube_unlisted'" in execute.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_add_to_queue_rejects_invalid_video_length(monkeypatch):
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(arq=None)))
+
+    with pytest.raises(queue.HTTPException) as exc_info:
+        await queue.add_to_queue(
+            queue.QueueAddRequest(
+                items=[queue.QueueItemIn(title="One")],
+                video_length_minutes=0,
+            ),
+            request,
+            "tenant-1",
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_add_to_queue_enforces_plan_length_cap(monkeypatch):
+    import routes.billing as billing
+
+    cap = AsyncMock(side_effect=queue.HTTPException(status_code=402, detail="Upgrade required"))
+    monkeypatch.setattr(billing, "enforce_video_length_cap", cap)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(arq=None)))
+
+    with pytest.raises(queue.HTTPException) as exc_info:
+        await queue.add_to_queue(
+            queue.QueueAddRequest(
+                items=[queue.QueueItemIn(title="One")],
+                video_length_minutes=60,
+            ),
+            request,
+            "tenant-1",
+        )
+
+    assert exc_info.value.status_code == 402
+    cap.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_add_to_queue_passes_video_length_through_to_add_queue_items(monkeypatch):
+    import routes.billing as billing
+
+    monkeypatch.setattr(billing, "enforce_video_length_cap", AsyncMock())
+    add_items = AsyncMock(return_value=1)
+    monkeypatch.setattr(queue, "add_queue_items", add_items)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(arq=None)))
+
+    await queue.add_to_queue(
+        queue.QueueAddRequest(
+            items=[queue.QueueItemIn(title="One")],
+            video_length_minutes=20,
+        ),
+        request,
+        "tenant-1",
+    )
+
+    assert add_items.await_args.kwargs["video_length_minutes"] == 20
