@@ -87,7 +87,7 @@ async def _upload_unlisted(
     # Match the manual uploader: prepare content-derived metadata before the
     # automatic insert, while retaining saved creator edits and retry behavior.
     if not video.get("youtube_video_id") and not (video.get("seo_description") or "").strip():
-        seo = await generate_and_store_seo(video_id, tenant_id)
+        seo = await generate_and_store_seo(video_id, tenant_id, allow_relay=True)
         if seo.get("error"):
             return {"error": seo["error"]}
 

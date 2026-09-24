@@ -299,7 +299,10 @@ def test_worker_registers_bounded_autobuild_retry_and_timeout():
     autobuild = registered["arq_run_autobuild"]
 
     assert autobuild.coroutine is worker.arq_run_autobuild
-    assert autobuild.timeout_s == 7200
+    # FIX 1 (relay-e2e-ready): a relay-driven or large static_docu build can
+    # run for hours — configurable via AUTOBUILD_TIMEOUT_SECONDS, default 12h.
+    assert autobuild.timeout_s == worker.AUTOBUILD_TIMEOUT_SECONDS
+    assert autobuild.timeout_s == 12 * 3600
     assert autobuild.max_tries == 3
 
 

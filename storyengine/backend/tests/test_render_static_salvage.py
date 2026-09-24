@@ -92,7 +92,7 @@ async def test_upload_failure_salvages_finished_mp4_before_workdir_cleanup(
     def fake_build_render_config(video_id, segments):
         return {"video_id": video_id, "total_duration_seconds": 5.0, "scenes": []}
 
-    async def fake_select_music_beds(tenant_id, segments, rc, public_dir):
+    async def fake_select_music_beds(tenant_id, segments, rc, public_dir, video_id=None):
         return []
 
     async def fake_run_remotion(public_dir, props_file, out_file, on_progress):
@@ -180,7 +180,7 @@ async def test_happy_path_still_cleans_up_fully_no_salvage_file(monkeypatch, tmp
     def fake_build_render_config(video_id, segments):
         return {"video_id": video_id, "total_duration_seconds": 5.0, "scenes": []}
 
-    async def fake_select_music_beds(tenant_id, segments, rc, public_dir):
+    async def fake_select_music_beds(tenant_id, segments, rc, public_dir, video_id=None):
         return []
 
     async def fake_run_remotion(public_dir, props_file, out_file, on_progress):

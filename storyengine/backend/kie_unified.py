@@ -531,6 +531,27 @@ async def get_text_client_for_tenant(tenant_id: str) -> Any:
     )
 
 
+async def get_pipeline_text_client(tenant_id: str, video_id: Optional[str] = None) -> Any:
+    """Text-client resolution for BACKGROUND/WORKER pipeline stages only.
+
+    Relay-active tenants (opted in, no Anthropic key — agent_relay.relay_active)
+    get an AgentRelayClient instead of the direct/Kie client, so a stage that
+    would otherwise silently spend the tenant's Kie key runs through the free
+    MCP-agent relay like the rest of the pipeline. Do NOT call this from a
+    request-scoped route that awaits the result inline — AgentRelayClient can
+    wait up to AGENT_RELAY_TIMEOUT_SECONDS (30 min default) for the agent to
+    answer, which would hang the HTTP response. Use get_text_client_for_tenant
+    directly there instead (see its callers for the request-scoped exception).
+    """
+    import agent_relay
+
+    if await agent_relay.relay_active(tenant_id):
+        from agent_relay_client import AgentRelayClient
+
+        return AgentRelayClient(tenant_id, video_id)
+    return await get_text_client_for_tenant(tenant_id)
+
+
 def write_temp_audio(audio_content: bytes, suffix: str = ".mp3") -> str:
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp.write(audio_content)

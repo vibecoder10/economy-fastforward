@@ -3,12 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, ExternalLink, ListVideo, Loader2, PauseCircle, Play, RotateCcw } from "lucide-react";
+import { AlertCircle, CalendarPlus, CheckCircle2, ExternalLink, ListVideo, Loader2, PauseCircle, Play, RotateCcw } from "lucide-react";
 import {
   addToQueue,
   getActiveTenant,
   getQueue,
   getWorkspaces,
+  launchQueueItem,
   patchQueueItem,
   resumeQueueProduction,
   type QueueDeliveryMode,
@@ -16,6 +17,7 @@ import {
   type QueuePauseState,
 } from "@/lib/api";
 import {
+  addToCalendarLabel,
   defaultQueueDeliveryMode,
   defaultQueueRunMode,
   parseTitleLines,
@@ -76,6 +78,7 @@ export function TitleListQueue() {
   const [deliveryChoice, setDeliveryChoice] = useState<{ tenantId: string; mode: QueueDeliveryMode } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
   const activeTenant = getActiveTenant();
   const queueQueryKey = ["production-queue", activeTenant || "home"] as const;
 
@@ -116,25 +119,39 @@ export function TitleListQueue() {
   };
 
   const runMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (continuous: boolean) =>
       addToQueue(
         titles.map((title) => ({ title })),
         {
-          continuous: true,
+          continuous,
           required_render_mode: selectedMode === "static_docu" ? "static_docu" : null,
           delivery_mode: selectedDelivery,
         },
       ),
-    onSuccess: async (response) => {
+    onSuccess: async (response, continuous) => {
       setTitleText("");
+      const count = response.count;
+      const plural = count === 1 ? "" : "s";
       setNotice(
-        response.launch
-          ? `${response.count} title${response.count === 1 ? "" : "s"} queued. The first build is running.`
-          : response.message || `${response.count} title${response.count === 1 ? "" : "s"} queued.`,
+        !continuous
+          ? `${count} title${plural} added to the calendar. Nothing is building yet.`
+          : response.launch
+            ? `${count} title${plural} queued. The first build is running.`
+            : response.message || `${count} title${plural} queued.`,
       );
       await refreshQueue();
     },
     onError: () => setNotice(null),
+  });
+
+  const startMutation = useMutation({
+    mutationFn: (id: string) => launchQueueItem(id),
+    onMutate: (id) => setStartingId(id),
+    onSuccess: async (response) => {
+      setNotice(`Started building: ${response.video_title}`);
+      await refreshQueue();
+    },
+    onSettled: () => setStartingId(null),
   });
 
   const retryMutation = useMutation({
@@ -155,7 +172,8 @@ export function TitleListQueue() {
   const runError = runMutation.error instanceof Error ? runMutation.error.message : null;
   const retryError = retryMutation.error instanceof Error ? retryMutation.error.message : null;
   const resumeError = resumeMutation.error instanceof Error ? resumeMutation.error.message : null;
-  const actionError = runError || retryError || resumeError;
+  const startError = startMutation.error instanceof Error ? startMutation.error.message : null;
+  const actionError = runError || retryError || resumeError || startError;
 
   return (
     <section
@@ -287,16 +305,36 @@ export function TitleListQueue() {
                 ? "This workspace’s saved profile could not be loaded."
                 : "Loading this workspace’s saved profile…"}
           </p>
-          <button
-            type="button"
-            onClick={() => runMutation.mutate()}
-            disabled={titles.length === 0 || runMutation.isPending || workspaceQuery.isLoading || workspaceQuery.isError}
-            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
-            style={{ background: "var(--turquoise)", color: "#07110f" }}
-          >
-            {runMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            {queueSubmitLabel(Boolean(pause?.paused), runMutation.isPending)}
-          </button>
+          <div className="flex flex-col gap-2 sm:col-span-2">
+            <button
+              type="button"
+              onClick={() => runMutation.mutate(false)}
+              disabled={titles.length === 0 || runMutation.isPending || workspaceQuery.isLoading || workspaceQuery.isError}
+              className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "var(--turquoise)", color: "#07110f" }}
+            >
+              {runMutation.isPending && runMutation.variables === false ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <CalendarPlus size={14} />
+              )}
+              {addToCalendarLabel(runMutation.isPending && runMutation.variables === false)}
+            </button>
+            <button
+              type="button"
+              onClick={() => runMutation.mutate(true)}
+              disabled={titles.length === 0 || runMutation.isPending || workspaceQuery.isLoading || workspaceQuery.isError}
+              className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            >
+              {runMutation.isPending && runMutation.variables === true ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Play size={14} />
+              )}
+              {queueSubmitLabel(runMutation.isPending && runMutation.variables === true)}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -347,6 +385,19 @@ export function TitleListQueue() {
                       >
                         Open <ExternalLink size={10} />
                       </Link>
+                    )}
+                    {item.status === "queued" && !item.continuous && (
+                      <button
+                        type="button"
+                        onClick={() => startMutation.mutate(item.id)}
+                        disabled={startMutation.isPending || Boolean(pause?.paused)}
+                        title={pause?.paused ? "Resume production after fixing the provider" : "Start building this title now"}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                        style={{ border: "1px solid var(--turquoise)", color: "var(--turquoise)" }}
+                      >
+                        {startingId === item.id ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+                        Start building
+                      </button>
                     )}
                     {(lifecycle === "failed" || lifecycle === "blocked") && item.status === "failed" && (
                       <button

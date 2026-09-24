@@ -17540,7 +17540,7 @@ scenes."""
                 # Only auto-generate when there's no SEO yet — never clobber the
                 # creator's edited/saved description+tags.
                 if not thumbnail_retry and not (video.get("seo_description") or "").strip():
-                    seo = await generate_and_store_seo(video_id, self.tenant_id)
+                    seo = await generate_and_store_seo(video_id, self.tenant_id, allow_relay=True)
                     if seo.get("error"):
                         raise Exception(seo["error"])
                 up = await upload_video_to_youtube(

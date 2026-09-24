@@ -22,7 +22,7 @@ from typing import Optional
 from PIL import Image
 
 from database import fetch_one, fetch_all, execute
-from kie_unified import get_text_client_for_tenant
+from kie_unified import get_pipeline_text_client, get_text_client_for_tenant
 from youtube_quota import (
     quota_exceeded_message,
     release_upload_reservation,
@@ -87,9 +87,13 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
-async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
+async def generate_and_store_seo(video_id: str, tenant_id: str, *, allow_relay: bool = False) -> dict:
     """Generate channel-appropriate SEO from the video's own content and store it on
-    the videos row. Returns {description, tags, hashtags, category_id, channel}."""
+    the videos row. Returns {description, tags, hashtags, category_id, channel}.
+
+    allow_relay=True only from background/worker callers: a relay tenant's call then
+    parks for the MCP agent instead of spending the Kie key. The inline
+    POST /generate-seo route keeps the default (a relay wait would hang the request)."""
     v = await fetch_one(
         "SELECT video_title FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
     if not v:
@@ -110,7 +114,10 @@ async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
     niche = ((cp and cp["niche"]) or "").strip()
     audience = ((cp and cp["target_audience"]) or "").strip()
 
-    claude = await get_text_client_for_tenant(tenant_id)
+    if allow_relay:
+        claude = await get_pipeline_text_client(tenant_id, video_id)
+    else:
+        claude = await get_text_client_for_tenant(tenant_id)
     model = claude_model_for_direct_client(claude)
     kwargs = dict(prompt=_seo_prompt(channel, niche, audience, title, script),
                   system_prompt=_SEO_SYSTEM, max_tokens=900, temperature=0.5)

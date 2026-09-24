@@ -545,7 +545,7 @@ def _music_progress_message(beds: list[dict]) -> str:
 
 
 async def _select_music_beds(tenant_id: str, segments: list[dict],
-                             rc: dict, public_dir: Path) -> list[dict]:
+                             rc: dict, public_dir: Path, video_id: str | None = None) -> list[dict]:
     """Use a fixed channel bed when configured, else select per-act music.
 
     Legacy selection uses the local library (mood-tagged files like
@@ -585,8 +585,8 @@ async def _select_music_beds(tenant_id: str, segments: list[dict],
 
         moods: dict[int, str] = {}
         try:
-            from kie_unified import get_text_client_for_tenant
-            client = await get_text_client_for_tenant(tenant_id)
+            from kie_unified import get_pipeline_text_client
+            client = await get_pipeline_text_client(tenant_id, video_id)
             listing = "\n\n".join(f"[act {a}] {t[:900]}" for a, t in sorted(act_text.items()))
             kwargs = {"prompt": (
                 "Classify the MOOD of each act of this documentary narration. "
@@ -761,7 +761,7 @@ async def render_static_video(
                 raise RuntimeError(f"Scene {seg['scene']}: narration has no readable duration")
 
         rc = _build_render_config(video_id, segments)
-        beds = await _select_music_beds(tenant_id, segments, rc, public_dir)
+        beds = await _select_music_beds(tenant_id, segments, rc, public_dir, video_id)
         if beds:
             rc["music_beds"] = beds
             await _emit(on_progress, _music_progress_message(beds))

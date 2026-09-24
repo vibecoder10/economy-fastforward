@@ -5,6 +5,7 @@ Run with:
 """
 
 from __future__ import annotations
+import asyncio
 import logging
 import os
 from urllib.parse import urlparse as _urlparse
@@ -16,6 +17,16 @@ from error_utils import USER_FACING_PREFIX, is_kie_block, humanize_error
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# A relay-driven or large static_docu Run All can take many hours (the relay
+# alone waits up to AGENT_RELAY_TIMEOUT_SECONDS per model call, repeated over
+# a whole roster). arq's own timeout is asyncio.wait_for around the job
+# coroutine: on expiry it cancels the job and arq treats that as a FINAL
+# failure — no retry (see arq/worker.py's Worker.run_job, ~line 596: the
+# `except (Exception, asyncio.CancelledError)` branch that isn't a Retry/
+# RetryJob just fails the job). 12h gives a long build room to finish instead
+# of being killed mid-flight; FIX 2 below makes a genuine kill end cleanly.
+AUTOBUILD_TIMEOUT_SECONDS = int(os.getenv("AUTOBUILD_TIMEOUT_SECONDS", str(12 * 3600)))
 
 
 def _terminal_failure(error_msg: str) -> bool:
@@ -518,6 +529,31 @@ async def arq_run_autobuild(
             delivery_mode=delivery_mode, expected_channel_id=expected_channel_id,
         )
         await step()
+    except asyncio.CancelledError:
+        # arq's own timeout (asyncio.wait_for around this job's task) cancels
+        # us here — never a cooperative user Stop, which the chainer resolves
+        # through its own "cancelled" result dicts and never raises through
+        # (see cancel_registry.py). A CancelledError reaching this except is
+        # therefore always a kill: the process was told to abandon the job.
+        # make_autobuild_step's own `except Exception` (and worker.py's, just
+        # above) both miss BaseException subclasses like CancelledError in
+        # Python 3.8+, so without this branch the background_tasks row for
+        # this job stayed 'running' forever — production_queue's
+        # _reconcile_queue_items and _claim_next both gate the next queued
+        # title on that row leaving 'pending'/'running', so the lane never
+        # advanced. Persist a clean failure (awaited — deterministic, unlike
+        # the chainer's own fire-and-forget _set_task_status) so the queue
+        # can move on, release the claim this job holds, then re-raise so
+        # the cancellation still propagates (never swallowed).
+        await db_persist_task(
+            tenant_id, video_id, "autobuild", "failed",
+            error="Build ran past its time limit; completed work is saved.",
+            job_id=job_id, attempt=attempt,
+        )
+        await generation_claims.release_owned(
+            tenant_id, video_id, "main", claim_owner
+        )
+        raise
     except Exception as exc:
         # Factory/setup failures can happen before the chainer reaches its own
         # finally block. Persist and release here; ordinary inner failures are
@@ -768,7 +804,7 @@ class WorkerSettings:
         func(
             arq_run_autobuild,
             name="arq_run_autobuild",
-            timeout=7200,
+            timeout=AUTOBUILD_TIMEOUT_SECONDS,
             max_tries=3,
         ),
         func(

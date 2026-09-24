@@ -973,21 +973,50 @@ async def _rank_reference_views(candidates: list, tenant_id: str, machine: str) 
     # Known poor views go last before the bounded visual comparison.
     candidates = sorted(candidates, key=lambda c: bool(re.search(
         r"underside|from[_ -]below|belly|cockpit|close[_ -]?up", c[0], re.I)))
+    ranking_prompt = (
+        f"Rank reference photos for generating images of {machine}. "
+        "Prefer the clearest view of the ENTIRE machine, with nose, tail and "
+        "wingtips in frame. Prefer top-down or elevated three-quarter/isometric "
+        "views showing the UPPER surfaces, then clear side views. Underside/belly "
+        "views, cropped machines, heavy occlusion, blur and camouflage that hides "
+        "the shape rank last. Preserve the exact variant: a clearer different "
+        "variant is not a better reference. Return ONLY a JSON array of candidate "
+        "numbers, best first. This ranks photos; identity is checked separately."
+    )
     try:
+        import agent_relay
+
+        if await agent_relay.relay_active(tenant_id):
+            from agent_relay_client import AgentRelayClient, AgentRelayTimeout
+
+            usable = candidates[:6]
+            if len(usable) < 2:
+                return candidates
+            lines = [ranking_prompt,
+                     "You cannot see the photos in this message. Open each candidate's "
+                     "image URL yourself and look at the actual pixels before ranking."]
+            for i, candidate in enumerate(usable, 1):
+                lines.append(f"Candidate {i} url: {candidate[0]}")
+            client = AgentRelayClient(tenant_id)
+            try:
+                text = await client.generate(
+                    "\n".join(lines), system_prompt=_RELAY_VISION_QA_SYSTEM,
+                    model="agent-vision", max_tokens=150, temperature=0.0,
+                )
+            except AgentRelayTimeout:
+                return candidates
+            order = json.loads(text)
+            if (not isinstance(order, list) or any(type(i) is not int for i in order)
+                    or sorted(order) != list(range(1, len(usable) + 1))):
+                return candidates
+            ranked = [usable[i-1] for i in order]
+            return ranked + [c for c in candidates if c not in ranked]
+
         from vault import get_secret
         key = await get_secret("anthropic_api_key", tenant_id)
         if not key:
             return candidates
-        content = [{"type": "text", "text": (
-            f"Rank reference photos for generating images of {machine}. "
-            "Prefer the clearest view of the ENTIRE machine, with nose, tail and "
-            "wingtips in frame. Prefer top-down or elevated three-quarter/isometric "
-            "views showing the UPPER surfaces, then clear side views. Underside/belly "
-            "views, cropped machines, heavy occlusion, blur and camouflage that hides "
-            "the shape rank last. Preserve the exact variant: a clearer different "
-            "variant is not a better reference. Return ONLY a JSON array of candidate "
-            "numbers, best first. This ranks photos; identity is checked separately."
-        )}]
+        content = [{"type": "text", "text": ranking_prompt}]
         usable = []
         for candidate in candidates[:6]:
             img = await _download_image_b64(candidate[0])
@@ -1530,6 +1559,126 @@ def _has_keyword(text: str, keywords: tuple) -> bool:
     return any(re.search(r"\b" + re.escape(k) + r"\b", text) for k in keywords)
 
 
+_RELAY_VISION_QA_SYSTEM = (
+    "You are a careful reviewer of documentary reference and generated images. "
+    "You can open image URLs and look at them. Follow the user's instructions "
+    "exactly and reply with ONLY the requested one-line answer."
+)
+
+
+async def _vision_qa_transport(
+    tenant_id: str,
+    image_urls: list[str],
+    prompt_text: str,
+    *,
+    max_tokens: int = 80,
+    log_label: str = "static_docu vision QA",
+) -> Optional[str]:
+    """The one shared round-trip behind every vision QA judge below
+    (`_vision_yes_no`, `_vision_confirms`, `_render_matches_reference`,
+    `_arbiter_confirms_render`, `_view_role_confirms`, and the reference-view
+    ranking call above) — replaces five near-identical inline `_ask_once`
+    closures that only differed in image count/max_tokens/log label. Each
+    caller keeps its own prompt wording, max_tokens, reply parsing, and
+    fail-open/closed verdict on top of this; only the transport is shared.
+
+    Relay-active tenants (agent_relay.relay_active — opted in AND no
+    Anthropic key) never reach the direct HTTP call below: the image URLs
+    are listed in the prompt text with an instruction to open each one and
+    look at the actual pixels (mirrors reference_selection._judge_via_relay's
+    wording), sent to the MCP agent with model="agent-vision", temperature 0.
+    Otherwise this is the unchanged self-fetch-then-POST path: each image is
+    downloaded and inlined as base64 (a URL-source image block 400's through
+    the Kie gateway — see `_vision_confirms`'s docstring), Anthropic is tried
+    first (the Kie gateway injects tool configuration that derails the
+    reply), Kie is the fallback.
+
+    Returns the lowercased reply text (possibly empty on a download/HTTP
+    failure — the caller's own retry loop treats that like a transport
+    exception), or None specifically when no provider/relay is configured
+    at all — callers use that to distinguish a config gap from a transport
+    failure.
+    """
+    import agent_relay
+
+    if await agent_relay.relay_active(tenant_id):
+        from agent_relay_client import AgentRelayClient, AgentRelayTimeout
+
+        lines = [
+            prompt_text,
+            "You cannot see the images in this message. Open each image URL "
+            "yourself, look at the actual pixels, and answer exactly as "
+            "instructed above.",
+        ]
+        for i, url in enumerate(image_urls, 1):
+            lines.append(f"Image {i} url: {url}")
+        client = AgentRelayClient(tenant_id)
+        try:
+            text = await client.generate(
+                "\n".join(lines), system_prompt=_RELAY_VISION_QA_SYSTEM,
+                model="agent-vision", max_tokens=max_tokens, temperature=0.0,
+            )
+        except AgentRelayTimeout:
+            return ""
+        return (text or "").strip().lower()
+
+    from vault import get_secret
+
+    # Every image is downloaded, even after an earlier one in the same batch
+    # fails — matching each caller's original behavior (the two-image render
+    # QA judges always attempted BOTH downloads per round-trip, never
+    # short-circuiting on the first failure; a test asserts the exact
+    # download-attempt count).
+    downloads = [await _download_image_b64(url) for url in image_urls]
+    if any(d is None for d in downloads):
+        return ""  # download failure this attempt — caller retries
+    content = [{"type": "text", "text": prompt_text}]
+    for media_type, b64_data in downloads:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+        })
+    anthropic_key = await get_secret("anthropic_api_key", tenant_id)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        if anthropic_key:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": CLAUDE_MODELS["anthropic"]["smart"],
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": content}],
+                },
+            )
+        else:
+            kie_key = await get_secret("kie_ai_api_key", tenant_id)
+            if not kie_key:
+                return None
+            response = await client.post(
+                os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/")
+                + "/v1/messages",
+                headers={"Authorization": f"Bearer {kie_key}",
+                         "Content-Type": "application/json"},
+                json={
+                    "model": CLAUDE_MODELS["kie"]["smart"],
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": content}],
+                },
+            )
+    if response.status_code != 200:
+        _logger.warning("%s: model API HTTP %s", log_label, response.status_code)
+        return ""
+    body = response.json()
+    return " ".join(
+        block.get("text", "") for block in body.get("content", [])
+        if block.get("type") == "text"
+    ).strip().lower()
+
+
 async def _vision_yes_no(
     tenant_id: str,
     image_urls: list[str],
@@ -1539,63 +1688,13 @@ async def _vision_yes_no(
     log_label: str = "static_docu vision QA",
 ) -> bool:
     """Small shared transport for the design-only YES/NO checks below."""
-    from vault import get_secret
-
-    async def _ask_once() -> Optional[str]:
-        content = [{"type": "text", "text": prompt_text}]
-        for image_url in image_urls:
-            downloaded = await _download_image_b64(image_url)
-            if downloaded is None:
-                return ""
-            media_type, b64_data = downloaded
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": b64_data},
-            })
-        anthropic_key = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            if anthropic_key:
-                response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": anthropic_key,
-                        "anthropic-version": "2023-06-01",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": CLAUDE_MODELS["anthropic"]["smart"],
-                        "max_tokens": 100,
-                        "messages": [{"role": "user", "content": content}],
-                    },
-                )
-            else:
-                kie_key = await get_secret("kie_ai_api_key", tenant_id)
-                if not kie_key:
-                    return None
-                response = await client.post(
-                    os.getenv("KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude").rstrip("/")
-                    + "/v1/messages",
-                    headers={"Authorization": f"Bearer {kie_key}",
-                             "Content-Type": "application/json"},
-                    json={
-                        "model": CLAUDE_MODELS["kie"]["smart"],
-                        "max_tokens": 100,
-                        "messages": [{"role": "user", "content": content}],
-                    },
-                )
-        if response.status_code != 200:
-            _logger.warning("%s: model API HTTP %s", log_label, response.status_code)
-            return ""
-        body = response.json()
-        return " ".join(
-            block.get("text", "") for block in body.get("content", [])
-            if block.get("type") == "text"
-        ).strip().lower()
-
     text_reply: Optional[str] = None
     for _attempt in range(2):
         try:
-            result = await _ask_once()
+            result = await _vision_qa_transport(
+                tenant_id, image_urls, prompt_text,
+                max_tokens=100, log_label=log_label,
+            )
         except Exception:  # noqa: BLE001 - one retry, then fail closed
             result = ""
         if result is None:
@@ -1902,8 +2001,6 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     the conversion rule below hand the model exactly that. Both parameters
     default to None: every pre-existing caller keeps the old (weaker)
     question until it opts in."""
-    from vault import get_secret
-
     alias_txt = ""
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
@@ -1967,68 +2064,14 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         "text page."
     )
 
-    async def _ask_once() -> Optional[str]:
-        """One round-trip: download the candidate image fresh, then ask the
-        vision model. Returns the lowercased reply text (possibly empty —
-        including when the download itself failed, which the retry loop
-        treats identically to a transport exception), or None specifically
-        when NO provider key is configured at all — a workspace config gap,
-        not a transport symptom, so the caller treats it differently
-        (unverified configuration gap; retrying cannot supply a key)."""
-        img = await _download_image_b64(image_url)
-        if img is None:
-            return ""  # download/size failure this attempt — caller retries
-        media_type, b64_data = img
-        content = [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": media_type, "data": b64_data}},
-        ]
-
-        # DIRECT Anthropic first — the Kie gateway injects tool configuration
-        # that derails the reply into meta-talk about tools (seen live).
-        akey = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            if akey:
-                r = await c.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": akey,
-                             "anthropic-version": "2023-06-01",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-            else:
-                key = await get_secret("kie_ai_api_key", tenant_id)
-                if not key:
-                    return None
-                import os
-                kie_claude_url = os.getenv(
-                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
-                ).rstrip("/") + "/v1/messages"
-                r = await c.post(
-                    kie_claude_url,
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-        if r.status_code != 200:
-            # A non-200 model-API response is a failed attempt, never parsed
-            # as if it were an empty-but-successful answer (the C2f bug this
-            # continues to guard against — 23/23 URL-source calls 400'd and
-            # were silently read as "no reply text").
-            _logger.warning("_vision_confirms: model API HTTP %s", r.status_code)
-            return ""
-        body = r.json()
-        return " ".join(b.get("text", "") for b in body.get("content", [])
-                        if b.get("type") == "text").strip().lower()
-
     txt: Optional[str] = None
     no_key = False
     for attempt in range(2):
         try:
-            result = await _ask_once()
+            result = await _vision_qa_transport(
+                tenant_id, [image_url], prompt_text,
+                max_tokens=80, log_label="_vision_confirms",
+            )
         except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
             result = ""
         if result is None:
@@ -2110,8 +2153,6 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
     placeholder describing a transport failure / config gap) — regardless of
     verdict. Lets a caller that's about to park a rejected render also record
     WHY, without changing this function's bool return contract."""
-    from vault import get_secret
-
     alias_txt = ""
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
@@ -2133,69 +2174,14 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
         "empty, blank, or does not show the machine at all."
     )
 
-    async def _ask_once() -> Optional[str]:
-        """One round-trip: download BOTH images fresh (reference, then
-        render), then ask the vision model. Returns the lowercased reply
-        text (possibly empty — including when either download failed, which
-        the retry loop treats identically to a transport exception), or None
-        specifically when NO provider key is configured at all (unchanged
-        fail-open, same reasoning as `_vision_confirms`)."""
-        ref_img = await _download_image_b64(ref_url)
-        render_img = await _download_image_b64(render_url)
-        if ref_img is None or render_img is None:
-            return ""  # download failure this attempt — caller retries
-        ref_type, ref_b64 = ref_img
-        render_type, render_b64 = render_img
-        content = [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": ref_type, "data": ref_b64}},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": render_type, "data": render_b64}},
-        ]
-
-        # DIRECT Anthropic first — same reasoning as _vision_confirms (the
-        # Kie gateway injects tool configuration that derails the reply).
-        akey = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            if akey:
-                r = await c.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": akey,
-                             "anthropic-version": "2023-06-01",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-            else:
-                key = await get_secret("kie_ai_api_key", tenant_id)
-                if not key:
-                    return None
-                kie_claude_url = os.getenv(
-                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
-                ).rstrip("/") + "/v1/messages"
-                r = await c.post(
-                    kie_claude_url,
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-        if r.status_code != 200:
-            # A non-200 model-API response is a failed attempt, never parsed
-            # as if it were an empty-but-successful answer (same C2f/C2g
-            # guard _vision_confirms applies).
-            _logger.warning("_render_matches_reference: model API HTTP %s", r.status_code)
-            return ""
-        body = r.json()
-        return " ".join(b.get("text", "") for b in body.get("content", [])
-                        if b.get("type") == "text").strip().lower()
-
     txt: Optional[str] = None
     no_key = False
     for attempt in range(2):
         try:
-            result = await _ask_once()
+            result = await _vision_qa_transport(
+                tenant_id, [ref_url, render_url], prompt_text,
+                max_tokens=80, log_label="_render_matches_reference",
+            )
         except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
             result = ""
         if result is None:
@@ -2246,11 +2232,12 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
     it arbiter-approved in image_prompt for the audit trail). False = the
     rejection STANDS and the render is parked as qa_rejected.
 
-    Deliberately DUPLICATES the two-image transport of
-    `_render_matches_reference` rather than sharing it via refactor — same
-    C2h precedent as `_vision_confirms` vs `_render_matches_reference`: each
-    judgment owns its full path, so a change to one can never silently
-    change the other's behavior.
+    Shares `_vision_qa_transport` (the one round-trip / relay hand-off) with
+    `_render_matches_reference` and the other vision QA judges — only the
+    HTTP/relay plumbing is shared; this function keeps its own prompt,
+    MATCH/MISMATCH vocabulary, and fail-closed verdict logic below, so a
+    change to one judge's wording or verdict rule can never silently change
+    another's.
 
     FAILS CLOSED everywhere, including the keyless case: an arbiter that
     can't actually look at the images must never overrule a rejection — the
@@ -2258,8 +2245,6 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
     outcome of a false True is a wrong machine SHIPPED in a video. (The
     keyless case is unreachable in practice anyway: with no provider key the
     primary judge already failed open, so a double-reject can't occur.)"""
-    from vault import get_secret
-
     alias_txt = ""
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
@@ -2283,59 +2268,13 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
         "at all."
     )
 
-    async def _ask_once() -> Optional[str]:
-        ref_img = await _download_image_b64(ref_url)
-        render_img = await _download_image_b64(render_url)
-        if ref_img is None or render_img is None:
-            return ""  # download failure this attempt — caller retries
-        ref_type, ref_b64 = ref_img
-        render_type, render_b64 = render_img
-        content = [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": ref_type, "data": ref_b64}},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": render_type, "data": render_b64}},
-        ]
-
-        # DIRECT Anthropic first — same reasoning as _vision_confirms (the
-        # Kie gateway injects tool configuration that derails the reply).
-        akey = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            if akey:
-                r = await c.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": akey,
-                             "anthropic-version": "2023-06-01",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-            else:
-                key = await get_secret("kie_ai_api_key", tenant_id)
-                if not key:
-                    return None
-                kie_claude_url = os.getenv(
-                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
-                ).rstrip("/") + "/v1/messages"
-                r = await c.post(
-                    kie_claude_url,
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-        if r.status_code != 200:
-            _logger.warning("_arbiter_confirms_render: model API HTTP %s", r.status_code)
-            return ""
-        body = r.json()
-        return " ".join(b.get("text", "") for b in body.get("content", [])
-                        if b.get("type") == "text").strip().lower()
-
     txt: Optional[str] = None
     for attempt in range(2):
         try:
-            result = await _ask_once()
+            result = await _vision_qa_transport(
+                tenant_id, [ref_url, render_url], prompt_text,
+                max_tokens=80, log_label="_arbiter_confirms_render",
+            )
         except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
             result = ""
         if result is None:
@@ -2433,8 +2372,6 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
             reason_out.append("(no geometry requirement defined for this role)")
         return True
 
-    from vault import get_secret
-
     prompt_text = (
         f"This image is supposed to show the {machine} shot from "
         f"{requirement}. Answer on one line: first word YES or NO, then one "
@@ -2446,54 +2383,14 @@ async def _view_role_confirms(tenant_id: str, image_url: str, machine: str,
         "this camera tolerance does not waive those checks."
     )
 
-    async def _ask_once() -> Optional[str]:
-        img = await _download_image_b64(image_url)
-        if img is None:
-            return ""  # download failure this attempt — caller retries
-        media_type, b64_data = img
-        content = [
-            {"type": "text", "text": prompt_text},
-            {"type": "image", "source": {"type": "base64",
-             "media_type": media_type, "data": b64_data}},
-        ]
-
-        akey = await get_secret("anthropic_api_key", tenant_id)
-        async with httpx.AsyncClient(timeout=60.0) as c:
-            if akey:
-                r = await c.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": akey,
-                             "anthropic-version": "2023-06-01",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-            else:
-                key = await get_secret("kie_ai_api_key", tenant_id)
-                if not key:
-                    return None
-                kie_claude_url = os.getenv(
-                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
-                ).rstrip("/") + "/v1/messages"
-                r = await c.post(
-                    kie_claude_url,
-                    headers={"Authorization": f"Bearer {key}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
-                          "messages": [{"role": "user", "content": content}]},
-                )
-        if r.status_code != 200:
-            _logger.warning("_view_role_confirms: model API HTTP %s", r.status_code)
-            return ""
-        body = r.json()
-        return " ".join(b.get("text", "") for b in body.get("content", [])
-                        if b.get("type") == "text").strip().lower()
-
     txt: Optional[str] = None
     no_key = False
     for attempt in range(2):
         try:
-            result = await _ask_once()
+            result = await _vision_qa_transport(
+                tenant_id, [image_url], prompt_text,
+                max_tokens=80, log_label="_view_role_confirms",
+            )
         except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
             result = ""
         if result is None:
@@ -2793,7 +2690,7 @@ async def _scene_subjects(
     one retry — a genuine planning failure, distinct from the ordinary
     per-scene case where the model replied but didn't supply a sourced spec.
     """
-    from kie_unified import get_text_client_for_tenant
+    from kie_unified import get_pipeline_text_client
 
     facts = ""
     if isinstance(research_payload, dict):
@@ -2806,7 +2703,7 @@ async def _scene_subjects(
         card_facts_by_scene = await _research_card_facts_by_scene(
             tenant_id, video_id, scenes, roster_entries,
             cards_by_scene=cards_by_scene)
-    client = await get_text_client_for_tenant(tenant_id)
+    client = await get_pipeline_text_client(tenant_id, video_id)
     model = claude_model_for_direct_client(client)
 
     out: dict[int, dict] = {}

@@ -276,7 +276,8 @@ def test_processing_must_succeed_before_saved_upload_completes(monkeypatch, fina
 def test_automatic_upload_generates_metadata_before_insert(monkeypatch):
     monkeypatch.setattr(queue_delivery, 'fetch_one', AsyncMock(return_value={'seo_description': None, 'youtube_video_id': None}))
     order = []
-    async def seo(*args):
+    async def seo(*args, allow_relay=False):
+        assert allow_relay is True  # worker path: relay tenants park, never spend Kie
         order.append('seo')
         return {'description': 'Aircraft history', 'tags': ['aviation']}
     async def upload(*args, **kwargs):

@@ -2595,6 +2595,26 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     return
                 # completed — the handler advanced the status; loop continues.
             _set_task_status(video_id, "failed", "Build reached its stage limit; completed work is saved.", tenant_id=tenant_id)
+        except asyncio.CancelledError:
+            # A cooperative user Stop never raises here — it resolves through
+            # the "cancelled" status branches above (cancel_registry.py). A
+            # bare CancelledError reaching this except is arq's own timeout
+            # killing the job's task (worker.py's arq_run_autobuild awaits
+            # this coroutine under asyncio.wait_for). `except Exception`
+            # above does not catch it (CancelledError is a BaseException,
+            # not an Exception, since Python 3.8), so without this branch the
+            # background_tasks row for this build stayed 'running' forever —
+            # production_queue never saw a terminal status and the lane
+            # never advanced to the next title. Mark it failed with an
+            # honest message, then re-raise so the cancellation still
+            # propagates (the finally block below still runs and releases
+            # the claim either way; this never swallows the cancellation).
+            _set_task_status(
+                video_id, "failed",
+                "Build ran past its time limit; completed work is saved.",
+                tenant_id=tenant_id,
+            )
+            raise
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
@@ -2626,7 +2646,7 @@ async def _runner_seo(tenant_id, video_id, background_tasks, pending) -> str:
         _set_task_status(video_id, "running", "Writing the YouTube SEO…", tenant_id=tenant_id)
         try:
             from youtube_publish import generate_and_store_seo
-            result = await generate_and_store_seo(video_id, tenant_id) or {}
+            result = await generate_and_store_seo(video_id, tenant_id, allow_relay=True) or {}
             if result.get("error"):
                 _set_task_status(video_id, "failed", result["error"], tenant_id=tenant_id)
             else:
