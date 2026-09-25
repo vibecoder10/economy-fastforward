@@ -327,6 +327,7 @@ async def test_retry_reuses_reserved_video_and_stops_after_three_attempts(monkey
     prepare = AsyncMock(return_value=("video-1", False))
     monkeypatch.setattr(queue, "_prepare_video", prepare)
     monkeypatch.setattr(queue, "fetch_all", AsyncMock(return_value=[]))
+    monkeypatch.setattr("static_docu.static_mode_for_tenant", AsyncMock(return_value=False))
     monkeypatch.setattr(queue, "execute", AsyncMock(return_value="UPDATE 1"))
     monkeypatch.setattr("drain_mode.assert_accepting_new_work", AsyncMock())
     monkeypatch.setattr(

@@ -57,6 +57,7 @@ from status_map import (
     to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage,
     resolve_planned_status, get_next_status_supabase,
     render_path_plays_sfx, render_path_sfx_block_reason, stages_excluding_blocked_sound,
+    render_path_needs_clips,
 )
 from vault import get_secret
 from extraction import extract_grid
@@ -7601,6 +7602,25 @@ class PipelineExecutor:
             "message": f"Sound stage skipped — {reason}",
         }
 
+    async def _skip_clip_stages(self, video_id: str, video: dict, current_status: str) -> dict:
+        """Advance a video that never animates (status_map.render_path_needs_clips
+        False: static_docu, or a plan without 'video') past motion scripts AND
+        clip generation, straight to what follows clips. Called before any
+        init or network work, so a static video can never spend on clips
+        whatever its stage plan says (a queue video with no plan once ran
+        59 paid clips)."""
+        next_status = self._skip_disabled_next(video, "ready_for_thumbnail")
+        if next_status and next_status != current_status:
+            await self._update_video_status(video_id, next_status, video)
+            await self._log_transition(
+                video_id, current_status, next_status, triggered_by="clip_guard_skip")
+        return {
+            "status": next_status or current_status or "idle",
+            "video_id": video_id,
+            "skipped_stage": "video",
+            "message": "Clip stages skipped: this video's render holds still images and never animates.",
+        }
+
     def _load_idea_from_video(self, video_id: str):
         """Load idea into pipeline state from Supabase video UUID.
 
@@ -13292,6 +13312,9 @@ scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            if not render_path_needs_clips(video):
+                return {"status": "failed", "error": (
+                    "This video holds still images and never animates, so no clips are made.")}
             section_camera_mode = ""
             section_exact_seconds = None
             if section_contract is not None:
@@ -14473,6 +14496,8 @@ scenes."""
         if current_status in ("ready_for_sound_design", "ready_for_sound_effects") and not render_path_plays_sfx(video):
             natural_next = get_next_status_supabase(current_status)
             return await self._skip_sound_stage(video_id, video, current_status, natural_next)
+        if current_status in ("ready_for_video_scripts", "ready_for_video_generation") and not render_path_needs_clips(video):
+            return await self._skip_clip_stages(video_id, video, current_status)
 
         payload = video.get("research_payload") or {}
         if isinstance(payload, str):
@@ -16363,11 +16388,13 @@ scenes."""
 
     async def run_video_scripts(self, video_id: str) -> dict:
         """Generate video motion scripts for a video."""
+        video = await self._get_video(video_id)
+        if video and not render_path_needs_clips(video):
+            return await self._skip_clip_stages(video_id, video, video.get("status"))
         await self._ensure_initialized()
         bot_name = "Video Script Bot"
 
         try:
-            video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
 
@@ -16399,11 +16426,13 @@ scenes."""
 
     async def run_video_generation(self, video_id: str) -> dict:
         """Generate video clips for a video."""
+        video = await self._get_video(video_id)
+        if video and not render_path_needs_clips(video):
+            return await self._skip_clip_stages(video_id, video, video.get("status"))
         await self._ensure_initialized()
         bot_name = "Video Gen Bot"
 
         try:
-            video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
 
@@ -16413,6 +16442,20 @@ scenes."""
             self._load_idea_from_video(video_id)
 
             await self._install_cancel_support(video_id)
+
+            async def _record_clip_spend(scene, seconds):
+                # This legacy bot generates with Grok Imagine (its default).
+                from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
+                from clip_dialogue import clip_cost_for
+                profile = MODEL_REGISTRY[DEFAULT_VIDEO_MODEL]
+                cost = clip_cost_for(profile.cost_per_clip, int(seconds))
+                await record_ledger_entry(
+                    tenant_id=self.tenant_id, video_id=video_id, stage="clip",
+                    model=profile.model_id, units=1, unit_cost=cost,
+                    actual_cost=cost, scene=scene,
+                )
+
+            self._pipeline.record_clip_spend = _record_clip_spend
             result = await self._pipeline.run_video_gen_bot()
 
             if result.get("cancelled"):

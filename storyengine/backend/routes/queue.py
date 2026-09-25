@@ -649,13 +649,20 @@ async def launch_queue_item(tenant_id, item: dict, arq_pool=None, *, via: str = 
         if created:
             await increment_usage(tenant_id, "videos_created")
         required_mode = str(item.get("required_render_mode") or "").strip()
-        if required_mode:
-            if required_mode != "static_docu":
-                raise ValueError(f"Unsupported required render mode: {required_mode}")
+        if required_mode and required_mode != "static_docu":
+            raise ValueError(f"Unsupported required render mode: {required_mode}")
+        # A static channel's video never animates. Stamp render_mode AND the
+        # static stage plan, exactly like routes/videos.py create does: without
+        # the plan the build ran the clip stages (59 paid clips, 2026-09-25).
+        from static_docu import static_mode_for_tenant
+        if required_mode or await static_mode_for_tenant(tenant_id):
+            import json as _json
+            from status_map import static_stage_plan
             await execute(
-                "UPDATE videos SET render_mode='static_docu', updated_at=now() "
+                "UPDATE videos SET render_mode='static_docu', "
+                "pipeline_stages=COALESCE(pipeline_stages, $3::jsonb), updated_at=now() "
                 "WHERE id=$1 AND tenant_id=$2",
-                video_id, tenant_id,
+                video_id, tenant_id, _json.dumps(static_stage_plan(None)),
             )
         if learnings_text:
             await execute(

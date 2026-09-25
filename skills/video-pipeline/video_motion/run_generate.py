@@ -103,6 +103,11 @@ async def run(pipeline) -> dict:
             )
 
             if video_url:
+                # The clip is paid for the moment the provider returns it:
+                # record the spend before download/upload can fail.
+                record_spend = getattr(pipeline, "record_clip_spend", None)
+                if record_spend:
+                    await record_spend(scene, clip_duration)
                 print(f"      [{i}/{total}] Downloading video content...")
                 video_content = await pipeline.image_client.download_image(video_url)
 
