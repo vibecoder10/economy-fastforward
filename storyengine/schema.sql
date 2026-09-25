@@ -1602,7 +1602,9 @@ CREATE TABLE IF NOT EXISTS production_queue (
   video_id UUID,
   launched_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  -- migration 164_production_queue_video_length.sql — nullable, no backfill.
+  video_length_minutes NUMERIC
 );
 CREATE INDEX idx_prod_queue_tenant ON production_queue(tenant_id, status, "position");
 
