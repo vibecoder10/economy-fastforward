@@ -314,12 +314,14 @@ def static_stage_plan(stages: Optional[list[str]]) -> list[str]:
 
     Static docs never animate: the render holds one image per segment over the
     narration, so 'video' and 'sound' are dropped and render's prerequisite
-    becomes images+voice instead of video. Always returns an explicit list
-    (never None) — a static video must not fall back to the full pipeline,
-    which would run the animate stage.
+    becomes images+voice instead of video. 'thumbnail' is dropped too: the
+    static channel (Designed vs Used) ships without one, and the thumbnail
+    stage rewrites video_title, which makes every saved script block stale.
+    Always returns an explicit list (never None) — a static video must not
+    fall back to the full pipeline, which would run the animate stage.
     """
     requested = [s for s in (stages or STAGE_ORDER) if s in STAGE_ORDER]
-    selected = {s for s in requested if s not in ("video", "sound")}
+    selected = {s for s in requested if s not in ("video", "sound", "thumbnail")}
     if not selected:
         selected = {"render"}
     prereqs = dict(STAGE_PREREQS)

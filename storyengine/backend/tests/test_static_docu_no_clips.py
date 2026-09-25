@@ -94,3 +94,13 @@ def test_queue_launch_stamps_the_static_plan():
     assert "static_mode_for_tenant" in src
     assert "pipeline_stages=COALESCE(pipeline_stages, $3::jsonb)" in src
     assert "static_stage_plan(None)" in src
+
+
+def test_static_plan_has_no_thumbnail_stage():
+    # The static channel ships without a thumbnail, and the thumbnail stage
+    # rewrites video_title (which makes every saved script block stale).
+    import status_map
+
+    plan = status_map.static_stage_plan(None)
+    assert "thumbnail" not in plan
+    assert status_map.resolve_planned_status("ready_for_thumbnail", plan) == "ready_to_render"
