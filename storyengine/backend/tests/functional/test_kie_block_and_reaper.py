@@ -101,6 +101,11 @@ def test_reaper_threshold_safe_and_wired():
     )
     assert "async def reap_stale_running_tasks" in pipe, "reaper function missing"
     assert "status IN ('running', 'pending')" in pipe, "reaper must target running+pending"
+    # A Run All (autobuild) is one arq job with a 12h limit: the reaper must
+    # wait past that limit, never the 3h stage threshold.
+    import routes.pipeline as rp
+    assert rp.AUTOBUILD_STALE_THRESHOLD_MIN > 12 * 60, "autobuild reaped before its own job timeout"
+    assert "WHEN task_type = 'autobuild' THEN $2" in pipe, "reaper must use the autobuild threshold"
 
     main = (_backend() / "main.py").read_text()
     assert "reap_stale_running_tasks" in main, "reaper not imported in main"

@@ -11,6 +11,7 @@ Task tracking uses a dual-layer approach:
 import asyncio
 import json
 import logging
+import os
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
@@ -463,6 +464,15 @@ async def recover_stale_tasks() -> int:
 # a dead worker process, which would otherwise block a 1-job-plan tenant forever.
 STALE_TASK_THRESHOLD_MIN = 180
 
+# An autobuild (Run All) is ONE arq job that runs the whole pipeline, and
+# worker.py gives it AUTOBUILD_TIMEOUT_SECONDS (12h default) - a relay run
+# passes 3h easily. Reaping it at 3h marked a live build failed while the
+# worker kept going. Its row is only a zombie once the worker's own limit
+# has passed, so wait for that limit plus an hour.
+AUTOBUILD_STALE_THRESHOLD_MIN = (
+    int(os.getenv("AUTOBUILD_TIMEOUT_SECONDS", str(12 * 3600))) // 60 + 60
+)
+
 
 async def reap_stale_running_tasks(max_age_minutes: int = STALE_TASK_THRESHOLD_MIN) -> int:
     """Fail tasks stuck 'running'/'pending' past the threshold (periodic).
@@ -480,8 +490,9 @@ async def reap_stale_running_tasks(max_age_minutes: int = STALE_TASK_THRESHOLD_M
             "WHERE status IN ('running', 'pending') "
             "  AND NOT (task_type IN ('custom_film_runtime', "
             "'custom_film_director') AND status = 'pending') "
-            "  AND started_at < now() - make_interval(mins => $1)",
-            max_age_minutes,
+            "  AND started_at < now() - make_interval(mins => CASE "
+            "      WHEN task_type = 'autobuild' THEN $2 ELSE $1 END)",
+            max_age_minutes, AUTOBUILD_STALE_THRESHOLD_MIN,
         )
         count = int(result.split()[-1]) if result else 0
         if count:
