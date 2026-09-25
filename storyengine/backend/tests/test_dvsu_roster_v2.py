@@ -116,6 +116,8 @@ def gate_stage(monkeypatch):
             "unit_roster": [{"name": f"Candidate {i}"} for i in range(58)],
             "fact_sheet": "original retained facts",
             "unit_roster_validation": {"passed": False},
+            # These tests are about the roster path, not pacing: pin 1 min/machine (20 = 20).
+            "roster_settings": {"minutes_per_machine": 1},
         }
         if contract is not None:
             initial["machine_script_contract"] = contract
@@ -265,7 +267,8 @@ def test_class_titled_video_roster_of_class_names_passes_structural_check(monkey
         "id": "v", "status": "idea_logged", "render_mode": "static_docu",
         "video_length_minutes": 20,
         "video_title": "Every US Submarine Class Ever Built (2026)",
-        "research_payload": {"machine_script_contract": "factual_100_v1"},
+        "research_payload": {"machine_script_contract": "factual_100_v1",
+                             "roster_settings": {"minutes_per_machine": 1}},
     }
     ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     ex.tenant_id = "t"
@@ -317,7 +320,8 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
         "id": "v", "status": "idea_logged", "render_mode": "static_docu",
         "video_length_minutes": 20,
         "video_title": "Every US Submarine Class Ever Built (2026)",
-        "research_payload": {"machine_script_contract": "factual_100_v1"},
+        "research_payload": {"machine_script_contract": "factual_100_v1",
+                             "roster_settings": {"minutes_per_machine": 1}},
     }
     ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     ex.tenant_id = "t"
@@ -384,7 +388,8 @@ def test_complete_title_roster_never_resizes_the_runtime_ryan_set(monkeypatch):
         "id": "v", "status": "idea_logged", "render_mode": "static_docu",
         "video_length_minutes": 20,
         "video_title": "Every US Battleship Class Ever Built (2026)",
-        "research_payload": {"machine_script_contract": "factual_100_v1"},
+        "research_payload": {"machine_script_contract": "factual_100_v1",
+                             "roster_settings": {"minutes_per_machine": 1}},
     }
     ex = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
     ex.tenant_id = "t"

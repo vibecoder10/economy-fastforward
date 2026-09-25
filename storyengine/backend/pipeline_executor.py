@@ -6076,11 +6076,11 @@ def _live_roster_gate(video: dict, payload: dict) -> dict:
     the script-time roster check passes its own units separately.
     """
     title = video.get("video_title") or video.get("headline") or ""
-    from roster_selection import is_runtime_selection, selection_settings, selection_validation
+    from roster_selection import configured_pacing, is_runtime_selection, selection_settings, selection_validation
     if is_runtime_selection(payload):
         selection = payload.get("roster_selection") or {}
         stored = selection.get("settings") or {}
-        configured = (payload.get("roster_settings") or {}).get("minutes_per_machine", 1)
+        configured = configured_pacing(payload)
         try:
             current = selection_settings(video.get("video_length_minutes"), configured)
             check = _roster_validation(title, payload)
@@ -8139,7 +8139,7 @@ class PipelineExecutor:
         """
         import copy
         import json
-        from roster_selection import selection_settings
+        from roster_selection import configured_pacing, selection_settings
 
         self._bind_agent_relay(video_id)
         video = video or await self._get_video(video_id)
@@ -8177,7 +8177,7 @@ class PipelineExecutor:
             if downstream:
                 return {"status": "failed", "error": "Saved roster needs factual review; existing detailed work is preserved.",
                         "roster_selection_failed": True}
-        pacing = (payload.get("roster_settings") or {}).get("minutes_per_machine", 1)
+        pacing = configured_pacing(payload)
         try:
             settings = selection_settings(video.get("video_length_minutes"), pacing)
         except ValueError as exc:

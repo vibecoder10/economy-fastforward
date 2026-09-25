@@ -84,6 +84,26 @@ def bound_selection_candidates(draft: dict, target: int) -> dict:
     return result
 
 
+# Measured 2026-09-25 on the DvsU v2 script contract (95-120 word paragraphs,
+# ~117 average): one machine is ~52 s of narration. Short paragraphs keep
+# viewers engaged; a longer video gets MORE machines, not longer ones.
+# 20 min / 0.87 = 23 machines.
+DEFAULT_MINUTES_PER_MACHINE = 0.87
+
+
+def configured_pacing(payload: dict) -> Any:
+    """Minutes per machine for this video: the creator's own setting, else the
+    pace its saved roster was selected with (so old videos stay current), else
+    the default."""
+    explicit = ((payload or {}).get("roster_settings") or {}).get("minutes_per_machine")
+    if explicit is not None:
+        return explicit
+    stored = (((payload or {}).get("roster_selection") or {}).get("settings") or {}).get("minutes_per_machine")
+    if stored is not None:
+        return stored
+    return DEFAULT_MINUTES_PER_MACHINE
+
+
 def selection_target(duration_minutes: Any, minutes_per_machine: Any = 1) -> int:
     """Return the requested number of sections; reject unusable pacing inputs."""
     try:

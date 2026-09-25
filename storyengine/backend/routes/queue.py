@@ -82,7 +82,7 @@ class QueueAddRequest(BaseModel):
     # Applies to every title in this paste unless an item overrides it. Feeds
     # production_queue.video_length_minutes -> _prepare_video's videos INSERT,
     # so roster_selection.selection_target has a real length to read (20 min
-    # = 20 machines) instead of failing with "duration and minutes_per_machine
+    # = 23 machines at roster_selection.DEFAULT_MINUTES_PER_MACHINE) instead of failing with "duration and minutes_per_machine
     # must be finite positive numbers".
     video_length_minutes: Optional[float] = None
 

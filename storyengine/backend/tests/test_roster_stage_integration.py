@@ -16,7 +16,9 @@ from roster_selection import selection_fingerprint
 def stage(monkeypatch):
     initial={'machine_script_contract':'factual_machine_v1','machine_discovery_buckets':{},
              'unit_roster':[{'name':f'Candidate {i}'} for i in range(58)],
-             'fact_sheet':'original retained facts','unit_roster_validation':{'passed':False}}
+             'fact_sheet':'original retained facts','unit_roster_validation':{'passed':False},
+             # pacing is not under test here: pin 1 min/machine (20 min = 20 machines)
+             'roster_settings':{'minutes_per_machine':1}}
     video={'id':'v','status':'idea_logged','render_mode':'static_docu','video_length_minutes':20,
            'video_title':'Every US Submarine Class Ever Built (2026)','research_payload':initial}
     events=[]
@@ -116,7 +118,7 @@ def test_no_save_means_no_audit_or_completion(stage,monkeypatch):
 
 def test_fresh_selection_is_visible_and_detail_starts_only_on_separate_call(stage,monkeypatch):
     ex,video,events,_,discover,_=stage
-    video['research_payload']={'machine_script_contract':'factual_machine_v1'}
+    video['research_payload']={'machine_script_contract':'factual_machine_v1','roster_settings':{'minutes_per_machine':1}}
     assert asyncio.run(ex.run_roster_selection('v'))['status']=='roster_ready'
     assert len(pe._machine_documentary_hold_roster(video))==20
     assert video['research_payload']['research_phase']=='roster_complete'

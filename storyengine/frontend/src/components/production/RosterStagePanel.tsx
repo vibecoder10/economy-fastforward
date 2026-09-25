@@ -18,6 +18,9 @@ import {
 import { toDisplayImageUrl } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/confirm";
 
+// Mirrors backend roster_selection.DEFAULT_MINUTES_PER_MACHINE.
+const DEFAULT_MINUTES_PER_MACHINE = 0.87;
+
 interface RosterStagePanelProps {
   videoId: string;
   video: VideoDetail;
@@ -52,11 +55,17 @@ export function RosterStagePanel({ videoId, video, rosterDashboard, isLoading, o
   const [seedError, setSeedError] = useState<Record<string, string>>({});
   const [manualOverride, setManualOverride] = useState<Record<string, boolean>>({});
   const payload = video.research_payload as Record<string, any> | null;
-  const savedPacing = Number(payload?.roster_settings?.minutes_per_machine || 1);
-  const [minutesPerMachine, setMinutesPerMachine] = useState(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : 1));
+  // Same order as backend roster_selection.configured_pacing: creator setting,
+  // else the pace the saved roster used, else the default (0.87 min = ~52 s).
+  const savedPacing = Number(
+    payload?.roster_settings?.minutes_per_machine
+      || payload?.roster_selection?.settings?.minutes_per_machine
+      || DEFAULT_MINUTES_PER_MACHINE,
+  );
+  const [minutesPerMachine, setMinutesPerMachine] = useState(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : DEFAULT_MINUTES_PER_MACHINE));
   const [savingPacing, setSavingPacing] = useState(false);
   useEffect(() => {
-    setMinutesPerMachine(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : 1));
+    setMinutesPerMachine(String(Number.isFinite(savedPacing) && savedPacing > 0 ? savedPacing : DEFAULT_MINUTES_PER_MACHINE));
   }, [savedPacing]);
 
   // UX-1 (2026-07-29): a sweep takes ~10min for a 23-machine roster (serial,
