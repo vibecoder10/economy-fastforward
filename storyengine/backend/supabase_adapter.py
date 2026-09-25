@@ -196,6 +196,16 @@ IDEA_FIELD_MAP = {
 # Reverse map: Supabase column → Airtable field name
 IDEA_COLUMN_MAP = {v: k for k, v in IDEA_FIELD_MAP.items()}
 
+# Columns two Airtable names share (e.g. "Drive Folder ID" and "Google Drive
+# Folder ID" -> drive_folder_id). The reverse map above keeps only the last
+# name, so readers of the other name got nothing: the clip bot uploaded to
+# parent '' and failed with a Drive 404. _row_to_idea fills every alias.
+IDEA_COLUMN_ALIASES = {
+    col: tuple(k for k, v in IDEA_FIELD_MAP.items() if v == col)
+    for col in IDEA_COLUMN_MAP
+    if sum(1 for v in IDEA_FIELD_MAP.values() if v == col) > 1
+}
+
 SCRIPT_FIELD_MAP = {
     "scene": "scene",
     "Scene text": "scene_text",
@@ -280,6 +290,8 @@ def _row_to_idea(row: dict) -> dict:
                 result[airtable_name] = [val] if isinstance(val, str) else val
             else:
                 result[airtable_name] = val
+            for alias in IDEA_COLUMN_ALIASES.get(col, ()):
+                result.setdefault(alias, result[airtable_name])
     return result
 
 
