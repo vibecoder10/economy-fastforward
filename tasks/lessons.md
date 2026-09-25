@@ -803,3 +803,10 @@ Ryan's rule for these sessions: no Anthropic API; where the pipeline would call 
 ## 2026-09-24 - The length Ryan sets is the roster size, even for "every X" titles
 The 2026-09-23 rule ("every X" title keeps every member, runtime grows to fit) was a misread. Ryan: "if we say 20 min, we mean 20 minutes and 20 helicopters in the class of the title." Fixed in dvsu_roster_v2 (roster prompt asks for exactly target_count, one entry per class/type) and pipeline_executor.run_roster_selection (runtime resize deleted).
 **How to apply:** never change `video_length_minutes` from pipeline code. When a title and the set length disagree, the length wins and the title's category only decides WHICH machines, not how many.
+
+## 2026-09-25 - static channels must never reach clip spend
+- A missing stage plan must never mean "run every stage". Money guards key on render_mode (render_path_needs_clips)
+  inside the paid method itself, before init - same pattern as the SFX guard. Plans are hints; guards are law.
+- Before letting a relay run go past pictures, check the video's pipeline_stages is set. Watch for stages the
+  format should not have (video scripts, clips) and stop at once.
+- Report spend counts from logs, not guesses: I first said "~20 clips, deploy stopped them"; the log said 59, all done.

@@ -1,34 +1,44 @@
-# HANDOFF - 2026-09-25 - roster spares + photo swap + calendar length DEPLOYED; paused before the rerun
+# HANDOFF - 2026-09-25 - helicopter relay rerun reached render; 3 pipeline bugs fixed; title-overwrite bug open
 
 ## State
-- Prod: `db2ecbcad` deployed 2026-09-25 00:23Z with frontend. Healthy. NO lock. Backend, frontend and worker are active.
-- Migration 164 is applied (`production_queue.video_length_minutes`).
-- Main is clean and pushed. There are no feature worktrees open for this work.
-- What shipped:
-  - Every title picks its machine list first (+3 spares in `roster_candidate_overflow`). Title rules are in the prompt only.
-  - Photo gather: a miss gets a wider 2nd search. Still no photo -> best spare (same act first) swapped in, logged in `roster_swaps`.
-  - Calendar "Length (minutes)" box (queue-length branch merged).
-- Tests: 5445 pass; 3 old fails in `test_dvsu_saved_evidence_replay.py` (fail on main too).
+- Prod: `03280fb5f` deployed 18:33Z (backend+worker only). Healthy. NO lock. Nothing running.
+- Branch: main, clean, pushed. No feature worktrees left.
+- What shipped this session:
+  - Reaper no longer fails a Run All (autobuild) row at 3h; it waits for the 12h job limit + 1h.
+  - supabase_adapter: a column shared by two Airtable names fills both ("Drive Folder ID" was always '').
+  - Static docs never animate: hard clip guard in run_video_scripts / run_video_generation / run_next_step /
+    run_clip_generation (keyed on render_path_needs_clips, before any init).
+  - Queue launch stamps render_mode + static_stage_plan for static tenants (queue videos had NO plan).
+  - Legacy clip bot writes each paid clip to generation_ledger.
+- 9 calendar titles set to 20 min (`production_queue.video_length_minutes`).
+- Test video 59fd34a4 "Most Hated Helicopters": roster (20 in-service types + 3 spares), 20/20 photos
+  (no swap needed), research, script (20), voice, 59 pictures, thumbnail all DONE. Status restored to
+  `ready_to_render`, title restored to the calendar title. Script readiness check: 0/20 stale.
+- Customer money wasted this session: 59 Grok Imagine clips (~$5.31, 59 x $0.09) - not in the ledger
+  (ran before the ledger fix). Ryan knows.
 
 ## Next action (start here cold)
-Ryan said: deploy, then pause. Pick up here:
-1. Set the 9 saved calendar titles to 20 min (`production_queue.video_length_minutes`; only new items get it).
-2. Reset test video 59fd34a4: clear research_payload to the contract only; queue item 3e6d4329 -> queued, attempts 0.
-3. Rerun it on the relay and watch it (list-first roster + spares, then photo gather with swap). Check `roster_swaps`.
+Fix the title overwrite, then render. The thumbnail stage's title generator (relay stage `generate`,
+thumbnail bot) wrote its YouTube title over `videos.video_title`. dvsu_script_v2.block_is_current compares
+each block's `subject_context` to video_title, so all 20 paragraphs went stale and the resume bounced the
+video to `ready_for_scripting` (would re-voice = paid). Find the writer
+(`grep -rn "video_title" skills/video-pipeline/thumbnail storyengine/backend | grep -i update`), make it
+write a separate field (or make script readiness key on `headline`), test, ask Ryan, deploy. Then relaunch:
+reset queue item 3e6d4329 (status queued, attempt_count 0) and POST
+`/api/queue/3e6d4329-8fa9-424f-9be6-df657cd6393a/launch` with `X-Active-Tenant: 561b872d-7b73-45e3-9c44-7f30c3566eda`
+(token: `scripts/se.sh token`). Watch render + unlisted upload. Check upload doesn't re-title too.
 
 ## Open threads
-- Test video `59fd34a4` "Most Hated Helicopters": failed at photo gather ("Missing verified images: Kamov Ka-22"). Its roster
-  is thesis-picked junk (HZ-1 Aerocycle, Air Horse, Rotodyne, XV-1, R22) - clear it before the rerun.
-- Relay run needs this session watching: `scripts/relay/watch.sh` via Monitor (30 min, re-arm), `undispatched.sh`,
-  photo checks 1 helper each with `judge_brief.md` + `post.sh`; text calls with `relay_brief.md` + `step.sh`.
-- "Generate SEO" button (routes/videos.py inline) still calls Claude via Kie on relay tenants.
-- Vision-QA relay requests carry no video_id (list pending workspace-wide, not per video).
-- LATER: weekday + time-of-day cadence for the queue (today: every N days, needs Autopilot on).
-- Old: research race resets verdicts; research_machine can't re-apply a fixed answer; two research card copies.
+- Queue item 3e6d4329 still says `running` with a failed task row; reconcile will flip it. Reset before relaunch.
+- Script notes: scene 4 (H-43 Huskie, "well-liked") does not fit a "most hated" title - roster pick issue.
+  Scene 5 (Huey) opens on the H-13. CH-46 answer used unsourced word "stopgap".
+- Relay run cost: ~180 research slots, ~110 vision checks, ~70 motion prompts (now dead for static).
+- Old: "Generate SEO" button calls Claude via Kie on relay tenants; vision-QA relay requests carry no video_id.
 
 ## Gotchas learned this session
-- Queue-created videos had NO `video_length_minutes` -> roster fails "duration and minutes_per_machine must be finite positive numbers" (fixed on queue-length branch).
-- Only titles with every/all/ever built/complete get list-first; everything else lets the thesis pick the roster.
-- A refused arq job keeps its job id 24h; re-launch reused it and got 409 (fixed: skip finished leftovers).
-- Deploy restarts the worker and kills a running build: never deploy mid-test.
-- A non-continuous queue item that fails stays `failed` (no auto-retry); reset it by hand to rerun.
+- Queue-launched videos had pipeline_stages NULL -> ran every stage incl. clips. Normal create stamps the plan.
+- Two Airtable names -> one column: IDEA_COLUMN_MAP keeps only the last name.
+- A thumbnail-stage title rewrite invalidates every dvsu_script_v2 block (subject_context = video_title).
+- asyncio.gather without cancel: when one clip upload raised, the other paid clips kept running.
+- Relay helpers: loop helpers with a claim script (scratchpad claim.sh: lock + dispatched.txt) avoid double-answers.
+- REST as the DvsU tenant: Ryan's token + header `X-Active-Tenant: 561b872d-...` (member check).
