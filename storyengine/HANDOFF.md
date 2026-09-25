@@ -1,44 +1,36 @@
-# HANDOFF - 2026-09-25 - helicopter relay rerun reached render; 3 pipeline bugs fixed; title-overwrite bug open
+# HANDOFF - 2026-09-25 - helicopter video RENDERED; upload blocked: DvsU YouTube login expired
 
 ## State
-- Prod: `03280fb5f` deployed 18:33Z (backend+worker only). Healthy. NO lock. Nothing running.
-- Branch: main, clean, pushed. No feature worktrees left.
-- What shipped this session:
-  - Reaper no longer fails a Run All (autobuild) row at 3h; it waits for the 12h job limit + 1h.
-  - supabase_adapter: a column shared by two Airtable names fills both ("Drive Folder ID" was always '').
-  - Static docs never animate: hard clip guard in run_video_scripts / run_video_generation / run_next_step /
-    run_clip_generation (keyed on render_path_needs_clips, before any init).
-  - Queue launch stamps render_mode + static_stage_plan for static tenants (queue videos had NO plan).
-  - Legacy clip bot writes each paid clip to generation_ledger.
-- 9 calendar titles set to 20 min (`production_queue.video_length_minutes`).
-- Test video 59fd34a4 "Most Hated Helicopters": roster (20 in-service types + 3 spares), 20/20 photos
-  (no swap needed), research, script (20), voice, 59 pictures, thumbnail all DONE. Status restored to
-  `ready_to_render`, title restored to the calendar title. Script readiness check: 0/20 stale.
-- Customer money wasted this session: 59 Grok Imagine clips (~$5.31, 59 x $0.09) - not in the ledger
-  (ran before the ledger fix). Ryan knows.
+- Prod: `39feb0138` deployed 19:15Z (backend+worker). Healthy. NO lock.
+- Branch: main, pushed.
+- Shipped: static docs (DvsU) skip the thumbnail stage (status_map.static_stage_plan drops 'thumbnail').
+  That also stops the title overwrite for this channel (writer: skills/video-pipeline/thumbnail/run.py:156).
+- Prod data: 'thumbnail' removed from pipeline_stages on 7 unfinished DvsU videos; thumbnail_url cleared on 59fd34a4
+  (Ryan: this channel needs no thumbnail; file still in Drive).
+- Video 59fd34a4 "Most Hated Helicopters to Fly by Pilots Ever (2026)": status `rendered`.
+  Drive file 1WbIdZ3fSnoCxe7EhQkW-wMaJiN28_IrR, 1080p, 17:39 long, audio mean -21 dB, no silences > 3s.
+  7 sampled frames: right machine under each label (H-13, CH-37, Belvedere, CH-53, Mi-24, AH-64, NH90).
+- Upload FAILED: "Could not verify the YouTube owner." Cause: DvsU channel_profiles.youtube_refresh_token ->
+  Google `invalid_grant: Token has been expired or revoked` (token saved 2026-09-12).
 
 ## Next action (start here cold)
-Fix the title overwrite, then render. The thumbnail stage's title generator (relay stage `generate`,
-thumbnail bot) wrote its YouTube title over `videos.video_title`. dvsu_script_v2.block_is_current compares
-each block's `subject_context` to video_title, so all 20 paragraphs went stale and the resume bounced the
-video to `ready_for_scripting` (would re-voice = paid). Find the writer
-(`grep -rn "video_title" skills/video-pipeline/thumbnail storyengine/backend | grep -i update`), make it
-write a separate field (or make script readiness key on `headline`), test, ask Ryan, deploy. Then relaunch:
-reset queue item 3e6d4329 (status queued, attempt_count 0) and POST
-`/api/queue/3e6d4329-8fa9-424f-9be6-df657cd6393a/launch` with `X-Active-Tenant: 561b872d-7b73-45e3-9c44-7f30c3566eda`
-(token: `scripts/se.sh token`). Watch render + unlisted upload. Check upload doesn't re-title too.
+1. Ryan reconnects YouTube for the Designed Vs Used workspace (Settings page, connect channel UCO4gtSa3rpOutrZ45-OjYyA).
+2. Reset queue item 3e6d4329 (status queued, attempt_count 0) and relaunch it (POST
+   `/api/queue/3e6d4329-8fa9-424f-9be6-df657cd6393a/launch`, header `X-Active-Tenant: 561b872d-7b73-45e3-9c44-7f30c3566eda`;
+   easiest from the VPS on 127.0.0.1:8001 with /tmp/se_token). It resumes at upload (rendered).
+3. Watch the relay: the run parks model calls (e.g. `_select_music_beds`) and waits for an answer.
 
 ## Open threads
-- Queue item 3e6d4329 still says `running` with a failed task row; reconcile will flip it. Reset before relaunch.
-- Script notes: scene 4 (H-43 Huskie, "well-liked") does not fit a "most hated" title - roster pick issue.
-  Scene 5 (Huey) opens on the H-13. CH-46 answer used unsourced word "stopgap".
-- Relay run cost: ~180 research slots, ~110 vision checks, ~70 motion prompts (now dead for static).
-- Old: "Generate SEO" button calls Claude via Kie on relay tenants; vision-QA relay requests carry no video_id.
+- AutoYTSync logged "sync complete" for tenant 561b872d at 19:15 with a dead token - it hides the failure. Nobody was warned.
+- Stale relay request 9dd58f35 (script paragraph, wrong title "The Helicopters Every Pilot DREADED Flying") from the
+  bounced run is still pending. Do NOT answer it.
+- Burned-in captions end in "..." (truncated) on most frames.
+- Runtime 17.6 min vs 20 min set length.
+- Other channels: thumbnail stage still overwrites video_title (harmless there today; only dvsu_script_v2 keys on it).
+- backend/tests/test_dvsu_saved_evidence_replay.py: 3 tests fail on main (before this session's change).
+- Script notes from before: scene 4 (H-43 Huskie) does not fit "most hated"; CH-46 used unsourced "stopgap".
 
 ## Gotchas learned this session
-- Queue-launched videos had pipeline_stages NULL -> ran every stage incl. clips. Normal create stamps the plan.
-- Two Airtable names -> one column: IDEA_COLUMN_MAP keeps only the last name.
-- A thumbnail-stage title rewrite invalidates every dvsu_script_v2 block (subject_context = video_title).
-- asyncio.gather without cancel: when one clip upload raised, the other paid clips kept running.
-- Relay helpers: loop helpers with a claim script (scratchpad claim.sh: lock + dispatched.txt) avoid double-answers.
-- REST as the DvsU tenant: Ryan's token + header `X-Active-Tenant: 561b872d-...` (member check).
+- A queue relaunch COALESCEs pipeline_stages: an old plan stays. Fix old rows by hand when the plan changes.
+- se db output order varies: grep for lines starting with `{`.
+- Big Drive files: ffprobe on the uc?export=download URL fails (virus-scan page). Use the Drive API get_media.
