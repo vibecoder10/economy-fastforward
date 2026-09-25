@@ -230,6 +230,18 @@ def _entity_queries(machine: str, names: list[str], facts: dict | None) -> list[
     return list(dict.fromkeys(queries))[:2]
 
 
+def _wide_queries(machine: str, names: list[str], facts: dict | None) -> list[str]:
+    """Second-pass searches for a machine the exact queries found nothing for:
+    every name alone, unquoted, with its subject noun ("Ka-22 helicopter")."""
+    category = _category(machine, facts)
+    queries = []
+    for name in names:
+        bare = re.sub(r'\s*\([^)]*\)', '', name).replace('"', '').strip()
+        if bare:
+            queries.append(bare if not category or category in bare.lower() else f'{bare} {category}')
+    return list(dict.fromkeys(queries))
+
+
 def _search_queries(names: list[str], facts: dict | None) -> list[str]:
     return _entity_queries(names[-1] if names else '', names, facts)
 
@@ -273,8 +285,12 @@ def _image_identity(candidate):
     return title.casefold() if title else _norm(candidate.get('image_url') or '')
 
 
-async def collect_candidates(machine: str, aliases=None, *, facts=None, manual_url=None, source_page_url=None, cached_url=None) -> list[dict]:
-    """Gather exact-entity article photos and safe quoted searches automatically."""
+async def collect_candidates(machine: str, aliases=None, *, facts=None, manual_url=None, source_page_url=None, cached_url=None,
+                             wide=False) -> list[dict]:
+    """Gather exact-entity article photos and safe quoted searches automatically.
+
+    ``wide`` is the second pass for a machine the first found no usable photo
+    for: the article photos already failed, so only the looser searches run."""
     names=_names(machine,aliases)
     if manual_url and re.search(r'(?:^|[./])(google|bing|duckduckgo)\.|[?&]q=|/search',manual_url,re.I):
         result=_candidate(manual_url,reason_code='search_result_url',reason='Paste a direct image URL, not a search-results page.')
@@ -300,6 +316,11 @@ async def collect_candidates(machine: str, aliases=None, *, facts=None, manual_u
         identity=_image_identity(bases[0])
         for item in article_images:
             if _image_identity(item)==identity:add(item)
+    elif wide:
+        for query in _wide_queries(machine,names,facts):
+            if len(bases)>=MAX_CANDIDATES:break
+            for row in await find_commons_photos(query,limit=6):
+                add(_candidate(row['url'],title=row.get('title','')))
     else:
         if cached_url:add(_candidate(cached_url))
         for item in article_images:add(item)

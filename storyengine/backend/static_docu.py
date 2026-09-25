@@ -4546,11 +4546,12 @@ async def _recover_cached_roster_reference(tenant_id: str, video_id: str,
 async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                                 roster_index: int,
                                 aliases: Optional[list] = None,
-                                facts: Optional[dict] = None) -> bool:
+                                facts: Optional[dict] = None,
+                                wide: bool = False) -> bool:
     """Select a source-grounded, comparatively reviewed roster photograph."""
     from reference_selection import select_reference
     receipt = await select_reference(tenant_id, video_id, machine, roster_index,
-                                     aliases=aliases, facts=facts)
+                                     aliases=aliases, facts=facts, wide=wide)
     if receipt.get("status") == "selected":
         await _clear_reference_miss(tenant_id, video_id, machine)
         return True
@@ -4586,6 +4587,125 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
     selected = receipt["selected"]
     return {"status": "verified", "hosted_url": selected["hosted_url"],
             "source_url": selected["image_url"], "selection_review": receipt}
+
+
+async def _gather_one_photo(tenant_id: str, video_id: str, entry: dict, index: int) -> str:
+    """One machine's photo: the tenant cache, else the exact search, else the
+    wider second search. Returns "cached", "verified" or "missing"."""
+    from reference_selection import selection_ready, selection_needs_rerank
+    machine = entry["name"]
+    cached = await fetch_one(
+        "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
+        "WHERE tenant_id=$1 AND machine_key=$2 "
+        "AND reference_kind='photo'", tenant_id, _machine_key(machine))
+    if selection_ready(cached) and not selection_needs_rerank(cached):
+        # C8: this machine already carries a tenant-global verified
+        # reference (perhaps seeded/prefetched via a different video) — any
+        # stale miss reason recorded against THIS video no longer applies.
+        await _clear_reference_miss(tenant_id, video_id, machine)
+        return "cached"
+    if entry.get("never_built"):
+        # C5: structurally can never have a photograph — skip the ENTIRE
+        # candidate-gather + host + vision chain (real Wikimedia lookups and
+        # a paid vision call per candidate) rather than let it run and fail.
+        # Checked AFTER the cache lookup above so a manually-seeded/
+        # prefetched-elsewhere photo (proof the classification was wrong for
+        # this tenant) always wins over the classifier.
+        await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
+        _logger.info(
+            "[prefetch-roster-ref] video=%s machine=%r classified "
+            "never-built (cancelled, no unit ever completed) — "
+            "skipping lookup entirely, no spend incurred", video_id, machine)
+        return "missing"
+    for wide in (False, True):
+        if await _prefetch_one_machine(tenant_id, video_id, machine, index,
+                                       aliases=entry.get("aliases") or [],
+                                       facts=entry.get("facts") or None, wide=wide):
+            return "verified"
+    _logger.info("[prefetch-roster-ref] video=%s machine=%r no verified reference "
+                 "found after the wider search", video_id, machine)
+    return "missing"
+
+
+async def _swap_in_spares(video: dict, tenant_id: str, missing: list[str], *,
+                          should_cancel=None, on_progress=None, processed: int = 0) -> Optional[str]:
+    """A machine with no usable photo never stops the video: swap in the
+    best spare the roster call picked (``roster_candidate_overflow``, best
+    first; one from the same act first) at that roster slot, once the spare's
+    own photo is verified. Every tried spare is used up and recorded in
+    ``roster_swaps``. Photos come before research and script, so nothing
+    downstream holds the old name. Spares used up -> the machine stays
+    missing, and the gather fails as before.
+
+    The save is guarded on the roster read at the start of the gather, so an
+    edit made meanwhile wins. Returns the new roster fingerprint when the
+    saved roster changed, else None."""
+    from pipeline_executor import _machine_documentary_hold_roster_entries, _unit_display_name
+    from roster_images import roster_fingerprint
+
+    from factual_machine_research import is_factual_machine_contract
+
+    payload = video.get("research_payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    spares = list((payload or {}).get("roster_candidate_overflow") or [])
+    # Only the DVSU v2 list call picks real spares; a legacy roster's overflow
+    # is unvetted surplus, and its independent audit fingerprints the roster.
+    if not missing or not spares or not is_factual_machine_contract(payload):
+        return None
+    original = payload.get("unit_roster") or []
+    roster = list(original)
+    swaps = list(payload.get("roster_swaps") or [])
+    swapped = False
+    for name in missing:
+        index = next((i for i, item in enumerate(roster) if _unit_display_name(item) == name), None)
+        if index is None:
+            continue
+        old = roster[index]
+        act = old.get("act_number") if isinstance(old, dict) else None
+        while spares:
+            if should_cancel and await should_cancel():
+                spares = []
+                break
+            pick = next((spare for spare in spares if act and isinstance(spare, dict)
+                         and spare.get("act_number") == act), spares[0])
+            spares.remove(pick)
+            row = dict(pick) if isinstance(pick, dict) else pick
+            if isinstance(row, dict) and act is not None:
+                row["act_number"] = act
+            trial = list(roster)
+            trial[index] = row
+            spare_name = _unit_display_name(row)
+            entry = next((e for e in _machine_documentary_hold_roster_entries(
+                dict(video, research_payload=dict(payload, unit_roster=trial))) if e["name"] == spare_name), None)
+            outcome = "missing"
+            if entry:
+                try:
+                    outcome = await _gather_one_photo(tenant_id, video["id"], entry, index)
+                except Exception:  # noqa: BLE001 — one spare's failure never stops the swap
+                    _logger.warning("[prefetch-roster-ref] video=%s spare=%r failed",
+                                    video["id"], spare_name, exc_info=True)
+            if on_progress:
+                await on_progress(processed, len(roster), f"{spare_name} (spare for {name})", outcome)
+            swaps.append({"index": index, "removed": name, "spare": spare_name,
+                          "outcome": "swapped" if outcome != "missing" else "no_photo"})
+            if outcome != "missing":
+                roster = trial
+                swapped = True
+                _logger.info("[prefetch-roster-ref] video=%s swapped %r -> %r (no usable photo)",
+                             video["id"], name, spare_name)
+                break
+    updated = dict(payload, unit_roster=roster, roster_candidate_overflow=spares, roster_swaps=swaps)
+    if isinstance(payload.get("recommended_final_roster"), list):
+        updated["recommended_final_roster"] = [_unit_display_name(item) for item in roster]
+    result = await execute(
+        "UPDATE videos SET research_payload=$1::jsonb, updated_at=now() WHERE id=$2 AND tenant_id=$3 "
+        "AND research_payload->'unit_roster' = $4::jsonb",
+        json.dumps(updated), video["id"], tenant_id, json.dumps(original))
+    if not swapped or not str(result or "").endswith(" 1"):
+        return None
+    return roster_fingerprint([e["name"] for e in _machine_documentary_hold_roster_entries(
+        dict(video, research_payload=updated))])
 
 
 async def prefetch_roster_references(video_id: str, tenant_id: str, *,
@@ -4636,9 +4756,10 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
 
     await _ensure_ref_cache_schema()
 
-    from reference_selection import ensure_selection_schema, selection_ready, selection_needs_rerank
+    from reference_selection import ensure_selection_schema
     await ensure_selection_schema()
     verified, missed, never_built, processed = 0, 0, 0, 0
+    missing: list[str] = []
     halted = False  # set by a cancel request or a failed progress save; queued machines then skip
     progress_lock = asyncio.Lock()
     gate = asyncio.Semaphore(max(1, int(os.getenv("ROSTER_GATHER_CONCURRENCY") or 4)))
@@ -4646,8 +4767,6 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
     async def sweep_one(i, entry):
         nonlocal verified, missed, never_built, processed, halted
         machine = entry["name"]
-        aliases = entry.get("aliases") or []
-        mkey = _machine_key(machine)
         async with gate:
             if halted:
                 return
@@ -4656,47 +4775,13 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
                 return
             outcome = "missing"
             try:
-                cached = await fetch_one(
-                    "SELECT hosted_url, source_url, reference_kind, selection_review FROM static_reference_cache "
-                    "WHERE tenant_id=$1 AND machine_key=$2 "
-                    "AND reference_kind='photo'", tenant_id, mkey)
-                if selection_ready(cached) and not selection_needs_rerank(cached):
+                outcome = await _gather_one_photo(tenant_id, video_id, entry, i)
+                if outcome != "missing":
                     verified += 1
-                    # C8: this machine already carries a tenant-global verified
-                    # reference (perhaps seeded/prefetched via a different
-                    # video) — any stale miss reason recorded against THIS
-                    # video no longer applies.
-                    await _clear_reference_miss(tenant_id, video_id, machine)
-                    outcome = "cached"
                 elif entry.get("never_built"):
-                    # C5: structurally can never have a photograph — skip the
-                    # ENTIRE candidate-gather + host + vision chain (real
-                    # Wikimedia lookups and a paid vision call per candidate)
-                    # rather than let it run and fail. Checked AFTER the cache
-                    # lookup above so a manually-seeded/prefetched-elsewhere
-                    # photo (proof the classification was wrong for this
-                    # tenant) always wins over the classifier.
                     never_built += 1
-                    await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
-                    _logger.info(
-                        "[prefetch-roster-ref] video=%s machine=%r classified "
-                        "never-built (cancelled, no unit ever completed) — "
-                        "skipping lookup entirely, no spend incurred",
-                        video_id, machine)
-                    outcome = "missing"
                 else:
-                    if await _prefetch_one_machine(tenant_id, video_id, machine, i,
-                                                   aliases=aliases,
-                                                   facts=entry.get("facts") or None):
-                        verified += 1
-                        outcome = "verified"
-                    else:
-                        missed += 1
-                        outcome = "missing"
-                        _logger.info(
-                            "[prefetch-roster-ref] video=%s machine=%r no verified "
-                            "reference found (will fail-closed at generation time "
-                            "unless seeded manually)", video_id, machine)
+                    missed += 1
             except Exception:  # noqa: BLE001 — one machine's failure must never kill the sweep
                 missed += 1
                 _logger.warning(
@@ -4707,6 +4792,8 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
                 # above) before that ever happens — record one here too so no
                 # miss is ever silently unexplained.
                 await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
+            if outcome == "missing":
+                missing.append(machine)
             async with progress_lock:  # keeps the saved processed count monotonic
                 processed += 1
                 if on_progress:
@@ -4732,11 +4819,19 @@ async def prefetch_roster_references(video_id: str, tenant_id: str, *,
         return {"status": "cancelled", "roster_count": len(entries), "verified": verified,
                 "missed": missed, "never_built": never_built, "processed": processed}
 
+    # Keep roster order: the swap walks the misses slot by slot.
+    order = {entry["name"]: n for n, entry in enumerate(entries)}
+    fingerprint = await _swap_in_spares(video, tenant_id, sorted(missing, key=order.get),
+                                        should_cancel=should_cancel, on_progress=on_progress,
+                                        processed=processed)
     _logger.info(
         "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d never_built=%d",
         video_id, len(entries), verified, missed, never_built)
-    return {"status": "completed", "roster_count": len(entries),
-            "verified": verified, "missed": missed, "never_built": never_built, "processed": processed}
+    result = {"status": "completed", "roster_count": len(entries),
+              "verified": verified, "missed": missed, "never_built": never_built, "processed": processed}
+    if fingerprint:
+        result["roster_fingerprint"] = fingerprint
+    return result
 
 
 # --- C12: durable registration so a restart mid-sweep is recoverable ------

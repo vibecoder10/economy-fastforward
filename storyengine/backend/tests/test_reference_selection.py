@@ -60,7 +60,7 @@ async def test_roster_prefetch_skips_reviewed_cache_and_forwards_legacy_facts(mo
     result = await static_docu.prefetch_roster_references('video-1', 'tenant-1')
     assert result['verified'] == 2 and result['processed'] == 2
     selector.assert_awaited_once_with('tenant-1','video-1','Legacy class',1,
-        aliases=['USS Legacy'],facts={'role':'submarine','era':'1957'})
+        aliases=['USS Legacy'],facts={'role':'submarine','era':'1957'},wide=False)
 
 
 def test_ready_requires_exact_image_evidence_and_real_comparison():

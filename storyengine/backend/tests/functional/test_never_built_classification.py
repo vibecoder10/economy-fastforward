@@ -484,7 +484,7 @@ async def test_never_built_machine_skips_the_entire_lookup_chain(monkeypatch):
     # candidate-gather + hosting + paid vision-comparison chain behind it)
     # must NEVER be called for CVA-01 — this is the "saves money" half of
     # the design.
-    assert gather_calls == ["Boeing XB-15", "Northrop XB-35"], (
+    assert gather_calls == ["Boeing XB-15", "Boeing XB-15", "Northrop XB-35", "Northrop XB-35"], (
         "CVA-01 must never reach the reference selector once classified "
         f"never-built; calls were: {gather_calls}"
     )

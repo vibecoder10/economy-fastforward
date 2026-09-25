@@ -10042,7 +10042,9 @@ class PipelineExecutor:
             else:
                 fresh = await self._get_video(video_id)
                 current = await roster_image_state(fresh or video, self.tenant_id)
-                if current["roster_fingerprint"] != state["roster_fingerprint"]:
+                # A spare swapped in by the gather itself re-baselines the roster;
+                # any other change means someone edited it meanwhile.
+                if current["roster_fingerprint"] != (result.get("roster_fingerprint") or state["roster_fingerprint"]):
                     final = {**current, "status": "needs_review", "error": "Saved roster changed while images were gathering"}
                     update = await execute("UPDATE videos SET research_payload=jsonb_set(COALESCE(research_payload, '{}'::jsonb), '{roster_images}', $1::jsonb, true), updated_at=now() WHERE id=$2 AND tenant_id=$3", _json.dumps(final), video_id, self.tenant_id)
                     if self._db_write_missed(update):

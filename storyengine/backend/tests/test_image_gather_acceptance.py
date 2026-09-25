@@ -135,6 +135,21 @@ def test_roster_change_during_gather_cannot_complete(gather):
     assert gather.video["research_payload"]["roster_images"]["status"] == "needs_review"
 
 
+def test_spare_swapped_in_by_the_gather_itself_can_complete(gather):
+    """The gather's own spare swap re-baselines the roster (2026-09-25)."""
+    from roster_images import roster_fingerprint
+
+    async def finder(*args, **kwargs):
+        gather.video["research_payload"]["unit_roster"][-1]["name"] = "Spare class"
+        names = gather.names[:-1] + ["Spare class"]
+        for name in names:
+            gather.add_photo(name)
+        return {"status": "completed", "roster_fingerprint": roster_fingerprint(names)}
+    gather.finder.side_effect = finder
+    result = asyncio.run(gather.ex.run_roster_image_gather("v"))
+    assert result["status"] == "images_ready", result
+
+
 def test_initial_save_failure_stops_before_finder(gather, monkeypatch):
     monkeypatch.setattr(pe, "execute", AsyncMock(return_value="UPDATE 0"))
     result = asyncio.run(gather.ex.run_roster_image_gather("v"))

@@ -32,58 +32,25 @@ class _Client:
 
 
 # ---------------------------------------------------------------------------
-# Call 1 - thesis + acts
+# The list (+ spares), then the story
 # ---------------------------------------------------------------------------
 
-def test_call1_thesis_and_acts_no_search_and_parses_json():
+def test_list_call_uses_web_search_and_splits_roster_from_spares():
     client = _Client(json.dumps({
-        "thesis": "The Navy kept solving last decade's problem.",
-        "acts": [{"act_number": 1, "argument": "First act."}, {"act_number": 2, "argument": "Second act."}],
+        "roster": [{"machine": "M1", "reason": "r"}, {"machine": "M2", "reason": "r"}, {"machine": "M3", "reason": "r"}],
+        "spares": [{"machine": "S1", "reason": "r"}, {"machine": "m2", "reason": "dup"}, "S2"],
+        "shared_context": ["Fact A"],
     }))
-    result = asyncio.run(v2._call_thesis_and_acts(client, "Every Widget Ever Built", None))
-    assert result["thesis"] == "The Navy kept solving last decade's problem."
-    assert result["acts"] == [
-        {"act_number": 1, "argument": "First act."},
-        {"act_number": 2, "argument": "Second act."},
-    ]
-    assert "tools" not in client.kwargs
-    assert client.kwargs["system_prompt"] == v2.CALL1_SYSTEM_PROMPT
-    assert 'Video title: "Every Widget Ever Built"' in client.kwargs["prompt"]
-
-
-def test_call1_rejects_missing_thesis_or_empty_acts():
-    empty_thesis = _Client(json.dumps({"thesis": "", "acts": [{"act_number": 1, "argument": "x"}]}))
-    with pytest.raises(ValueError):
-        asyncio.run(v2._call_thesis_and_acts(empty_thesis, "Title", None))
-    no_acts = _Client(json.dumps({"thesis": "T", "acts": []}))
-    with pytest.raises(ValueError):
-        asyncio.run(v2._call_thesis_and_acts(no_acts, "Title", None))
-    not_json = _Client("not json at all")
-    with pytest.raises(ValueError):
-        asyncio.run(v2._call_thesis_and_acts(not_json, "Title", None))
-
-
-# ---------------------------------------------------------------------------
-# Call 2 - roster + shared context
-# ---------------------------------------------------------------------------
-
-def test_call2_roster_and_shared_context_uses_web_search_tool_and_sorts_by_act():
-    client = _Client(json.dumps({
-        "roster": [{"machine": "HMS Later", "act_number": 2}, {"machine": "HMS Earlier", "act_number": 1}],
-        "shared_context": ["Fact A", "Fact B"],
-    }))
-    acts = [{"act_number": 1, "argument": "First act."}, {"act_number": 2, "argument": "Second act."}]
-    result = asyncio.run(v2._call_roster_and_shared_context(client, "Title", "Thesis text", acts, None, 20))
+    result = asyncio.run(v2._call_roster_list(client, "Title", None, 2))
     assert client.kwargs["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": v2.CALL2_SEARCH_BUDGET}]
     assert client.kwargs["system_prompt"] == v2.CALL2_SYSTEM_PROMPT
-    assert '"Thesis text"' in client.kwargs["prompt"]
-    assert "1. First act." in client.kwargs["prompt"] and "2. Second act." in client.kwargs["prompt"]
-    # Grouped by act, act order preserved regardless of the model's own order.
-    assert result["roster"] == [{"machine": "HMS Earlier", "act_number": 1}, {"machine": "HMS Later", "act_number": 2}]
-    assert result["shared_context"] == ["Fact A", "Fact B"]
+    # The runtime count is Ryan's: a long list's tail becomes the first spares.
+    assert result["machines"] == ["M1", "M2"]
+    assert result["spares"] == ["M3", "S1", "S2"]
+    assert result["shared_context"] == ["Fact A"]
 
 
-def test_call2_gateway_mode_guard_raises_without_calling_generate():
+def test_list_call_gateway_mode_guard_raises_without_calling_generate():
     client = _Client()
     client._gateway_mode = True
 
@@ -91,36 +58,35 @@ def test_call2_gateway_mode_guard_raises_without_calling_generate():
         raise AssertionError("generate() must not be called when _gateway_mode is True")
     client.generate = _boom  # type: ignore[assignment]
     with pytest.raises(ValueError):
-        asyncio.run(v2._call_roster_and_shared_context(
-            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None, 20,
-        ))
+        asyncio.run(v2._call_roster_list(client, "Title", None, 20))
 
 
-def test_call2_rejects_empty_roster():
-    client = _Client(json.dumps({"roster": [], "shared_context": []}))
+def test_list_call_rejects_empty_roster_and_bad_json():
     with pytest.raises(ValueError):
-        asyncio.run(v2._call_roster_and_shared_context(
-            client, "Title", "Thesis", [{"act_number": 1, "argument": "a"}], None, 20,
-        ))
+        asyncio.run(v2._call_roster_list(_Client(json.dumps({"roster": [], "spares": ["S"]})), "Title", None, 20))
+    with pytest.raises(ValueError):
+        asyncio.run(v2._call_roster_list(_Client("not json at all"), "Title", None, 20))
 
 
-# ---------------------------------------------------------------------------
-# Combined Call 1 + Call 2 merge shape
-# ---------------------------------------------------------------------------
-
-def test_run_thesis_roster_and_context_merges_calls_and_is_drive_fail_soft():
+def test_every_title_runs_list_then_story_and_keeps_spares():
+    """2026-09-25 "Most Hated Helicopters": a thesis-first roster picked one-off
+    prototypes nobody hated. Every title now picks the list first (Ryan)."""
     client = _Client(
-        json.dumps({"thesis": "T", "acts": [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}]}),
-        json.dumps({"roster": [{"machine": "M2", "act_number": 2}, {"machine": "M1", "act_number": 1}],
-                    "shared_context": ["ctx"]}),
+        json.dumps({"roster": ["M1", "M2"], "spares": ["S1", "S2"], "shared_context": ["ctx"]}),
+        json.dumps({"thesis": "T", "acts": [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}],
+                    "roster": [{"machine": "M2", "act_number": 2}, {"machine": "M1", "act_number": 1}],
+                    "spares": [{"machine": "s1", "act_number": 2}]}),
     )
     # No Drive credentials are configured in this sandbox - this proves the
     # export failure never propagates out of run_thesis_roster_and_context.
-    result = asyncio.run(v2.run_thesis_roster_and_context(client, "How Widgets Won", checkpoint_scope=None))
+    result = asyncio.run(v2.run_thesis_roster_and_context(client, "Most Hated Helicopters", checkpoint_scope=None, target_count=2))
+    first, second = client.calls
+    assert first["tools"] and not second.get("tools")
+    assert "- S1" in second["prompt"] and "- S2" in second["prompt"]
     assert result["thesis"] == "T"
-    assert result["acts"] == [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}]
     assert result["unit_roster"] == [{"machine": "M1", "act_number": 1}, {"machine": "M2", "act_number": 2}]
     assert result["recommended_final_roster"] == ["M1", "M2"]
+    assert result["roster_candidate_overflow"] == [{"machine": "S1", "act_number": 2}, {"machine": "S2"}]
     assert result["shared_context"] == ["ctx"]
 
 
@@ -386,29 +352,25 @@ def test_live_roster_gate_accepts_saved_v2_roster_without_independent_audit(monk
     assert pe._live_roster_gate(drifted, payload)["passed"] is False
 
 
-def test_category_title_prompts_pick_the_list_then_write_the_story():
+def test_list_prompt_carries_the_title_rules():
     """Regression, 2026-09-24 "Every US Military Helicopter Ever Built": story-first
     let an Army-only thesis and a tiltrotor act bend the picks (V-22 in, CH-53 out,
-    UH-60 + SH-60 both listed). Category titles now pick the list from the title
-    alone, then write the story around it (Ryan). Count = the runtime Ryan set."""
-    listing = v2._category_roster_prompt("Every US Military Helicopter Ever Built (2026)", 20)
+    UH-60 + SH-60 both listed). 2026-09-25 "Most Hated Helicopters": prototypes in,
+    service machines out. The rules go in the input, not a checker (Ryan)."""
+    listing = v2._roster_list_prompt("Every US Military Helicopter Ever Built (2026)", 20)
     assert "Thesis" not in listing and "Acts" not in listing
-    assert "pick exactly 20 real members" in listing
+    assert "pick exactly 20 real machines" in listing and "plus 3 spares" in listing
     assert "UH-60 and SH-60 are one" in listing
     assert "no tiltrotor" in listing
     assert "every service" in listing
+    assert "most hated" in listing and "one-off prototypes" in listing
+    assert "never-built or cancelled" in listing
 
     story = v2._story_for_roster_prompt("Every US Military Helicopter Ever Built (2026)", ["R-4 Hoverfly", "UH-1 Iroquois"])
     assert "exactly these 2 machines" in story and "- UH-1 Iroquois" in story
     assert "spelled exactly as listed" in story
     assert "near-equal share" in story
-
-
-def test_shortlist_title_prompt_asks_for_the_runtime_count():
-    acts = [{"act_number": 1, "argument": "A."}]
-    shortlist = v2._call2_user_prompt("How the Battleship Lost the Pacific", "T", acts, 12)
-    assert "find exactly 12 real, specifically-named machines" in shortlist
-    assert "keep only the\nstronger one" in shortlist
+    assert "every service" in story
 
 
 def test_complete_title_roster_never_resizes_the_runtime_ryan_set(monkeypatch):
@@ -537,37 +499,6 @@ def test_both_drive_exports_write_under_the_pinned_root(monkeypatch):
     research_v2._export_machine_packet_to_drive("Vid", {"machine": "Ajax class"})
     assert made[0] == ("Vid", "PINNED")
     assert all(name != "StoryEngine Research" for name, _ in made)
-
-
-def test_call1_thesis_must_cover_the_whole_title_scope():
-    """Regression, 2026-09-24: "Every US Military Helicopter Ever Built" got an
-    Army-only thesis ("The US Army kept building helicopters..."), and the
-    roster then dropped the CH-53 and CH-46 for weak Army-story picks. The
-    scope rule goes in the input, not a checker (Ryan)."""
-    prompt = v2._call1_user_prompt("Every US Military Helicopter Ever Built (2026)")
-    assert "The thesis must cover everything the title names" in prompt
-    assert "every service" in prompt
-
-
-def test_category_title_runs_list_then_story_and_keeps_list_order():
-    client = _Client(
-        json.dumps({"roster": ["R-4 Hoverfly", "UH-1 Iroquois", "AH-64 Apache"], "shared_context": ["ctx"]}),
-        json.dumps({"thesis": "T", "acts": [{"act_number": 1, "argument": "A1"}, {"act_number": 2, "argument": "A2"}],
-                    "roster": [{"machine": "AH-64 Apache", "act_number": 2}, {"machine": "uh-1 iroquois", "act_number": 1},
-                               {"machine": "R-4 Hoverfly", "act_number": 1}]}),
-    )
-    result = asyncio.run(v2.run_thesis_roster_and_context(
-        client, "Every US Military Helicopter Ever Built", checkpoint_scope=None, target_count=3))
-    first, second = client.calls
-    assert first["tools"] and "pick exactly 3 real members" in first["prompt"]
-    assert "tools" not in second or not second.get("tools")
-    assert "- UH-1 Iroquois" in second["prompt"]
-    assert result["unit_roster"] == [
-        {"machine": "R-4 Hoverfly", "act_number": 1},
-        {"machine": "UH-1 Iroquois", "act_number": 1},
-        {"machine": "AH-64 Apache", "act_number": 2},
-    ]
-    assert result["thesis"] == "T" and result["shared_context"] == ["ctx"]
 
 
 def test_story_call_that_drops_a_machine_fails_closed():

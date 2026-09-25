@@ -299,7 +299,7 @@ async def test_warm_cache_hit_clears_stale_miss_from_a_prior_sweep(monkeypatch):
 
     assert result["verified"] == 1  # only the already-cached XB-15
     assert result["missed"] == 2    # the other two found nothing (mocked)
-    assert selector_calls == ["Northrop XB-35", "Convair YB-60"], "a warm machine must never re-run selection"
+    assert selector_calls == ["Northrop XB-35", "Northrop XB-35", "Convair YB-60", "Convair YB-60"], "a warm machine must never re-run selection"
     assert len(delete_calls) == 1
     assert delete_calls[0] == (tenant_id, video_id, xb15_key)
 

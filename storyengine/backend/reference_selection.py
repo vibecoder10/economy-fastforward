@@ -480,7 +480,7 @@ async def _host(candidate, video_id, tenant_id, tag):
 
 
 async def select_reference(tenant_id, video_id, machine, roster_index, aliases=None, facts=None,
-                           *, manual_url=None, source_page_url=None):
+                           *, manual_url=None, source_page_url=None, wide=False):
     from reference_sources import collect_candidates
     from static_docu import _machine_key
     await ensure_selection_schema()
@@ -527,7 +527,7 @@ async def select_reference(tenant_id, video_id, machine, roster_index, aliases=N
         await _save_review(tenant_id, video_id, machine, receipt)
         return receipt
     candidates = (await collect_candidates(machine, aliases, facts=facts, manual_url=manual_url,
-        source_page_url=source_page_url, cached_url=(cached or {}).get("source_url")))[:12]
+        source_page_url=source_page_url, cached_url=(cached or {}).get("source_url"), wide=wide))[:12]
     receipt["discovered_count"] = len(candidates)
     usable, hashes = [], set()
     for candidate in candidates:

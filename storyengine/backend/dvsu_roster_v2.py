@@ -1,7 +1,8 @@
-"""DVSU research pipeline v2 - Call 1 (thesis+acts) and Call 2 (roster+shared context).
+"""DVSU research pipeline v2 - the roster list (+ spares, shared context), then thesis+acts.
 
-Implements, verbatim, the "Call 1" and "Call 2" sections of
-``storyengine/docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md``. Call 3
+Started from the "Call 1" and "Call 2" sections of
+``storyengine/docs/dvsu-research-pipeline-v2-2026-09-18/DESIGN.md``, run in
+the other order since 2026-09-25: the title picks the list first. Call 3
 (per-machine research packet) is a separate, later chunk and is not in this
 module.
 
@@ -43,37 +44,11 @@ if str(_PIPELINE_PATH) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Call 1 - Thesis + Acts (no search, cheap, once per video)
-# ---------------------------------------------------------------------------
-
 CALL1_SYSTEM_PROMPT = (
     "You are a documentary structure analyst for DvsU, an engineering-history channel. DvsU videos are "
     "not about machines - they are about one engineering argument, proven through a sequence of machines. "
     "War is the setting. Engineering is the story."
 )
-
-
-def _call1_user_prompt(title: str) -> str:
-    return (
-        f'Video title: "{title}"\n'
-        "\n"
-        "Formulate ONE thesis for this video - a single engineering argument the whole video will prove.\n"
-        "Strong theses read like: \"Britain kept cancelling the right tank and building the wrong one.\"\n"
-        "The thesis must cover everything the title names - never a narrower slice of it. If the title says\n"
-        "\"military\", the argument spans every service that built or flew these machines, not one branch;\n"
-        "if it names a whole era or category, the argument spans all of it.\n"
-        "Then break that thesis into 4-7 acts. Each act is one sentence describing a distinct step in the\n"
-        "argument, NOT a time period. Example acts: \"The missile replaces the gun.\" / \"The carrier becomes\n"
-        "a country.\" Moving between acts should feel like the argument shifting, not a timeline advancing.\n"
-        "\n"
-        "Return only JSON: {\"thesis\": \"...\", \"acts\": [{\"act_number\": 1, \"argument\": \"one sentence\"}, ...]}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Call 2 - Roster + shared context (1 search-enabled call, once per video)
-# ---------------------------------------------------------------------------
 
 CALL2_SYSTEM_PROMPT = (
     "You research real named military machines using web search. You never invent a machine, a "
@@ -81,86 +56,77 @@ CALL2_SYSTEM_PROMPT = (
     "requested JSON."
 )
 
-# DESIGN.md: "find 20-25 real, specifically-named machines" in ONE call. Not
-# a per-machine budget (that's Call 3's job) - a budget wide enough for the
-# model to run several searches while pinning down 20-25 distinct, sourced
-# names in one pass. Picked from the middle of the brief's suggested 8-15
-# range: this call does meaningfully more search work than
-# roster_coverage.audit_roster_selection's identity-only check (which uses
-# selection_search_budget's count+4, capped [12,40]) since it is discovering
-# the roster, not just verifying one.
+# One search-enabled call discovers the whole list: wide enough for several
+# searches while pinning down 20-25 distinct, sourced names in one pass.
 CALL2_SEARCH_BUDGET = 15
 
-
-def _call2_user_prompt(title: str, thesis: str, acts: list[dict], target_count: int) -> str:
-    act_lines = "\n".join(f"{act['act_number']}. {act['argument']}" for act in acts)
-    selection = (
-            f"Using web search, find exactly {target_count} real, specifically-named machines (not a category like \"destroyers\"\n"
-            "or \"cruisers\" - one concrete named unit or named class, e.g. \"HMS Devastation\", \"Ajax class\") that\n"
-            "together prove this thesis. Assign every machine to exactly one act - the machine must exist\n"
-            "BECAUSE it proves that act's argument. If two machines would prove the same point, keep only the\n"
-            "stronger one. Order machines chronologically within each act.\n"
-    )
-    return (
-        f'Video title: "{title}"\n'
-        f'Thesis: "{thesis}"\n'
-        f"Acts:\n{act_lines}\n"
-        "\n"
-        + selection +
-        "\n"
-        "Also note 3-5 facts you encounter that apply across MULTIPLE machines rather than one specific\n"
-        "unit (a shared technological shift, a doctrine change, an external event that reframes several\n"
-        "entries) - these will be given to the per-machine research step as background, so it isn't\n"
-        "re-discovered 20 times.\n"
-        "\n"
-        "Return only JSON: {\"roster\": [{\"machine\": \"...\", \"act_number\": 1}, ...],\n"
-        "\"shared_context\": [\"...\", ...]}"
-    )
+# Extra machines picked with the list, best first. The photo gather swaps one
+# in when a roster machine has no usable photo (static_docu.prefetch_roster_references).
+SPARE_COUNT = 3
 
 
 # ---------------------------------------------------------------------------
-# Category titles ("Every / all / ever built"): the list first, the story second
+# The list first, the story second - for every title
 # ---------------------------------------------------------------------------
 # Story-first let the thesis bend the picks. 2026-09-24, "Every US Military
-# Helicopter Ever Built": an Army-only thesis dropped the Marine CH-53/CH-46;
-# an act about tiltrotors pulled in the V-22; an act about the Navy pulled in
-# sea versions of types already listed (UH-60 + SH-60, CH-53 + MH-53E). For a
-# category title the title alone picks the machines, then the story is
-# written around them (Ryan). The count is the runtime Ryan set.
+# Helicopter Ever Built": an Army-only thesis dropped the Marine CH-53/CH-46.
+# 2026-09-25, "Most Hated Helicopters": the thesis picked one-off prototypes
+# (HZ-1 Aerocycle, Rotodyne, Ka-22) nobody ever hated. The title alone picks
+# the machines, then the story is written around them (Ryan). The count is
+# the runtime Ryan set. Rules live here, in the input - no output checker.
 
-def _category_roster_prompt(title: str, target_count: int) -> str:
+def _roster_list_prompt(title: str, target_count: int) -> str:
     return (
         f'Video title: "{title}"\n'
         "\n"
-        f"This title names a category. Using web search, pick exactly {target_count} real members of it - one\n"
-        "entry per distinct class or type, named as the class or type (e.g. \"Ajax class\", \"UH-1 Iroquois\";\n"
-        "a one-ship class is named by its ship). Never list two ships of one class or two variants of one\n"
-        "type. For aircraft a type is its base design number: every version that shares it is ONE type\n"
-        "(AH-1 Cobra and AH-1W SuperCobra are one; UH-60 and SH-60 are one) - list it once. Every entry\n"
-        "must itself be a member of the category (a helicopter list has no tiltrotor or airplane). Cover\n"
-        "every part of the category the title names (e.g. \"military\" means every service, not one\n"
-        "branch) and spread the picks across its whole history, choosing the most significant members.\n"
-        "Leave out anything the title itself excludes (e.g. never built, when the title says \"ever\n"
-        "built\"). List them in chronological order of first flight or first commissioning.\n"
+        f"Using web search, pick exactly {target_count} real machines this title promises, plus {SPARE_COUNT} spares.\n"
+        "The title alone decides which machines belong. Read every word of it:\n"
+        "- Only the machine type the title names (a helicopter list has no tiltrotor or airplane). Only the\n"
+        "  countries, services and eras the title names.\n"
+        "- One entry per distinct class or type, named as the class or type (e.g. \"Ajax class\", \"UH-1\n"
+        "  Iroquois\"; a one-ship class is named by its ship). Never list two ships of one class or two\n"
+        "  variants of one type. For aircraft a type is its base design number: every version that shares\n"
+        "  it is ONE type (AH-1 Cobra and AH-1W SuperCobra are one; UH-60 and SH-60 are one) - list it once.\n"
+        "- If the title covers a whole category (every, all, ever built, complete), cover every part of it\n"
+        "  the title names (e.g. \"military\" means every service, not one branch) and spread the picks\n"
+        "  across its whole history, choosing the most significant members.\n"
+        "- If the title ranks machines (most hated, worst, best, deadliest, fastest...), every pick must\n"
+        "  earn that rank on the record: what its crews, the press, reports or the numbers said. Prefer\n"
+        "  machines that entered service over one-off prototypes and test articles.\n"
+        "- Leave out designs that were never built, unless the title is about never-built or cancelled\n"
+        "  designs - then unbuilt designs are the subject.\n"
+        "\n"
+        f"Put the {target_count} picks in \"roster\", in chronological order of first flight or first commissioning.\n"
+        f"Put the {SPARE_COUNT} next-best machines that follow the same rules in \"spares\", best first. No machine\n"
+        "may appear twice. Give every entry a one-sentence \"reason\" it belongs, from your sources.\n"
         "\n"
         "Also note 3-5 facts you encounter that apply across MULTIPLE machines rather than one specific\n"
         "unit (a shared technological shift, a doctrine change, an external event that reframes several\n"
         "entries) - these will be given to the per-machine research step as background, so it isn't\n"
         "re-discovered for every machine.\n"
         "\n"
-        "Return only JSON: {\"roster\": [\"...\", ...], \"shared_context\": [\"...\", ...]}"
+        "Return only JSON: {\"roster\": [{\"machine\": \"...\", \"reason\": \"...\"}, ...],\n"
+        "\"spares\": [{\"machine\": \"...\", \"reason\": \"...\"}, ...], \"shared_context\": [\"...\", ...]}"
     )
 
 
-def _story_for_roster_prompt(title: str, machines: list[str]) -> str:
+def _story_for_roster_prompt(title: str, machines: list[str], spares: list[str] | None = None) -> str:
     listed = "\n".join(f"- {machine}" for machine in machines)
+    spare_lines = ""
+    if spares:
+        spare_lines = (
+            "\nThese spares may later replace a machine that has no usable photo. Assign each one to the\n"
+            "act it would best prove, spelled exactly as listed, in \"spares\":\n"
+            + "\n".join(f"- {spare}" for spare in spares) + "\n"
+        )
     return (
         f'Video title: "{title}"\n'
         f"The video covers exactly these {len(machines)} machines, in chronological order:\n{listed}\n"
         "\n"
         "Formulate ONE thesis for this video - a single engineering argument these machines together prove.\n"
         "Strong theses read like: \"Britain kept cancelling the right tank and building the wrong one.\"\n"
-        "The thesis must cover everything the title names - never a narrower slice of it.\n"
+        "The thesis must cover everything the title names - never a narrower slice of it. If the title says\n"
+        "\"military\", the argument spans every service, not one branch.\n"
         "Then break that thesis into 4-7 acts. Each act is one sentence describing a distinct step in the\n"
         "argument, NOT a time period. Moving between acts should feel like the argument shifting, not a\n"
         "timeline advancing. Every act must be proven by machines on the list above.\n"
@@ -168,13 +134,23 @@ def _story_for_roster_prompt(title: str, machines: list[str]) -> str:
         "Assign every listed machine to exactly one act, spelled exactly as listed. Give every act a\n"
         "near-equal share (no act more than one machine above an even split). Keep chronological order\n"
         "within each act.\n"
+        + spare_lines +
         "\n"
         "Return only JSON: {\"thesis\": \"...\", \"acts\": [{\"act_number\": 1, \"argument\": \"one sentence\"}, ...],\n"
-        "\"roster\": [{\"machine\": \"...\", \"act_number\": 1}, ...]}"
+        "\"roster\": [{\"machine\": \"...\", \"act_number\": 1}, ...], \"spares\": [{\"machine\": \"...\", \"act_number\": 1}, ...]}"
     )
 
 
-async def _call_category_roster(
+def _names(raw: Any) -> list[str]:
+    names: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        name = str((item.get("machine") if isinstance(item, dict) else item) or "").strip()
+        if name and name.casefold() not in {n.casefold() for n in names}:
+            names.append(name)
+    return names
+
+
+async def _call_roster_list(
     client: Any, title: str, checkpoint_scope: Optional[dict], target_count: int,
 ) -> dict:
     from shared.clients.anthropic_client import WEB_SEARCH_TOOL
@@ -186,7 +162,7 @@ async def _call_category_roster(
         raise ValueError(
             "Roster discovery needs a web-search capable research provider; this gateway cannot execute web search"
         )
-    prompt = _category_roster_prompt(title, target_count)
+    prompt = _roster_list_prompt(title, target_count)
     system_prompt = CALL2_SYSTEM_PROMPT
     model = Models.CLAUDE_SONNET
     max_tokens = 6000
@@ -202,25 +178,27 @@ async def _call_category_roster(
     )
     raw = parse_json_response(response, default=None)
     if not isinstance(raw, dict):
-        raise ValueError("Category roster call returned invalid JSON")
-    machines: list[str] = []
-    for item in raw.get("roster") or []:
-        name = str((item.get("machine") if isinstance(item, dict) else item) or "").strip()
-        if name and name not in machines:
-            machines.append(name)
-    if not machines:
-        raise ValueError("Category roster call returned no machines")
-    return {"machines": machines, "shared_context": _normalize_shared_context(raw.get("shared_context"))}
+        raise ValueError("Roster list call returned invalid JSON")
+    listed = _names(raw.get("roster"))
+    if not listed:
+        raise ValueError("Roster list call returned no machines")
+    # A long list keeps its tail as the first spares; the runtime count is Ryan's.
+    machines = listed[:target_count]
+    taken = {name.casefold() for name in machines}
+    spares = [name for name in listed[target_count:] + _names(raw.get("spares")) if name.casefold() not in taken]
+    return {"machines": machines, "spares": _names(spares),
+            "shared_context": _normalize_shared_context(raw.get("shared_context"))}
 
 
 async def _call_story_for_roster(
     client: Any, title: str, machines: list[str], checkpoint_scope: Optional[dict],
+    spares: list[str] | None = None,
 ) -> dict:
     from shared.json_utils import parse_json_response
     from orchestrator.pipeline_constants import Models
     from shared.research_response import checkpoint_path, request_fingerprint
 
-    prompt = _story_for_roster_prompt(title, machines)
+    prompt = _story_for_roster_prompt(title, machines, spares)
     system_prompt = CALL1_SYSTEM_PROMPT
     model = Models.CLAUDE_SONNET
     max_tokens = 3000
@@ -251,7 +229,18 @@ async def _call_story_for_roster(
     roster = _normalize_roster([
         {"machine": machine, "act_number": act_of[machine.casefold()]} for machine in machines
     ])
-    return {"thesis": thesis, "acts": acts, "roster": roster}
+    # A spare's act is only a swap preference: one the story left out stays
+    # a spare with no act, still best-first.
+    spare_act = {
+        row["machine"].casefold(): row["act_number"] for row in _normalize_roster(raw.get("spares"))
+    }
+    spare_rows = []
+    for spare in spares or []:
+        row = {"machine": spare}
+        if spare_act.get(spare.casefold()):
+            row["act_number"] = spare_act[spare.casefold()]
+        spare_rows.append(row)
+    return {"thesis": thesis, "acts": acts, "roster": roster, "spares": spare_rows}
 
 
 def _normalize_acts(raw_acts: Any) -> list[dict]:
@@ -298,73 +287,6 @@ def _normalize_shared_context(raw_context: Any) -> list[str]:
     if not isinstance(raw_context, list):
         return []
     return [str(item).strip() for item in raw_context if str(item or "").strip()]
-
-
-async def _call_thesis_and_acts(client: Any, title: str, checkpoint_scope: Optional[dict]) -> dict:
-    from shared.json_utils import parse_json_response
-    from orchestrator.pipeline_constants import Models
-    from shared.research_response import checkpoint_path, request_fingerprint
-
-    prompt = _call1_user_prompt(title)
-    system_prompt = CALL1_SYSTEM_PROMPT
-    model = Models.CLAUDE_SONNET
-    max_tokens = 1000
-    temperature = 0.3
-    response = await client.generate(
-        prompt=prompt, system_prompt=system_prompt, model=model,
-        max_tokens=max_tokens, temperature=temperature, complete_response=True,
-        checkpoint_path=checkpoint_path(checkpoint_scope, request_fingerprint(
-            prompt=prompt, system_prompt=system_prompt, model=model,
-            max_tokens=max_tokens, temperature=temperature, tools=None,
-        )),
-    )
-    raw = parse_json_response(response, default=None)
-    if not isinstance(raw, dict):
-        raise ValueError("Thesis/acts call returned invalid JSON")
-    thesis = str(raw.get("thesis") or "").strip()
-    acts = _normalize_acts(raw.get("acts"))
-    if not thesis:
-        raise ValueError("Thesis/acts call returned an empty thesis")
-    if not acts:
-        raise ValueError("Thesis/acts call returned no acts")
-    return {"thesis": thesis, "acts": acts}
-
-
-async def _call_roster_and_shared_context(
-    client: Any, title: str, thesis: str, acts: list[dict], checkpoint_scope: Optional[dict], target_count: int,
-) -> dict:
-    from shared.clients.anthropic_client import WEB_SEARCH_TOOL
-    from orchestrator.pipeline_constants import Models
-    from shared.json_utils import parse_json_response
-    from shared.research_response import checkpoint_path, request_fingerprint
-
-    if getattr(client, "_gateway_mode", False):
-        raise ValueError(
-            "Roster discovery needs a web-search capable research provider; this gateway cannot execute web search"
-        )
-
-    prompt = _call2_user_prompt(title, thesis, acts, target_count)
-    system_prompt = CALL2_SYSTEM_PROMPT
-    model = Models.CLAUDE_SONNET
-    max_tokens = 6000
-    temperature = 0.4
-    tools = [dict(WEB_SEARCH_TOOL, max_uses=CALL2_SEARCH_BUDGET)]
-    response = await client.generate(
-        prompt=prompt, system_prompt=system_prompt, model=model,
-        max_tokens=max_tokens, temperature=temperature, tools=tools, complete_response=True,
-        checkpoint_path=checkpoint_path(checkpoint_scope, request_fingerprint(
-            prompt=prompt, system_prompt=system_prompt, model=model,
-            max_tokens=max_tokens, temperature=temperature, tools=tools,
-        )),
-    )
-    raw = parse_json_response(response, default=None)
-    if not isinstance(raw, dict):
-        raise ValueError("Roster/shared-context call returned invalid JSON")
-    roster = _normalize_roster(raw.get("roster"))
-    shared_context = _normalize_shared_context(raw.get("shared_context"))
-    if not roster:
-        raise ValueError("Roster/shared-context call returned no machines")
-    return {"roster": roster, "shared_context": shared_context}
 
 
 def validate_roster_structure(payload: dict, target_count: int) -> dict:
@@ -418,8 +340,7 @@ def validate_roster_structure(payload: dict, target_count: int) -> dict:
 async def run_thesis_roster_and_context(
     anthropic_client: Any, title: str, checkpoint_scope: Optional[dict] = None, target_count: int = 20,
 ) -> dict:
-    """Calls 1+2: thesis+acts, then roster+shared-context. Category titles
-    ("Every X Ever Built") run the other way round: the list, then the story.
+    """The title picks the list (plus spares), then the story is written around it.
 
     Returns a draft shaped to slot directly into ``run_roster_selection``'s
     ``merged.update({key: value for key, value in draft.items() if key in
@@ -427,24 +348,19 @@ async def run_thesis_roster_and_context(
     ``{"thesis": str, "acts": [{"act_number": int, "argument": str}, ...],
     "unit_roster": [{"machine": str, "act_number": int}, ...],
     "shared_context": [str, ...]}``.
-    ``unit_roster`` is sorted into act order.
+    ``unit_roster`` is sorted into act order. ``roster_candidate_overflow``
+    holds the spares, best first, for the photo gather's swap.
 
     Also (fail-soft, never raises past this function) exports
     ``00-thesis-and-roster.md`` and ``01-shared-context.md`` to Google Drive
     per DESIGN.md's "Output file layout".
     """
-    from pipeline_executor import _title_needs_complete_roster
-
-    if _title_needs_complete_roster(title):
-        listed = await _call_category_roster(anthropic_client, title, checkpoint_scope, target_count)
-        story = await _call_story_for_roster(anthropic_client, title, listed["machines"], checkpoint_scope)
-        thesis_and_acts = {"thesis": story["thesis"], "acts": story["acts"]}
-        roster_and_context = {"roster": story["roster"], "shared_context": listed["shared_context"]}
-    else:
-        thesis_and_acts = await _call_thesis_and_acts(anthropic_client, title, checkpoint_scope)
-        roster_and_context = await _call_roster_and_shared_context(
-            anthropic_client, title, thesis_and_acts["thesis"], thesis_and_acts["acts"], checkpoint_scope, target_count,
-        )
+    listed = await _call_roster_list(anthropic_client, title, checkpoint_scope, target_count)
+    story = await _call_story_for_roster(
+        anthropic_client, title, listed["machines"], checkpoint_scope, listed["spares"],
+    )
+    thesis_and_acts = {"thesis": story["thesis"], "acts": story["acts"]}
+    roster_and_context = {"roster": story["roster"], "shared_context": listed["shared_context"]}
     roster = roster_and_context["roster"]
     draft = {
         "thesis": thesis_and_acts["thesis"],
@@ -458,6 +374,7 @@ async def run_thesis_roster_and_context(
         # here so the structural check passes whether or not truncation runs.
         "recommended_final_roster": [row["machine"] for row in roster],
         "shared_context": roster_and_context["shared_context"],
+        "roster_candidate_overflow": story["spares"],
     }
     await export_thesis_roster_to_drive_fail_soft(title, draft)
     return draft
