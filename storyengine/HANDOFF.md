@@ -1,7 +1,9 @@
 # HANDOFF - 2026-09-25 - helicopter video RENDERED; upload blocked: DvsU YouTube login expired
 
 ## State
-- Prod: `39feb0138` deployed 19:15Z (backend+worker). Healthy. NO lock.
+- Prod: `0cb4e1dac` deployed 2026-09-26 04:57Z (backend+worker+frontend). Healthy. NO lock.
+- Roster pace: 0.87 min/machine (20 min = 23 machines); saved rosters keep their own pace. Verified live on prod.
+  Not smoke-tested in the UI: the roster pace box only shows on a video with no roster yet.
 - Branch: main, pushed.
 - Shipped: static docs (DvsU) skip the thumbnail stage (status_map.static_stage_plan drops 'thumbnail').
   That also stops the title overwrite for this channel (writer: skills/video-pipeline/thumbnail/run.py:156).
@@ -25,7 +27,7 @@
 - Stale relay request 9dd58f35 (script paragraph, wrong title "The Helicopters Every Pilot DREADED Flying") from the
   bounced run is still pending. Do NOT answer it.
 - Burned-in captions end in "..." (truncated) on most frames.
-- Runtime 17.6 min vs 20 min set length.
+- Runtime 17.6 min vs 20 min set length -> fixed for new videos by the roster pace (0cb4e1dac).
 - Other channels: thumbnail stage still overwrites video_title (harmless there today; only dvsu_script_v2 keys on it).
 - backend/tests/test_dvsu_saved_evidence_replay.py: 3 tests fail on main (before this session's change).
 - Script notes from before: scene 4 (H-43 Huskie) does not fit "most hated"; CH-46 used unsourced "stopgap".
