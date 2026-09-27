@@ -1,4 +1,4 @@
-# HANDOFF - 2026-09-25 - helicopter video RENDERED; upload blocked: DvsU YouTube login expired
+# HANDOFF - 2026-09-27 - Google OAuth verification pages live; helicopter upload waits on Anton's re-sign-in
 
 ## State
 - Prod: `0cb4e1dac` deployed 2026-09-26 04:57Z (backend+worker+frontend). Healthy. NO lock.
@@ -15,7 +15,13 @@
 - Upload FAILED: "Could not verify the YouTube owner." Cause: DvsU channel_profiles.youtube_refresh_token ->
   Google `invalid_grant: Token has been expired or revoked` (token saved 2026-09-12).
 
+- 2026-09-27 14:51Z deployed `a35e50466` (+frontend): privacy section 3 Google & YouTube Data, terms YouTube ToS line,
+  homepage links in server HTML, contact email ryan@nativestates.ai. Verified live with curl.
+- Root cause of the dead logins: Google app in "Testing" -> refresh tokens expire after 7 days. BOTH saved logins are dead
+  (DvsU 561b872d and 44ecc95a). Ryan's checklist: docs/google-oauth-verification.md (publish app first).
+
 ## Next action (start here cold)
+0. Ryan publishes the Google app to "In production" and runs the verification checklist; Anton signs in again.
 1. Ryan reconnects YouTube for the Designed Vs Used workspace (Settings page, connect channel UCO4gtSa3rpOutrZ45-OjYyA).
 2. Reset queue item 3e6d4329 (status queued, attempt_count 0) and relaunch it (POST
    `/api/queue/3e6d4329-8fa9-424f-9be6-df657cd6393a/launch`, header `X-Active-Tenant: 561b872d-7b73-45e3-9c44-7f30c3566eda`;
