@@ -122,7 +122,7 @@ export default function TermsPage() {
               11. Contact
             </h2>
             <p>
-              For questions about these terms, contact us at support@storyengine.ai.
+              For questions about these terms, contact us at ryan@nativestates.ai.
             </p>
           </section>
         </div>

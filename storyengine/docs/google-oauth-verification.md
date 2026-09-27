@@ -81,8 +81,7 @@ Use a test channel you own for the recording, not a customer's channel.
 
 ## Known gaps (fix before or during review)
 
-- **Contact email:** the privacy page says `privacy@storyengine.ai`, but the site is on
-  `storyengine.dev`. Use an inbox that really exists on a domain you own.
+- **Contact email:** privacy, terms and pricing pages now use `ryan@nativestates.ai`. Use the same address as the support email on the consent screen.
 - **YouTube data deletion:** Disconnect removes the token, but the stored video statistics
   (`channel_videos`) stay. YouTube API policy expects stored API data to be deleted (or
   refreshed) - the policy text now promises deletion within 30 days on request or account

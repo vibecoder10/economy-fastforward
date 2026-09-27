@@ -158,7 +158,7 @@ export default function PrivacyPage() {
               11. Contact
             </h2>
             <p>
-              For privacy-related questions or data requests, contact us at privacy@storyengine.ai.
+              For privacy-related questions or data requests, contact us at ryan@nativestates.ai.
             </p>
           </section>
         </div>

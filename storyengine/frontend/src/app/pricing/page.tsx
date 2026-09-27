@@ -368,7 +368,7 @@ export default function PricingPage() {
           <Link href="/login" className="underline" style={{ color: "var(--turquoise)" }}>
             Sign up
           </Link>{" "}
-          and try it free, or reach out at support@storyengine.ai
+          and try it free, or reach out at ryan@nativestates.ai
         </p>
       </div>
     </div>
