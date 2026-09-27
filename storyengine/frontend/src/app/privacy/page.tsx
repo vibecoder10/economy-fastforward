@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="text-sm mb-8" style={{ color: "var(--text-tertiary)" }}>
-          Last updated: April 2026
+          Last updated: September 2026
         </p>
 
         <div className="space-y-8 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
               <li><strong>API keys:</strong> Third-party API keys you provide (stored encrypted in our secure vault).</li>
               <li><strong>Content data:</strong> Video titles, scripts, prompts, and generated assets created through the pipeline.</li>
               <li><strong>Usage data:</strong> Pipeline usage, feature interactions, and performance metrics.</li>
-              <li><strong>YouTube data:</strong> Channel analytics data you authorize us to access via YouTube Data API.</li>
+              <li><strong>YouTube data:</strong> When you connect a YouTube channel, the channel ID and name, your channel&apos;s video list and public video statistics (views, likes, comments), and the analytics you authorize, read through YouTube API Services. See section 3.</li>
             </ul>
           </section>
 
@@ -54,7 +54,34 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              3. API Key Security
+              3. Google &amp; YouTube Data
+            </h2>
+            <p className="mb-2">
+              StoryEngine uses YouTube API Services. By connecting a YouTube channel you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>YouTube Terms of Service</a>, and Google&apos;s handling of your data is covered by the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>Google Privacy Policy</a>.
+            </p>
+            <p className="mb-2">When you connect Google, StoryEngine asks for these permissions and uses them only for these features:</p>
+            <ul className="list-disc pl-5 space-y-1 mb-2">
+              <li><strong>Upload videos to YouTube (youtube.upload):</strong> to upload the videos you produce in StoryEngine to your channel. Uploads are unlisted unless you choose another setting, and use the title, description, tags and thumbnail you approve. StoryEngine never makes a video public on its own.</li>
+              <li><strong>View your YouTube account (youtube.readonly):</strong> to confirm which channel is connected, check that each upload landed on that channel, and read your videos and their statistics to show performance and suggest titles and topics.</li>
+              <li><strong>Google Drive files created by StoryEngine (drive.file):</strong> to save the scripts, images, audio and videos StoryEngine makes for you. StoryEngine cannot see any other files in your Drive.</li>
+            </ul>
+            <p className="mb-2">
+              <strong>How it is stored:</strong> the Google access key (refresh token) is stored in our database, which is encrypted at rest, and is used only by our servers. Channel details and video statistics are stored with your workspace, isolated from other workspaces.
+            </p>
+            <p className="mb-2">
+              <strong>How it is shared:</strong> we do not sell Google user data, use it for advertising, or give it to data brokers. To produce your features (for example, suggesting titles based on how your past videos performed), video statistics may be sent to the AI providers listed in section 6, only to produce results for you. Google user data is never used to train general AI or machine-learning models.
+            </p>
+            <p className="mb-2">
+              StoryEngine&apos;s use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>Google API Services User Data Policy</a>, including the Limited Use requirements.
+            </p>
+            <p>
+              <strong>How to remove access:</strong> disconnect YouTube or Google Drive on the StoryEngine Settings page, which deletes the stored access key at once, or remove StoryEngine at <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>Google security settings</a>. To delete the YouTube data we stored, delete your account or email us (section 11); we delete it within 30 days.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+              4. API Key Security
             </h2>
             <p>
               Your API keys are encrypted at rest and in transit. We never share your keys with other users or third parties beyond the services they are intended for. Keys are only used to execute pipeline operations you initiate. You can delete your keys at any time from the Settings page.
@@ -63,7 +90,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              4. Data Storage &amp; Retention
+              5. Data Storage &amp; Retention
             </h2>
             <p>
               Your data is stored in Supabase PostgreSQL with row-level security. Each tenant&apos;s data is isolated. Generated assets (images, videos, audio) are stored in Google Drive under your account. We retain your data for as long as your account is active. Upon account deletion, all associated data is permanently removed within 30 days.
@@ -72,7 +99,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              5. Third-Party Services
+              6. Third-Party Services
             </h2>
             <p className="mb-2">StoryEngine integrates with the following third-party services, each with their own privacy policies:</p>
             <ul className="list-disc pl-5 space-y-1">
@@ -89,7 +116,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              6. Cookies &amp; Tracking
+              7. Cookies &amp; Tracking
             </h2>
             <p>
               We use essential cookies for authentication (session tokens). We do not use third-party tracking cookies or advertising trackers. We may use anonymous analytics to understand usage patterns.
@@ -98,7 +125,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              7. Your Rights
+              8. Your Rights
             </h2>
             <ul className="list-disc pl-5 space-y-1">
               <li><strong>Access:</strong> You can view all your data through the StoryEngine dashboard.</li>
@@ -110,7 +137,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              8. Children&apos;s Privacy
+              9. Children&apos;s Privacy
             </h2>
             <p>
               StoryEngine is not intended for users under 18 years of age. We do not knowingly collect personal information from children.
@@ -119,7 +146,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              9. Changes to This Policy
+              10. Changes to This Policy
             </h2>
             <p>
               We may update this privacy policy from time to time. We will notify you of material changes via email or in-app notification. Continued use of the Service after changes constitutes acceptance.
@@ -128,7 +155,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-              10. Contact
+              11. Contact
             </h2>
             <p>
               For privacy-related questions or data requests, contact us at privacy@storyengine.ai.

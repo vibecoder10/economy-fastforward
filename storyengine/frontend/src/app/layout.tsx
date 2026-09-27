@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "StoryEngine",
-  description: "Video production pipeline dashboard",
+  description: "StoryEngine turns a topic into a finished YouTube video: research, script, voice, pictures, render, and upload to your own channel.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

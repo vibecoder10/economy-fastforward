@@ -20,7 +20,7 @@ export default function TermsPage() {
           Terms of Service
         </h1>
         <p className="text-sm mb-8" style={{ color: "var(--text-tertiary)" }}>
-          Last updated: April 2026
+          Last updated: September 2026
         </p>
 
         <div className="space-y-8 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
@@ -75,6 +75,9 @@ export default function TermsPage() {
             </h2>
             <p>
               You agree not to use the Service to create content that is illegal, defamatory, harassing, or that violates the rights of others. You are solely responsible for ensuring your content complies with YouTube&apos;s Terms of Service and Community Guidelines.
+            </p>
+            <p className="mt-2">
+              StoryEngine uses YouTube API Services. By connecting a YouTube channel, you agree to be bound by the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>YouTube Terms of Service</a>. How we handle YouTube data is described in our <Link href="/privacy" className="underline" style={{ color: "var(--turquoise)" }}>Privacy Policy</Link>.
             </p>
           </section>
 

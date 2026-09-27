@@ -71,8 +71,11 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
     return <div className="min-h-screen relative z-10">{children}</div>;
   }
 
-  // Home page: no shell for unauthenticated visitors (landing page)
-  if (isHome && !user && !isLoading) {
+  // Home page: no shell for unauthenticated visitors (landing page). While
+  // auth is still loading the page renders its own loading state, which
+  // carries the privacy/terms links Google's OAuth review needs in the
+  // server-rendered HTML.
+  if (isHome && !user) {
     return <div className="min-h-screen relative z-10">{children}</div>;
   }
 

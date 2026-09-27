@@ -28,11 +28,21 @@ import { DirectorSurface } from "@/components/director/DirectorSurface";
 export default function HomePage() {
   const { user, isLoading: authLoading } = useAuth();
 
-  // Show spinner only while checking auth
+  // Show spinner only while checking auth. This is also the server-rendered
+  // HTML, so it carries what Google's OAuth review reads from the homepage:
+  // what the app is, and links to the privacy policy and terms.
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center gap-6 h-64">
         <Spinner size="lg" />
+        <div className="text-center text-xs space-y-2" style={{ color: "var(--text-tertiary)" }}>
+          <p>StoryEngine — AI Video Production for YouTube Creators</p>
+          <div className="flex items-center justify-center gap-4">
+            <Link href="/terms" className="hover:underline">Terms of Service</Link>
+            <span>&middot;</span>
+            <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
+          </div>
+        </div>
       </div>
     );
   }
